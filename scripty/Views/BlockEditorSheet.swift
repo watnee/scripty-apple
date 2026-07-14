@@ -2,36 +2,33 @@
 //  BlockEditorSheet.swift
 //  scripty
 //
-//  Create or edit a screenplay block. The API only allows choosing the
-//  element type at creation time; editing changes content, the linked
-//  character, and tags.
+//  The details behind one block — the speaker it's attached to, its tags, its
+//  bookmark and pin. Content and element type are handled on the page itself,
+//  where the writing happens; this is for the things that have no place there.
 //
 
 import SwiftUI
 
 struct BlockEditorSheet: View {
     let model: ScriptModel
-    let block: Block?   // nil = create a new block
+    let block: Block
 
     @Environment(\.dismiss) private var dismiss
     @State private var content: String
-    @State private var type: BlockType
     @State private var personId: Int?
     @State private var tags: String
     @State private var isSaving = false
     @State private var errorMessage: String?
-    @FocusState private var contentFocused: Bool
 
-    init(model: ScriptModel, block: Block?) {
+    init(model: ScriptModel, block: Block) {
         self.model = model
         self.block = block
-        _content = State(initialValue: block?.content ?? "")
-        _type = State(initialValue: block?.blockType ?? .action)
-        _personId = State(initialValue: block?.personId)
-        _tags = State(initialValue: block?.tags ?? "")
+        _content = State(initialValue: block.content ?? "")
+        _personId = State(initialValue: block.personId)
+        _tags = State(initialValue: block.tags ?? "")
     }
 
-    private var isCreating: Bool { block == nil }
+    private var type: BlockType { block.blockType }
 
     private var showsCharacterPicker: Bool {
         (type == .dialogue || type.isCharacterCue) && !model.characters.isEmpty
@@ -40,21 +37,12 @@ struct BlockEditorSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                if isCreating {
-                    Picker("Type", selection: $type) {
-                        ForEach(BlockType.allCases) { blockType in
-                            Text(blockType.label).tag(blockType)
-                        }
-                    }
-                } else {
-                    LabeledContent("Type", value: type.label)
-                }
+                LabeledContent("Type", value: type.label)
 
                 Section(type.isCharacterCue ? "Speaker Name" : "Content") {
                     TextEditor(text: $content)
                         .font(.system(.body, design: .monospaced))
                         .frame(minHeight: 140)
-                        .focused($contentFocused)
                 }
 
                 if showsCharacterPicker {
@@ -66,23 +54,19 @@ struct BlockEditorSheet: View {
                     }
                 }
 
-                if !isCreating {
-                    Section("Tags") {
-                        TextField("Comma-separated tags", text: $tags)
-                            .textInputAutocapitalization(.never)
-                    }
+                Section("Tags") {
+                    TextField("Comma-separated tags", text: $tags)
+                        .textInputAutocapitalization(.never)
                 }
 
-                if let block {
-                    togglesSection(for: block)
-                }
+                togglesSection
 
                 if let errorMessage {
                     Text(errorMessage)
                         .foregroundStyle(.red)
                 }
             }
-            .navigationTitle(isCreating ? "New Block" : "Edit Block")
+            .navigationTitle("Block Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -93,20 +77,18 @@ struct BlockEditorSheet: View {
                         ProgressView()
                     } else {
                         Button("Save") { save() }
-                            .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }
-            .onAppear {
-                model.hasActiveEdit = true
-                contentFocused = true
-            }
+            // Hold sync refreshes off while the sheet is open, the way the caret
+            // does while typing on the page.
+            .onAppear { model.hasActiveEdit = true }
             .onDisappear { model.hasActiveEdit = false }
         }
     }
 
     @ViewBuilder
-    private func togglesSection(for block: Block) -> some View {
+    private var togglesSection: some View {
         let canBookmark = block.hasLink(.toggleBookmark)
         let canPin = block.hasLink(.togglePinned)
         if canBookmark || canPin {
@@ -139,19 +121,11 @@ struct BlockEditorSheet: View {
         errorMessage = nil
         let trimmedTags = tags.trimmingCharacters(in: .whitespaces)
         Task {
-            let succeeded: Bool
-            if let block {
-                succeeded = await model.updateBlock(
-                    block,
-                    content: content,
-                    personId: showsCharacterPicker ? personId : block.personId,
-                    tags: trimmedTags.isEmpty ? nil : trimmedTags)
-            } else {
-                succeeded = await model.createBlock(
-                    content: content,
-                    type: type,
-                    personId: showsCharacterPicker ? personId : nil)
-            }
+            let succeeded = await model.updateBlock(
+                block,
+                content: content,
+                personId: showsCharacterPicker ? personId : block.personId,
+                tags: trimmedTags.isEmpty ? nil : trimmedTags)
             isSaving = false
             if succeeded {
                 dismiss()

@@ -89,6 +89,16 @@ enum BlockType: String, CaseIterable, Identifiable {
     var isCharacterCue: Bool {
         self == .character || self == .dualDialogue
     }
+
+    /// Elements a screenplay prints in upper case. The keyboard types these in
+    /// caps and they're stored that way, so the page reads the same here as it
+    /// does in the browser, which uppercases them in CSS.
+    var isUppercased: Bool {
+        switch self {
+        case .scene, .character, .dualDialogue, .transition, .shot: return true
+        default: return false
+        }
+    }
 }
 
 struct CreateBlockCommand: Encodable {
@@ -98,9 +108,29 @@ struct CreateBlockCommand: Encodable {
     var type: String
 }
 
-/// The API does not allow changing a block's type after creation.
 struct EditBlockCommand: Encodable {
     var content: String
     var personId: Int?
     var tags: String?
+}
+
+/// Inserts a block directly below another — what Return does while writing.
+/// Content is usually empty: the element appears and the writer fills it in.
+struct CreateBlockBelowCommand: Encodable {
+    var content: String
+    var personId: Int?
+    var type: String
+}
+
+/// Retypes an existing block (Tab, the element bar, ⌘1–7). Omitted fields
+/// keep their stored values.
+struct SetBlockTypeCommand: Encodable {
+    var type: String
+    var content: String?
+    var personId: Int?
+    var tags: String?
+}
+
+struct MoveBlockCommand: Encodable {
+    var position: Int
 }

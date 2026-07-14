@@ -28,6 +28,18 @@ final class ScriptModel {
     /// in-progress typing.
     var hasActiveEdit = false
 
+    /// The block holding the caret. Writing the script is a matter of moving
+    /// this from one block to the next, so most editing actions end by setting it.
+    var focusedBlockID: Int?
+
+    /// What's currently typed into the focused block, before it's saved. The
+    /// element bar reads it so retyping a block carries the in-progress text.
+    var draft: String = ""
+
+    /// True while the caret is anywhere in the script; sync refreshes hold off
+    /// so a poll can't renumber blocks out from under the writer.
+    var isEditing: Bool { hasActiveEdit || focusedBlockID != nil }
+
     private var lastRevision: Int64 = 0
     private var syncTask: Task<Void, Never>?
 
@@ -111,6 +123,156 @@ final class ScriptModel {
             report(error)
             return false
         }
+    }
+
+    // MARK: - Inline writing
+    //
+    // These four are the whole writing loop: commit what was typed, Return for
+    // the next element, Tab to retype this one, Backspace to take an empty one
+    // back. Each is gated on the link the server advertised for that block.
+
+    /// Saves what the writer typed, letting Fountain shorthand retype the block
+    /// (`INT. BAR - NIGHT` becomes a Scene, `(beat)` a Parenthetical). Returns
+    /// the stored block, whose content may differ from `content` — the marker
+    /// characters are stripped once the element carries the meaning.
+    @discardableResult
+    func commit(_ block: Block, content: String) async -> Block? {
+        let detected = FountainRules.detect(content)
+
+        // A retype needs the setType endpoint; content alone can go through PUT.
+        if let detected, detected.type != block.blockType, block.hasLink(.setType) {
+            return await applyType(detected.type, to: block, content: detected.content)
+        }
+        let resolved = cased(detected.map(\.content) ?? content, for: block.blockType)
+        guard resolved != (block.content ?? "") else { return block }
+        guard let link = block.link(.update) else { return nil }
+        do {
+            let updated: Block = try await app.client.fetch(
+                from: link, method: "PUT",
+                body: EditBlockCommand(content: resolved,
+                                       personId: block.personId,
+                                       tags: block.tags))
+            replace(updated)
+            errorMessage = nil
+            return updated
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    /// Return: commit the current block, then open the element that logically
+    /// follows it (a cue is followed by dialogue; everything else by action)
+    /// and put the caret there.
+    func insertBelow(_ block: Block, content: String) async {
+        guard let link = block.link(.createBelow) else { return }
+        let source = await commit(block, content: content) ?? block
+        let next = FountainRules.nextType(after: source.blockType)
+        do {
+            let created: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: CreateBlockBelowCommand(content: "", personId: nil,
+                                              type: next.rawValue))
+            insertLocally(created, below: source)
+            focusedBlockID = created.id
+            await refreshUndoRedo()
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Tab / Shift-Tab / ⌘1–7 / the element bar. Content is carried across
+    /// unchanged so retyping a block never loses what's in it.
+    func setType(_ block: Block, to type: BlockType, content: String) async {
+        guard block.hasLink(.setType) else { return }
+        await applyType(type, to: block, content: content)
+    }
+
+    /// A heading typed in lower case is still a heading; the page prints it in
+    /// caps either way, so that's how it's stored.
+    private func cased(_ content: String, for type: BlockType) -> String {
+        type.isUppercased ? content.uppercased() : content
+    }
+
+    @discardableResult
+    private func applyType(_ type: BlockType, to block: Block,
+                           content: String) async -> Block? {
+        guard let link = block.link(.setType) else { return nil }
+        do {
+            let updated: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: SetBlockTypeCommand(type: type.rawValue,
+                                          content: cased(content, for: type),
+                                          personId: block.personId,
+                                          tags: block.tags))
+            replace(updated)
+            await refreshUndoRedo()
+            errorMessage = nil
+            return updated
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    /// Backspace at the top of an empty block: take it back and put the caret at
+    /// the end of the one above, the way deleting an empty line in a document does.
+    /// The first block of a script has nowhere to retreat to, so it stays.
+    func deleteEmptyAndFocusPrevious(_ block: Block) async {
+        guard block.hasLink(.delete),
+              let index = blocks.firstIndex(where: { $0.id == block.id }),
+              index > 0 else { return }
+        let previous = blocks[index - 1]
+        await deleteBlock(block)
+        focusedBlockID = previous.id
+    }
+
+    /// The server offers createInitial only while the script is empty and we may
+    /// write to it, so this doubles as "may this reader start the script".
+    var canStartScript: Bool {
+        blocksLinks.contains(.createInitial)
+    }
+
+    var canAppendBlock: Bool {
+        canStartScript || (blocks.last?.hasLink(.createBelow) ?? false)
+    }
+
+    /// The toolbar's +: a new element at the end, with the caret in it.
+    func appendBlock() async {
+        guard let last = blocks.last else {
+            await createInitialBlock()
+            return
+        }
+        await insertBelow(last, content: last.content ?? "")
+    }
+
+    /// An untouched script has nothing to type into. The server hands out a
+    /// createInitial link only while the script is empty.
+    func createInitialBlock() async {
+        guard let link = blocksLinks[.createInitial] else { return }
+        do {
+            let created: Block = try await app.client.fetch(from: link, method: "POST")
+            blocks.append(created)
+            focusedBlockID = created.id
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Mirrors the server's renumbering so the page doesn't have to be refetched
+    /// mid-keystroke — a refetch here would drop the caret.
+    private func insertLocally(_ block: Block, below source: Block) {
+        guard let index = blocks.firstIndex(where: { $0.id == source.id }) else {
+            blocks.append(block)
+            return
+        }
+        let newOrder = block.order ?? ((source.order ?? index) + 1)
+        for position in blocks.indices where (blocks[position].order ?? 0) >= newOrder {
+            blocks[position].order = (blocks[position].order ?? 0) + 1
+        }
+        blocks.insert(block, at: index + 1)
     }
 
     func deleteBlock(_ block: Block) async {
@@ -199,7 +361,7 @@ final class ScriptModel {
     }
 
     private func pollSync() async {
-        guard !hasActiveEdit, let base = project.link(.syncStatus) else { return }
+        guard !isEditing, let base = project.link(.syncStatus) else { return }
         let link = base.addingQuery(["since": String(lastRevision)])
         do {
             let status: SyncStatus = try await app.client.fetch(from: link)
