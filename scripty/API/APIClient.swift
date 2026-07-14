@@ -13,13 +13,19 @@ final class APIClient {
     let baseURL: URL
     var credentials: Credentials?
 
+    /// When set, requests are answered by the in-process demo backend
+    /// instead of the network (see `DemoBackend`).
+    private let demo: DemoBackend?
+
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: URL = AppConfig.baseURL, credentials: Credentials? = nil) {
+    init(baseURL: URL = AppConfig.baseURL, credentials: Credentials? = nil,
+         demo: DemoBackend? = nil) {
         self.baseURL = baseURL
         self.credentials = credentials
+        self.demo = demo
 
         // Basic auth on every request; no cookies so state never leaks
         // between accounts (the server also sets remember-me cookies).
@@ -56,11 +62,20 @@ final class APIClient {
             request.httpBody = try encoder.encode(body)
         }
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.server(status: -1)
+        let data: Data
+        let statusCode: Int
+        if let demo {
+            (statusCode, data) = await demo.respond(method: method, url: url,
+                                                    body: request.httpBody)
+        } else {
+            let (received, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.server(status: -1)
+            }
+            data = received
+            statusCode = http.statusCode
         }
-        switch http.statusCode {
+        switch statusCode {
         case 200..<300:
             return data
         case 400:
@@ -73,7 +88,7 @@ final class APIClient {
         case 404:
             throw APIError.notFound
         default:
-            throw APIError.server(status: http.statusCode)
+            throw APIError.server(status: statusCode)
         }
     }
 

@@ -20,12 +20,21 @@ final class AppModel {
 
     private(set) var phase: Phase = .loading
     private(set) var apiRoot: APIRoot?
+    private(set) var isDemo = false
     var signInError: String?
 
-    let client = APIClient()
+    private(set) var client = APIClient()
+
+    /// Set via launch arguments (`-scripty.demo YES`) to boot straight into
+    /// demo mode — used by scripts/demo.sh and never persisted.
+    static let demoLaunchKey = "scripty.demo"
 
     /// Called once at launch: try stored credentials against the API root.
     func bootstrap() async {
+        if UserDefaults.standard.bool(forKey: Self.demoLaunchKey) {
+            await enterDemo()
+            return
+        }
         guard let stored = KeychainStore.load() else {
             phase = .signedOut
             return
@@ -62,9 +71,30 @@ final class AppModel {
         }
     }
 
+    /// Enters the offline demo: a fresh in-memory backend seeded with a
+    /// sample screenplay. Stored real credentials are left untouched.
+    func enterDemo() async {
+        let demoClient = APIClient(baseURL: DemoBackend.baseURL, demo: DemoBackend())
+        do {
+            apiRoot = try await demoClient.fetch(APIRoot.self, from: demoClient.rootLink)
+            client = demoClient
+            isDemo = true
+            signInError = nil
+            phase = .signedIn
+        } catch {
+            signInError = error.localizedDescription
+            phase = .signedOut
+        }
+    }
+
     func signOut() {
-        KeychainStore.delete()
-        client.credentials = nil
+        if isDemo {
+            isDemo = false
+            client = APIClient()
+        } else {
+            KeychainStore.delete()
+            client.credentials = nil
+        }
         apiRoot = nil
         signInError = nil
         phase = .signedOut

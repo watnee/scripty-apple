@@ -67,7 +67,8 @@ struct ProjectsSidebarView: View {
                 Button(role: .destructive) {
                     app.signOut()
                 } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label(app.isDemo ? "Exit Demo" : "Sign Out",
+                          systemImage: "rectangle.portrait.and.arrow.right")
                 }
             }
         }

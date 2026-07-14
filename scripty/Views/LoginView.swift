@@ -81,10 +81,35 @@ struct LoginView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canSubmit)
 
+            VStack(spacing: 6) {
+                Button {
+                    enterDemo()
+                } label: {
+                    Label("Try the Demo", systemImage: "sparkles")
+                        .frame(maxWidth: 360)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSigningIn)
+
+                Text("Explore a sample screenplay — no account needed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer()
             Spacer()
         }
         .padding()
+    }
+
+    private func enterDemo() {
+        focusedField = nil
+        isSigningIn = true
+        Task {
+            await app.enterDemo()
+            isSigningIn = false
+        }
     }
 
     private func signIn() {
