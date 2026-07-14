@@ -74,27 +74,23 @@ final class ScriptModel {
         }
     }
 
-    // MARK: - Block mutations (all gated by link presence)
+    // MARK: - Capabilities (what the server says this user may do)
 
-    @discardableResult
-    func createBlock(content: String, type: BlockType, personId: Int?) async -> Bool {
-        guard let link = blocksLinks[.selfRel] ?? project.link(.blocks) else { return false }
-        do {
-            let _: Block = try await app.client.fetch(
-                from: link, method: "POST",
-                body: CreateBlockCommand(content: content,
-                                         personId: personId,
-                                         projectId: project.id,
-                                         type: type.rawValue))
-            await loadBlocks()
-            await refreshUndoRedo()
-            errorMessage = nil
-            return true
-        } catch {
-            report(error)
-            return false
-        }
+    /// An empty script advertises `createInitial` on the block collection.
+    var canCreateInitialBlock: Bool {
+        blocks.isEmpty && blocksLinks.contains(.createInitial)
     }
+
+    /// Adding appends below the last block, or seeds an empty script.
+    var canAddBlock: Bool {
+        blocks.last?.hasLink(.createBelow) ?? canCreateInitialBlock
+    }
+
+    var canReorder: Bool {
+        blocks.count > 1 && blocks.contains { $0.hasLink(.move) }
+    }
+
+    // MARK: - Block mutations (all gated by link presence)
 
     @discardableResult
     func updateBlock(_ block: Block, content: String, personId: Int?, tags: String?) async -> Bool {
@@ -110,6 +106,108 @@ final class ScriptModel {
         } catch {
             report(error)
             return false
+        }
+    }
+
+    /// Inserts a block below `block` and returns it, so the editor can move
+    /// the cursor into the new row. `content` is the text carried over when
+    /// Return splits a block mid-line.
+    func createBlockBelow(_ block: Block, type: BlockType, content: String = "",
+                          personId: Int? = nil) async -> Block? {
+        guard let link = block.link(.createBelow) else { return nil }
+        do {
+            let created: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: CreateBlockBelowCommand(content: content,
+                                              personId: personId,
+                                              type: type.rawValue))
+            await loadBlocks()
+            await refreshUndoRedo()
+            errorMessage = nil
+            // Return the reloaded copy: it carries the server's links, and the
+            // POST response predates the reorder of everything below it.
+            return blocks.first { $0.id == created.id } ?? created
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    /// Creates the one block an untouched script needs before there is
+    /// anything to type into. Only offered while the script is empty.
+    @discardableResult
+    func createInitialBlock() async -> Block? {
+        guard let link = blocksLinks[.createInitial] else { return nil }
+        do {
+            let created: Block = try await app.client.fetch(from: link, method: "POST")
+            await loadBlocks()
+            await refreshUndoRedo()
+            errorMessage = nil
+            return blocks.first { $0.id == created.id } ?? created
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    /// Retypes a block — the type bar, and the details sheet's type picker.
+    ///
+    /// The server leaves any field sent as null untouched, so the block's own
+    /// content, speaker and tags are echoed back by default and a retype
+    /// carries them through. Callers editing at the same time pass overrides,
+    /// which makes a retype-plus-edit a single request (and a single undo).
+    @discardableResult
+    func setType(_ block: Block, to type: BlockType,
+                 content: String? = nil, personId: Int? = nil,
+                 tags: String? = nil) async -> Bool {
+        guard let link = block.link(.setType) else { return false }
+        do {
+            let updated: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: SetBlockTypeCommand(type: type.rawValue,
+                                          content: content ?? block.content,
+                                          personId: personId ?? block.personId,
+                                          tags: tags ?? block.tags))
+            replace(updated)
+            await refreshUndoRedo()
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Reorders a block. `destination` is a row index into `blocks`, which is
+    /// translated to the absolute `order` the server expects.
+    func moveBlocks(from source: IndexSet, to destination: Int) async {
+        guard let sourceIndex = source.first,
+              blocks.indices.contains(sourceIndex) else { return }
+        // SwiftUI's destination is an insertion point in the pre-move array;
+        // past the source it shifts down by one once the row is lifted out.
+        let targetIndex = destination > sourceIndex ? destination - 1 : destination
+        guard targetIndex != sourceIndex, blocks.indices.contains(targetIndex) else { return }
+
+        let block = blocks[sourceIndex]
+        guard let link = block.link(.move),
+              let position = blocks[targetIndex].order else { return }
+
+        // Reorder locally first so the row lands where it was dropped instead
+        // of snapping back while the request is in flight.
+        var optimistic = blocks
+        let moved = optimistic.remove(at: sourceIndex)
+        optimistic.insert(moved, at: destination > sourceIndex ? destination - 1 : destination)
+        blocks = optimistic
+
+        do {
+            let _: Block = try await app.client.fetch(
+                from: link, method: "POST", body: MoveBlockCommand(position: position))
+            await loadBlocks()
+            await refreshUndoRedo()
+            errorMessage = nil
+        } catch {
+            await loadBlocks()   // the optimistic order was never persisted
+            report(error)
         }
     }
 

@@ -143,16 +143,35 @@ actor DemoBackend {
     private func routeBlock(method: String, path: [String],
                             query: [String: String],
                             fields: [String: Any]) -> (Int, Data) {
+        // POST /api/block/initial — the first block of an untouched script.
+        if method == "POST", path.first == "initial" {
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  blocks[projectId] != nil else { return badRequest("projectId") }
+            guard blocks[projectId]!.isEmpty else {
+                return (409, Data("{}".utf8))   // non-empty scripts want createBelow
+            }
+            snapshot(projectId)
+            let block = DemoBlock(id: nextBlockId, order: 1, content: "", type: "ACTION")
+            nextBlockId += 1
+            blocks[projectId] = [block]
+            touch(projectId)
+            return ok(blockJSON(block, projectId: projectId))
+        }
+
         switch (method, path.count) {
         case ("GET", 0):
             guard let projectId = query["projectId"].flatMap(Int.init) else {
                 return badRequest("projectId")
             }
-            let items = (blocks[projectId] ?? [])
+            let list = blocks[projectId] ?? []
+            let items = list
                 .sorted { $0.order < $1.order }
                 .map { blockJSON($0, projectId: projectId) }
-            return ok(["_embedded": ["blockResourceList": items],
-                       "_links": ["self": link("/api/block?projectId=\(projectId)")]])
+            var links: [String: Any] = ["self": link("/api/block?projectId=\(projectId)")]
+            if list.isEmpty {
+                links["createInitial"] = link("/api/block/initial?projectId=\(projectId)")
+            }
+            return ok(["_embedded": ["blockResourceList": items], "_links": links])
         case ("POST", 0):
             guard let projectId = fields["projectId"] as? Int,
                   blocks[projectId] != nil,
@@ -182,10 +201,76 @@ actor DemoBackend {
             if let content = fields["content"] as? String {
                 blocks[projectId]?[index].content = content
             }
+            // A null personId clears the speaker, but null tags are preserved —
+            // matching the server's edit semantics.
             blocks[projectId]?[index].personId = fields["personId"] as? Int
-            blocks[projectId]?[index].tags = fields["tags"] as? String
+            if let tags = fields["tags"] as? String {
+                blocks[projectId]?[index].tags = tags
+            }
             touch(projectId)
             return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
+
+        case ("POST", "below"):
+            snapshot(projectId)
+            let newOrder = blocks[projectId]![index].order + 1
+            for i in blocks[projectId]!.indices where blocks[projectId]![i].order >= newOrder {
+                blocks[projectId]![i].order += 1
+            }
+            let block = DemoBlock(id: nextBlockId,
+                                  order: newOrder,
+                                  content: fields["content"] as? String ?? "",
+                                  type: normalizedType(fields["type"] as? String),
+                                  personId: fields["personId"] as? Int)
+            nextBlockId += 1
+            blocks[projectId]!.append(block)
+            touch(projectId)
+            return ok(blockJSON(block, projectId: projectId))
+
+        case ("POST", "type"):
+            guard let requested = fields["type"] as? String, !requested.isEmpty else {
+                return badRequest("type")
+            }
+            snapshot(projectId)
+            let type = normalizedType(requested)
+            blocks[projectId]![index].type = type
+            // Null fields keep their stored values, as on the server.
+            if let content = fields["content"] as? String {
+                blocks[projectId]![index].content = content
+            }
+            if let tags = fields["tags"] as? String {
+                blocks[projectId]![index].tags = tags
+            }
+            if let personId = fields["personId"] as? Int {
+                blocks[projectId]![index].personId = personId
+            }
+            if type == "SCENE" {
+                blocks[projectId]![index].personId = nil   // scenes have no speaker
+            }
+            touch(projectId)
+            return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
+
+        case ("POST", "move"):
+            guard let position = fields["position"] as? Int else {
+                return badRequest("position")
+            }
+            snapshot(projectId)
+            let current = blocks[projectId]![index].order
+            if position != current {
+                // Shift the span between the old and new slot, then drop the
+                // block into `position` — the server's range-shift, in memory.
+                for i in blocks[projectId]!.indices {
+                    let order = blocks[projectId]![i].order
+                    if position < current, order >= position, order < current {
+                        blocks[projectId]![i].order += 1
+                    } else if position > current, order > current, order <= position {
+                        blocks[projectId]![i].order -= 1
+                    }
+                }
+                blocks[projectId]![index].order = position
+            }
+            touch(projectId)
+            return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
+
         case ("DELETE", nil):
             snapshot(projectId)
             blocks[projectId]?.remove(at: index)
@@ -335,6 +420,9 @@ actor DemoBackend {
                 "delete": link("/api/block/\(block.id)"),
                 "toggleBookmark": link("/api/block/\(block.id)/bookmark"),
                 "togglePinned": link("/api/block/\(block.id)/pinned"),
+                "createBelow": link("/api/block/\(block.id)/below"),
+                "setType": link("/api/block/\(block.id)/type"),
+                "move": link("/api/block/\(block.id)/move"),
             ],
         ]
         if let personId = block.personId {
@@ -385,6 +473,12 @@ actor DemoBackend {
     // MARK: - Helpers
 
     private let iso = ISO8601DateFormatter()
+
+    /// Unknown or missing element types fall back to ACTION, as the server does.
+    private func normalizedType(_ type: String?) -> String {
+        guard let type, BlockType(rawValue: type.uppercased()) != nil else { return "ACTION" }
+        return type.uppercased()
+    }
 
     private func locateBlock(_ id: Int) -> (projectId: Int, index: Int)? {
         for (projectId, list) in blocks {

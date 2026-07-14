@@ -89,18 +89,53 @@ enum BlockType: String, CaseIterable, Identifiable {
     var isCharacterCue: Bool {
         self == .character || self == .dualDialogue
     }
+
+    /// The element a writer almost always wants next, following screenplay
+    /// convention: a cue is followed by its line, a line returns to action.
+    /// Pressing Return in the editor creates this type below; the type bar
+    /// is there for the times the guess is wrong.
+    var typeBelow: BlockType {
+        switch self {
+        case .character, .dualDialogue, .parenthetical: return .dialogue
+        case .transition: return .scene
+        default: return .action
+        }
+    }
+
+    /// Types offered in the editor's type bar, in the order the web app's
+    /// element menu lists them.
+    static var editorBar: [BlockType] {
+        [.scene, .action, .character, .dialogue, .parenthetical, .transition,
+         .shot, .text, .dualDialogue, .lyrics, .centered, .section, .synopsis,
+         .note, .pageBreak]
+    }
 }
 
-struct CreateBlockCommand: Encodable {
-    var content: String
-    var personId: Int?
-    var projectId: Int
-    var type: String
-}
-
-/// The API does not allow changing a block's type after creation.
+/// Content-only edit. Retyping a block goes through `setType` instead.
 struct EditBlockCommand: Encodable {
     var content: String
     var personId: Int?
     var tags: String?
+}
+
+/// Inserts a new block directly below an existing one — what Return does in
+/// the editor. Blank content is allowed: the row appears and the writer types.
+struct CreateBlockBelowCommand: Encodable {
+    var content: String
+    var personId: Int?
+    var type: String
+}
+
+/// Retypes a block. Omitted fields keep their stored values on the server,
+/// so content/personId/tags are carried through unchanged.
+struct SetBlockTypeCommand: Encodable {
+    var type: String
+    var content: String?
+    var personId: Int?
+    var tags: String?
+}
+
+/// Reorders a block to an absolute position in the project's `order` space.
+struct MoveBlockCommand: Encodable {
+    var position: Int
 }
