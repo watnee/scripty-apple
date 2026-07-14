@@ -151,8 +151,12 @@ actor DemoBackend {
             let items = (blocks[projectId] ?? [])
                 .sorted { $0.order < $1.order }
                 .map { blockJSON($0, projectId: projectId) }
-            return ok(["_embedded": ["blockResourceList": items],
-                       "_links": ["self": link("/api/block?projectId=\(projectId)")]])
+            var links: [String: Any] = ["self": link("/api/block?projectId=\(projectId)")]
+            // Only an empty script can take a first block, same as the server.
+            if items.isEmpty {
+                links["createInitial"] = link("/api/block/initial?projectId=\(projectId)")
+            }
+            return ok(["_embedded": ["blockResourceList": items], "_links": links])
         case ("POST", 0):
             guard let projectId = fields["projectId"] as? Int,
                   blocks[projectId] != nil,
@@ -173,6 +177,20 @@ actor DemoBackend {
             break
         }
 
+        // `initial` sits where an id would, so it has to be matched before one
+        // is parsed out of the path.
+        if method == "POST", path.first == "initial" {
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  let existing = blocks[projectId] else { return badRequest("projectId") }
+            guard existing.isEmpty else { return (409, Data("{}".utf8)) }
+            snapshot(projectId)
+            let block = DemoBlock(id: nextBlockId, order: 1, content: "", type: "ACTION")
+            nextBlockId += 1
+            blocks[projectId] = [block]
+            touch(projectId)
+            return ok(blockJSON(block, projectId: projectId))
+        }
+
         guard let id = path.first.flatMap(Int.init),
               let (projectId, index) = locateBlock(id) else { return notFound() }
 
@@ -191,6 +209,63 @@ actor DemoBackend {
             blocks[projectId]?.remove(at: index)
             touch(projectId)
             return ok([:])
+
+        // What Enter does: insert an element directly below the anchor.
+        case ("POST", "below"):
+            snapshot(projectId)
+            let anchorOrder = blocks[projectId]![index].order
+            for position in blocks[projectId]!.indices
+            where blocks[projectId]![position].order > anchorOrder {
+                blocks[projectId]![position].order += 1
+            }
+            let block = DemoBlock(id: nextBlockId,
+                                  order: anchorOrder + 1,
+                                  content: fields["content"] as? String ?? "",
+                                  type: fields["type"] as? String ?? "ACTION",
+                                  personId: fields["personId"] as? Int)
+            nextBlockId += 1
+            blocks[projectId]?.append(block)
+            blocks[projectId]?.sort { $0.order < $1.order }
+            touch(projectId)
+            return ok(blockJSON(block, projectId: projectId))
+
+        // What Tab and the element bar do. A missing content/tags key leaves the
+        // stored value alone, matching SetBlockTypeRequest.
+        case ("POST", "type"):
+            guard let type = fields["type"] as? String, !type.isEmpty else {
+                return badRequest("type")
+            }
+            snapshot(projectId)
+            blocks[projectId]?[index].type = type
+            if let content = fields["content"] as? String {
+                blocks[projectId]?[index].content = content
+            }
+            if let personId = fields["personId"] as? Int {
+                blocks[projectId]?[index].personId = personId
+            }
+            if let tags = fields["tags"] as? String {
+                blocks[projectId]?[index].tags = tags
+            }
+            touch(projectId)
+            return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
+
+        case ("POST", "move"):
+            guard let position = fields["position"] as? Int else {
+                return badRequest("position")
+            }
+            snapshot(projectId)
+            var list = blocks[projectId]!.sorted { $0.order < $1.order }
+            let moved = list.remove(at: list.firstIndex { $0.id == id }!)
+            let target = min(max(position - 1, 0), list.count)
+            list.insert(moved, at: target)
+            for position in list.indices {
+                list[position].order = position + 1
+            }
+            blocks[projectId] = list
+            touch(projectId)
+            let current = list.first { $0.id == id }!
+            return ok(blockJSON(current, projectId: projectId))
+
         case ("POST", "bookmark"):
             blocks[projectId]?[index].bookmarked.toggle()
             return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
@@ -335,6 +410,9 @@ actor DemoBackend {
                 "delete": link("/api/block/\(block.id)"),
                 "toggleBookmark": link("/api/block/\(block.id)/bookmark"),
                 "togglePinned": link("/api/block/\(block.id)/pinned"),
+                "createBelow": link("/api/block/\(block.id)/below"),
+                "setType": link("/api/block/\(block.id)/type"),
+                "move": link("/api/block/\(block.id)/move"),
             ],
         ]
         if let personId = block.personId {

@@ -98,9 +98,32 @@ struct CreateBlockCommand: Encodable {
     var type: String
 }
 
-/// The API does not allow changing a block's type after creation.
+/// Content, speaker and tags only. Retyping an element goes through
+/// `SetBlockTypeCommand` — see the `setType` rel.
 struct EditBlockCommand: Encodable {
     var content: String
     var personId: Int?
     var tags: String?
+}
+
+/// `POST <createBelow>` — what Enter does: insert an element under this one.
+/// Content may be empty; the writer is about to type into it.
+struct CreateBlockBelowCommand: Encodable {
+    var content: String
+    var personId: Int?
+    var type: String
+}
+
+/// `POST <setType>` — what Tab and the element bar do. A nil `content` or
+/// `tags` leaves the stored value alone, so retyping need not resend the text.
+struct SetBlockTypeCommand: Encodable {
+    var type: String
+    var content: String?
+    var personId: Int?
+    var tags: String?
+}
+
+/// `POST <move>` — absolute position, matching the `order` the collection reports.
+struct MoveBlockCommand: Encodable {
+    var position: Int
 }
