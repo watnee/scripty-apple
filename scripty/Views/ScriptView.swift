@@ -66,6 +66,30 @@ struct ScriptView: View {
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Undo/redo are core editing actions, so they sit in the bar as
+            // their own group rather than hidden under an overflow menu.
+            if let undoRedo = model.undoRedo {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        Task { await model.undo() }
+                    } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!(undoRedo.canUndo ?? false))
+
+                    Button {
+                        Task { await model.redo() }
+                    } label: {
+                        Label("Redo", systemImage: "arrow.uturn.forward")
+                    }
+                    .disabled(!(undoRedo.canRedo ?? false))
+                }
+
+                // Split editing from creation/export so the bar reads as two
+                // distinct glass clusters instead of one flat strip of icons.
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+            }
+
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     showingCreate = true
@@ -83,24 +107,6 @@ struct ScriptView: View {
 
                 if !model.exportOptions.isEmpty {
                     ExportButton(model: model)
-                }
-            }
-
-            if let undoRedo = model.undoRedo {
-                ToolbarItemGroup(placement: .secondaryAction) {
-                    Button {
-                        Task { await model.undo() }
-                    } label: {
-                        Label("Undo", systemImage: "arrow.uturn.backward")
-                    }
-                    .disabled(!(undoRedo.canUndo ?? false))
-
-                    Button {
-                        Task { await model.redo() }
-                    } label: {
-                        Label("Redo", systemImage: "arrow.uturn.forward")
-                    }
-                    .disabled(!(undoRedo.canRedo ?? false))
                 }
             }
         }
