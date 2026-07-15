@@ -46,6 +46,7 @@ actor DemoBackend {
     private var people: [Int: [DemoPerson]] = [:]     // keyed by project id
     private var undoStacks: [Int: [[DemoBlock]]] = [:]
     private var redoStacks: [Int: [[DemoBlock]]] = [:]
+    private var defaultProjectId: Int?
     private var nextProjectId = 1
     private var nextBlockId = 1
     private var nextPersonId = 1
@@ -71,7 +72,7 @@ actor DemoBackend {
 
         case (_, "api", "project"):
             return routeProject(method: method, path: Array(path.dropFirst(2)),
-                                query: query, fields: fields)
+                                query: query, fields: fields, body: body)
         case (_, "api", "block"):
             return routeBlock(method: method, path: Array(path.dropFirst(2)),
                               query: query, fields: fields)
@@ -85,11 +86,16 @@ actor DemoBackend {
 
     private func routeProject(method: String, path: [String],
                               query: [String: String],
-                              fields: [String: Any]) -> (Int, Data) {
+                              fields: [String: Any],
+                              body: Data?) -> (Int, Data) {
+        if method == "POST", path.first == "import" {
+            return demoImport(body: body)
+        }
         switch (method, path.count) {
         case ("GET", 0):
             return ok(["_embedded": ["projectResourceList": projects.map(projectJSON)],
-                       "_links": ["self": link("/api/project")]])
+                       "_links": ["self": link("/api/project"),
+                                  "importProject": link("/api/project/import")]])
         case ("POST", 0):
             guard let title = fields["title"] as? String else { return badRequest("title") }
             let project = DemoProject(id: nextProjectId, title: title, lastEdited: .now)
@@ -135,9 +141,39 @@ actor DemoBackend {
                        "_links": ["self": link("/api/project/\(id)/sync-status")]])
         case ("GET", "export"):
             return (200, Data(fountainExport(projects[index]).utf8))
+        case ("POST", "toggleDefault"):
+            defaultProjectId = (defaultProjectId == id) ? nil : id
+            return ok(["_embedded": ["projectResourceList": projects.map(projectJSON)],
+                       "_links": ["self": link("/api/project"),
+                                  "importProject": link("/api/project/import")]])
         default:
             return notFound()
         }
+    }
+
+    /// Accepts a multipart project-archive upload and seeds a project from its
+    /// title. The demo is lenient — it only reads the archive's project title.
+    private func demoImport(body: Data?) -> (Int, Data) {
+        guard let body, let text = String(data: body, encoding: .utf8),
+              let headerEnd = text.range(of: "\r\n\r\n") else {
+            return badRequest("file")
+        }
+        var payload = String(text[headerEnd.upperBound...])
+        if let closing = payload.range(of: "\r\n--\(APIClient.multipartBoundary)--") {
+            payload = String(payload[..<closing.lowerBound])
+        }
+        guard let jsonData = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return badRequest("file")
+        }
+        let info = object["project"] as? [String: Any]
+        let title = (info?["title"] as? String) ?? (object["title"] as? String) ?? "Imported Project"
+        let project = DemoProject(id: nextProjectId, title: title, lastEdited: .now)
+        nextProjectId += 1
+        projects.append(project)
+        blocks[project.id] = []
+        people[project.id] = []
+        return ok(projectJSON(project))
     }
 
     private func routeBlock(method: String, path: [String],
@@ -345,10 +381,12 @@ actor DemoBackend {
             "title": project.title,
             "lastEdited": iso.string(from: project.lastEdited),
             "teams": ["Demo"],
+            "default": project.id == defaultProjectId,
             "_links": [
                 "self": link("/api/project/\(project.id)"),
                 "update": link("/api/project/\(project.id)"),
                 "delete": link("/api/project/\(project.id)"),
+                "toggleDefault": link("/api/project/\(project.id)/toggleDefault"),
                 "blocks": link("/api/block?projectId=\(project.id)"),
                 "characters": link("/api/person?projectId=\(project.id)"),
                 "undoRedoStatus": link("/api/project/\(project.id)/undo-redo-status"),

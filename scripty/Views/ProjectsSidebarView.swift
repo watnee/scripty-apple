@@ -4,6 +4,31 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
+
+/// Mirrors the web project list's sort control ("Last edited" / "Name A–Z").
+/// Raw values back an @AppStorage so the choice sticks, like the web app's
+/// sessionStorage-persisted `<select>`.
+enum ProjectSort: String, CaseIterable, Identifiable {
+    case lastEdited
+    case title
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .lastEdited: "Last edited"
+        case .title: "Name A–Z"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .lastEdited: "clock"
+        case .title: "textformat"
+        }
+    }
+}
 
 struct ProjectsSidebarView: View {
     let app: AppModel
@@ -11,15 +36,49 @@ struct ProjectsSidebarView: View {
     @Binding var selection: Project?
 
     @State private var showingCreate = false
+    @State private var showingImporter = false
     @State private var renamingProject: Project?
+    @State private var searchText = ""
+    @AppStorage("projectListSort") private var sortMode = ProjectSort.lastEdited
+
+    /// Client-side search + sort, matching the web list which filters by title
+    /// and orders by the chosen mode (with a title tie-break on last-edited).
+    private var displayedProjects: [Project] {
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let filtered = query.isEmpty
+            ? model.projects
+            : model.projects.filter { $0.displayTitle.lowercased().contains(query) }
+        return filtered.sorted { lhs, rhs in
+            switch sortMode {
+            case .lastEdited:
+                let l = lhs.lastEdited ?? .distantPast
+                let r = rhs.lastEdited ?? .distantPast
+                if l != r { return l > r }
+                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            case .title:
+                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            }
+        }
+    }
+
+    /// Web header subtitle: a screenplay count, or a tagline when empty.
+    private var countSubtitle: String {
+        switch model.projects.count {
+        case 0: "Your screenplays live here."
+        case 1: "1 screenplay"
+        case let n: "\(n) screenplays"
+        }
+    }
 
     var body: some View {
         List(selection: $selection) {
             if app.isDemo {
                 DemoBanner()
             }
-            ForEach(model.projects) { project in
-                ProjectRow(project: project)
+            ForEach(displayedProjects) { project in
+                ProjectRow(project: project) {
+                    Task { await model.toggleDefault(project) }
+                }
                     .tag(project)
                     .swipeActions(edge: .trailing) {
                         // Affordances are driven by the links the server returned.
@@ -50,13 +109,17 @@ struct ProjectsSidebarView: View {
                     ProgressView()
                 } else {
                     ContentUnavailableView(
-                        "No Projects",
+                        "No projects yet",
                         systemImage: "film",
-                        description: Text("Create a project to start writing."))
+                        description: Text("Create your first screenplay to get started."))
                 }
+            } else if displayedProjects.isEmpty {
+                ContentUnavailableView.search(text: searchText)
             }
         }
         .navigationTitle("Projects")
+        .navigationSubtitle(countSubtitle)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
         .refreshable { await model.refresh() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -65,6 +128,23 @@ struct ProjectsSidebarView: View {
                 } label: {
                     Label("New Project", systemImage: "plus")
                 }
+            }
+            if model.canImport {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        showingImporter = true
+                    } label: {
+                        Label("Import Project", systemImage: "square.and.arrow.down")
+                    }
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                Picker("Sort", selection: $sortMode) {
+                    ForEach(ProjectSort.allCases) { mode in
+                        Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button(role: .destructive) {
@@ -83,6 +163,22 @@ struct ProjectsSidebarView: View {
         .sheet(item: $renamingProject) { project in
             ProjectTitleSheet(title: project.title ?? "", heading: "Rename Project") { title in
                 await model.rename(project, to: title)
+            }
+        }
+        .fileImporter(isPresented: $showingImporter,
+                      allowedContentTypes: [.json],
+                      allowsMultipleSelection: false) { result in
+            guard case let .success(urls) = result, let url = urls.first else { return }
+            Task {
+                // Imported files live outside the sandbox; read them under a
+                // security scope, then hand the bytes to the API.
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url) else {
+                    model.errorMessage = "Couldn't read that file."
+                    return
+                }
+                await model.importProject(data: data, filename: url.lastPathComponent)
             }
         }
         .alert("Error", isPresented: errorBinding) {
@@ -124,18 +220,55 @@ private struct DemoBanner: View {
 
 private struct ProjectRow: View {
     let project: Project
+    let onToggleDefault: () -> Void
+
+    private var isDefault: Bool { project.isDefault ?? false }
 
     var body: some View {
+        HStack(spacing: 10) {
+            // The star mirrors the web list's default-project toggle; the
+            // server only advertises `toggleDefault` when it's allowed.
+            if project.hasLink(.toggleDefault) {
+                Button(action: onToggleDefault) {
+                    Image(systemName: isDefault ? "star.fill" : "star")
+                        .foregroundStyle(isDefault ? AnyShapeStyle(.yellow) : AnyShapeStyle(.secondary))
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(isDefault ? "Remove as default project" : "Set as default project")
+            }
+            content
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(project.displayTitle)
-                .font(.headline)
-                .lineLimit(1)
+            HStack(spacing: 6) {
+                Text(project.displayTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                if isDefault {
+                    Text("Default")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tint)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.tint.opacity(0.15), in: Capsule())
+                }
+            }
             HStack(spacing: 6) {
                 if let lastEdited = project.lastEdited {
-                    Text(lastEdited, format: .relative(presentation: .named))
+                    Label {
+                        Text(lastEdited, format: .relative(presentation: .named))
+                    } icon: {
+                        Image(systemName: "clock")
+                    }
+                    .labelStyle(.titleAndIcon)
                 }
                 if let teams = project.teams, !teams.isEmpty {
-                    Text("·")
+                    if project.lastEdited != nil {
+                        Text("·")
+                    }
                     Text(teams.joined(separator: ", "))
                         .lineLimit(1)
                 }
@@ -143,7 +276,6 @@ private struct ProjectRow: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 2)
     }
 }
 

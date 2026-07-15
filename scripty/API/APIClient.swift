@@ -44,6 +44,10 @@ final class APIClient {
         HALLink(href: baseURL.appendingPathComponent("api").absoluteString)
     }
 
+    /// Fixed multipart boundary so the demo backend can parse the body
+    /// without inspecting request headers.
+    static let multipartBoundary = "----scripty-boundary-7f3a1c"
+
     @discardableResult
     func data(for link: HALLink,
               method: String = "GET",
@@ -98,5 +102,62 @@ final class APIClient {
                              body: (any Encodable)? = nil) async throws -> T {
         let data = try await data(for: link, method: method, body: body)
         return try decoder.decode(T.self, from: data)
+    }
+
+    /// POST a single file as `multipart/form-data` (part name `file`) and
+    /// decode the response. Used for project import.
+    func upload<T: Decodable>(_ type: T.Type = T.self,
+                              to link: HALLink,
+                              fileData: Data,
+                              filename: String,
+                              contentType: String = "application/json") async throws -> T {
+        guard let url = link.url(relativeTo: baseURL) else {
+            throw APIError.invalidLink(link.href)
+        }
+        let boundary = Self.multipartBoundary
+        var body = Data()
+        func append(_ string: String) { body.append(Data(string.utf8)) }
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+        append("Content-Type: \(contentType)\r\n\r\n")
+        body.append(fileData)
+        append("\r\n--\(boundary)--\r\n")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/hal+json", forHTTPHeaderField: "Accept")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let credentials {
+            request.setValue(credentials.basicAuthorizationHeader, forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = body
+
+        let data: Data
+        let statusCode: Int
+        if let demo {
+            (statusCode, data) = await demo.respond(method: "POST", url: url, body: body)
+        } else {
+            let (received, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw APIError.server(status: -1)
+            }
+            data = received
+            statusCode = http.statusCode
+        }
+        switch statusCode {
+        case 200..<300:
+            return try decoder.decode(T.self, from: data)
+        case 400:
+            let fields = (try? decoder.decode([String: String].self, from: data)) ?? [:]
+            throw APIError.validation(fields)
+        case 401:
+            throw APIError.unauthorized
+        case 403:
+            throw APIError.forbidden
+        case 404:
+            throw APIError.notFound
+        default:
+            throw APIError.server(status: statusCode)
+        }
     }
 }

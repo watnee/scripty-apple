@@ -53,6 +53,25 @@ final class ProjectListModel {
         }
     }
 
+    var canImport: Bool { collectionLinks[.importProject] != nil }
+
+    /// Import a project from a .scripty.json archive (the web list's Import
+    /// button). Returns the created project on success.
+    @discardableResult
+    func importProject(data: Data, filename: String) async -> Project? {
+        guard let link = collectionLinks[.importProject] else { return nil }
+        do {
+            let created: Project = try await app.client.upload(
+                to: link, fileData: data, filename: filename)
+            await refresh()
+            errorMessage = nil
+            return created
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
     @discardableResult
     func rename(_ project: Project, to title: String) async -> Bool {
         guard let link = project.link(.update) else { return false }
@@ -66,6 +85,22 @@ final class ProjectListModel {
         } catch {
             report(error)
             return false
+        }
+    }
+
+    /// Toggle this project as the user's default (the web list's star). The
+    /// server returns the refreshed collection with updated `default` flags.
+    func toggleDefault(_ project: Project) async {
+        guard let link = project.link(.toggleDefault) else { return }
+        do {
+            let collection: HALCollection<Project> = try await app.client.fetch(from: link, method: "POST")
+            projects = collection.items.sorted {
+                ($0.lastEdited ?? .distantPast) > ($1.lastEdited ?? .distantPast)
+            }
+            collectionLinks = collection.links
+            errorMessage = nil
+        } catch {
+            report(error)
         }
     }
 

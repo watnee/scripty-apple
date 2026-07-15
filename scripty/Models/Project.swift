@@ -16,10 +16,13 @@ struct Project: Decodable, Identifiable, Hashable, HALResource {
     var screenplayVersion: String?
     var lastEdited: Date?
     var teams: [String]?
+    /// Whether this is the current user's default project (server key `default`).
+    var isDefault: Bool?
     let links: HALLinks?
 
     private enum CodingKeys: String, CodingKey {
         case id, title, screenplayTitle, writers, contactInfo, screenplayVersion, lastEdited, teams
+        case isDefault = "default"
         case links = "_links"
     }
 
