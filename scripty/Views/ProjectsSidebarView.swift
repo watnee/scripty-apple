@@ -5,6 +5,30 @@
 
 import SwiftUI
 
+/// Mirrors the web project list's sort control ("Last edited" / "Name A–Z").
+/// Raw values back an @AppStorage so the choice sticks, like the web app's
+/// sessionStorage-persisted `<select>`.
+enum ProjectSort: String, CaseIterable, Identifiable {
+    case lastEdited
+    case title
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .lastEdited: "Last edited"
+        case .title: "Name A–Z"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .lastEdited: "clock"
+        case .title: "textformat"
+        }
+    }
+}
+
 struct ProjectsSidebarView: View {
     let app: AppModel
     let model: ProjectListModel
@@ -12,13 +36,44 @@ struct ProjectsSidebarView: View {
 
     @State private var showingCreate = false
     @State private var renamingProject: Project?
+    @State private var searchText = ""
+    @AppStorage("projectListSort") private var sortMode = ProjectSort.lastEdited
+
+    /// Client-side search + sort, matching the web list which filters by title
+    /// and orders by the chosen mode (with a title tie-break on last-edited).
+    private var displayedProjects: [Project] {
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let filtered = query.isEmpty
+            ? model.projects
+            : model.projects.filter { $0.displayTitle.lowercased().contains(query) }
+        return filtered.sorted { lhs, rhs in
+            switch sortMode {
+            case .lastEdited:
+                let l = lhs.lastEdited ?? .distantPast
+                let r = rhs.lastEdited ?? .distantPast
+                if l != r { return l > r }
+                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            case .title:
+                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            }
+        }
+    }
+
+    /// Web header subtitle: a screenplay count, or a tagline when empty.
+    private var countSubtitle: String {
+        switch model.projects.count {
+        case 0: "Your screenplays live here."
+        case 1: "1 screenplay"
+        case let n: "\(n) screenplays"
+        }
+    }
 
     var body: some View {
         List(selection: $selection) {
             if app.isDemo {
                 DemoBanner()
             }
-            ForEach(model.projects) { project in
+            ForEach(displayedProjects) { project in
                 ProjectRow(project: project)
                     .tag(project)
                     .swipeActions(edge: .trailing) {
@@ -50,13 +105,17 @@ struct ProjectsSidebarView: View {
                     ProgressView()
                 } else {
                     ContentUnavailableView(
-                        "No Projects",
+                        "No projects yet",
                         systemImage: "film",
-                        description: Text("Create a project to start writing."))
+                        description: Text("Create your first screenplay to get started."))
                 }
+            } else if displayedProjects.isEmpty {
+                ContentUnavailableView.search(text: searchText)
             }
         }
         .navigationTitle("Projects")
+        .navigationSubtitle(countSubtitle)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
         .refreshable { await model.refresh() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -65,6 +124,14 @@ struct ProjectsSidebarView: View {
                 } label: {
                     Label("New Project", systemImage: "plus")
                 }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                Picker("Sort", selection: $sortMode) {
+                    ForEach(ProjectSort.allCases) { mode in
+                        Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button(role: .destructive) {
@@ -132,10 +199,17 @@ private struct ProjectRow: View {
                 .lineLimit(1)
             HStack(spacing: 6) {
                 if let lastEdited = project.lastEdited {
-                    Text(lastEdited, format: .relative(presentation: .named))
+                    Label {
+                        Text(lastEdited, format: .relative(presentation: .named))
+                    } icon: {
+                        Image(systemName: "clock")
+                    }
+                    .labelStyle(.titleAndIcon)
                 }
                 if let teams = project.teams, !teams.isEmpty {
-                    Text("·")
+                    if project.lastEdited != nil {
+                        Text("·")
+                    }
                     Text(teams.joined(separator: ", "))
                         .lineLimit(1)
                 }
