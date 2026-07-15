@@ -20,6 +20,8 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     }
 
     static let selfRel = Rel("self")
+    static let account = Rel("account")
+    static let changePassword = Rel("changePassword")
     static let users = Rel("users")
     static let projects = Rel("projects")
     static let blocks = Rel("blocks")

@@ -69,6 +69,9 @@ actor DemoBackend {
         case ("GET", "api", nil):
             return ok(rootJSON())
 
+        case ("GET", "api", "account"):
+            return ok(accountJSON())
+
         case (_, "api", "project"):
             return routeProject(method: method, path: Array(path.dropFirst(2)),
                                 query: query, fields: fields)
@@ -295,7 +298,19 @@ actor DemoBackend {
 
     private func rootJSON() -> [String: Any] {
         ["_links": ["self": link("/api"),
+                    "account": link("/api/account"),
                     "projects": link("/api/project")]]
+    }
+
+    /// A stand-in identity for the user menu. No `changePassword`, `users`, or
+    /// `teams` links: demo mode isn't an admin and nothing here persists, so
+    /// those affordances stay hidden — matching how the menu rel-gates them.
+    private func accountJSON() -> [String: Any] {
+        ["username": "demo",
+         "firstName": "Demo",
+         "lastName": "User",
+         "admin": false,
+         "_links": ["self": link("/api/account")]]
     }
 
     private func projectJSON(_ project: DemoProject) -> [String: Any] {

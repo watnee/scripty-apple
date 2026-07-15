@@ -59,19 +59,14 @@ struct ProjectsSidebarView: View {
         .navigationTitle("Projects")
         .refreshable { await model.refresh() }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                UserMenu(app: app)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showingCreate = true
                 } label: {
                     Label("New Project", systemImage: "plus")
-                }
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Button(role: .destructive) {
-                    app.signOut()
-                } label: {
-                    Label(app.isDemo ? "Exit Demo" : "Sign Out",
-                          systemImage: "rectangle.portrait.and.arrow.right")
                 }
             }
         }

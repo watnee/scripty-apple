@@ -14,6 +14,8 @@ struct scriptyApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(app: appModel)
+                // Honor the user menu's Light/Dark/System choice everywhere.
+                .preferredColorScheme(appModel.theme.colorScheme)
                 .onOpenURL { url in
                     // scripty://demo — e.g. from a home-screen Shortcut —
                     // jumps straight into the offline demo.
