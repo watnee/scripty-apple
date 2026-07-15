@@ -89,6 +89,30 @@ enum BlockType: String, CaseIterable, Identifiable {
     var isCharacterCue: Bool {
         self == .character || self == .dualDialogue
     }
+
+    /// The element created when Enter is pressed inside this one, mirroring
+    /// `nextTypeAfter` in the web editor: a cue is followed by dialogue,
+    /// everything else by action.
+    var followingType: BlockType {
+        isCharacterCue ? .dialogue : .action
+    }
+
+    /// The order the element-type bar's Tab key cycles through, matching
+    /// `TAB_CYCLE` in the web editor.
+    static let tabCycle: [BlockType] = [
+        .scene, .action, .character, .parenthetical, .dialogue, .transition, .shot,
+    ]
+
+    /// The next type when Tab (or Shift-Tab) cycles from this one. Types
+    /// outside the cycle re-enter it at `.action`.
+    func cycled(backward: Bool) -> BlockType {
+        let cycle = Self.tabCycle
+        let start = cycle.firstIndex(of: self) ?? cycle.firstIndex(of: .action) ?? 0
+        let next = backward
+            ? (start - 1 + cycle.count) % cycle.count
+            : (start + 1) % cycle.count
+        return cycle[next]
+    }
 }
 
 struct CreateBlockCommand: Encodable {
@@ -98,9 +122,28 @@ struct CreateBlockCommand: Encodable {
     var type: String
 }
 
-/// The API does not allow changing a block's type after creation.
+/// Edit a block's content, linked character, and tags in place.
+/// (Element type is changed through `SetTypeCommand`, not here.)
 struct EditBlockCommand: Encodable {
     var content: String
+    var personId: Int?
+    var tags: String?
+}
+
+/// Insert a new element directly below an anchor block — the Enter key in
+/// the web editor. Content is the text carried into the new element.
+struct CreateBelowCommand: Encodable {
+    var content: String
+    var personId: Int?
+    var type: String
+}
+
+/// Retype a block in place — the element-type bar in the web editor.
+/// Content/personId are sent so the retype can reinterpret them (e.g. a
+/// character cue's name, or clearing a cue's text when it becomes dialogue).
+struct SetTypeCommand: Encodable {
+    var type: String
+    var content: String?
     var personId: Int?
     var tags: String?
 }

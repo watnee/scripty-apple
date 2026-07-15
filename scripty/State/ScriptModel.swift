@@ -20,6 +20,12 @@ final class ScriptModel {
     private(set) var characters: [Person] = []
     private(set) var charactersLinks = HALLinks()
     private(set) var canViewCharacters = true
+
+    /// Whether the writer can add or edit elements: true when the server
+    /// offers to seed an empty script, or any existing block is editable.
+    var canEditScript: Bool {
+        blocksLinks[.createInitial] != nil || blocks.contains { $0.isEditable }
+    }
     private(set) var undoRedo: UndoRedoStatus?
     private(set) var isLoading = false
     var errorMessage: String?
@@ -27,6 +33,25 @@ final class ScriptModel {
     /// Set while an editor sheet is open so a sync refresh doesn't clobber
     /// in-progress typing.
     var hasActiveEdit = false
+
+    // MARK: - Inline editing state
+
+    /// The block whose text field currently holds the keyboard, or nil when
+    /// the editor is idle. Drives the element-type bar and pauses sync.
+    var focusedBlockId: Int?
+
+    /// Uncommitted text per block as the writer types — the source of truth
+    /// for the visible field until a PUT persists it. Keyed by block id.
+    var liveText: [Int: String] = [:]
+
+    /// A one-shot request to place the caret at a character offset in a block
+    /// after a programmatic change (split, merge, retype). Consumed by the
+    /// text view, then cleared via `caretApplied`.
+    var caretRequests: [Int: Int] = [:]
+
+    /// Per-block debounced save tasks, cancelled and rescheduled on each keystroke.
+    private var saveTasks: [Int: Task<Void, Never>] = [:]
+    private static let saveDebounce: Duration = .milliseconds(600)
 
     private var lastRevision: Int64 = 0
     private var syncTask: Task<Void, Never>?
@@ -54,6 +79,7 @@ final class ScriptModel {
             let collection: HALCollection<Block> = try await app.client.fetch(from: link)
             blocks = collection.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
             blocksLinks = collection.links
+            syncLiveText()
             errorMessage = nil
         } catch {
             report(error)
@@ -104,6 +130,7 @@ final class ScriptModel {
                 from: link, method: "PUT",
                 body: EditBlockCommand(content: content, personId: personId, tags: tags))
             replace(updated)
+            liveText[updated.id] = updated.content ?? content
             await refreshUndoRedo()
             errorMessage = nil
             return true
@@ -115,9 +142,13 @@ final class ScriptModel {
 
     func deleteBlock(_ block: Block) async {
         guard let link = block.link(.delete) else { return }
+        saveTasks[block.id]?.cancel()
+        saveTasks[block.id] = nil
         do {
             try await app.client.data(for: link, method: "DELETE")
             blocks.removeAll { $0.id == block.id }
+            liveText[block.id] = nil
+            if focusedBlockId == block.id { focusedBlockId = nil }
             await refreshUndoRedo()
             errorMessage = nil
         } catch {
@@ -147,6 +178,206 @@ final class ScriptModel {
     private func replace(_ updated: Block) {
         if let index = blocks.firstIndex(where: { $0.id == updated.id }) {
             blocks[index] = updated
+        }
+    }
+
+    // MARK: - Inline editing
+
+    /// Live text for a block, falling back to its persisted content.
+    func text(for block: Block) -> String {
+        liveText[block.id] ?? block.content ?? ""
+    }
+
+    /// Reset every block's live text to its persisted content, preserving the
+    /// block currently being typed into so a background reload can't wipe it.
+    private func syncLiveText() {
+        var refreshed: [Int: String] = [:]
+        for block in blocks {
+            if block.id == focusedBlockId, let inFlight = liveText[block.id] {
+                refreshed[block.id] = inFlight
+            } else {
+                refreshed[block.id] = block.content ?? ""
+            }
+        }
+        liveText = refreshed
+    }
+
+    /// The text view reports every keystroke here: hold it in memory and
+    /// schedule a debounced save so typing stays snappy.
+    func noteEdit(_ block: Block, text: String) {
+        liveText[block.id] = text
+        scheduleSave(block)
+    }
+
+    private func scheduleSave(_ block: Block) {
+        saveTasks[block.id]?.cancel()
+        let id = block.id
+        saveTasks[id] = Task { [weak self] in
+            try? await Task.sleep(for: Self.saveDebounce)
+            guard !Task.isCancelled else { return }
+            await self?.commitContent(id)
+            self?.saveTasks[id] = nil
+        }
+    }
+
+    /// Persist a block's live text if it differs from what the server holds.
+    @discardableResult
+    private func commitContent(_ blockId: Int) async -> Bool {
+        saveTasks[blockId]?.cancel()
+        saveTasks[blockId] = nil
+        guard let block = blocks.first(where: { $0.id == blockId }),
+              let link = block.link(.update) else { return true }
+        let content = liveText[blockId] ?? block.content ?? ""
+        guard content != (block.content ?? "") else { return true }
+        do {
+            let updated: Block = try await app.client.fetch(
+                from: link, method: "PUT",
+                body: EditBlockCommand(content: content,
+                                       personId: block.personId,
+                                       tags: block.tags))
+            replace(updated)
+            if focusedBlockId != blockId {
+                liveText[blockId] = updated.content ?? content
+            }
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Focus moved onto a block: pause sync and remember which one.
+    func beginEditing(_ block: Block) {
+        focusedBlockId = block.id
+    }
+
+    /// Focus left a block: flush its pending edits and, if nothing else took
+    /// focus, mark the editor idle.
+    func endEditing(_ block: Block) {
+        if focusedBlockId == block.id {
+            focusedBlockId = nil
+        }
+        Task { await commitContent(block.id) }
+    }
+
+    /// Enter inside a block: the text before the caret stays, the text after
+    /// moves into a new element below whose type follows screenplay flow.
+    func splitBlock(_ block: Block, before: String, after: String) async {
+        guard let link = block.link(.createBelow) else { return }
+        liveText[block.id] = before
+        await commitContent(block.id)
+        let newType = block.blockType.followingType
+        let personId = newType == .dialogue ? block.personId : nil
+        do {
+            let created: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: CreateBelowCommand(content: after, personId: personId,
+                                         type: newType.rawValue))
+            insertAfter(block.id, created)
+            liveText[created.id] = created.content ?? after
+            focusedBlockId = created.id
+            caretRequests[created.id] = 0
+            await refreshUndoRedo()
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Backspace at the very start of a block: merge its text onto the end of
+    /// the previous editable block and remove this one, matching the web editor.
+    func mergeIntoPrevious(_ block: Block) async {
+        guard let index = blocks.firstIndex(where: { $0.id == block.id }), index > 0 else { return }
+        let previous = blocks[index - 1]
+        guard previous.link(.update) != nil, block.link(.delete) != nil else { return }
+        let previousText = liveText[previous.id] ?? previous.content ?? ""
+        let currentText = liveText[block.id] ?? block.content ?? ""
+        let joinOffset = previousText.count
+
+        liveText[previous.id] = previousText + currentText
+        await commitContent(previous.id)
+        await removeBlock(block)
+        focusedBlockId = previous.id
+        caretRequests[previous.id] = joinOffset
+        await refreshUndoRedo()
+    }
+
+    /// Retype the focused block in place (the element-type bar / Tab key).
+    func changeType(_ block: Block, to type: BlockType) async {
+        guard let link = block.link(.setType) else { return }
+        let content = liveText[block.id] ?? block.content ?? ""
+        do {
+            let updated: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: SetTypeCommand(type: type.rawValue, content: content,
+                                     personId: block.personId, tags: nil))
+            replace(updated)
+            let newText = updated.content ?? ""
+            liveText[updated.id] = newText
+            caretRequests[updated.id] = newText.count
+            await refreshUndoRedo()
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Create the first element of an untouched script, then focus it. The
+    /// server advertises `createInitial` on the block collection only while the
+    /// script is empty; otherwise fall back to a plain create.
+    func createFirstBlock() async {
+        if let link = blocksLinks[.createInitial] {
+            do {
+                let created: Block = try await app.client.fetch(from: link, method: "POST")
+                blocks.append(created)
+                liveText[created.id] = created.content ?? ""
+                focusedBlockId = created.id
+                caretRequests[created.id] = 0
+                await refreshUndoRedo()
+                errorMessage = nil
+            } catch {
+                report(error)
+            }
+        } else if await createBlock(content: "", type: .action, personId: nil),
+                  let created = blocks.last {
+            focusedBlockId = created.id
+            caretRequests[created.id] = 0
+        }
+    }
+
+    /// Append a new element after the last block and focus it (the toolbar +).
+    func appendBlock() async {
+        if let last = blocks.last, last.link(.createBelow) != nil {
+            await splitBlock(last, before: text(for: last), after: "")
+        } else {
+            await createFirstBlock()
+        }
+    }
+
+    func caretApplied(_ blockId: Int) {
+        caretRequests[blockId] = nil
+    }
+
+    private func insertAfter(_ anchorId: Int, _ block: Block) {
+        if let index = blocks.firstIndex(where: { $0.id == anchorId }) {
+            blocks.insert(block, at: index + 1)
+        } else {
+            blocks.append(block)
+        }
+    }
+
+    private func removeBlock(_ block: Block) async {
+        guard let link = block.link(.delete) else { return }
+        saveTasks[block.id]?.cancel()
+        saveTasks[block.id] = nil
+        do {
+            try await app.client.data(for: link, method: "DELETE")
+            blocks.removeAll { $0.id == block.id }
+            liveText[block.id] = nil
+            errorMessage = nil
+        } catch {
+            report(error)
         }
     }
 
@@ -199,7 +430,8 @@ final class ScriptModel {
     }
 
     private func pollSync() async {
-        guard !hasActiveEdit, let base = project.link(.syncStatus) else { return }
+        guard !hasActiveEdit, focusedBlockId == nil, saveTasks.isEmpty,
+              let base = project.link(.syncStatus) else { return }
         let link = base.addingQuery(["since": String(lastRevision)])
         do {
             let status: SyncStatus = try await app.client.fetch(from: link)

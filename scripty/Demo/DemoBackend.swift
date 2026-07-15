@@ -148,11 +148,30 @@ actor DemoBackend {
             guard let projectId = query["projectId"].flatMap(Int.init) else {
                 return badRequest("projectId")
             }
-            let items = (blocks[projectId] ?? [])
+            let list = blocks[projectId] ?? []
+            let items = list
                 .sorted { $0.order < $1.order }
                 .map { blockJSON($0, projectId: projectId) }
-            return ok(["_embedded": ["blockResourceList": items],
-                       "_links": ["self": link("/api/block?projectId=\(projectId)")]])
+            var links: [String: Any] = ["self": link("/api/block?projectId=\(projectId)")]
+            // The server offers to seed the first element only while empty.
+            if list.isEmpty {
+                links["createInitial"] = link("/api/block/initial?projectId=\(projectId)")
+            }
+            return ok(["_embedded": ["blockResourceList": items], "_links": links])
+        case ("POST", 1) where path.first == "initial":
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  blocks[projectId] != nil else {
+                return badRequest("projectId")
+            }
+            if !(blocks[projectId]?.isEmpty ?? true) {
+                return (409, Data("{}".utf8))
+            }
+            snapshot(projectId)
+            let block = DemoBlock(id: nextBlockId, order: 1, content: "", type: "ACTION")
+            nextBlockId += 1
+            blocks[projectId] = [block]
+            touch(projectId)
+            return ok(blockJSON(block, projectId: projectId))
         case ("POST", 0):
             guard let projectId = fields["projectId"] as? Int,
                   blocks[projectId] != nil,
@@ -197,6 +216,44 @@ actor DemoBackend {
         case ("POST", "pinned"):
             blocks[projectId]?[index].pinned.toggle()
             return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
+        case ("POST", "below"):
+            snapshot(projectId)
+            var list = blocks[projectId] ?? []
+            let newOrder = list[index].order + 1
+            for i in list.indices where list[i].order >= newOrder {
+                list[i].order += 1
+            }
+            let block = DemoBlock(id: nextBlockId,
+                                  order: newOrder,
+                                  content: fields["content"] as? String ?? "",
+                                  type: fields["type"] as? String ?? "ACTION",
+                                  personId: fields["personId"] as? Int)
+            nextBlockId += 1
+            list.append(block)
+            blocks[projectId] = list
+            touch(projectId)
+            return ok(blockJSON(block, projectId: projectId))
+        case ("POST", "type"):
+            snapshot(projectId)
+            var list = blocks[projectId] ?? []
+            let previousType = list[index].type
+            let newType = fields["type"] as? String ?? "ACTION"
+            list[index].type = newType
+            if let content = fields["content"] as? String {
+                list[index].content = content
+            }
+            if let personId = fields["personId"] as? Int {
+                list[index].personId = personId
+            }
+            // A cue retyped to dialogue hands its name to the speaker and
+            // starts the dialogue empty, mirroring the server.
+            if newType == "DIALOGUE",
+               previousType == "CHARACTER" || previousType == "DUAL_DIALOGUE" {
+                list[index].content = ""
+            }
+            blocks[projectId] = list
+            touch(projectId)
+            return ok(blockJSON(list[index], projectId: projectId))
         default:
             return notFound()
         }
@@ -335,6 +392,8 @@ actor DemoBackend {
                 "delete": link("/api/block/\(block.id)"),
                 "toggleBookmark": link("/api/block/\(block.id)/bookmark"),
                 "togglePinned": link("/api/block/\(block.id)/pinned"),
+                "createBelow": link("/api/block/\(block.id)/below"),
+                "setType": link("/api/block/\(block.id)/type"),
             ],
         ]
         if let personId = block.personId {
