@@ -55,7 +55,7 @@ final class APIClient {
         request.httpMethod = method
         request.setValue("application/hal+json", forHTTPHeaderField: "Accept")
         if let credentials {
-            request.setValue(credentials.basicAuthorizationHeader, forHTTPHeaderField: "Authorization")
+            request.setValue(credentials.authorizationHeader, forHTTPHeaderField: "Authorization")
         }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

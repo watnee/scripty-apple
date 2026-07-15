@@ -81,6 +81,16 @@ struct LoginView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canSubmit)
 
+            Button {
+                signInWithPasskey()
+            } label: {
+                Label("Sign in with a passkey", systemImage: "person.badge.key")
+                    .frame(maxWidth: 360)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isSigningIn)
+
             VStack(spacing: 6) {
                 Button {
                     enterDemo()
@@ -101,6 +111,15 @@ struct LoginView: View {
             Spacer()
         }
         .padding()
+    }
+
+    private func signInWithPasskey() {
+        focusedField = nil
+        isSigningIn = true
+        Task {
+            await app.signInWithPasskey()
+            isSigningIn = false
+        }
     }
 
     private func enterDemo() {

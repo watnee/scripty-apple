@@ -82,6 +82,47 @@ final class AppModel {
         }
     }
 
+    /// Signs in with a passkey: runs the WebAuthn assertion, exchanges it for a
+    /// bearer token, and persists that token as the session credential.
+    func signInWithPasskey() async {
+        do {
+            let credentials = try await PasskeyService().signIn()
+            client.credentials = credentials
+            apiRoot = try await client.fetch(APIRoot.self, from: client.rootLink)
+            try? KeychainStore.save(credentials)
+            signInError = nil
+            phase = .signedIn
+        } catch PasskeyService.PasskeyError.cancelled {
+            // User backed out of the system sheet — leave the login screen as-is.
+        } catch {
+            client.credentials = nil
+            signInError = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+        }
+    }
+
+    /// Registers a new passkey for the signed-in account. Throws on failure so
+    /// the caller can surface it inline; cancellation is reported as such.
+    func registerPasskey(label: String) async throws {
+        guard let credentials = client.credentials, !isDemo else {
+            throw PasskeyService.PasskeyError.notAuthenticated
+        }
+        try await PasskeyService().register(label: label, authorization: credentials)
+    }
+
+    /// The client's passkey-list endpoint. Not a HAL rel — built from the base
+    /// URL — so it degrades to an empty list against servers without it.
+    var passkeysLink: HALLink {
+        HALLink(href: client.baseURL.appendingPathComponent("api/passkeys").absoluteString)
+    }
+
+    /// Removes a registered passkey via Spring Security's WebAuthn delete filter.
+    func deletePasskey(_ passkey: Passkey) async throws {
+        let link = HALLink(href: client.baseURL
+            .appendingPathComponent("webauthn/register/\(passkey.id)").absoluteString)
+        _ = try await client.data(for: link, method: "DELETE")
+    }
+
     /// Enters the offline demo: a fresh in-memory backend seeded with a
     /// sample screenplay. Stored real credentials are left untouched.
     ///

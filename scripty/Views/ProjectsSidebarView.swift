@@ -12,6 +12,7 @@ struct ProjectsSidebarView: View {
 
     @State private var showingCreate = false
     @State private var renamingProject: Project?
+    @State private var showingPasskeys = false
 
     var body: some View {
         List(selection: $selection) {
@@ -67,13 +68,27 @@ struct ProjectsSidebarView: View {
                 }
             }
             ToolbarItem(placement: .secondaryAction) {
-                Button(role: .destructive) {
-                    app.signOut()
+                Menu {
+                    if !app.isDemo {
+                        Button {
+                            showingPasskeys = true
+                        } label: {
+                            Label("Passkeys", systemImage: "person.badge.key")
+                        }
+                    }
+                    Button(role: .destructive) {
+                        app.signOut()
+                    } label: {
+                        Label(app.isDemo ? "Exit Demo" : "Sign Out",
+                              systemImage: "rectangle.portrait.and.arrow.right")
+                    }
                 } label: {
-                    Label(app.isDemo ? "Exit Demo" : "Sign Out",
-                          systemImage: "rectangle.portrait.and.arrow.right")
+                    Label("Account", systemImage: "person.crop.circle")
                 }
             }
+        }
+        .sheet(isPresented: $showingPasskeys) {
+            PasskeysView(app: app)
         }
         .sheet(isPresented: $showingCreate) {
             ProjectTitleSheet(title: "", heading: "New Project") { title in
