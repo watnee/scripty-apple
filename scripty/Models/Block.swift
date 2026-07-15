@@ -89,6 +89,29 @@ enum BlockType: String, CaseIterable, Identifiable {
     var isCharacterCue: Bool {
         self == .character || self == .dualDialogue
     }
+
+    /// The type a new element gets when you press Return after this one —
+    /// mirrors `nextTypeAfter` in the web editor's fountain-power.js:
+    /// a cue is followed by dialogue, everything else by action.
+    var followingType: BlockType {
+        isCharacterCue ? .dialogue : .action
+    }
+
+    /// The element order the Tab key cycles through, matching the web
+    /// editor's Final Draft-style rotation (`cycleType` in fountain-power.js).
+    static let tabCycle: [BlockType] = [
+        .scene, .action, .character, .parenthetical, .dialogue, .transition, .shot,
+    ]
+
+    /// The next (or previous) type when Tab is pressed. Types outside the
+    /// cycle fall back to Action's position.
+    func cycled(backward: Bool) -> BlockType {
+        let cycle = Self.tabCycle
+        let start = cycle.firstIndex(of: self) ?? cycle.firstIndex(of: .action) ?? 0
+        let count = cycle.count
+        let next = backward ? (start - 1 + count) % count : (start + 1) % count
+        return cycle[next]
+    }
 }
 
 struct CreateBlockCommand: Encodable {
@@ -98,9 +121,26 @@ struct CreateBlockCommand: Encodable {
     var type: String
 }
 
-/// The API does not allow changing a block's type after creation.
+/// The API does not allow changing a block's type via PUT.
 struct EditBlockCommand: Encodable {
     var content: String
+    var personId: Int?
+    var tags: String?
+}
+
+/// Body for `POST /api/block/{id}/below` (rel `createBelow`) — inserts a new
+/// element directly under an anchor block, the way Return does on the web.
+struct CreateBelowCommand: Encodable {
+    var content: String
+    var personId: Int?
+    var type: String
+}
+
+/// Body for `POST /api/block/{id}/type` (rel `setType`) — retypes a block in
+/// place. A nil `content` leaves the stored text untouched.
+struct SetTypeCommand: Encodable {
+    var type: String
+    var content: String?
     var personId: Int?
     var tags: String?
 }
