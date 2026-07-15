@@ -89,6 +89,39 @@ enum BlockType: String, CaseIterable, Identifiable {
     var isCharacterCue: Bool {
         self == .character || self == .dualDialogue
     }
+
+    /// The type a brand-new element gets when you press Return after this one.
+    /// After a character cue you're writing dialogue; otherwise action.
+    /// Mirrors `nextTypeAfter` in the web editor's fountain-power.js.
+    var followingType: BlockType {
+        isCharacterCue ? .dialogue : .action
+    }
+
+    /// Classic Final-Draft-style Tab order (mirrors `TAB_CYCLE`).
+    static let tabCycle: [BlockType] =
+        [.scene, .action, .character, .parenthetical, .dialogue, .transition, .shot]
+
+    /// Less-common types map onto the logical cycle before advancing
+    /// (mirrors `TAB_CYCLE_ENTRY`).
+    private var tabCycleEntry: BlockType {
+        switch self {
+        case .text, .centered, .note: return .action
+        case .lyrics: return .dialogue
+        case .dualDialogue: return .character
+        case .section, .synopsis, .pageBreak: return .scene
+        default: return self
+        }
+    }
+
+    /// The next (or previous) type when the writer presses Tab / Shift-Tab.
+    func cyclingType(backward: Bool) -> BlockType {
+        let cycle = BlockType.tabCycle
+        let entry = tabCycleEntry
+        let index = cycle.firstIndex(of: entry) ?? cycle.firstIndex(of: .action)!
+        let step = backward ? -1 : 1
+        let next = (index + step + cycle.count) % cycle.count
+        return cycle[next]
+    }
 }
 
 struct CreateBlockCommand: Encodable {
@@ -98,9 +131,27 @@ struct CreateBlockCommand: Encodable {
     var type: String
 }
 
-/// The API does not allow changing a block's type after creation.
+/// The API does not allow changing a block's type after a plain PUT.
 struct EditBlockCommand: Encodable {
     var content: String
+    var personId: Int?
+    var tags: String?
+}
+
+/// Insert a new element directly beneath an existing block (rel `createBelow`).
+/// The web editor uses this when Return splits a line: `content` is the text
+/// that lands in the new element.
+struct CreateBelowCommand: Encodable {
+    var content: String
+    var personId: Int?
+    var type: String
+}
+
+/// Retype a block in place (rel `setType`) — the REST counterpart of the web
+/// editor's element-type bar. Content/personId/tags are preserved when omitted.
+struct SetTypeCommand: Encodable {
+    var type: String
+    var content: String?
     var personId: Int?
     var tags: String?
 }

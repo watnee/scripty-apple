@@ -151,8 +151,22 @@ actor DemoBackend {
             let items = (blocks[projectId] ?? [])
                 .sorted { $0.order < $1.order }
                 .map { blockJSON($0, projectId: projectId) }
-            return ok(["_embedded": ["blockResourceList": items],
-                       "_links": ["self": link("/api/block?projectId=\(projectId)")]])
+            var links: [String: Any] = ["self": link("/api/block?projectId=\(projectId)")]
+            // An untouched script advertises only the seed affordance.
+            if items.isEmpty, blocks[projectId] != nil {
+                links["createInitial"] = link("/api/block/initial?projectId=\(projectId)")
+            }
+            return ok(["_embedded": ["blockResourceList": items], "_links": links])
+        case ("POST", 1) where path.first == "initial":
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  blocks[projectId] != nil else { return badRequest("projectId") }
+            guard blocks[projectId]?.isEmpty ?? true else { return (409, Data("{}".utf8)) }
+            snapshot(projectId)
+            let block = DemoBlock(id: nextBlockId, order: 1, content: "", type: "ACTION", personId: nil)
+            nextBlockId += 1
+            blocks[projectId] = [block]
+            touch(projectId)
+            return ok(blockJSON(block, projectId: projectId))
         case ("POST", 0):
             guard let projectId = fields["projectId"] as? Int,
                   blocks[projectId] != nil,
@@ -197,6 +211,33 @@ actor DemoBackend {
         case ("POST", "pinned"):
             blocks[projectId]?[index].pinned.toggle()
             return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
+        case ("POST", "below"):
+            snapshot(projectId)
+            var list = blocks[projectId] ?? []
+            let inserted = DemoBlock(id: nextBlockId,
+                                     order: 0,
+                                     content: fields["content"] as? String ?? "",
+                                     type: (fields["type"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "ACTION",
+                                     personId: fields["personId"] as? Int)
+            nextBlockId += 1
+            list.insert(inserted, at: index + 1)
+            for i in list.indices { list[i].order = i + 1 }   // renumber to keep a clean sequence
+            blocks[projectId] = list
+            touch(projectId)
+            return ok(blockJSON(list[index + 1], projectId: projectId))
+        case ("POST", "type"):
+            guard let type = fields["type"] as? String, !type.isEmpty else {
+                return badRequest("type")
+            }
+            snapshot(projectId)
+            var updated = blocks[projectId]![index]
+            updated.type = type
+            if let content = fields["content"] as? String { updated.content = content }
+            if let personId = fields["personId"] as? Int { updated.personId = personId }
+            if let tags = fields["tags"] as? String { updated.tags = tags }
+            blocks[projectId]![index] = updated
+            touch(projectId)
+            return ok(blockJSON(updated, projectId: projectId))
         default:
             return notFound()
         }
@@ -335,6 +376,9 @@ actor DemoBackend {
                 "delete": link("/api/block/\(block.id)"),
                 "toggleBookmark": link("/api/block/\(block.id)/bookmark"),
                 "togglePinned": link("/api/block/\(block.id)/pinned"),
+                "createBelow": link("/api/block/\(block.id)/below"),
+                "setType": link("/api/block/\(block.id)/type"),
+                "move": link("/api/block/\(block.id)/move"),
             ],
         ]
         if let personId = block.personId {
