@@ -23,6 +23,8 @@ struct ScriptView: View {
     @State private var showingVersions = false
     /// Presented from the link the block collection advertised.
     @State private var trashLink: HALLink?
+    @State private var showingEditions = false
+    @State private var editions: EditionsModel
     @State private var navigator = ScriptNavigator()
     @State private var search = ScriptSearchModel()
     @State private var selection = BlockSelectionModel()
@@ -38,6 +40,7 @@ struct ScriptView: View {
 
     init(app: AppModel, project: Project) {
         _model = State(initialValue: ScriptModel(app: app, project: project))
+        _editions = State(initialValue: EditionsModel(app: app, project: project))
     }
 
     var body: some View {
@@ -48,7 +51,7 @@ struct ScriptView: View {
                 editor
             }
         }
-        .navigationTitle(model.project.displayTitle)
+        .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .refreshable {
@@ -59,6 +62,9 @@ struct ScriptView: View {
             await model.loadEverything()
             model.startSyncPolling()
             repaginate()
+            // Loaded quietly: most projects have a single edition and should
+            // show no sign of the feature at all.
+            await editions.load()
         }
         .onDisappear { model.stopSyncPolling() }
         .onChange(of: model.blocks) { _, _ in repaginate() }
@@ -86,6 +92,15 @@ struct ScriptView: View {
                 }) { block in
                     DeletedBlockRow(block: block)
                 }
+        }
+        .sheet(isPresented: $showingEditions) {
+            EditionsView(model: editions) { edition in
+                // The choice travels as the link the server gave for that
+                // edition; changing it reloads the script.
+                model.editionBlocksLink = editions.blocksLink(for: edition)
+                await model.refreshUndoRedo()
+                repaginate()
+            }
         }
         .sheet(isPresented: $showingVersions) {
             VersionHistoryView(app: model.app, project: model.project) {
@@ -118,6 +133,15 @@ struct ScriptView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+
+    /// Names the edition only when it is not the default one — a writer who
+    /// has moved off the main draft should be able to see that, and everyone
+    /// else should not have to read about it.
+    private var navigationTitle: String {
+        let title = model.project.displayTitle
+        guard let edition = editions.selected, !edition.isTheDefault else { return title }
+        return "\(title) · \(edition.displayName)"
     }
 
     /// The writing surface: one continuous column you type into.
@@ -345,6 +369,17 @@ struct ScriptView: View {
                         showingStats = true
                     } label: {
                         Label("Script Stats", systemImage: "chart.bar")
+                    }
+                }
+
+                // Only worth surfacing once there is more than one edition, or
+                // the writer can make one. A single-edition project should show
+                // no sign of the feature.
+                if editions.hasChoice || editions.canCreate {
+                    Button {
+                        showingEditions = true
+                    } label: {
+                        Label("Editions", systemImage: "doc.on.doc")
                     }
                 }
 

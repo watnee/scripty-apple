@@ -76,8 +76,19 @@ final class ScriptModel {
         await refreshUndoRedo()
     }
 
+    /// Which edition's blocks to read, when the writer has chosen one other
+    /// than the default. The server takes an `editionId` on the block
+    /// collection; this is the link it advertised for that edition, so the
+    /// choice travels as a link rather than as a parameter assembled here.
+    var editionBlocksLink: HALLink? {
+        didSet {
+            guard editionBlocksLink != oldValue else { return }
+            Task { await loadBlocks() }
+        }
+    }
+
     func loadBlocks() async {
-        guard let link = project.link(.blocks) else { return }
+        guard let link = editionBlocksLink ?? project.link(.blocks) else { return }
         do {
             let collection: HALCollection<Block> = try await app.client.fetch(from: link)
             adopt(collection)

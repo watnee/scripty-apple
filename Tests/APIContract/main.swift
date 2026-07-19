@@ -422,6 +422,110 @@ func run() async {
           embedded(json(await be.respond(method: "GET", url: url("/api/project"), body: nil).data)).count
               == liveProjectCount)
 
+    // --- EDITIONS ---
+    //
+    // `editionId` was accepted on the block collection all along; what was
+    // missing was any way to discover the ids. These pin that half, and the
+    // fact that naming an edition genuinely changes what comes back.
+    func editionList() async -> [[String: Any]] {
+        embedded(json(await be.respond(method: "GET", url: url("/api/project/edition?projectId=\(pid)"), body: nil).data))
+    }
+
+    let projectForEditions = json(await be.respond(method: "GET", url: url("/api/project/\(pid)"), body: nil).data)
+    check("project advertises `editions`",
+          (projectForEditions["_links"] as? [String: Any])?["editions"] != nil)
+
+    var allEditions = await editionList()
+    check("the project has its seeded editions", allEditions.count >= 2,
+          "got \(allEditions.count)")
+    check("exactly one edition is the default",
+          allEditions.filter { $0["default"] as? Bool == true }.count == 1)
+
+    // The whole point of an edition id: a different script comes back.
+    guard let nonDefault = allEditions.first(where: { $0["default"] as? Bool != true }),
+          let nonDefaultId = nonDefault["id"] as? Int else {
+        check("there is a non-default edition", false)
+        print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
+        return
+    }
+    let defaultBlocks = embedded(json(await be.respond(method: "GET", url: url("/api/block?projectId=\(pid)"), body: nil).data))
+    let editionBlocksResponse = await be.respond(
+        method: "GET", url: url("/api/block?projectId=\(pid)&editionId=\(nonDefaultId)"), body: nil)
+    check("naming an edition -> 200", editionBlocksResponse.status == 200,
+          "got \(editionBlocksResponse.status)")
+    check("a non-default edition returns a different script",
+          embedded(json(editionBlocksResponse.data)).count != defaultBlocks.count,
+          "both had \(defaultBlocks.count)")
+    check("an unknown edition -> 404",
+          await be.respond(method: "GET", url: url("/api/block?projectId=\(pid)&editionId=999999"), body: nil).status == 404)
+
+    let editionLinks = nonDefault["_links"] as? [String: Any] ?? [:]
+    check("an edition advertises its blocks", editionLinks["blocks"] != nil)
+    check("a non-default edition offers `setDefault`", editionLinks["setDefault"] != nil)
+    check("a default edition does not offer `setDefault`",
+          (allEditions.first { $0["default"] as? Bool == true }?["_links"]
+            as? [String: Any])?["setDefault"] == nil)
+
+    // Creating from a source copies the script; creating bare does not.
+    let copied = await be.respond(method: "POST", url: url("/api/project/edition?projectId=\(pid)"),
+                                  body: body(["name": "Table Read", "copyFromEditionId": nonDefaultId]))
+    check("create edition -> 200", copied.status == 200, "got \(copied.status)")
+    allEditions = embedded(json(copied.data))
+    let tableRead = allEditions.first { $0["name"] as? String == "Table Read" }
+    check("a copied edition starts with the source's script",
+          tableRead?["blockCount"] as? Int == nonDefault["blockCount"] as? Int,
+          "\(String(describing: nonDefault["blockCount"])) -> \(String(describing: tableRead?["blockCount"]))")
+    let bare = await be.respond(method: "POST", url: url("/api/project/edition?projectId=\(pid)"),
+                                body: body(["name": "Blank Pass"]))
+    check("an edition created without a source starts empty",
+          embedded(json(bare.data)).first { $0["name"] as? String == "Blank Pass" }?["blockCount"] as? Int == 0)
+    check("an edition needs a name -> 400",
+          await be.respond(method: "POST", url: url("/api/project/edition?projectId=\(pid)"),
+                           body: body(["name": "  "])).status == 400)
+    check("copying from an unknown edition -> 400",
+          await be.respond(method: "POST", url: url("/api/project/edition?projectId=\(pid)"),
+                           body: body(["name": "Nope", "copyFromEditionId": 999999])).status == 400)
+
+    // Default and published move independently.
+    _ = await be.respond(method: "POST",
+                         url: url("/api/project/edition/\(nonDefaultId)/set-default?projectId=\(pid)"),
+                         body: nil)
+    allEditions = await editionList()
+    check("setting a default moves it",
+          allEditions.first { $0["id"] as? Int == nonDefaultId }?["default"] as? Bool == true)
+    check("still exactly one default",
+          allEditions.filter { $0["default"] as? Bool == true }.count == 1)
+    check("publishing did not follow the default",
+          allEditions.first { $0["id"] as? Int == nonDefaultId }?["published"] as? Bool != true)
+
+    // Renaming, and the guard on removing the last edition.
+    let renamed = await be.respond(method: "PUT",
+                                   url: url("/api/project/edition/\(nonDefaultId)?projectId=\(pid)"),
+                                   body: body(["name": "Rain Rewrite v2"]))
+    check("rename -> 200", renamed.status == 200, "got \(renamed.status)")
+    check("the new name stuck",
+          embedded(json(renamed.data)).first { $0["id"] as? Int == nonDefaultId }?["name"] as? String
+              == "Rain Rewrite v2")
+
+    var remaining = await editionList()
+    for edition in remaining.dropLast() {
+        guard let id = edition["id"] as? Int else { continue }
+        _ = await be.respond(method: "DELETE",
+                             url: url("/api/project/edition/\(id)?projectId=\(pid)"), body: nil)
+    }
+    remaining = await editionList()
+    check("one edition always survives", remaining.count == 1, "got \(remaining.count)")
+    check("the last edition offers no delete",
+          (remaining.first?["_links"] as? [String: Any])?["delete"] == nil)
+    if let lastId = remaining.first?["id"] as? Int {
+        check("deleting the last edition -> 409",
+              await be.respond(method: "DELETE",
+                               url: url("/api/project/edition/\(lastId)?projectId=\(pid)"),
+                               body: nil).status == 409)
+    }
+    check("the survivor became the default",
+          remaining.first?["default"] as? Bool == true)
+
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 }
 

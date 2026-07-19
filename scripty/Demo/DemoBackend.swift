@@ -81,6 +81,9 @@ actor DemoBackend {
     private var undoStacks: [Int: [[DemoBlock]]] = [:]
     private var versions: [Int: [DemoVersion]] = [:]
     private var nextVersionId = 1
+    private var editions: [DemoEdition] = []
+    private var editionBlocks: [Int: [DemoBlock]] = [:]
+    private var nextEditionId = 1
     private var trashedProjects: [TrashedDemoProject] = []
     private var deletedBlocks: [Int: [DeletedDemoBlock]] = [:]
     private var nextDeletedBlockId = 1
@@ -146,6 +149,10 @@ actor DemoBackend {
         }
         if path.first == "trash" {
             return routeProjectTrash(method: method, path: Array(path.dropFirst()))
+        }
+        if path.first == "edition" {
+            return routeEdition(method: method, path: Array(path.dropFirst()),
+                                query: query, fields: fields)
         }
         switch (method, path.count) {
         case ("GET", 0):
@@ -379,6 +386,17 @@ actor DemoBackend {
         case ("GET", 0):
             guard let projectId = query["projectId"].flatMap(Int.init) else {
                 return badRequest("projectId")
+            }
+            // Naming an edition switches which script is being read. The
+            // default edition's blocks are the project's own, so an unnamed
+            // request behaves exactly as it always did.
+            if let editionId = query["editionId"].flatMap(Int.init) {
+                guard let edition = editions.first(where: {
+                    $0.id == editionId && $0.projectId == projectId
+                }) else { return notFound() }
+                if !edition.isDefault {
+                    return blockCollection(projectId, editionId: editionId)
+                }
             }
             return blockCollection(projectId)
         case ("POST", 1) where path.first == "initial":
@@ -827,6 +845,143 @@ actor DemoBackend {
     // MARK: - Undo / redo
 
     /// History is snapshot-based: good enough for a demo, invisible to the UI.
+    // MARK: - Editions
+
+    /// A named variant of a script. Blocks belong to an edition; the demo keys
+    /// them by edition id so switching genuinely shows different text.
+    private struct DemoEdition {
+        var id: Int
+        var projectId: Int
+        var name: String
+        var isDefault: Bool
+        var isPublished: Bool
+        var lastEdited: Date
+    }
+
+    private func routeEdition(method: String, path: [String],
+                              query: [String: String],
+                              fields: [String: Any]) -> (Int, Data) {
+        guard let projectId = query["projectId"].flatMap(Int.init),
+              blocks[projectId] != nil else { return badRequest("projectId") }
+
+        switch (method, path.count) {
+        case ("GET", 0):
+            return editionCollection(projectId)
+
+        case ("POST", 0):
+            guard let name = (fields["name"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+                return badRequest("name")
+            }
+            let source = fields["copyFromEditionId"] as? Int
+            if let source, !editions.contains(where: { $0.id == source && $0.projectId == projectId }) {
+                return badRequest("copyFromEditionId")
+            }
+            let edition = DemoEdition(id: nextEditionId, projectId: projectId, name: name,
+                                      isDefault: false, isPublished: false, lastEdited: Date())
+            nextEditionId += 1
+            editions.append(edition)
+            // A new edition starts as a copy of its source, or empty.
+            if let source {
+                editionBlocks[edition.id] = (editionBlocks[source] ?? []).map { block in
+                    var copy = block
+                    copy.id = nextBlockId
+                    nextBlockId += 1
+                    return copy
+                }
+            } else {
+                editionBlocks[edition.id] = []
+            }
+            return editionCollection(projectId)
+
+        default:
+            break
+        }
+
+        guard let editionId = path.first.flatMap(Int.init),
+              let index = editions.firstIndex(where: { $0.id == editionId && $0.projectId == projectId })
+        else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("PUT", nil):
+            guard let name = (fields["name"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+                return badRequest("name")
+            }
+            editions[index].name = name
+            return editionCollection(projectId)
+
+        case ("DELETE", nil):
+            // A project always keeps somewhere to write.
+            guard editions.filter({ $0.projectId == projectId }).count > 1 else {
+                return (409, Data(#"{"edition":"That edition cannot be deleted."}"#.utf8))
+            }
+            let removed = editions.remove(at: index)
+            editionBlocks[removed.id] = nil
+            // Something has to be the default once the default is gone.
+            if removed.isDefault,
+               let next = editions.firstIndex(where: { $0.projectId == projectId }) {
+                editions[next].isDefault = true
+                blocks[projectId] = editionBlocks[editions[next].id] ?? []
+            }
+            return editionCollection(projectId)
+
+        case ("POST", "set-default"):
+            for i in editions.indices where editions[i].projectId == projectId {
+                editions[i].isDefault = (editions[i].id == editionId)
+            }
+            return editionCollection(projectId)
+
+        case ("POST", "set-published"):
+            for i in editions.indices where editions[i].projectId == projectId {
+                editions[i].isPublished = (editions[i].id == editionId)
+            }
+            return editionCollection(projectId)
+
+        default:
+            return notFound()
+        }
+    }
+
+    private func editionCollection(_ projectId: Int) -> (Int, Data) {
+        let mine = editions.filter { $0.projectId == projectId }
+        let items = mine.map { edition -> [String: Any] in
+            var links: [String: Any] = [
+                "blocks": link("/api/block?projectId=\(projectId)&editionId=\(edition.id)"),
+                "editions": link("/api/project/edition?projectId=\(projectId)"),
+                "update": link("/api/project/edition/\(edition.id)?projectId=\(projectId)"),
+            ]
+            // The last edition offers no delete, so the client never shows an
+            // action that could only fail.
+            if mine.count > 1 {
+                links["delete"] = link("/api/project/edition/\(edition.id)?projectId=\(projectId)")
+            }
+            if !edition.isDefault {
+                links["setDefault"] = link("/api/project/edition/\(edition.id)/set-default?projectId=\(projectId)")
+            }
+            if !edition.isPublished {
+                links["setPublished"] = link("/api/project/edition/\(edition.id)/set-published?projectId=\(projectId)")
+            }
+            return [
+                "id": edition.id,
+                "name": edition.name,
+                "default": edition.isDefault,
+                "published": edition.isPublished,
+                "lastEdited": iso.string(from: edition.lastEdited),
+                "blockCount": (editionBlocks[edition.id] ?? []).count,
+                "_links": links,
+            ]
+        }
+        return ok([
+            "_embedded": ["scriptEditionResourceList": items],
+            "_links": [
+                "self": link("/api/project/edition?projectId=\(projectId)"),
+                "create": link("/api/project/edition?projectId=\(projectId)"),
+                "project": link("/api/project/\(projectId)"),
+            ],
+        ])
+    }
+
     // MARK: - Trash
 
     /// A deleted screenplay, kept whole so a restore returns everything.
@@ -1175,6 +1330,7 @@ actor DemoBackend {
                 "actors": link("/api/actor?projectId=\(project.id)"),
                 "importScript": link("/api/project/\(project.id)/import-script"),
                 "versions": link("/api/project/version?projectId=\(project.id)"),
+                "editions": link("/api/project/edition?projectId=\(project.id)"),
             ],
         ]
         if let writers = project.writers { json["writers"] = writers }
@@ -1187,11 +1343,14 @@ actor DemoBackend {
     /// The block collection, with the affordances the real server advertises:
     /// only an untouched script offers `createInitial`, and only a script with
     /// something in it offers the bulk operations.
-    private func blockCollection(_ projectId: Int) -> (Int, Data) {
-        let items = (blocks[projectId] ?? [])
+    private func blockCollection(_ projectId: Int, editionId: Int? = nil) -> (Int, Data) {
+        let source = editionId.flatMap { editionBlocks[$0] } ?? blocks[projectId] ?? []
+        let items = source
             .sorted { $0.order < $1.order }
             .map { blockJSON($0, projectId: projectId) }
-        var links: [String: Any] = ["self": link("/api/block?projectId=\(projectId)")]
+        let selfHref = editionId.map { "/api/block?projectId=\(projectId)&editionId=\($0)" }
+            ?? "/api/block?projectId=\(projectId)"
+        var links: [String: Any] = ["self": link(selfHref)]
         if items.isEmpty, blocks[projectId] != nil {
             links["createInitial"] = link("/api/block/initial?projectId=\(projectId)")
         }
@@ -1598,6 +1757,37 @@ actor DemoBackend {
         seedVersion(lastTake.id, label: "Before the rain rewrite", autoSave: false, minutesAgo: 40)
         seedVersion(lastTake.id, label: nil, autoSave: true, minutesAgo: 12)
         seedVersion(dustAndNeon.id, label: nil, autoSave: true, minutesAgo: 1_500)
+
+        // Every project has a default edition; the first one also has a
+        // revision, so the picker has something to choose between and switching
+        // shows genuinely different text.
+        seedEdition(lastTake.id, name: "Shooting Draft", isDefault: true, isPublished: true)
+        let revision = seedEdition(lastTake.id, name: "Rain Rewrite",
+                                   isDefault: false, isPublished: false)
+        editionBlocks[revision] = (blocks[lastTake.id] ?? []).prefix(12).map { block in
+            var copy = block
+            copy.id = nextBlockId
+            nextBlockId += 1
+            if copy.type == "ACTION", copy.content.contains("rain") || copy.content.contains("Rain") {
+                copy.content = "The rain arrives early, and everything changes."
+            }
+            return copy
+        }
+        seedEdition(dustAndNeon.id, name: "First Draft", isDefault: true, isPublished: true)
+    }
+
+    @discardableResult
+    private func seedEdition(_ projectId: Int, name: String,
+                             isDefault: Bool, isPublished: Bool) -> Int {
+        let edition = DemoEdition(id: nextEditionId, projectId: projectId, name: name,
+                                  isDefault: isDefault, isPublished: isPublished,
+                                  lastEdited: Date())
+        nextEditionId += 1
+        editions.append(edition)
+        // The default edition reads the project's own blocks, so an unnamed
+        // request behaves exactly as it did before editions existed.
+        editionBlocks[edition.id] = isDefault ? (blocks[projectId] ?? []) : []
+        return edition.id
     }
 
     private func seedVersion(_ projectId: Int, label: String?, autoSave: Bool, minutesAgo: Int) {

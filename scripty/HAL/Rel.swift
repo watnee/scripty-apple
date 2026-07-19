@@ -71,4 +71,9 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let trash = Rel("trash")
     static let purge = Rel("purge")
     static let emptyTrash = Rel("emptyTrash")
+
+    // Named variants of a script.
+    static let editions = Rel("editions")
+    static let setDefault = Rel("setDefault")
+    static let setPublished = Rel("setPublished")
 }
