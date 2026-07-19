@@ -79,6 +79,8 @@ actor DemoBackend {
     private var documents: [Int: [DemoDocument]] = [:] // keyed by project id
     private var actors: [DemoActor] = []
     private var undoStacks: [Int: [[DemoBlock]]] = [:]
+    private var versions: [Int: [DemoVersion]] = [:]
+    private var nextVersionId = 1
     private var redoStacks: [Int: [[DemoBlock]]] = [:]
     private var defaultProjectId: Int?
     private var nextProjectId = 1
@@ -132,6 +134,12 @@ actor DemoBackend {
                               body: Data?) -> (Int, Data) {
         if method == "POST", path.first == "import" {
             return demoImport(body: body)
+        }
+        // `/api/project/version…` is a sibling of the project resources, not a
+        // project id, so it has to be picked off before the numeric lookup.
+        if path.first == "version" {
+            return routeVersion(method: method, path: Array(path.dropFirst()),
+                                query: query, fields: fields)
         }
         switch (method, path.count) {
         case ("GET", 0):
@@ -801,6 +809,120 @@ actor DemoBackend {
     // MARK: - Undo / redo
 
     /// History is snapshot-based: good enough for a demo, invisible to the UI.
+    // MARK: - Version history
+
+    /// A saved snapshot. Holds the blocks themselves, so restoring is just
+    /// putting them back.
+    private struct DemoVersion {
+        var id: Int
+        var label: String?
+        var createdAt: Date
+        var autoSave: Bool
+        var blocks: [DemoBlock]
+        var sceneCount: Int
+        var blockCount: Int
+    }
+
+    private func routeVersion(method: String, path: [String],
+                              query: [String: String],
+                              fields: [String: Any]) -> (Int, Data) {
+        switch (method, path.count) {
+        case ("GET", 0):
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  blocks[projectId] != nil else { return badRequest("projectId") }
+            return versionCollection(projectId)
+
+        case ("POST", 0):
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  blocks[projectId] != nil else { return badRequest("projectId") }
+            let label = (fields["label"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let version = recordVersion(projectId,
+                                        label: (label?.isEmpty ?? true) ? "Version" : label,
+                                        autoSave: false)
+            return ok(versionJSON(version, projectId: projectId))
+
+        default:
+            break
+        }
+
+        guard let versionId = path.first.flatMap(Int.init),
+              let projectId = query["projectId"].flatMap(Int.init),
+              let index = versions[projectId]?.firstIndex(where: { $0.id == versionId })
+        else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("GET", nil):
+            return ok(versionJSON(versions[projectId]![index], projectId: projectId))
+
+        case ("POST", "restore"):
+            // Restoring snapshots the current state first, so nothing is lost
+            // by rolling back — the same promise the server makes.
+            _ = recordVersion(projectId, label: "Before restore", autoSave: true)
+            blocks[projectId] = versions[projectId]![index].blocks
+            snapshot(projectId)
+            touch(projectId)
+            return versionCollection(projectId)
+
+        case ("DELETE", nil):
+            versions[projectId]?.remove(at: index)
+            return versionCollection(projectId)
+
+        default:
+            return notFound()
+        }
+    }
+
+    @discardableResult
+    private func recordVersion(_ projectId: Int, label: String?, autoSave: Bool) -> DemoVersion {
+        let current = blocks[projectId] ?? []
+        let version = DemoVersion(
+            id: nextVersionId,
+            label: label,
+            createdAt: Date(),
+            autoSave: autoSave,
+            blocks: current,
+            sceneCount: current.filter { $0.type == "SCENE" }.count,
+            blockCount: current.count)
+        nextVersionId += 1
+        versions[projectId, default: []].append(version)
+        return version
+    }
+
+    private func versionCollection(_ projectId: Int) -> (Int, Data) {
+        let items = (versions[projectId] ?? [])
+            .sorted { $0.createdAt > $1.createdAt }
+            .map { versionJSON($0, projectId: projectId) }
+        return ok([
+            "_embedded": ["projectVersionResourceList": items],
+            "_links": [
+                "self": link("/api/project/version?projectId=\(projectId)"),
+                "create": link("/api/project/version?projectId=\(projectId)"),
+                "project": link("/api/project/\(projectId)"),
+            ],
+        ])
+    }
+
+    private func versionJSON(_ version: DemoVersion, projectId: Int) -> [String: Any] {
+        var json: [String: Any] = [
+            "id": version.id,
+            "createdAt": iso.string(from: version.createdAt),
+            "autoSave": version.autoSave,
+            "sceneCount": version.sceneCount,
+            "blockCount": version.blockCount,
+            "characterCount": (people[projectId] ?? []).count,
+            "_links": [
+                "self": link("/api/project/version/\(version.id)?projectId=\(projectId)"),
+                "versions": link("/api/project/version?projectId=\(projectId)"),
+                "restore": link("/api/project/version/\(version.id)/restore?projectId=\(projectId)"),
+                "delete": link("/api/project/version/\(version.id)?projectId=\(projectId)"),
+                "project": link("/api/project/\(projectId)"),
+            ],
+        ]
+        if let label = version.label { json["label"] = label }
+        return json
+    }
+
     private func snapshot(_ projectId: Int) {
         undoStacks[projectId, default: []].append(blocks[projectId] ?? [])
         if undoStacks[projectId]!.count > 50 {
@@ -866,6 +988,7 @@ actor DemoBackend {
                 "export": link("/api/project/\(project.id)/export/fountain"),
                 "actors": link("/api/actor?projectId=\(project.id)"),
                 "importScript": link("/api/project/\(project.id)/import-script"),
+                "versions": link("/api/project/version?projectId=\(project.id)"),
             ],
         ]
         if let writers = project.writers { json["writers"] = writers }
@@ -1274,6 +1397,23 @@ actor DemoBackend {
         I rode in chasing an empty street
         Found a town with a heartbeat
         """)
+
+        // A little history to arrive with, so version history is not an empty
+        // screen. Backdated, and one named against two automatic saves, which
+        // is the ratio the real thing produces.
+        seedVersion(lastTake.id, label: "First pass", autoSave: false, minutesAgo: 180)
+        seedVersion(lastTake.id, label: nil, autoSave: true, minutesAgo: 95)
+        seedVersion(lastTake.id, label: "Before the rain rewrite", autoSave: false, minutesAgo: 40)
+        seedVersion(lastTake.id, label: nil, autoSave: true, minutesAgo: 12)
+        seedVersion(dustAndNeon.id, label: nil, autoSave: true, minutesAgo: 1_500)
+    }
+
+    private func seedVersion(_ projectId: Int, label: String?, autoSave: Bool, minutesAgo: Int) {
+        var version = recordVersion(projectId, label: label, autoSave: autoSave)
+        version.createdAt = Date(timeIntervalSinceNow: -Double(minutesAgo) * 60)
+        if let index = versions[projectId]?.firstIndex(where: { $0.id == version.id }) {
+            versions[projectId]?[index] = version
+        }
     }
 
     private func flag(project: DemoProject, order: Int,

@@ -61,4 +61,9 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let shareEmail = Rel("shareEmail")
     static let importDocument = Rel("importDocument")
     static let importScript = Rel("importScript")
+
+    // Version history. The server has offered these all along.
+    static let versions = Rel("versions")
+    static let restore = Rel("restore")
+    static let create = Rel("create")
 }

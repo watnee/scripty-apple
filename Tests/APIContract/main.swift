@@ -249,6 +249,75 @@ func run() async {
     check("orders renumbered after bulk delete",
           current.enumerated().allSatisfy { $1["order"] as? Int == $0 + 1 })
 
+    // --- VERSION HISTORY ---
+    //
+    // The server has served these over REST all along; this pins the shape the
+    // client reads and the promise that a restore is itself recoverable.
+    func versionList() async -> [[String: Any]] {
+        embedded(json(await be.respond(method: "GET", url: url("/api/project/version?projectId=\(pid)"), body: nil).data))
+    }
+
+    let projectPayload = json(await be.respond(method: "GET", url: url("/api/project/\(pid)"), body: nil).data)
+    let projectLinks = projectPayload["_links"] as? [String: Any] ?? [:]
+    check("project advertises `versions`", projectLinks["versions"] != nil)
+
+    var history = await versionList()
+    check("seeded history is not empty", !history.isEmpty)
+    check("history is newest first", {
+        let dates = history.compactMap { $0["createdAt"] as? String }
+        return dates == dates.sorted(by: >)
+    }())
+    check("a version reports its size", history.first?["blockCount"] != nil)
+    let firstVersionLinks = history.first?["_links"] as? [String: Any] ?? [:]
+    for rel in ["self", "versions", "restore", "delete"] {
+        check("version advertises `\(rel)`", firstVersionLinks[rel] != nil)
+    }
+
+    // Saving names the snapshot; an omitted label falls back rather than 400ing.
+    let saved = await be.respond(method: "POST", url: url("/api/project/version?projectId=\(pid)"),
+                                 body: body(["label": "Contract check"]))
+    check("save version -> 200", saved.status == 200, "got \(saved.status)")
+    check("saved version keeps its name", json(saved.data)["label"] as? String == "Contract check")
+    check("a saved version is not an autosave", json(saved.data)["autoSave"] as? Bool == false)
+    let unlabelled = await be.respond(method: "POST", url: url("/api/project/version?projectId=\(pid)"), body: body([:]))
+    check("an unnamed version still saves", unlabelled.status == 200, "got \(unlabelled.status)")
+
+    // Restoring puts the old blocks back, and snapshots the present first so
+    // the state being replaced is itself recoverable.
+    let beforeRestore = embedded(json(await be.respond(method: "GET", url: url("/api/block?projectId=\(pid)"), body: nil).data)).count
+    history = await versionList()
+    guard let oldest = history.last, let oldestId = oldest["id"] as? Int else {
+        check("history has a version to restore", false)
+        print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
+        return
+    }
+    let historyCountBefore = history.count
+    let restored = await be.respond(method: "POST",
+                                    url: url("/api/project/version/\(oldestId)/restore?projectId=\(pid)"),
+                                    body: nil)
+    check("restore -> 200", restored.status == 200, "got \(restored.status)")
+    check("restore answers with the history",
+          (json(restored.data)["_embedded"] as? [String: Any]) != nil)
+    history = await versionList()
+    check("restoring snapshots the present first", history.count == historyCountBefore + 1,
+          "\(historyCountBefore) -> \(history.count)")
+
+    let afterRestore = embedded(json(await be.respond(method: "GET", url: url("/api/block?projectId=\(pid)"), body: nil).data)).count
+    check("restore replaced the script",
+          afterRestore == (oldest["blockCount"] as? Int ?? -1),
+          "expected \(oldest["blockCount"] ?? "nil") blocks, got \(afterRestore) (was \(beforeRestore))")
+
+    // Deleting answers with the refreshed history, minus the one removed.
+    let toDelete = history.first?["id"] as? Int ?? 0
+    let countBeforeDelete = history.count
+    let deleted = await be.respond(method: "DELETE",
+                                   url: url("/api/project/version/\(toDelete)?projectId=\(pid)"),
+                                   body: nil)
+    check("delete version -> 200", deleted.status == 200, "got \(deleted.status)")
+    check("deleted version is gone", embedded(json(deleted.data)).count == countBeforeDelete - 1)
+    check("an unknown version -> 404",
+          await be.respond(method: "GET", url: url("/api/project/version/999999?projectId=\(pid)"), body: nil).status == 404)
+
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 }
 

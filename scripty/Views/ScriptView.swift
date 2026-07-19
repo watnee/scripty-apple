@@ -20,6 +20,7 @@ struct ScriptView: View {
     @State private var isSearching = false
     @State private var showingRead = false
     @State private var showingPageSetup = false
+    @State private var showingVersions = false
     @State private var navigator = ScriptNavigator()
     @State private var search = ScriptSearchModel()
     @State private var selection = BlockSelectionModel()
@@ -68,6 +69,15 @@ struct ScriptView: View {
         }
         .sheet(isPresented: $showingPageSetup) {
             PageSetupSheet(settings: settings)
+        }
+        .sheet(isPresented: $showingVersions) {
+            VersionHistoryView(app: model.app, project: model.project) {
+                // A restore rewrites the script, so reload rather than trusting
+                // what is on screen.
+                await model.loadBlocks()
+                await model.refreshUndoRedo()
+                repaginate()
+            }
         }
         .sheet(isPresented: $showingCharacters) {
             CharactersView(model: model)
@@ -318,6 +328,14 @@ struct ScriptView: View {
                         showingStats = true
                     } label: {
                         Label("Script Stats", systemImage: "chart.bar")
+                    }
+                }
+
+                if model.project.hasLink(.versions) {
+                    Button {
+                        showingVersions = true
+                    } label: {
+                        Label("Version History", systemImage: "clock.arrow.circlepath")
                     }
                 }
 
