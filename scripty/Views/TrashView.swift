@@ -205,6 +205,49 @@ struct DeletedBlockRow: View {
     }
 }
 
+/// One deleted song or note.
+struct DeletedDocumentRow: View {
+    let document: DeletedDocument
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                if let type = document.documentTypeLabel, !type.isEmpty {
+                    Text(type.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.quaternary.opacity(0.5), in: Capsule())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let deleted = document.deletedAt {
+                    Text(deleted, format: .relative(presentation: .named))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(document.displayTitle)
+                .font(.body.weight(.medium))
+
+            if let preview = document.preview, !preview.isEmpty {
+                Text(preview)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            if let purge = document.purgesAt {
+                Text("Removed \(purge, format: .relative(presentation: .named))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 /// One deleted screenplay.
 struct TrashedProjectRow: View {
     let project: TrashedProject

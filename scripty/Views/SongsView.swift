@@ -23,6 +23,8 @@ struct SongsView: View {
     @State private var sharingDocument: TextDocument?
     @State private var shareEmail = ""
     @State private var showingImporter = false
+    /// Presented from the link the document collection advertised.
+    @State private var trashLink: HALLink?
     @State private var isLoading = false
     @State private var statusMessage: String?
 
@@ -52,6 +54,17 @@ struct SongsView: View {
                           allowedContentTypes: importTypes,
                           allowsMultipleSelection: false) { result in
                 handleImport(result)
+            }
+            .sheet(item: $trashLink) { link in
+                TrashView<DeletedDocument, DeletedDocumentRow>(
+                    app: model.app,
+                    source: link,
+                    title: "Deleted Songs & Notes",
+                    emptyMessage: "Songs and notes you delete can be restored from here.",
+                    // A restored document rejoins the list behind us.
+                    onChanged: { await model.loadDocuments() }) { document in
+                        DeletedDocumentRow(document: document)
+                    }
             }
             .sheet(item: $creatingType) { type in
                 SongEditorView(model: model, document: nil, type: type)
@@ -193,6 +206,15 @@ struct SongsView: View {
                     creatingType = listType
                 } label: {
                     Label(listType == .song ? "New Song" : "New Note", systemImage: "plus")
+                }
+            }
+            if let trash = model.documentsLinks[.trash] {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        trashLink = trash
+                    } label: {
+                        Label("Deleted Songs & Notes", systemImage: "trash")
+                    }
                 }
             }
         }

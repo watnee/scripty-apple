@@ -43,6 +43,32 @@ struct DeletedBlock: Decodable, Identifiable, Hashable, HALResource {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+/// A song or note in the trash.
+struct DeletedDocument: Decodable, Identifiable, Hashable, HALResource {
+    let id: Int
+    var title: String?
+    var documentType: String?
+    var documentTypeLabel: String?
+    var preview: String?
+    var deletedAt: Date?
+    var purgesAt: Date?
+    let links: HALLinks?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, documentType, documentTypeLabel, preview
+        case deletedAt, purgesAt
+        case links = "_links"
+    }
+
+    var displayTitle: String {
+        let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled" : trimmed
+    }
+
+    static func == (lhs: DeletedDocument, rhs: DeletedDocument) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
 /// A whole screenplay in the trash.
 struct TrashedProject: Decodable, Identifiable, Hashable, HALResource {
     let id: Int

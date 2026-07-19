@@ -83,6 +83,7 @@ actor DemoBackend {
     private var nextVersionId = 1
     private var comments: [DemoComment] = []
     private var nextCommentId = 1
+    private var deletedDocuments: [Int: [DeletedDemoDocument]] = [:]
     private var invitations: [DemoInvitation] = []
     private var nextInvitationId = 1
     private var activity: [DemoActivity] = []
@@ -633,7 +634,8 @@ actor DemoBackend {
             return ok(["_embedded": ["textDocumentResourceList": items],
                        "_links": ["self": link(selfHref),
                                   "project": link("/api/project/\(projectId)"),
-                                  "importDocument": link("/api/document/import")]])
+                                  "importDocument": link("/api/document/import"),
+                                  "trash": link("/api/document/trash?projectId=\(projectId)")]])
         case ("POST", nil):
             guard let projectId = fields["projectId"] as? Int,
                   documents[projectId] != nil,
@@ -650,6 +652,12 @@ actor DemoBackend {
             break
         }
 
+        // `/api/document/trash…` is a sibling of the document resources, not a
+        // document id, so it is picked off before the numeric lookup.
+        if path.first == "trash" {
+            return routeDocumentTrash(method: method, path: Array(path.dropFirst()), query: query)
+        }
+
         guard let id = path.first.flatMap(Int.init),
               let (projectId, index) = locateDocument(id) else { return notFound() }
 
@@ -664,7 +672,12 @@ actor DemoBackend {
             documents[projectId]?[index].updatedAt = .now
             return ok(documentJSON(documents[projectId]![index], includeContent: true))
         case ("DELETE", nil):
-            documents[projectId]?.remove(at: index)
+            // A soft delete, as on the server: the document is kept aside so a
+            // restore can bring it back whole.
+            if let removed = documents[projectId]?.remove(at: index) {
+                deletedDocuments[projectId, default: []].append(
+                    DeletedDemoDocument(document: removed, deletedAt: Date()))
+            }
             return ok([:])
         case ("POST", "insert"):
             return insertDocument(document: documents[projectId]![index],
@@ -1229,6 +1242,77 @@ actor DemoBackend {
         var id: Int
         var block: DemoBlock
         var deletedAt: Date
+    }
+
+    /// A deleted song or note. Unlike an element, it keeps its id: the server
+    /// restores the document itself rather than re-creating it.
+    private struct DeletedDemoDocument {
+        var document: DemoDocument
+        var deletedAt: Date
+    }
+
+    private func routeDocumentTrash(method: String, path: [String],
+                                    query: [String: String]) -> (Int, Data) {
+        guard let projectId = query["projectId"].flatMap(Int.init),
+              documents[projectId] != nil else { return badRequest("projectId") }
+
+        if method == "GET", path.isEmpty {
+            return documentTrashCollection(projectId)
+        }
+
+        guard let documentId = path.first.flatMap(Int.init),
+              let index = deletedDocuments[projectId]?.firstIndex(where: {
+                  $0.document.id == documentId
+              }) else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("POST", "restore"):
+            let record = deletedDocuments[projectId]!.remove(at: index)
+            documents[projectId]?.append(record.document)
+            documents[projectId]?.sort { $0.sortOrder < $1.sortOrder }
+            return documentTrashCollection(projectId)
+
+        case ("DELETE", nil):
+            deletedDocuments[projectId]?.remove(at: index)
+            return documentTrashCollection(projectId)
+
+        default:
+            return notFound()
+        }
+    }
+
+    private func documentTrashCollection(_ projectId: Int) -> (Int, Data) {
+        let items = (deletedDocuments[projectId] ?? [])
+            .sorted { $0.deletedAt > $1.deletedAt }
+            .map { record -> [String: Any] in
+                let id = record.document.id
+                var json: [String: Any] = [
+                    "id": id,
+                    "title": record.document.title,
+                    "documentType": record.document.documentType,
+                    "documentTypeLabel": record.document.documentType == "SONG" ? "Song" : "Note",
+                    "deletedAt": iso.string(from: record.deletedAt),
+                    "purgesAt": iso.string(from: record.deletedAt.addingTimeInterval(
+                        Double(Self.trashRetentionDays) * 86_400)),
+                    "_links": [
+                        "restore": link("/api/document/trash/\(id)/restore?projectId=\(projectId)"),
+                        "purge": link("/api/document/trash/\(id)?projectId=\(projectId)"),
+                        "trash": link("/api/document/trash?projectId=\(projectId)"),
+                    ],
+                ]
+                let preview = record.document.content
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !preview.isEmpty { json["preview"] = String(preview.prefix(120)) }
+                return json
+            }
+        return ok([
+            "_embedded": ["deletedDocumentResourceList": items],
+            "_links": [
+                "self": link("/api/document/trash?projectId=\(projectId)"),
+                "documents": link("/api/document?projectId=\(projectId)"),
+                "project": link("/api/project/\(projectId)"),
+            ],
+        ])
     }
 
     /// Elements are recoverable for thirty days, as on the server.

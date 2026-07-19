@@ -671,6 +671,54 @@ func run() async {
           await be.respond(method: "DELETE", url: url("/api/project/\(pid)/invitations/999999"),
                            body: nil).status == 404)
 
+    // --- DOCUMENT TRASH ---
+    //
+    // The third trash. Unlike an element, a restored document keeps its id —
+    // the server restores it rather than re-creating it.
+    let docsPayload = json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data)
+    check("document collection advertises `trash`",
+          (docsPayload["_links"] as? [String: Any])?["trash"] != nil)
+
+    let liveDocs = embedded(docsPayload)
+    let doomedDoc = liveDocs.first?["id"] as? Int ?? 0
+    let doomedTitle = liveDocs.first?["title"] as? String ?? ""
+
+    _ = await be.respond(method: "DELETE", url: url("/api/document/\(doomedDoc)"), body: nil)
+    var docTrash = embedded(json(await be.respond(method: "GET", url: url("/api/document/trash?projectId=\(pid)"), body: nil).data))
+    check("a deleted document lands in the trash",
+          docTrash.contains { $0["id"] as? Int == doomedDoc })
+    check("it is gone from the live list",
+          !embedded(json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data))
+              .contains { $0["id"] as? Int == doomedDoc })
+    check("the trashed document says when it will be purged",
+          docTrash.first?["purgesAt"] != nil)
+    check("the trashed document keeps its type label",
+          (docTrash.first?["documentTypeLabel"] as? String)?.isEmpty == false)
+
+    let restoredDoc = await be.respond(method: "POST",
+                                       url: url("/api/document/trash/\(doomedDoc)/restore?projectId=\(pid)"),
+                                       body: nil)
+    check("restore document -> 200", restoredDoc.status == 200, "got \(restoredDoc.status)")
+    let docsAfter = embedded(json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data))
+    check("the document is back in the list",
+          docsAfter.contains { $0["id"] as? Int == doomedDoc })
+    check("a restored document keeps its id and title",
+          docsAfter.first { $0["id"] as? Int == doomedDoc }?["title"] as? String == doomedTitle)
+    check("restoring empties it from the trash",
+          !embedded(json(restoredDoc.data)).contains { $0["id"] as? Int == doomedDoc })
+
+    // Purging is final.
+    _ = await be.respond(method: "DELETE", url: url("/api/document/\(doomedDoc)"), body: nil)
+    let purgedDoc = await be.respond(method: "DELETE",
+                                     url: url("/api/document/trash/\(doomedDoc)?projectId=\(pid)"),
+                                     body: nil)
+    check("purge document -> 200", purgedDoc.status == 200, "got \(purgedDoc.status)")
+    check("the purged document is gone for good",
+          !embedded(json(purgedDoc.data)).contains { $0["id"] as? Int == doomedDoc })
+    check("restoring an unknown document -> 404",
+          await be.respond(method: "POST", url: url("/api/document/trash/999999/restore?projectId=\(pid)"),
+                           body: nil).status == 404)
+
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 }
 
