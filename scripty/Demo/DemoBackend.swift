@@ -83,6 +83,8 @@ actor DemoBackend {
     private var nextVersionId = 1
     private var comments: [DemoComment] = []
     private var nextCommentId = 1
+    private var activity: [DemoActivity] = []
+    private var nextActivityId = 1
     private var editions: [DemoEdition] = []
     private var editionBlocks: [Int: [DemoBlock]] = [:]
     private var nextEditionId = 1
@@ -210,6 +212,9 @@ actor DemoBackend {
             return applyHistory(projectId: id, undoing: true)
         case ("POST", "redo"):
             return applyHistory(projectId: id, undoing: false)
+        case ("GET", "activity"):
+            let limit = query["limit"].flatMap(Int.init) ?? 30
+            return activityCollection(id, limit: min(max(limit, 1), 100))
         case ("GET", "sync-status"):
             let revision = Int64(projects[index].lastEdited.timeIntervalSince1970 * 1000)
             let since = query["since"].flatMap(Int64.init) ?? 0
@@ -854,6 +859,55 @@ actor DemoBackend {
     // MARK: - Undo / redo
 
     /// History is snapshot-based: good enough for a demo, invisible to the UI.
+    // MARK: - Activity
+
+    /// One entry in a project's activity log. Written by the demo's own
+    /// mutations, never by a caller — the log records what happened, not what
+    /// someone claimed happened.
+    private struct DemoActivity {
+        var id: Int
+        var projectId: Int
+        var actor: String
+        var actionType: String
+        var summary: String
+        var createdAt: Date
+    }
+
+    private func recordActivity(_ projectId: Int, type: String, summary: String,
+                                actor: String = "You", minutesAgo: Int = 0) {
+        activity.append(DemoActivity(
+            id: nextActivityId,
+            projectId: projectId,
+            actor: actor,
+            actionType: type,
+            summary: summary,
+            createdAt: Date(timeIntervalSinceNow: -Double(minutesAgo) * 60)))
+        nextActivityId += 1
+    }
+
+    private func activityCollection(_ projectId: Int, limit: Int) -> (Int, Data) {
+        let items = activity
+            .filter { $0.projectId == projectId }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(limit)
+            .map { entry -> [String: Any] in
+                [
+                    "id": entry.id,
+                    "actorDisplayName": entry.actor,
+                    "actionType": entry.actionType,
+                    "summary": entry.summary,
+                    "createdAt": iso.string(from: entry.createdAt),
+                ]
+            }
+        return ok([
+            "_embedded": ["projectActivityResourceList": Array(items)],
+            "_links": [
+                "self": link("/api/project/\(projectId)/activity"),
+                "project": link("/api/project/\(projectId)"),
+            ],
+        ])
+    }
+
     // MARK: - Comments
 
     private struct DemoComment {
@@ -881,6 +935,11 @@ actor DemoBackend {
                                         authorName: "You", body: body,
                                         createdAt: Date(), mine: true))
             nextCommentId += 1
+            // The log is written by the action, not by the caller.
+            if let (projectId, _) = locateBlock(blockId) {
+                recordActivity(projectId, type: "COMMENT_ADD",
+                               summary: "Commented on an element")
+            }
             return commentCollection(blockId)
         default:
             return notFound()
@@ -1412,6 +1471,7 @@ actor DemoBackend {
                 "importScript": link("/api/project/\(project.id)/import-script"),
                 "versions": link("/api/project/version?projectId=\(project.id)"),
                 "editions": link("/api/project/edition?projectId=\(project.id)"),
+                "activity": link("/api/project/\(project.id)/activity"),
             ],
         ]
         if let writers = project.writers { json["writers"] = writers }
@@ -1858,6 +1918,24 @@ actor DemoBackend {
             return copy
         }
         seedEdition(dustAndNeon.id, name: "First Draft", isDefault: true, isPublished: true)
+
+        // A little history, so the activity screen shows a record rather than
+        // an empty state. Backdated and attributed to more than one person,
+        // since a log with a single name in it teaches nothing.
+        recordActivity(lastTake.id, type: "PROJECT_CREATE",
+                       summary: "Created the screenplay", minutesAgo: 4_320)
+        recordActivity(lastTake.id, type: "SCRIPT_IMPORT",
+                       summary: "Imported the first draft from Final Draft", minutesAgo: 4_200)
+        recordActivity(lastTake.id, type: "ACTOR_CAST",
+                       summary: "Cast Rosa Delgado as MAYA",
+                       actor: "Priya Anand", minutesAgo: 1_460)
+        recordActivity(lastTake.id, type: "VERSION_SAVE",
+                       summary: "Saved the version “Before the rain rewrite”", minutesAgo: 40)
+        recordActivity(lastTake.id, type: "COMMENT_ADD",
+                       summary: "Commented on an action line",
+                       actor: "Rosa Delgado", minutesAgo: 220)
+        recordActivity(dustAndNeon.id, type: "PROJECT_CREATE",
+                       summary: "Created the screenplay", minutesAgo: 1_500)
 
         // A short thread already in place, so the comments screen shows a
         // conversation rather than an empty state.

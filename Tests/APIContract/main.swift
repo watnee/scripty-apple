@@ -578,6 +578,38 @@ func run() async {
     check("deleting an unknown comment -> 404",
           await be.respond(method: "DELETE", url: url("/api/block/comments/999999"), body: nil).status == 404)
 
+    // --- ACTIVITY ---
+    //
+    // Read-only, and written by the actions themselves — an activity log a
+    // caller can post to records claims, not events.
+    check("project advertises `activity`",
+          (json(await be.respond(method: "GET", url: url("/api/project/\(pid)"), body: nil).data)["_links"]
+            as? [String: Any])?["activity"] != nil)
+
+    let feed = embedded(json(await be.respond(method: "GET", url: url("/api/project/\(pid)/activity"), body: nil).data))
+    check("the feed has seeded history", !feed.isEmpty)
+    check("the feed is newest first", {
+        let dates = feed.compactMap { $0["createdAt"] as? String }
+        return dates == dates.sorted(by: >)
+    }())
+    check("an entry carries a phrased summary",
+          (feed.first?["summary"] as? String)?.isEmpty == false)
+    check("an entry carries its action type",
+          (feed.first?["actionType"] as? String)?.isEmpty == false)
+    check("the feed names more than one person",
+          Set(feed.compactMap { $0["actorDisplayName"] as? String }).count > 1)
+
+    // Commenting writes to the log.
+    let feedBefore = feed.count
+    _ = await be.respond(method: "POST", url: url("/api/block/\(commentedId)/comments"),
+                         body: body(["body": "Logged by the action, not the caller."]))
+    let feedAfter = embedded(json(await be.respond(method: "GET", url: url("/api/project/\(pid)/activity"), body: nil).data))
+    check("an action writes its own log entry", feedAfter.count == feedBefore + 1,
+          "\(feedBefore) -> \(feedAfter.count)")
+
+    check("the feed honours a limit",
+          embedded(json(await be.respond(method: "GET", url: url("/api/project/\(pid)/activity?limit=2"), body: nil).data)).count == 2)
+
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 }
 

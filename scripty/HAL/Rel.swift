@@ -75,6 +75,7 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     // Collaboration.
     static let comments = Rel("comments")
     static let addComment = Rel("addComment")
+    static let activity = Rel("activity")
 
     // Named variants of a script.
     static let editions = Rel("editions")

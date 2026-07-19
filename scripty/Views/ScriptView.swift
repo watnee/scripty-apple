@@ -26,6 +26,7 @@ struct ScriptView: View {
     @State private var showingEditions = false
     /// The element whose comment thread is open, if any.
     @State private var commentTarget: Block?
+    @State private var activityLink: HALLink?
     @State private var editions: EditionsModel
     @State private var navigator = ScriptNavigator()
     @State private var search = ScriptSearchModel()
@@ -94,6 +95,9 @@ struct ScriptView: View {
                 }) { block in
                     DeletedBlockRow(block: block)
                 }
+        }
+        .sheet(item: $activityLink) { link in
+            ActivityView(app: model.app, source: link)
         }
         .sheet(item: $commentTarget) { block in
             // Presented from the link the block advertised, so the thread
@@ -399,6 +403,14 @@ struct ScriptView: View {
                         showingVersions = true
                     } label: {
                         Label("Version History", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+
+                if let activity = model.project.link(.activity) {
+                    Button {
+                        activityLink = activity
+                    } label: {
+                        Label("Recent Activity", systemImage: "clock")
                     }
                 }
 
