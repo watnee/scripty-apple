@@ -56,7 +56,8 @@ struct ScriptView: View {
                 editor
             }
         }
-        .navigationTitle(navigationTitle)
+        .safeAreaInset(edge: .top, spacing: 0) { editionBanner }
+        .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .refreshable {
@@ -154,13 +155,60 @@ struct ScriptView: View {
         }
     }
 
-    /// Names the edition only when it is not the default one — a writer who
-    /// has moved off the main draft should be able to see that, and everyone
-    /// else should not have to read about it.
-    private var navigationTitle: String {
-        let title = model.project.displayTitle
-        guard let edition = editions.selected, !edition.isTheDefault else { return title }
-        return "\(title) · \(edition.displayName)"
+    /// Says which edition is open, but only when it is not the default one.
+    ///
+    /// This started as a suffix on the navigation title and did not survive
+    /// contact with an iPad: an inline title shares the bar with eight toolbar
+    /// icons, so the edition name — the part that mattered — was the part that
+    /// got truncated. A banner has room for the whole name, and being harder to
+    /// miss is the point rather than a side effect: a writer who does not
+    /// notice they are typing into a revision instead of the shooting draft has
+    /// a worse afternoon than one who reads a line of text.
+    @ViewBuilder
+    private var editionBanner: some View {
+        if let edition = editions.selected, !edition.isTheDefault {
+            Button {
+                showingEditions = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                    Text("Editing")
+                        .foregroundStyle(.secondary)
+                    Text(edition.displayName)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if edition.isThePublished {
+                        Text("Published")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.green.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.green)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.footnote)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity)
+                .background(.tint.opacity(0.10))
+                .overlay(alignment: .bottom) {
+                    // An explicit rule rather than a Divider: Divider takes its
+                    // orientation from the surrounding layout, and inside this
+                    // overlay it came out vertical — a stray line down the
+                    // middle of the banner.
+                    Rectangle()
+                        .fill(.separator)
+                        .frame(height: 0.5)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Editing the \(edition.displayName) edition. Change edition.")
+        }
     }
 
     /// The writing surface: one continuous column you type into.
