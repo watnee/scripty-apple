@@ -41,15 +41,28 @@ actor DemoBackend {
         var fullName: String
     }
 
+    private struct DemoDocument {
+        var id: Int
+        var projectId: Int
+        var title: String
+        var documentType: String   // "SONG" or "NOTES"
+        var content: String
+        var sortOrder: Int
+        var createdAt: Date
+        var updatedAt: Date
+    }
+
     private var projects: [DemoProject] = []
     private var blocks: [Int: [DemoBlock]] = [:]      // keyed by project id
     private var people: [Int: [DemoPerson]] = [:]     // keyed by project id
+    private var documents: [Int: [DemoDocument]] = [:] // keyed by project id
     private var undoStacks: [Int: [[DemoBlock]]] = [:]
     private var redoStacks: [Int: [[DemoBlock]]] = [:]
     private var defaultProjectId: Int?
     private var nextProjectId = 1
     private var nextBlockId = 1
     private var nextPersonId = 1
+    private var nextDocumentId = 1
     private var seeded = false
 
     // MARK: - Router
@@ -79,6 +92,9 @@ actor DemoBackend {
         case (_, "api", "person"):
             return routePerson(method: method, path: Array(path.dropFirst(2)),
                                query: query, fields: fields)
+        case (_, "api", "document"):
+            return routeDocument(method: method, path: Array(path.dropFirst(2)),
+                                 query: query, fields: fields, body: body)
         default:
             return notFound()
         }
@@ -103,6 +119,7 @@ actor DemoBackend {
             projects.append(project)
             blocks[project.id] = []
             people[project.id] = []
+            documents[project.id] = []
             return ok(projectJSON(project))
         default:
             break
@@ -124,6 +141,7 @@ actor DemoBackend {
             let removed = projects.remove(at: index)
             blocks[removed.id] = nil
             people[removed.id] = nil
+            documents[removed.id] = nil
             return ok([:])
         case ("GET", "undo-redo-status"):
             return ok(undoRedoJSON(projectId: id, success: nil))
@@ -328,6 +346,255 @@ actor DemoBackend {
         }
     }
 
+    // MARK: - Documents (songs & notes)
+
+    private func routeDocument(method: String, path: [String],
+                               query: [String: String],
+                               fields: [String: Any],
+                               body: Data?) -> (Int, Data) {
+        // Collection: list / create.
+        switch (method, path.first) {
+        case ("GET", nil):
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  documents[projectId] != nil else { return badRequest("projectId") }
+            let type = normalizeDocumentType(query["type"])
+            let items = (documents[projectId] ?? [])
+                .filter { type == nil || $0.documentType == type }
+                .sorted { $0.sortOrder < $1.sortOrder }
+                .map { documentJSON($0, includeContent: false) }
+            var selfHref = "/api/document?projectId=\(projectId)"
+            if let type { selfHref += "&type=\(type)" }
+            return ok(["_embedded": ["textDocumentResourceList": items],
+                       "_links": ["self": link(selfHref),
+                                  "project": link("/api/project/\(projectId)"),
+                                  "importDocument": link("/api/document/import")]])
+        case ("POST", nil):
+            guard let projectId = fields["projectId"] as? Int,
+                  documents[projectId] != nil,
+                  let title = fields["title"] as? String, !title.isBlank else {
+                return badRequest("title")
+            }
+            let type = normalizeDocumentType(fields["documentType"] as? String) ?? "SONG"
+            let document = addDocument(projectId: projectId, title: title, type: type,
+                                       content: fields["content"] as? String ?? "")
+            return ok(documentJSON(document, includeContent: true))
+        case ("POST", "import"):
+            return importDocument(body: body)
+        default:
+            break
+        }
+
+        guard let id = path.first.flatMap(Int.init),
+              let (projectId, index) = locateDocument(id) else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("GET", nil):
+            return ok(documentJSON(documents[projectId]![index], includeContent: true))
+        case ("PUT", nil):
+            if let title = fields["title"] as? String, !title.isBlank {
+                documents[projectId]?[index].title = title
+            }
+            documents[projectId]?[index].content = fields["content"] as? String ?? ""
+            documents[projectId]?[index].updatedAt = .now
+            return ok(documentJSON(documents[projectId]![index], includeContent: true))
+        case ("DELETE", nil):
+            documents[projectId]?.remove(at: index)
+            return ok([:])
+        case ("POST", "insert"):
+            return insertDocument(document: documents[projectId]![index],
+                                  afterBlockId: fields["afterBlockId"] as? Int,
+                                  asType: fields["asType"] as? String)
+        case ("POST", "share-email"):
+            let email = (fields["email"] as? String) ?? ""
+            if email.isBlank { return badRequest("email") }
+            return ok(["shared": true,
+                       "title": documents[projectId]![index].title,
+                       "email": email])
+        default:
+            return notFound()
+        }
+    }
+
+    private func insertDocument(document: DemoDocument, afterBlockId: Int?,
+                                asType: String?) -> (Int, Data) {
+        let projectId = document.projectId
+        let type = asType ?? (document.documentType == "SONG" ? "LYRICS" : "ACTION")
+        let lines = document.content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else {
+            return ok(["inserted": 0, "projectId": projectId, "firstBlockId": NSNull()])
+        }
+        snapshot(projectId)
+        var current = blocks[projectId] ?? []
+        // Determine insertion order: after the given block, else append.
+        var order: Int
+        if let afterBlockId, let anchor = current.first(where: { $0.id == afterBlockId }) {
+            order = anchor.order
+        } else {
+            order = current.map(\.order).max() ?? 0
+        }
+        var firstId: Int?
+        for line in lines {
+            order += 1
+            let block = DemoBlock(id: nextBlockId, order: order, content: line, type: type)
+            if firstId == nil { firstId = block.id }
+            nextBlockId += 1
+            current.append(block)
+        }
+        blocks[projectId] = current.sorted { $0.order < $1.order }
+        touch(projectId)
+        return ok(["inserted": lines.count,
+                   "projectId": projectId,
+                   "firstBlockId": firstId ?? NSNull()])
+    }
+
+    /// Minimal multipart parse: pulls the `type` field and the uploaded file's
+    /// name + text. Binary formats can't be extracted offline, so their text
+    /// is best-effort UTF-8 (the real backend handles docx/pdf/fdx).
+    private func importDocument(body: Data?) -> (Int, Data) {
+        guard let parsed = parseMultipart(body) else { return badRequest("file") }
+        guard let projectId = parsed.fields["projectId"].flatMap(Int.init),
+              documents[projectId] != nil else { return badRequest("projectId") }
+        let type = normalizeDocumentType(parsed.fields["type"]) ?? "SONG"
+        let rawName = parsed.fileName ?? "Imported"
+        let title = (rawName as NSString).deletingPathExtension
+        let content = String(data: parsed.fileData ?? Data(), encoding: .utf8) ?? ""
+        let document = addDocument(projectId: projectId,
+                                   title: title.isEmpty ? "Imported" : title,
+                                   type: type, content: content)
+        return ok(documentJSON(document, includeContent: true))
+    }
+
+    @discardableResult
+    private func addDocument(projectId: Int, title: String, type: String,
+                             content: String) -> DemoDocument {
+        let order = (documents[projectId] ?? []).map(\.sortOrder).max().map { $0 + 1 } ?? 0
+        let document = DemoDocument(id: nextDocumentId, projectId: projectId, title: title,
+                                    documentType: type, content: content, sortOrder: order,
+                                    createdAt: .now, updatedAt: .now)
+        nextDocumentId += 1
+        documents[projectId, default: []].append(document)
+        return document
+    }
+
+    private func documentJSON(_ document: DemoDocument, includeContent: Bool) -> [String: Any] {
+        let isSong = document.documentType == "SONG"
+        var links: [String: Any] = [
+            "self": link("/api/document/\(document.id)"),
+            "documents": link("/api/document?projectId=\(document.projectId)"),
+            "project": link("/api/project/\(document.projectId)"),
+            "update": link("/api/document/\(document.id)"),
+            "delete": link("/api/document/\(document.id)"),
+            "insert": link("/api/document/\(document.id)/insert"),
+        ]
+        if isSong {
+            links["shareEmail"] = link("/api/document/\(document.id)/share-email")
+        }
+        var json: [String: Any] = [
+            "id": document.id,
+            "projectId": document.projectId,
+            "title": document.title,
+            "documentType": document.documentType,
+            "documentTypeLabel": isSong ? "Song" : "Notes",
+            "preview": documentPreview(document.content),
+            "sortOrder": document.sortOrder,
+            "createdAt": iso.string(from: document.createdAt),
+            "updatedAt": iso.string(from: document.updatedAt),
+            "_links": links,
+        ]
+        if includeContent {
+            json["content"] = document.content
+        }
+        return json
+    }
+
+    private func documentPreview(_ content: String) -> String {
+        let flattened = content
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return flattened.count > 90 ? String(flattened.prefix(90)) + "…" : flattened
+    }
+
+    private func normalizeDocumentType(_ type: String?) -> String? {
+        guard let type, !type.isBlank else { return nil }
+        switch type.uppercased() {
+        case "NOTES", "NOTE", "DRAFT", "DRAFTS", "OTHER":
+            return "NOTES"
+        default:
+            return "SONG"
+        }
+    }
+
+    private func locateDocument(_ id: Int) -> (projectId: Int, index: Int)? {
+        for (projectId, list) in documents {
+            if let index = list.firstIndex(where: { $0.id == id }) {
+                return (projectId, index)
+            }
+        }
+        return nil
+    }
+
+    /// Parses the fixed-boundary multipart body produced by `APIClient.upload`.
+    private func parseMultipart(_ body: Data?) -> (fields: [String: String], fileName: String?, fileData: Data?)? {
+        guard let body else { return nil }
+        let boundary = "--" + APIClient.multipartBoundary
+        guard let boundaryData = boundary.data(using: .utf8),
+              let crlfcrlf = "\r\n\r\n".data(using: .utf8),
+              let crlf = "\r\n".data(using: .utf8) else { return nil }
+
+        var fields: [String: String] = [:]
+        var fileName: String?
+        var fileData: Data?
+
+        var searchStart = body.startIndex
+        var parts: [Data] = []
+        // Split on the boundary marker.
+        var ranges: [Range<Data.Index>] = []
+        while let range = body.range(of: boundaryData, in: searchStart..<body.endIndex) {
+            ranges.append(range)
+            searchStart = range.upperBound
+        }
+        for i in 0..<ranges.count {
+            let start = ranges[i].upperBound
+            let end = (i + 1 < ranges.count) ? ranges[i + 1].lowerBound : body.endIndex
+            if start < end { parts.append(body.subdata(in: start..<end)) }
+        }
+
+        for part in parts {
+            guard let headerEnd = part.range(of: crlfcrlf) else { continue }
+            let headerData = part.subdata(in: part.startIndex..<headerEnd.lowerBound)
+            guard let header = String(data: headerData, encoding: .utf8) else { continue }
+            var contentStart = headerEnd.upperBound
+            var contentEnd = part.endIndex
+            // Strip the trailing CRLF before the next boundary.
+            if let trailing = part.range(of: crlf, options: .backwards, in: contentStart..<part.endIndex) {
+                contentEnd = trailing.lowerBound
+            }
+            if contentStart > contentEnd { contentStart = contentEnd }
+            let content = part.subdata(in: contentStart..<contentEnd)
+
+            if let name = value(in: header, for: "name") {
+                if let file = value(in: header, for: "filename") {
+                    fileName = file
+                    fileData = content
+                } else {
+                    fields[name] = String(data: content, encoding: .utf8)
+                }
+            }
+        }
+        return (fields, fileName, fileData)
+    }
+
+    /// Extracts a `key="value"` token from a Content-Disposition header line.
+    private func value(in header: String, for key: String) -> String? {
+        guard let keyRange = header.range(of: "\(key)=\"") else { return nil }
+        let rest = header[keyRange.upperBound...]
+        guard let endQuote = rest.firstIndex(of: "\"") else { return nil }
+        return String(rest[..<endQuote])
+    }
+
     // MARK: - Undo / redo
 
     /// History is snapshot-based: good enough for a demo, invisible to the UI.
@@ -389,6 +656,7 @@ actor DemoBackend {
                 "toggleDefault": link("/api/project/\(project.id)/toggleDefault"),
                 "blocks": link("/api/block?projectId=\(project.id)"),
                 "characters": link("/api/person?projectId=\(project.id)"),
+                "documents": link("/api/document?projectId=\(project.id)"),
                 "undoRedoStatus": link("/api/project/\(project.id)/undo-redo-status"),
                 "syncStatus": link("/api/project/\(project.id)/sync-status"),
                 "export": link("/api/project/\(project.id)/export/fountain"),
@@ -572,6 +840,25 @@ actor DemoBackend {
         // are visible in the script without the user having to add them first.
         flag(project: lastTake, order: 17, bookmarked: true, tags: "vfx, rain")
         flag(project: dustAndNeon, order: 1, bookmarked: true)
+
+        // A song and a note per project so the Songs & Notes screen isn't empty.
+        addDocument(projectId: lastTake.id, title: "One More Take", type: "SONG", content: """
+        Roll the film, we're running out of night
+        One more take before we lose the light
+        The reel keeps spinning, so do I
+        One more take, one more try
+        """)
+        addDocument(projectId: lastTake.id, title: "Production Notes", type: "NOTES", content: """
+        Reshoot the parking-lot ending if the rain rig is available.
+        Ask props for a second vending machine practical light.
+        Dev's boom mic still rattles on wide shots — tape it.
+        """)
+        addDocument(projectId: dustAndNeon.id, title: "Ballad of Last Chance", type: "SONG", content: """
+        Two moons over a one-horse town
+        Neon buzzing as the sun goes down
+        I rode in chasing an empty street
+        Found a town with a heartbeat
+        """)
     }
 
     private func flag(project: DemoProject, order: Int,
@@ -590,6 +877,7 @@ actor DemoBackend {
         projects.append(project)
         blocks[project.id] = []
         people[project.id] = members
+        documents[project.id] = []
         return project
     }
 
@@ -611,5 +899,11 @@ actor DemoBackend {
             nextBlockId += 1
             blocks[project.id]?.append(block)
         }
+    }
+}
+
+private extension String {
+    nonisolated var isBlank: Bool {
+        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

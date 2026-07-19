@@ -47,4 +47,9 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let exportDocx = Rel("exportDocx")
     static let exportFdx = Rel("exportFdx")
     static let headshot = Rel("headshot")
+    static let documents = Rel("documents")
+    static let document = Rel("document")
+    static let insert = Rel("insert")
+    static let shareEmail = Rel("shareEmail")
+    static let importDocument = Rel("importDocument")
 }

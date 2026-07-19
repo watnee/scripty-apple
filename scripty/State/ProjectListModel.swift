@@ -62,7 +62,7 @@ final class ProjectListModel {
         guard let link = collectionLinks[.importProject] else { return nil }
         do {
             let created: Project = try await app.client.upload(
-                to: link, fileData: data, filename: filename)
+                to: link, fileName: filename, fileData: data, mimeType: "application/json")
             await refresh()
             errorMessage = nil
             return created

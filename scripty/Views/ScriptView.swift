@@ -13,6 +13,7 @@ import SwiftUI
 struct ScriptView: View {
     @State private var model: ScriptModel
     @State private var showingCharacters = false
+    @State private var showingSongs = false
 
     init(app: AppModel, project: Project) {
         _model = State(initialValue: ScriptModel(app: app, project: project))
@@ -47,6 +48,9 @@ struct ScriptView: View {
         .onDisappear { model.stopSyncPolling() }
         .sheet(isPresented: $showingCharacters) {
             CharactersView(model: model)
+        }
+        .sheet(isPresented: $showingSongs) {
+            SongsView(model: model)
         }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {}
@@ -113,6 +117,14 @@ struct ScriptView: View {
                     showingCharacters = true
                 } label: {
                     Label("Characters", systemImage: "person.2")
+                }
+            }
+
+            if model.canViewDocuments {
+                Button {
+                    showingSongs = true
+                } label: {
+                    Label("Songs & Notes", systemImage: "music.note.list")
                 }
             }
 

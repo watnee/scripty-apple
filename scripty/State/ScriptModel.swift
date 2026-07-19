@@ -20,6 +20,8 @@ final class ScriptModel {
     private(set) var characters: [Person] = []
     private(set) var charactersLinks = HALLinks()
     private(set) var canViewCharacters = true
+    private(set) var documents: [TextDocument] = []
+    private(set) var documentsLinks = HALLinks()
     private(set) var undoRedo: UndoRedoStatus?
     private(set) var isLoading = false
     var errorMessage: String?
@@ -489,6 +491,143 @@ final class ScriptModel {
             errorMessage = nil
         } catch {
             report(error)
+        }
+    }
+
+    // MARK: - Documents (songs & notes)
+
+    /// The project advertises a `documents` link only when songs/notes are
+    /// reachable for this user; the toolbar entry is gated on it.
+    var canViewDocuments: Bool { project.hasLink(.documents) }
+
+    var songs: [TextDocument] { documents.filter { $0.kind == .song } }
+    var notes: [TextDocument] { documents.filter { $0.kind != .song } }
+
+    func loadDocuments() async {
+        guard let link = documentsLinks[.selfRel] ?? project.link(.documents) else { return }
+        do {
+            let collection: HALCollection<TextDocument> = try await app.client.fetch(from: link)
+            documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+            documentsLinks = collection.links
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Fetches the full document (list items carry only a preview).
+    func fetchDocument(_ document: TextDocument) async -> TextDocument? {
+        guard let link = document.link(.selfRel) else { return document }
+        do {
+            let full: TextDocument = try await app.client.fetch(from: link)
+            errorMessage = nil
+            return full
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    @discardableResult
+    func createDocument(title: String, content: String, type: DocumentType) async -> TextDocument? {
+        guard let link = documentsLinks[.selfRel] ?? project.link(.documents) else { return nil }
+        do {
+            let created: TextDocument = try await app.client.fetch(
+                from: link, method: "POST",
+                body: CreateDocumentCommand(projectId: project.id, title: title,
+                                            documentType: type.rawValue, content: content))
+            await loadDocuments()
+            errorMessage = nil
+            return created
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    @discardableResult
+    func updateDocument(_ document: TextDocument, title: String, content: String) async -> Bool {
+        guard let link = document.link(.update) else { return false }
+        do {
+            let _: TextDocument = try await app.client.fetch(
+                from: link, method: "PUT",
+                body: EditDocumentCommand(projectId: project.id, title: title,
+                                          documentType: document.kind.rawValue, content: content))
+            await loadDocuments()
+            await loadBlocks()   // an edit may have re-synced inserted blocks
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Renames without touching content — fetches the full document first so
+    /// the PUT preserves the existing lyrics/notes.
+    @discardableResult
+    func renameDocument(_ document: TextDocument, title: String) async -> Bool {
+        guard let full = await fetchDocument(document) else { return false }
+        return await updateDocument(full, title: title, content: full.content ?? "")
+    }
+
+    func deleteDocument(_ document: TextDocument) async {
+        guard let link = document.link(.delete) else { return }
+        do {
+            try await app.client.data(for: link, method: "DELETE")
+            documents.removeAll { $0.id == document.id }
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Inserts a document into the screenplay as blocks; returns the count.
+    @discardableResult
+    func insertDocument(_ document: TextDocument, afterBlockId: Int? = nil, asType: String? = nil) async -> Int? {
+        guard let link = document.link(.insert) else { return nil }
+        do {
+            let result: InsertResult = try await app.client.fetch(
+                from: link, method: "POST",
+                body: InsertDocumentCommand(afterBlockId: afterBlockId, asType: asType))
+            await loadBlocks()
+            await refreshUndoRedo()
+            errorMessage = nil
+            return result.inserted
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    @discardableResult
+    func shareDocument(_ document: TextDocument, email: String) async -> Bool {
+        guard let link = document.link(.shareEmail) else { return false }
+        do {
+            try await app.client.data(for: link, method: "POST", body: ShareEmailCommand(email: email))
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func importDocument(fileName: String, data: Data, type: DocumentType,
+                        mimeType: String = "application/octet-stream") async -> TextDocument? {
+        guard let link = documentsLinks[.importDocument] else { return nil }
+        do {
+            let created: TextDocument = try await app.client.upload(
+                to: link,
+                fields: ["projectId": String(project.id), "type": type.rawValue],
+                fileName: fileName, fileData: data, mimeType: mimeType)
+            await loadDocuments()
+            errorMessage = nil
+            return created
+        } catch {
+            report(error)
+            return nil
         }
     }
 
