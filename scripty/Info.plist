@@ -14,5 +14,22 @@
 			</array>
 		</dict>
 	</array>
+
+	<!-- Payload for dragging a script element onto another to reorder it.
+	     Declared so a drop only accepts elements dragged from this app; a
+	     plain-text type would let any dragged text land on the script. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>scripty.scripty.block</string>
+			<key>UTTypeDescription</key>
+			<string>Script Element</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

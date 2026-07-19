@@ -298,6 +298,7 @@ struct ScriptView: View {
             SelectableBlockRow(block: block, isSelected: selection.isSelected(block.id)) {
                 selection.toggle(block.id)
             }
+            .blockReorderDrag(block, in: model)
         } else if block.isEditable {
             EditableBlockRow(model: model, block: block) { commented in
                 commentTarget = commented
