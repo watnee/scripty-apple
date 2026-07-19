@@ -80,7 +80,11 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let sendInvitation = Rel("sendInvitation")
     static let revoke = Rel("revoke")
 
-    // Named variants of a script.
+    // A song's lyric, stored as ordered lines like a screenplay's elements.
+    static let songBlocks = Rel("songBlocks")
+    static let setHighlight = Rel("setHighlight")
+
+    // Named variants of a script or a song.
     static let editions = Rel("editions")
     static let setDefault = Rel("setDefault")
     static let setPublished = Rel("setPublished")

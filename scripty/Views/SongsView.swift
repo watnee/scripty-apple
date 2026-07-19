@@ -70,7 +70,14 @@ struct SongsView: View {
                 SongEditorView(model: model, document: nil, type: type)
             }
             .sheet(item: $editingDocument) { document in
-                SongEditorView(model: model, document: document, type: document.kind)
+                // A song is lyric lines on the server, so it opens the line
+                // editor — where reordering, tinting and editions mean
+                // something. A note is plain text and keeps the plain editor.
+                if document.kind == .song, document.hasLink(.songBlocks) {
+                    SongBlockEditorView(app: model.app, document: document)
+                } else {
+                    SongEditorView(model: model, document: document, type: document.kind)
+                }
             }
             .alert("Rename", isPresented: renameBinding) {
                 TextField("Title", text: $renameTitle)

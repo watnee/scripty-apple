@@ -13,8 +13,10 @@
 
 import SwiftUI
 
-struct EditionsView: View {
-    @Bindable var model: EditionsModel
+struct EditionsView<Model: EditionListing>: View {
+    /// Generic over what is being edited: a screenplay's editions and a song's
+    /// are the same picker over different contents.
+    let model: Model
     /// Called when the writer chooses a different edition to read.
     let onSelect: (ScriptEdition) async -> Void
 
@@ -132,8 +134,8 @@ struct EditionsView: View {
                     HStack(spacing: 6) {
                         if edition.isTheDefault { badge("Default", .blue) }
                         if edition.isThePublished { badge("Published", .green) }
-                        if !edition.sizeSummary.isEmpty {
-                            Text(edition.sizeSummary)
+                        if let count = edition.blockCount {
+                            Text("\(count) \(count == 1 ? model.itemNoun : model.itemNoun + "s")")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -208,7 +210,7 @@ struct EditionsView: View {
                 ContentUnavailableView(
                     "No Editions",
                     systemImage: "doc.on.doc",
-                    description: Text("This screenplay has a single edition."))
+                    description: Text("This has a single edition."))
             }
         }
     }

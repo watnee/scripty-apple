@@ -83,6 +83,8 @@ actor DemoBackend {
     private var nextVersionId = 1
     private var comments: [DemoComment] = []
     private var nextCommentId = 1
+    private var songBlocks: [Int: [DemoSongBlock]] = [:]
+    private var nextSongBlockId = 1
     private var songEditions: [DemoSongEdition] = []
     private var nextSongEditionId = 1
     private var deletedDocuments: [Int: [DeletedDemoDocument]] = [:]
@@ -136,11 +138,16 @@ actor DemoBackend {
             return routeDocument(method: method, path: Array(path.dropFirst(2)),
                                  query: query, fields: fields, body: body)
         case (_, "api", "song"):
-            // Only editions are served here; this client edits a song as plain
-            // text and never reads its lyric blocks.
-            guard path.dropFirst(2).first == "edition" else { return notFound() }
-            return routeSongEdition(method: method, path: Array(path.dropFirst(3)),
-                                    query: query, fields: fields)
+            switch path.dropFirst(2).first {
+            case "edition":
+                return routeSongEdition(method: method, path: Array(path.dropFirst(3)),
+                                        query: query, fields: fields)
+            case "block":
+                return routeSongBlock(method: method, path: Array(path.dropFirst(3)),
+                                      query: query, fields: fields)
+            default:
+                return notFound()
+            }
         case (_, "api", "actor"):
             return routeActor(method: method, path: Array(path.dropFirst(2)),
                               query: query, fields: fields)
@@ -781,6 +788,7 @@ actor DemoBackend {
             // Songs are lyric blocks on the server, so only they have editions
             // to scope. A note is plain text with nothing to vary.
             links["editions"] = link("/api/song/edition?documentId=\(document.id)")
+            links["songBlocks"] = link("/api/song/block?documentId=\(document.id)")
         }
         var json: [String: Any] = [
             "id": document.id,
@@ -1234,6 +1242,194 @@ actor DemoBackend {
                 "project": link("/api/project/\(projectId)"),
             ],
         ])
+    }
+
+    // MARK: - Song blocks
+
+    /// One lyric line. Keyed by edition, since that is what an edition scopes.
+    private struct DemoSongBlock {
+        var id: Int
+        var order: Int
+        var content: String
+        var highlight: String?
+    }
+
+    /// Splits a song's seeded text into lines the first time its lyric is
+    /// asked for. The demo stores songs as text for the list preview; the real
+    /// server has had them as blocks all along.
+    private func ensureSongBlocks(_ documentId: Int, editionId: Int) {
+        guard songBlocks[editionId] == nil else { return }
+        guard let (projectId, index) = locateDocument(documentId) else {
+            songBlocks[editionId] = []
+            return
+        }
+        let lines = documents[projectId]![index].content
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        songBlocks[editionId] = lines.enumerated().map { offset, text in
+            let block = DemoSongBlock(id: nextSongBlockId, order: offset + 1, content: text)
+            nextSongBlockId += 1
+            return block
+        }
+    }
+
+    /// The edition whose lyric a request means: the one named, else the default.
+    private func resolveSongEdition(_ documentId: Int, editionId: Int?) -> Int? {
+        ensureSongEditions(documentId)
+        if let editionId {
+            return songEditions.first { $0.id == editionId && $0.documentId == documentId }?.id
+        }
+        return songEditions.first { $0.documentId == documentId && $0.isDefault }?.id
+    }
+
+    private func routeSongBlock(method: String, path: [String],
+                                query: [String: String],
+                                fields: [String: Any]) -> (Int, Data) {
+        switch (method, path.count) {
+        case ("GET", 0), ("POST", 0):
+            guard let documentId = query["documentId"].flatMap(Int.init),
+                  locateDocument(documentId) != nil,
+                  let editionId = resolveSongEdition(documentId,
+                                                     editionId: query["editionId"].flatMap(Int.init))
+            else { return badRequest("documentId") }
+            ensureSongBlocks(documentId, editionId: editionId)
+
+            if method == "GET" {
+                return songBlockCollection(documentId, editionId: editionId)
+            }
+            let block = DemoSongBlock(
+                id: nextSongBlockId,
+                order: (songBlocks[editionId] ?? []).map(\.order).max().map { $0 + 1 } ?? 1,
+                content: fields["content"] as? String ?? "")
+            nextSongBlockId += 1
+            songBlocks[editionId]?.append(block)
+            syncSongText(documentId, editionId: editionId)
+            return ok(songBlockJSON(block, documentId: documentId, editionId: editionId))
+        default:
+            break
+        }
+
+        guard let id = path.first.flatMap(Int.init),
+              let editionId = songBlocks.first(where: { $0.value.contains { $0.id == id } })?.key,
+              let index = songBlocks[editionId]?.firstIndex(where: { $0.id == id }),
+              let documentId = songEditions.first(where: { $0.id == editionId })?.documentId
+        else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("PUT", nil):
+            songBlocks[editionId]?[index].content = fields["content"] as? String ?? ""
+            syncSongText(documentId, editionId: editionId)
+            return ok(songBlockJSON(songBlocks[editionId]![index],
+                                    documentId: documentId, editionId: editionId))
+
+        case ("DELETE", nil):
+            songBlocks[editionId]?.remove(at: index)
+            renumberSongBlocks(editionId)
+            syncSongText(documentId, editionId: editionId)
+            return songBlockCollection(documentId, editionId: editionId)
+
+        case ("POST", "below"):
+            var list = songBlocks[editionId] ?? []
+            // Order is assigned by renumbering below, from where it lands in
+            // the array; anything set here would only be overwritten.
+            let block = DemoSongBlock(id: nextSongBlockId,
+                                      order: 0,
+                                      content: fields["content"] as? String ?? "")
+            nextSongBlockId += 1
+            list.insert(block, at: index + 1)
+            songBlocks[editionId] = list
+            renumberSongBlocks(editionId)
+            syncSongText(documentId, editionId: editionId)
+            return ok(songBlockJSON(block, documentId: documentId, editionId: editionId))
+
+        case ("POST", "move"):
+            guard let position = fields["position"] as? Int else { return badRequest("position") }
+            var list = (songBlocks[editionId] ?? []).sorted { $0.order < $1.order }
+            let target = min(max(position - 1, 0), list.count - 1)
+            let moved = list.remove(at: index)
+            list.insert(moved, at: target)
+            songBlocks[editionId] = list
+            renumberSongBlocks(editionId)
+            syncSongText(documentId, editionId: editionId)
+            return songBlockCollection(documentId, editionId: editionId)
+
+        case ("POST", "highlight"):
+            let known = ["YELLOW", "GREEN", "BLUE", "RED", "GRAY"]
+            let raw = (fields["highlight"] as? String)?
+                .trimmingCharacters(in: .whitespaces).uppercased()
+            // An unknown or blank tint clears, as on the server.
+            songBlocks[editionId]?[index].highlight =
+                (raw.map { known.contains($0) ? $0 : nil } ?? nil)
+            return ok(songBlockJSON(songBlocks[editionId]![index],
+                                    documentId: documentId, editionId: editionId))
+
+        default:
+            return notFound()
+        }
+    }
+
+    /// Renumbers from the array's current arrangement, deliberately without
+    /// sorting first. After an insert or a move the position in the array is
+    /// the truth and the stored `order` values are stale — sorting by them
+    /// would put the line straight back where it came from, which is exactly
+    /// what the first version of this did.
+    private func renumberSongBlocks(_ editionId: Int) {
+        guard var list = songBlocks[editionId] else { return }
+        for index in list.indices { list[index].order = index + 1 }
+        songBlocks[editionId] = list
+    }
+
+    /// Keeps the document's text in step with its default edition's lines, so
+    /// the songs list preview does not go stale while the lyric is edited.
+    private func syncSongText(_ documentId: Int, editionId: Int) {
+        guard songEditions.first(where: { $0.id == editionId })?.isDefault == true,
+              let (projectId, index) = locateDocument(documentId) else { return }
+        documents[projectId]?[index].content = (songBlocks[editionId] ?? [])
+            .sorted { $0.order < $1.order }
+            .map(\.content)
+            .joined(separator: "\n")
+        documents[projectId]?[index].updatedAt = .now
+        if let position = songEditions.firstIndex(where: { $0.id == editionId }) {
+            songEditions[position].blockCount = (songBlocks[editionId] ?? []).count
+            songEditions[position].lastEdited = .now
+        }
+    }
+
+    private func songBlockCollection(_ documentId: Int, editionId: Int) -> (Int, Data) {
+        let items = (songBlocks[editionId] ?? [])
+            .sorted { $0.order < $1.order }
+            .map { songBlockJSON($0, documentId: documentId, editionId: editionId) }
+        return ok([
+            "_embedded": ["songBlockResourceList": items],
+            "_links": [
+                "self": link("/api/song/block?documentId=\(documentId)&editionId=\(editionId)"),
+                "create": link("/api/song/block?documentId=\(documentId)&editionId=\(editionId)"),
+                "song": link("/api/document/\(documentId)"),
+            ],
+        ])
+    }
+
+    private func songBlockJSON(_ block: DemoSongBlock,
+                               documentId: Int, editionId: Int) -> [String: Any] {
+        var json: [String: Any] = [
+            "id": block.id,
+            "documentId": documentId,
+            "order": block.order,
+            "content": block.content,
+            "_links": [
+                "self": link("/api/song/block/\(block.id)"),
+                "update": link("/api/song/block/\(block.id)"),
+                "delete": link("/api/song/block/\(block.id)"),
+                "createBelow": link("/api/song/block/\(block.id)/below"),
+                "move": link("/api/song/block/\(block.id)/move"),
+                "setHighlight": link("/api/song/block/\(block.id)/highlight"),
+                "songBlocks": link("/api/song/block?documentId=\(documentId)&editionId=\(editionId)"),
+                "song": link("/api/document/\(documentId)"),
+            ],
+        ]
+        if let highlight = block.highlight { json["highlight"] = highlight }
+        return json
     }
 
     // MARK: - Song editions

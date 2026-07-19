@@ -778,6 +778,73 @@ func run() async {
           (songDoc["_links"] as? [String: Any])?["editions"] != nil)
     check("a note does not",
           (noteDoc["_links"] as? [String: Any])?["editions"] == nil)
+    check("a song advertises its lyric lines",
+          (songDoc["_links"] as? [String: Any])?["songBlocks"] != nil)
+
+    // --- SONG BLOCKS ---
+    //
+    // A song is ordered lines, which is what makes reordering, tinting and
+    // editions mean anything. The client edited songs as one lump of text
+    // before, so none of this was reachable from here.
+    if let lyricDocId = songDoc["id"] as? Int {
+        func lyric() async -> [[String: Any]] {
+            embedded(json(await be.respond(method: "GET", url: url("/api/song/block?documentId=\(lyricDocId)"), body: nil).data))
+        }
+
+        var lines = await lyric()
+        check("a song's text becomes lines", !lines.isEmpty, "got \(lines.count)")
+        let lineLinks = lines.first?["_links"] as? [String: Any] ?? [:]
+        for rel in ["update", "delete", "createBelow", "move", "setHighlight"] {
+            check("a lyric line advertises `\(rel)`", lineLinks[rel] != nil)
+        }
+
+        // Adding below is what Return does.
+        let firstLineId = lines.first?["id"] as? Int ?? 0
+        let countBefore = lines.count
+        let below = await be.respond(method: "POST", url: url("/api/song/block/\(firstLineId)/below"),
+                                     body: body(["content": "A line that came second."]))
+        check("add line below -> 200", below.status == 200, "got \(below.status)")
+        lines = await lyric()
+        check("the new line is second", lines.count == countBefore + 1
+              && lines[1]["content"] as? String == "A line that came second.",
+              "got \(lines.count) lines")
+        check("orders stay contiguous", lines.enumerated().allSatisfy { $1["order"] as? Int == $0 + 1 })
+
+        // Editing a line.
+        let secondId = lines[1]["id"] as? Int ?? 0
+        let edited = await be.respond(method: "PUT", url: url("/api/song/block/\(secondId)"),
+                                      body: body(["content": "Rewritten."]))
+        check("edit line -> 200", edited.status == 200, "got \(edited.status)")
+        check("the edit stuck", json(edited.data)["content"] as? String == "Rewritten.")
+
+        // Tinting, and the lenient clear.
+        _ = await be.respond(method: "POST", url: url("/api/song/block/\(secondId)/highlight"),
+                             body: body(["highlight": "green"]))
+        lines = await lyric()
+        check("a line can be tinted",
+              lines.first { $0["id"] as? Int == secondId }?["highlight"] as? String == "GREEN")
+        _ = await be.respond(method: "POST", url: url("/api/song/block/\(secondId)/highlight"),
+                             body: body(["highlight": "chartreuse"]))
+        lines = await lyric()
+        check("an unknown tint clears rather than failing",
+              lines.first { $0["id"] as? Int == secondId }?["highlight"] == nil)
+
+        // Reordering.
+        _ = await be.respond(method: "POST", url: url("/api/song/block/\(secondId)/move"),
+                             body: body(["position": 1]))
+        lines = await lyric()
+        check("a line can be moved", lines.first?["id"] as? Int == secondId)
+        check("orders renumbered after a move",
+              lines.enumerated().allSatisfy { $1["order"] as? Int == $0 + 1 })
+
+        // Deleting.
+        let beforeDelete = lines.count
+        _ = await be.respond(method: "DELETE", url: url("/api/song/block/\(secondId)"), body: nil)
+        lines = await lyric()
+        check("a line can be deleted", lines.count == beforeDelete - 1)
+        check("and the rest renumber",
+              lines.enumerated().allSatisfy { $1["order"] as? Int == $0 + 1 })
+    }
 
     if let songId = songDoc["id"] as? Int {
         func songEditions() async -> [[String: Any]] {

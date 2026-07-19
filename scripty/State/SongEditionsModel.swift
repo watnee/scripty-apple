@@ -1,14 +1,14 @@
 //
-//  EditionsModel.swift
+//  SongEditionsModel.swift
 //  scripty
 //
-//  The named editions of one screenplay, and which one the writer is looking
-//  at.
+//  The named editions of one song — an alternate lyric, a rewrite, a version
+//  cut for a different scene.
 //
-//  The server has always taken an `editionId`; what it never offered was a way
-//  to find out which ids exist. With that in place the client can do what the
-//  web app does from its session — open a different draft — by naming the
-//  edition on the block request instead.
+//  The same shape as the script's editions, keyed on a document instead of a
+//  project. Now that a song is edited as lines rather than as one lump of text,
+//  switching editions genuinely changes what is on screen; before this there
+//  was nothing for it to switch between.
 //
 
 import Foundation
@@ -16,9 +16,9 @@ import Observation
 
 @Observable
 @MainActor
-final class EditionsModel {
+final class SongEditionsModel {
     private let app: AppModel
-    private let project: Project
+    private let document: TextDocument
 
     private(set) var editions: [ScriptEdition] = []
     private(set) var links = HALLinks()
@@ -26,16 +26,11 @@ final class EditionsModel {
     private(set) var isWorking = false
     var errorMessage: String?
 
-    /// The edition being read. Nil means "whichever the server calls default",
-    /// which is what an untouched project and every older client asks for.
     var selectedId: Int?
 
-    var isAvailable: Bool { project.hasLink(.editions) }
     var canCreate: Bool { links.contains(.create) }
 
-    let itemNoun = "element"
-
-    /// Only worth showing a picker once there is a choice to make.
+    let itemNoun = "line"
     var hasChoice: Bool { editions.count > 1 }
 
     var selected: ScriptEdition? {
@@ -45,13 +40,13 @@ final class EditionsModel {
         return editions.first(where: \.isTheDefault) ?? editions.first
     }
 
-    init(app: AppModel, project: Project) {
+    init(app: AppModel, document: TextDocument) {
         self.app = app
-        self.project = project
+        self.document = document
     }
 
     func load() async {
-        guard let link = project.link(.editions) else { return }
+        guard let link = document.link(.editions) else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -59,8 +54,6 @@ final class EditionsModel {
             adopt(collection)
             errorMessage = nil
         } catch APIError.forbidden {
-            // A reader who may not browse editions sees none, which is the
-            // same as a project that has only one.
             editions = []
         } catch {
             report(error)
@@ -74,9 +67,8 @@ final class EditionsModel {
     func canSetDefault(_ edition: ScriptEdition) -> Bool { edition.hasLink(.setDefault) }
     func canSetPublished(_ edition: ScriptEdition) -> Bool { edition.hasLink(.setPublished) }
 
-    /// The block collection for an edition, which is how the script view knows
-    /// what to load once the writer picks one.
-    func blocksLink(for edition: ScriptEdition) -> HALLink? { edition.link(.blocks) }
+    /// The lyric of an edition — what the editor loads once one is picked.
+    func blocksLink(for edition: ScriptEdition) -> HALLink? { edition.link(.songBlocks) }
 
     // MARK: - Mutations
 
@@ -97,19 +89,12 @@ final class EditionsModel {
         return await act(link, method: "PUT", body: RenameEditionCommand(name: trimmed))
     }
 
-    /// Deletes an edition and everything written in it. The server refuses to
-    /// remove the last one and stops advertising `delete` for it, so this is
-    /// never offered when it could only fail.
     @discardableResult
     func delete(_ edition: ScriptEdition) async -> Bool {
         guard let link = edition.link(.delete) else { return false }
         let removingSelection = edition.id == selected?.id
         let succeeded = await act(link, method: "DELETE")
-        if succeeded && removingSelection {
-            // Fall back to whatever the server now calls default rather than
-            // pointing at an edition that no longer exists.
-            selectedId = nil
-        }
+        if succeeded && removingSelection { selectedId = nil }
         return succeeded
     }
 
@@ -146,7 +131,6 @@ final class EditionsModel {
     private func adopt(_ collection: HALCollection<ScriptEdition>) {
         editions = collection.items
         links = collection.links
-        // Drop a selection the server no longer knows about.
         if let selectedId, !editions.contains(where: { $0.id == selectedId }) {
             self.selectedId = nil
         }
