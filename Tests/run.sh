@@ -32,6 +32,17 @@ swiftc -o "$BUILD/stats" \
 "$BUILD/stats" || status=1
 
 echo
+echo "== Screenplay pagination =="
+swiftc -o "$BUILD/pagination" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/ScreenplayLayout.swift" \
+    "$SRC/Models/PageSetup.swift" \
+    "$SRC/Models/ScriptPagination.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Pagination/main.swift"
+"$BUILD/pagination" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \

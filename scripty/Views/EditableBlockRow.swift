@@ -14,9 +14,18 @@ struct EditableBlockRow: View {
     let model: ScriptModel
     let block: Block
 
+    /// The writer's chosen type size. Scaling the column along with the type
+    /// keeps the same number of characters on a line, so the shape of the page
+    /// does not change as the text grows.
+    @Environment(\.scriptTextScale) private var textScale
+
     private static let pageWidth: CGFloat = 640
-    private static let dialogueWidth: CGFloat = 400
-    private static let parentheticalWidth: CGFloat = 320
+    private static var dialogueWidth: CGFloat {
+        pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
+    }
+    private static var parentheticalWidth: CGFloat {
+        pageWidth * CGFloat(ScreenplayLayout.parentheticalBox.widthFraction)
+    }
 
     var body: some View {
         BlockTextView(model: model, block: block,
@@ -89,11 +98,13 @@ struct EditableBlockRow: View {
     // MARK: - Per-type layout
 
     private var columnWidth: CGFloat {
+        let base: CGFloat
         switch block.blockType {
-        case .dialogue, .lyrics: return Self.dialogueWidth
-        case .parenthetical: return Self.parentheticalWidth
-        default: return Self.pageWidth
+        case .dialogue, .lyrics: base = Self.dialogueWidth
+        case .parenthetical: base = Self.parentheticalWidth
+        default: base = Self.pageWidth
         }
+        return base * textScale
     }
 
     private var pageAlignment: Alignment {
@@ -125,12 +136,14 @@ struct EditableBlockRow: View {
     }
 
     private var topPadding: CGFloat {
+        let base: CGFloat
         switch block.blockType {
-        case .scene: return 18
-        case .character, .dualDialogue, .transition, .shot: return 10
-        case .section: return 14
-        default: return 4
+        case .scene: base = 18
+        case .character, .dualDialogue, .transition, .shot: base = 10
+        case .section: base = 14
+        default: base = 4
         }
+        return base * textScale
     }
 
     private var capitalization: UITextAutocapitalizationType {
@@ -141,7 +154,7 @@ struct EditableBlockRow: View {
     }
 
     private var uiFont: UIFont {
-        let size: CGFloat = 16
+        let size: CGFloat = 16 * textScale
         let base: UIFont
         switch ScriptFont(serverValue: block.font) {
         case .arial:

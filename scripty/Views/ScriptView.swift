@@ -18,38 +18,32 @@ struct ScriptView: View {
     @State private var showingOutline = false
     @State private var showingStats = false
     @State private var isSearching = false
+    @State private var showingRead = false
+    @State private var showingPageSetup = false
     @State private var navigator = ScriptNavigator()
     @State private var search = ScriptSearchModel()
+
+    /// Presentation is a device preference shared across every project, so the
+    /// model is the app-wide one rather than one per script.
+    private let settings = PresentationSettings.shared
+
+    /// Pagination is recomputed when the script or the paper changes rather
+    /// than on every redraw — it walks the whole script.
+    @State private var pages: [ScriptPage] = []
+    @State private var currentPage = 1
 
     init(app: AppModel, project: Project) {
         _model = State(initialValue: ScriptModel(app: app, project: project))
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.blocks) { block in
-                        row(for: block)
-                            .padding(.horizontal, 24)
-                            .id(block.id)
-                    }
-                }
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-            }
-            .onChange(of: navigator.pendingScrollTarget) { _, target in
-                guard let target else { return }
-                withAnimation { proxy.scrollTo(target, anchor: .center) }
-                // Clearing the target is what lets the same block be jumped
-                // to twice in a row.
-                navigator.consumeScrollTarget()
+        Group {
+            if settings.isPageView {
+                pageView
+            } else {
+                editor
             }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .overlay { emptyState }
-        .safeAreaInset(edge: .bottom) { editingBars }
-        .safeAreaInset(edge: .bottom) { searchBar }
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -60,8 +54,20 @@ struct ScriptView: View {
         .task {
             await model.loadEverything()
             model.startSyncPolling()
+            repaginate()
         }
         .onDisappear { model.stopSyncPolling() }
+        .onChange(of: model.blocks) { _, _ in repaginate() }
+        .onChange(of: settings.pageSetup) { _, _ in repaginate() }
+        .sheet(isPresented: $showingRead) {
+            ReadScriptView(
+                title: model.project.displayTitle,
+                blocks: model.blocks,
+                textScale: settings.textScale)
+        }
+        .sheet(isPresented: $showingPageSetup) {
+            PageSetupSheet(settings: settings)
+        }
         .sheet(isPresented: $showingCharacters) {
             CharactersView(model: model)
         }
@@ -84,6 +90,79 @@ struct ScriptView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+
+    /// The writing surface: one continuous column you type into.
+    private var editor: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(model.blocks) { block in
+                        row(for: block)
+                            .padding(.horizontal, 24)
+                            .id(block.id)
+                    }
+                }
+                .padding(.vertical, 12)
+                // Focus mode pulls the column in to a single measure and
+                // drops the surrounding chrome, as the web app does.
+                .frame(maxWidth: settings.isFocusMode ? 720 : .infinity)
+                .frame(maxWidth: .infinity)
+            }
+            .onChange(of: navigator.pendingScrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation { proxy.scrollTo(target, anchor: .center) }
+                // Clearing the target is what lets the same block be jumped
+                // to twice in a row.
+                navigator.consumeScrollTarget()
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .overlay { emptyState }
+        .safeAreaInset(edge: .bottom) { editingBars }
+        .safeAreaInset(edge: .bottom) { searchBar }
+        .environment(\.scriptTextScale, settings.textScale)
+    }
+
+    /// The paper surface: read-only sheets with a pager.
+    private var pageView: some View {
+        ScrollViewReader { proxy in
+            ScreenplayPageView(
+                pages: pages,
+                setup: settings.pageSetup,
+                zoomScale: settings.zoomScale,
+                onVisiblePageChanged: { currentPage = $0 })
+            .overlay(alignment: .bottom) {
+                if pages.count > 0 {
+                    PageNavigatorBar(
+                        settings: settings,
+                        pageCount: pages.count,
+                        currentPage: $currentPage) { page in
+                            withAnimation { proxy.scrollTo(page, anchor: .top) }
+                        }
+                }
+            }
+            .overlay { pageEmptyState }
+        }
+    }
+
+    @ViewBuilder
+    private var pageEmptyState: some View {
+        if pages.isEmpty {
+            ContentUnavailableView(
+                "Nothing to Paginate",
+                systemImage: "doc.richtext",
+                description: Text("This script has no elements yet."))
+        }
+    }
+
+    /// Pagination walks the whole script, so it is only worth doing while the
+    /// pages are actually on screen — in the editor the writer is typing and
+    /// nothing would read the result.
+    private func repaginate() {
+        guard settings.isPageView else { return }
+        pages = ScriptPagination.paginate(blocks: model.blocks, setup: settings.pageSetup)
+        currentPage = min(max(1, currentPage), max(1, pages.count))
     }
 
     @ViewBuilder
@@ -151,13 +230,18 @@ struct ScriptView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                Task { await model.appendBlock() }
-            } label: {
-                Label("Add Element", systemImage: "plus")
+            // The View menu stays put in focus mode — it is the way back out.
+            viewMenu
+
+            if !settings.isPageView {
+                Button {
+                    Task { await model.appendBlock() }
+                } label: {
+                    Label("Add Element", systemImage: "plus")
+                }
             }
 
-            if model.hasScriptContent {
+            if model.hasScriptContent && !settings.isFocusMode {
                 Button {
                     isSearching.toggle()
                     if !isSearching { search.clear() }
@@ -174,7 +258,7 @@ struct ScriptView: View {
                 .keyboardShortcut("o", modifiers: [.command, .shift])
             }
 
-            if model.canViewCharacters {
+            if model.canViewCharacters && !settings.isFocusMode {
                 Button {
                     showingCharacters = true
                 } label: {
@@ -182,7 +266,7 @@ struct ScriptView: View {
                 }
             }
 
-            if model.canViewDocuments {
+            if model.canViewDocuments && !settings.isFocusMode {
                 Button {
                     showingSongs = true
                 } label: {
@@ -190,36 +274,39 @@ struct ScriptView: View {
                 }
             }
 
-            if !model.exportOptions.isEmpty {
+            if !model.exportOptions.isEmpty && !settings.isFocusMode {
                 ExportButton(model: model)
             }
         }
 
         // Front matter, import and stats are occasional actions — they live in
         // the overflow so the writing controls stay reachable on iPhone width.
-        ToolbarItemGroup(placement: .secondaryAction) {
-            Button {
-                showingTitlePage = true
-            } label: {
-                Label("Title Page", systemImage: "doc.text")
-            }
-
-            if model.hasScriptContent {
+        // Focus mode clears the overflow out entirely.
+        if !settings.isFocusMode {
+            ToolbarItemGroup(placement: .secondaryAction) {
                 Button {
-                    showingStats = true
+                    showingTitlePage = true
                 } label: {
-                    Label("Script Stats", systemImage: "chart.bar")
+                    Label("Title Page", systemImage: "doc.text")
                 }
-            }
 
-            ScriptImportButton(app: model.app, project: model.project) { updated in
-                model.adopt(updated)
-                await model.loadBlocks()
-                await model.refreshUndoRedo()
+                if model.hasScriptContent {
+                    Button {
+                        showingStats = true
+                    } label: {
+                        Label("Script Stats", systemImage: "chart.bar")
+                    }
+                }
+
+                ScriptImportButton(app: model.app, project: model.project) { updated in
+                    model.adopt(updated)
+                    await model.loadBlocks()
+                    await model.refreshUndoRedo()
+                }
             }
         }
 
-        if let undoRedo = model.undoRedo {
+        if let undoRedo = model.undoRedo, !settings.isPageView {
             ToolbarItemGroup(placement: .secondaryAction) {
                 Button {
                     Task { await model.undo() }
@@ -236,6 +323,74 @@ struct ScriptView: View {
                 .disabled(!(undoRedo.canRedo ?? false))
             }
         }
+    }
+
+    /// How the script is presented, gathered into one menu the way the web
+    /// editor gathers them under View.
+    private var viewMenu: some View {
+        Menu {
+            Section {
+                Toggle(isOn: pageViewBinding) {
+                    Label("Page View", systemImage: "doc.richtext")
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Toggle(isOn: focusModeBinding) {
+                    Label("Focus Mode", systemImage: "moon")
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+
+                Button {
+                    showingRead = true
+                } label: {
+                    Label("Read Script", systemImage: "book")
+                }
+                .disabled(!model.hasScriptContent)
+            }
+
+            Section("Text Size") {
+                Button {
+                    settings.increaseTextSize()
+                } label: {
+                    Label("Bigger", systemImage: "textformat.size.larger")
+                }
+                .disabled(!settings.canIncreaseTextSize)
+                .keyboardShortcut("+", modifiers: .command)
+
+                Button {
+                    settings.decreaseTextSize()
+                } label: {
+                    Label("Smaller", systemImage: "textformat.size.smaller")
+                }
+                .disabled(!settings.canDecreaseTextSize)
+                .keyboardShortcut("-", modifiers: .command)
+
+                Button {
+                    settings.resetTextSize()
+                } label: {
+                    Label("Actual Size (\(settings.textSize)%)", systemImage: "textformat")
+                }
+                .disabled(settings.textSize == PresentationSettings.defaultTextSize)
+            }
+
+            Section {
+                Button {
+                    showingPageSetup = true
+                } label: {
+                    Label("Page Setup…", systemImage: "ruler")
+                }
+            }
+        } label: {
+            Label("View", systemImage: "eye")
+        }
+    }
+
+    private var pageViewBinding: Binding<Bool> {
+        Binding(get: { settings.isPageView }, set: { settings.isPageView = $0 })
+    }
+
+    private var focusModeBinding: Binding<Bool> {
+        Binding(get: { settings.isFocusMode }, set: { settings.isFocusMode = $0 })
     }
 
     private var errorBinding: Binding<Bool> {

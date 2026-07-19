@@ -41,6 +41,23 @@ struct BlockTextView: UIViewRepresentable {
         return view
     }
 
+    /// Wrap at the width SwiftUI offers rather than at the text's own idea of
+    /// how wide it wants to be.
+    ///
+    /// A non-scrolling UITextView reports an intrinsic width big enough for its
+    /// longest unbroken line, and without this the view lays out at that width
+    /// and simply overflows the `.frame(maxWidth:)` around it — which is why a
+    /// long action line used to run off the right edge and why narrowing the
+    /// column (focus mode) had no visible effect.
+    func sizeThatFits(_ proposal: ProposedViewSize,
+                      uiView: BlockUITextView,
+                      context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0, width.isFinite else { return nil }
+        let fitted = uiView.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(fitted.height))
+    }
+
     func updateUIView(_ view: BlockUITextView, context: Context) {
         context.coordinator.block = block
 

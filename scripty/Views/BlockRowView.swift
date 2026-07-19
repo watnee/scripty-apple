@@ -8,12 +8,34 @@
 
 import SwiftUI
 
+/// The writer's chosen type size, as a multiplier. Read by every element row
+/// so one setting scales the whole script.
+private struct ScriptTextScaleKey: EnvironmentKey {
+    static let defaultValue: Double = 1.0
+}
+
+extension EnvironmentValues {
+    var scriptTextScale: Double {
+        get { self[ScriptTextScaleKey.self] }
+        set { self[ScriptTextScaleKey.self] = newValue }
+    }
+}
+
 struct BlockRowView: View {
     let block: Block
 
+    @Environment(\.scriptTextScale) private var textScale
+
+    /// The continuous column stands in for the printed six-inch text block, so
+    /// the speech widths are the real screenplay proportions rather than
+    /// hand-picked numbers: dialogue is 3.5in of 6in, parentheticals 2in.
     private static let pageWidth: CGFloat = 640
-    private static let dialogueWidth: CGFloat = 400
-    private static let parentheticalWidth: CGFloat = 320
+    private static var dialogueWidth: CGFloat {
+        pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
+    }
+    private static var parentheticalWidth: CGFloat {
+        pageWidth * CGFloat(ScreenplayLayout.parentheticalBox.widthFraction)
+    }
 
     var body: some View {
         elementView
@@ -156,14 +178,15 @@ struct BlockRowView: View {
     }
 
     private var baseFont: Font {
+        let size = 16 * textScale
         switch ScriptFont(serverValue: block.font) {
         case .arial:
-            return .custom("Helvetica", size: 16)
+            return .custom("Helvetica", size: size)
         case .timesNewRoman:
-            return .custom("Times New Roman", size: 16)
+            return .custom("Times New Roman", size: size)
         case .courierPrime, .none:
             // Screenplay convention: Courier-style monospace.
-            return .system(size: 16, design: .monospaced)
+            return .system(size: size, design: .monospaced)
         }
     }
 }
