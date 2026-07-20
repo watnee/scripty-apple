@@ -53,6 +53,16 @@ swiftc -o "$BUILD/autocomplete" \
 "$BUILD/autocomplete" || status=1
 
 echo
+echo "== Fountain paste parsing =="
+swiftc -o "$BUILD/fountain" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/FountainDetect.swift" \
+    "$SRC/Models/FountainScript.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/FountainScript/main.swift"
+"$BUILD/fountain" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \

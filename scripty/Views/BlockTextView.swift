@@ -42,6 +42,9 @@ struct BlockTextView: UIViewRepresentable {
         view.onMove = { [weak coordinator = context.coordinator] up in
             coordinator?.move(up: up)
         }
+        view.onPasteScript = { [weak coordinator = context.coordinator] in
+            coordinator?.pasteScript() ?? false
+        }
         context.coordinator.textView = view
         apply(font: font, alignment: alignment, capitalize: autocapitalize, to: view)
         return view
@@ -230,6 +233,18 @@ struct BlockTextView: UIViewRepresentable {
             Task { await model.cycleType(block, backward: backward) }
         }
 
+        /// Paste the clipboard as elements below this one, if it holds a
+        /// screenplay. Returns whether it did, so the text view knows whether
+        /// to fall back to inserting text at the caret.
+        func pasteScript() -> Bool {
+            guard ScriptClipboard.holdsElements, block.hasLink(.createBelow) else {
+                return false
+            }
+            let block = block
+            Task { await model.pasteElements(after: block) }
+            return true
+        }
+
         /// Reorder this element. The move renumbers the script and reloads it,
         /// which takes focus away — deliberately, and the same as tapping the
         /// element menu: after a move the writer is looking at where the line
@@ -282,6 +297,21 @@ final class BlockUITextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onShiftTab: (() -> Void)?
     var onMove: ((_ up: Bool) -> Void)?
+    /// Asked before every paste. Returning true means the paste was handled as
+    /// elements and the text view should not insert anything.
+    var onPasteScript: (() -> Bool)?
+
+    /// Intercepts ⌘V only when the pasteboard holds a screenplay.
+    ///
+    /// Ordinary text keeps the system behaviour — a sentence copied from a
+    /// browser belongs in the element the caret is in, and turning every paste
+    /// into new rows would be worse than never splitting at all. The decision
+    /// lives in ScriptClipboard, which requires either Scripty's own payload
+    /// or text carrying real screenplay structure.
+    override func paste(_ sender: Any?) {
+        if onPasteScript?() == true { return }
+        super.paste(sender)
+    }
 
     override func deleteBackward() {
         if selectedRange.location == 0, selectedRange.length == 0 {

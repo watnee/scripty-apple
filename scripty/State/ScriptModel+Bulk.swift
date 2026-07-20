@@ -30,6 +30,77 @@ extension ScriptModel {
         canBulkRetype || canBulkTag || canBulkFormat || canBulkDelete
     }
 
+    // MARK: - Clipboard
+
+    /// Copying needs no link: it reads elements already on screen and writes
+    /// to the device. A reader with no edit rights can still take a copy.
+    func copyToClipboard(_ ids: [Int]) {
+        let wanted = Set(ids)
+        let elements = blocks
+            .filter { wanted.contains($0.id) }
+            .map { FountainElement(type: $0.blockType, content: currentText($0)) }
+        guard !elements.isEmpty else { return }
+        ScriptClipboard.copy(elements)
+    }
+
+    /// True when a paste is worth offering: the server must allow inserting,
+    /// and the pasteboard must hold something.
+    ///
+    /// Deliberately asks the cheap, non-prompting question. This gates a menu
+    /// entry, and iOS prompts for permission whenever the pasteboard is
+    /// actually read — so the precise check would make merely opening an
+    /// element's menu ask the writer for clipboard access.
+    var canPasteElements: Bool {
+        blocks.contains { $0.hasLink(.createBelow) } && ScriptClipboard.mayHoldElements
+    }
+
+    /// Insert the pasteboard's elements below `block`, keeping their types.
+    ///
+    /// One request per element, walking down: the server has no bulk create,
+    /// and each element has to land after the one before it or the paste comes
+    /// out reversed. Deliberately not a `TaskGroup` for that reason — order is
+    /// the whole point.
+    @discardableResult
+    func pasteElements(after block: Block) async -> Int {
+        // Read at the moment of pasting, where the permission prompt belongs.
+        // Text that turned out not to be a screenplay still pastes — as the
+        // one element it is — because the writer asked for a paste and getting
+        // nothing at all would read as a bug.
+        var elements = ScriptClipboard.elements() ?? []
+        if elements.isEmpty, let text = ScriptClipboard.plainText() {
+            let detected = FountainDetector.detect(text)
+            elements = [FountainElement(type: detected?.type ?? .action,
+                                        content: detected?.content ?? text)]
+        }
+        guard !elements.isEmpty else { return 0 }
+        var anchor = block
+        var inserted = 0
+        for element in elements {
+            guard let link = anchor.link(.createBelow) else { break }
+            do {
+                let created: Block = try await app.client.fetch(
+                    from: link, method: "POST",
+                    body: CreateBelowCommand(content: element.content,
+                                             personId: nil,
+                                             type: element.type.rawValue))
+                anchor = created
+                inserted += 1
+            } catch {
+                report(error)
+                break
+            }
+        }
+        if inserted > 0 {
+            await loadBlocks()
+            await refreshUndoRedo()
+            // Land the caret at the end of what was pasted, which is where a
+            // writer carries on from.
+            focus(anchor.id, caret: currentText(anchor).count)
+            errorMessage = nil
+        }
+        return inserted
+    }
+
     // MARK: - Operations
 
     @discardableResult

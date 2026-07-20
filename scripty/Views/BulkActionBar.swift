@@ -141,6 +141,20 @@ struct BulkActionBar: View {
     private var actions: some View {
         let disabled = selection.isEmpty
 
+        // First, and ungated: copying reads what is already on screen and
+        // writes to the device, so it needs no link and works for a reader
+        // with no edit rights at all. This is also the app's answer to the
+        // web's cross-block selection — elements are separate text views here,
+        // so a text selection cannot span them, and selection mode is where
+        // "copy several elements at once" lives instead.
+        Button {
+            model.copyToClipboard(ids)
+            selection.isSelecting = false
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
+        .disabled(disabled)
+
         if model.canBulkRetype {
             Menu {
                 ForEach(BlockType.allCases) { type in

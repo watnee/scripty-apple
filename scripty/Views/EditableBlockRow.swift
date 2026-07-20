@@ -80,6 +80,16 @@ struct EditableBlockRow: View {
                 Label("Duplicate", systemImage: "plus.square.on.square")
             }
         }
+        // Only when the pasteboard actually holds a script. Ordinary copied
+        // text pastes into the element the caret is in, the way it always
+        // has — this is the menu entry for "and paste it as its own rows".
+        if model.canPasteElements {
+            Button {
+                Task { await model.pasteElements(after: block) }
+            } label: {
+                Label("Paste Elements", systemImage: "doc.on.clipboard")
+            }
+        }
         if block.hasLink(.togglePinned) {
             Button {
                 Task { await model.togglePinned(block) }
