@@ -20,6 +20,16 @@ final class AppModel {
 
     private(set) var phase: Phase = .loading
     private(set) var apiRoot: APIRoot?
+
+    /// Auto-capitalization belongs to the signed-in writer rather than to any
+    /// one screenplay, so it is held here and every editor reads the same one.
+    ///
+    /// Lazy because it needs `self`, and `@ObservationIgnored` because
+    /// `@Observable` cannot wrap a lazy property. Nothing is lost: the
+    /// reference never changes, and CapitalizationModel is observable in its
+    /// own right, so views still see its values move.
+    @ObservationIgnored
+    private(set) lazy var capitalization = CapitalizationModel(app: self)
     private(set) var isDemo = false
     var signInError: String?
 

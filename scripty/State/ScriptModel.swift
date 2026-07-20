@@ -48,6 +48,13 @@ final class ScriptModel {
     /// One-shot caret placements the text views apply and clear (used after a
     /// split or merge moves focus to a specific offset).
     var caretRequests: [Int: Int] = [:]
+    /// One-shot text replacements the text views apply and clear.
+    ///
+    /// `liveText` means "the view is authoritative, leave it alone", which is
+    /// right for typing and wrong for anything that rewrites the field out
+    /// from under the writer. Accepting a completion does exactly that, so it
+    /// needs a way to say "and this time, take the model's word for it".
+    var textRequests: [Int: String] = [:]
 
     private var commitTasks: [Int: Task<Void, Never>] = [:]
     private static let commitDebounce: Duration = .milliseconds(600)
@@ -328,6 +335,88 @@ final class ScriptModel {
         await loadBlocks()
         await refreshUndoRedo()
         focus(updatedPrevious.id, caret: seam)
+    }
+
+    /// Words in the screenplay right now.
+    ///
+    /// Runs the same `ScriptStats` the report runs rather than counting
+    /// separately, so the running total and Script Stats cannot disagree —
+    /// which element types count toward the total is a real rule (cues do not,
+    /// lyrics do) and having it written down twice would be having it written
+    /// down wrong. The blocks are handed over carrying their *live* text, so
+    /// the number moves as the writer types instead of lurching when the
+    /// debounced save lands.
+    var liveWordCount: Int {
+        let live = blocks.map { block -> Block in
+            var copy = block
+            copy.content = currentText(block)
+            return copy
+        }
+        return ScriptStats(blocks: live).totalWords
+    }
+
+    // MARK: - Autocomplete
+
+    /// Completions for whatever holds the caret. Empty unless a block is
+    /// focused, since there is nothing to complete into otherwise.
+    var suggestions: [ScriptAutocomplete.Suggestion] {
+        guard let id = focusedBlockId,
+              let block = blocks.first(where: { $0.id == id }),
+              block.hasLink(.update)
+        else { return [] }
+        return ScriptAutocomplete.suggestions(for: currentText(block),
+                                              type: block.blockType,
+                                              blocks: blocks,
+                                              characters: characters)
+    }
+
+    /// Accept a completion: the element becomes the suggestion's replacement
+    /// line and the caret lands at the end of it, ready to keep typing.
+    ///
+    /// Goes through `liveEdit` rather than straight to the server so the text
+    /// view picks the new text up the same way it picks up typing, and the
+    /// existing debounce does the saving. Accepting a completion is not a
+    /// different kind of edit from making it by hand.
+    func accept(_ suggestion: ScriptAutocomplete.Suggestion) {
+        guard let id = focusedBlockId,
+              blocks.contains(where: { $0.id == id }) else { return }
+        // Only a request. The text view applies it and then reports it back
+        // through `liveEdit`, exactly as if it had been typed — so there is
+        // one source of truth for the field's text at every moment, and the
+        // existing debounce does the saving.
+        textRequests[id] = suggestion.replacement
+        caretRequests[id] = suggestion.replacement.count
+    }
+
+    // MARK: - Duplicating
+
+    /// True when this element can be copied below itself.
+    ///
+    /// Gated on `createBelow` rather than on a `duplicate` rel: the server
+    /// advertises duplicate for documents but not for elements, and a copy is
+    /// exactly a create-below carrying the original's text and type. Asking
+    /// the server for a rel it has no reason to add would leave the affordance
+    /// permanently out of reach.
+    func canDuplicate(_ block: Block) -> Bool { block.hasLink(.createBelow) }
+
+    /// Insert a copy of `block` directly beneath it and focus the copy — the
+    /// writer duplicated it to change something, so the caret goes to the copy
+    /// rather than leaving them to find it.
+    func duplicateBlock(_ block: Block) async {
+        guard let link = block.link(.createBelow) else { return }
+        do {
+            let created: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: CreateBelowCommand(content: currentText(block),
+                                         personId: block.personId,
+                                         type: block.blockType.rawValue))
+            await loadBlocks()
+            await refreshUndoRedo()
+            focus(created.id, caret: 0)
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
     }
 
     /// Retype a block in place (the element-type bar and Tab cycling).
@@ -678,16 +767,45 @@ final class ScriptModel {
         var isPaged: Bool { rel == .exportPdf }
     }
 
+    /// Every export the server offered, in menu order.
+    ///
+    /// The archive is deliberately last and named for what it is for rather
+    /// than for its format: it is the only entry here that is not a copy of
+    /// the screenplay to send someone, and a writer looking for "Word" should
+    /// not have to read past a `.scripty.json` to find it.
     var exportOptions: [ExportOption] {
         let all: [(Rel, String, String)] = [
             (.exportPdf, "PDF", "pdf"),
             (.export, "Fountain", "fountain"),
             (.exportDocx, "Word", "docx"),
             (.exportFdx, "Final Draft", "fdx"),
+            (.exportEpub, "EPUB", "epub"),
+            (.exportArchive, "Project Archive", "scripty.json"),
         ]
         return all.compactMap { rel, label, ext in
             project.link(rel).map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
         }
+    }
+
+    /// The formats this song can be taken away in.
+    ///
+    /// Advertised on the document rather than the project, and outside the
+    /// server's edit gate, so a view-only collaborator still gets the menu.
+    func songExportOptions(for document: TextDocument) -> [ExportOption] {
+        let all: [(Rel, String, String)] = [
+            (.exportSongPdf, "PDF", "pdf"),
+            (.exportSongTxt, "Text", "txt"),
+            (.exportSongDocx, "Word", "docx"),
+            (.exportSongEpub, "EPUB", "epub"),
+        ]
+        return all.compactMap { rel, label, ext in
+            document.link(rel).map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
+        }
+    }
+
+    /// The PDF export, when the server offers one — what Print renders from.
+    var printOption: ExportOption? {
+        exportOptions.first { $0.rel == .exportPdf }
     }
 
     /// Downloads an export with auth and writes it to a shareable temp file.
@@ -696,17 +814,30 @@ final class ScriptModel {
     /// the sheets they were just looking at in page view rather than falling
     /// back to the server's defaults. Page setup is a device preference, so it
     /// is read from the shared presentation settings at the moment of export.
-    func export(_ option: ExportOption) async throws -> URL {
+    ///
+    /// `named` is what the file is called before its extension — the project
+    /// title for a screenplay, the song's title for a song. A song exported
+    /// under the screenplay's name is indistinguishable from the screenplay
+    /// once it is sitting in Files.
+    func export(_ option: ExportOption, named: String? = nil) async throws -> URL {
         let link = option.isPaged
             ? option.link.addingQuery(PresentationSettings.shared.pageSetup.exportQuery)
             : option.link
         let data = try await app.client.data(for: link)
-        let safeTitle = project.displayTitle
-            .components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>"))
-            .joined()
-        let name = (safeTitle.isEmpty ? "script" : safeTitle) + "." + option.fileExtension
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(Self.fileName(named ?? project.displayTitle,
+                                                  fallback: "script",
+                                                  extension: option.fileExtension))
         try data.write(to: url, options: .atomic)
         return url
+    }
+
+    /// A title turned into something a file system will accept.
+    private static func fileName(_ title: String, fallback: String, extension ext: String) -> String {
+        let safe = title
+            .components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>"))
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (safe.isEmpty ? fallback : safe) + "." + ext
     }
 }

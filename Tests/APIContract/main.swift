@@ -24,12 +24,43 @@ func run() async {
     // --- root advertises actors ---
     let root = json(await be.respond(method: "GET", url: url("/api"), body: nil).data)
     check("root advertises `actors` rel", links(root)["actors"] != nil)
+    check("root advertises `capitalizationPreferences`",
+          links(root)["capitalizationPreferences"] != nil)
+
+    // --- capitalization preferences round-trip ---
+    let prefsURL = url("/api/preferences/capitalization")
+    let prefs = json(await be.respond(method: "GET", url: prefsURL, body: nil).data)
+    check("capitalization defaults to all on",
+          prefs["scene"] as? Bool == true && prefs["character"] as? Bool == true
+              && prefs["transition"] as? Bool == true && prefs["shot"] as? Bool == true)
+    check("capitalization advertises `update`", links(prefs)["update"] != nil)
+
+    // A single toggle posts only the field it changed; the rest must survive.
+    let updatedPrefs = json(await be.respond(
+        method: "POST", url: prefsURL,
+        body: Data(#"{"character":false}"#.utf8)).data)
+    check("capitalization: posted field applied",
+          updatedPrefs["character"] as? Bool == false)
+    check("capitalization: absent fields keep their value",
+          updatedPrefs["scene"] as? Bool == true,
+          "a partial update must not reset the flags it left out")
+
+    // Put it back so later checks see the documented defaults.
+    _ = await be.respond(method: "POST", url: prefsURL,
+                         body: Data(#"{"character":true}"#.utf8))
 
     // --- project resource carries title-page + importScript ---
     let projects = json(await be.respond(method: "GET", url: url("/api/project"), body: nil).data)
     let p0 = embedded(projects)[0]
     let pid = p0["id"] as! Int
     check("project advertises `importScript`", links(p0)["importScript"] != nil)
+    let p0Links = links(p0)
+    check("project advertises `exportArchive`", p0Links["exportArchive"] != nil)
+    // Rel-gating cuts both ways: the demo renders no PDF, so it must not
+    // claim one. A menu entry that downloads nothing is the failure this
+    // whole link-driven design exists to prevent.
+    let advertisesPdf = p0Links["exportPdf"] != nil
+    check("demo does not advertise `exportPdf`", !advertisesPdf)
     check("project advertises `actors`", links(p0)["actors"] != nil)
 
     // --- TITLE PAGE: partial PUT must not blank siblings ---

@@ -102,6 +102,31 @@ enum BlockType: String, CaseIterable, Identifiable {
     /// The type a brand-new element gets when you press Return after this one.
     /// After a character cue you're writing dialogue; otherwise action.
     /// Mirrors `nextTypeAfter` in the web editor's fountain-power.js.
+    /// The short form used down the margin when element labels are on.
+    ///
+    /// Abbreviated rather than the full `label`: the gutter is narrow by
+    /// design — it is a marker, not a caption — and "PARENTHETICAL" set in it
+    /// wrapped to three lines and pushed the row it was naming out of line.
+    var marginLabel: String {
+        switch self {
+        case .scene: return "SCENE"
+        case .action: return "ACTION"
+        case .text: return "TEXT"
+        case .character: return "CHAR"
+        case .dialogue: return "DIAL"
+        case .dualDialogue: return "DUAL"
+        case .parenthetical: return "PAREN"
+        case .transition: return "TRANS"
+        case .shot: return "SHOT"
+        case .lyrics: return "LYRIC"
+        case .centered: return "CTR"
+        case .section: return "SECT"
+        case .synopsis: return "SYN"
+        case .note: return "NOTE"
+        case .pageBreak: return "PAGE"
+        }
+    }
+
     var followingType: BlockType {
         isCharacterCue ? .dialogue : .action
     }

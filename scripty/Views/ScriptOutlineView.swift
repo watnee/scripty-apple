@@ -14,7 +14,16 @@ struct ScriptOutlineView: View {
     let navigator: ScriptNavigator
 
     @Environment(\.dismiss) private var dismiss
-    @State private var tab: Tab = .outline
+    @State private var tab: Tab
+
+    /// Opens on `tab`, so the keyboard shortcuts that name a particular list
+    /// (⌘⇧C for characters, ⌘⇧M for songs) land on it rather than on the
+    /// outline with a segment left to press.
+    init(model: ScriptModel, navigator: ScriptNavigator, tab: Tab = .outline) {
+        self.model = model
+        self.navigator = navigator
+        _tab = State(initialValue: tab)
+    }
 
     enum Tab: String, CaseIterable, Identifiable {
         case outline, characters, locations, songs, bookmarks, pins

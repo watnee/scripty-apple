@@ -100,6 +100,11 @@ actor DemoBackend {
     private var nextDeletedBlockId = 1
     private var redoStacks: [Int: [[DemoBlock]]] = [:]
     private var defaultProjectId: Int?
+    /// Auto-capitalization for the demo user, starting at the historic
+    /// all-on behaviour the server also defaults to.
+    private var capitalization: [String: Bool] = [
+        "scene": true, "character": true, "transition": true, "shot": true,
+    ]
     private var nextProjectId = 1
     private var nextBlockId = 1
     private var nextPersonId = 1
@@ -125,6 +130,8 @@ actor DemoBackend {
         case ("GET", "api", nil):
             return ok(rootJSON())
 
+        case (_, "api", "preferences"):
+            return routePreferences(method: method, fields: fields)
         case (_, "api", "project"):
             return routeProject(method: method, path: Array(path.dropFirst(2)),
                                 query: query, fields: fields, body: body)
@@ -245,6 +252,10 @@ actor DemoBackend {
                        "title": projects[index].title,
                        "_links": ["self": link("/api/project/\(id)/sync-status")]])
         case ("GET", "export"):
+            // The format is the last path segment; `export` alone is Fountain.
+            if path.count > 2, path[2] == "archive" {
+                return archiveExport(projects[index])
+            }
             return (200, Data(fountainExport(projects[index]).utf8))
         case ("POST", "toggleDefault"):
             defaultProjectId = (defaultProjectId == id) ? nil : id
@@ -698,6 +709,9 @@ actor DemoBackend {
             return insertDocument(document: documents[projectId]![index],
                                   afterBlockId: fields["afterBlockId"] as? Int,
                                   asType: fields["asType"] as? String)
+        case ("GET", "export"):
+            let document = documents[projectId]![index]
+            return (200, Data(songTextExport(document).utf8))
         case ("POST", "share-email"):
             let email = (fields["email"] as? String) ?? ""
             if email.isBlank { return badRequest("email") }
@@ -785,6 +799,8 @@ actor DemoBackend {
         ]
         if isSong {
             links["shareEmail"] = link("/api/document/\(document.id)/share-email")
+            // Text only, for the same reason the project offers no PDF here.
+            links["exportSongTxt"] = link("/api/document/\(document.id)/export/txt")
             // Songs are lyric blocks on the server, so only they have editions
             // to scope. A note is plain text with nothing to vary.
             links["editions"] = link("/api/song/edition?documentId=\(document.id)")
@@ -1963,10 +1979,30 @@ actor DemoBackend {
 
     // MARK: - Resource JSON
 
+    // MARK: - Preferences
+
+    /// Auto-capitalization, stored for the one demo user. Partial updates, as
+    /// on the server: a field left out keeps its value, so a single toggle
+    /// posts only the type that changed.
+    private func routePreferences(method: String, fields: [String: Any]) -> (Int, Data) {
+        if method == "POST" {
+            for key in ["scene", "character", "transition", "shot"] {
+                if let value = fields[key] as? Bool { capitalization[key] = value }
+            }
+        }
+        var json = capitalization as [String: Any]
+        json["_links"] = [
+            "self": link("/api/preferences/capitalization"),
+            "update": link("/api/preferences/capitalization"),
+        ]
+        return ok(json)
+    }
+
     private func rootJSON() -> [String: Any] {
         ["_links": ["self": link("/api"),
                     "projects": link("/api/project"),
-                    "actors": link("/api/actor")]]
+                    "actors": link("/api/actor"),
+                    "capitalizationPreferences": link("/api/preferences/capitalization")]]
     }
 
     private func projectJSON(_ project: DemoProject) -> [String: Any] {
@@ -1987,6 +2023,11 @@ actor DemoBackend {
                 "undoRedoStatus": link("/api/project/\(project.id)/undo-redo-status"),
                 "syncStatus": link("/api/project/\(project.id)/sync-status"),
                 "export": link("/api/project/\(project.id)/export/fountain"),
+                // Only the two the demo can actually render. PDF, Word, Final
+                // Draft and EPUB need engines this backend does not carry, and
+                // advertising a link that returns nothing would be worse than
+                // showing no menu entry — the whole point of rel-gating.
+                "exportArchive": link("/api/project/\(project.id)/export/archive"),
                 "actors": link("/api/actor?projectId=\(project.id)"),
                 "importScript": link("/api/project/\(project.id)/import-script"),
                 "versions": link("/api/project/version?projectId=\(project.id)"),
@@ -2276,6 +2317,38 @@ actor DemoBackend {
     }
 
     // MARK: - Export
+
+    /// The project as a `.scripty.json` archive.
+    ///
+    /// The blocks are written for shape, not for round-tripping: `demoImport`
+    /// reads only the title and starts the imported project empty, so
+    /// re-importing an archive here does not restore the screenplay. The real
+    /// server does restore it; the demo has never claimed to.
+    private func archiveExport(_ project: DemoProject) -> (Int, Data) {
+        let payload: [String: Any] = [
+            "title": project.title,
+            "blocks": (blocks[project.id] ?? [])
+                .sorted { $0.order < $1.order }
+                .map { ["order": $0.order, "type": $0.type, "content": $0.content] },
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload,
+                                                     options: [.prettyPrinted, .sortedKeys]) else {
+            return (500, Data())
+        }
+        return (200, data)
+    }
+
+    /// A song as plain lyrics — what the server's TXT export produces.
+    ///
+    /// Reads `document.content` rather than looking up lyric blocks. An earlier
+    /// version indexed `songBlocks` by the document's id, but that dictionary
+    /// is keyed by *edition* id from an independent counter, so the two id
+    /// spaces overlap and a song could export another song's words.
+    /// `syncSongText` already keeps `content` in step with the default
+    /// edition, which is exactly what a plain export wants.
+    private func songTextExport(_ document: DemoDocument) -> String {
+        [document.title, "", document.content].joined(separator: "\n")
+    }
 
     private func fountainExport(_ project: DemoProject) -> String {
         var lines = ["Title: \(project.title)", ""]

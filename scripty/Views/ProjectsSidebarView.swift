@@ -37,6 +37,7 @@ struct ProjectsSidebarView: View {
 
     @State private var showingCreate = false
     @State private var showingImporter = false
+    @State private var showingCapitalization = false
     /// Presented by link rather than by flag, so the sheet cannot open before
     /// the server has said where the trash is.
     @State private var trashLink: HALLink?
@@ -158,6 +159,17 @@ struct ProjectsSidebarView: View {
                     }
                 }
             }
+            // A writer's own preference rather than a screenplay's, so it
+            // lives beside Sign Out instead of in a script's View menu.
+            if app.capitalization.isAvailable {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        showingCapitalization = true
+                    } label: {
+                        Label("Capitalization", systemImage: "textformat")
+                    }
+                }
+            }
             ToolbarItem(placement: .secondaryAction) {
                 Button(role: .destructive) {
                     app.signOut()
@@ -177,6 +189,9 @@ struct ProjectsSidebarView: View {
                 onChanged: { await model.refresh() }) { project in
                     TrashedProjectRow(project: project)
                 }
+        }
+        .sheet(isPresented: $showingCapitalization) {
+            CapitalizationSettingsView(model: app.capitalization)
         }
         .sheet(isPresented: $showingCreate) {
             ProjectTitleSheet(title: "", heading: "New Project") { title in

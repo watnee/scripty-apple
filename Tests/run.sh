@@ -43,6 +43,37 @@ swiftc -o "$BUILD/pagination" \
 "$BUILD/pagination" || status=1
 
 echo
+echo "== Presentation settings =="
+swiftc -o "$BUILD/presentation" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/PageSetup.swift" \
+    "$SRC/Models/ScreenplayLayout.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/PresentationSettings/main.swift"
+"$BUILD/presentation" || status=1
+
+echo
+echo "== Script autocomplete =="
+swiftc -o "$BUILD/autocomplete" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/Person.swift" \
+    "$SRC/Models/ScriptAutocomplete.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Autocomplete/main.swift"
+"$BUILD/autocomplete" || status=1
+
+echo
+echo "== Fountain paste parsing =="
+swiftc -o "$BUILD/fountain" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/FountainDetect.swift" \
+    "$SRC/Models/FountainScript.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/FountainScript/main.swift"
+"$BUILD/fountain" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \

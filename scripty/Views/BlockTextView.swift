@@ -29,12 +29,21 @@ struct BlockTextView: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.smartDashesType = .no
         view.smartQuotesType = .no
+        // Off, or replacing the field's text pads the insertion with a space:
+        // accepting the completion "DEV" over a typed "D" produced "D EV".
+        view.smartInsertDeleteType = .no
         view.text = model.currentText(block)
         view.onDeleteBackwardAtStart = { [weak coordinator = context.coordinator] in
             coordinator?.backspaceAtStart()
         }
         view.onShiftTab = { [weak coordinator = context.coordinator] in
             coordinator?.tab(backward: true)
+        }
+        view.onMove = { [weak coordinator = context.coordinator] up in
+            coordinator?.move(up: up) ?? false
+        }
+        view.onPasteScript = { [weak coordinator = context.coordinator] in
+            coordinator?.pasteScript() ?? false
         }
         context.coordinator.textView = view
         apply(font: font, alignment: alignment, capitalize: autocapitalize, to: view)
@@ -71,6 +80,23 @@ struct BlockTextView: UIViewRepresentable {
             view.text = desired
         }
 
+        // An explicit request outranks the liveText rule above: accepting a
+        // completion rewrites the field deliberately, which is the one case
+        // where the model, not the view, has the newer text.
+        // Deferred, like the caret request below. `replaceAll` goes through the
+        // text-input protocol, which synchronously calls the delegate and so
+        // writes `model.liveText` — and the bar showing the completions is
+        // being laid out from that very value in this same pass. Doing it
+        // inline is "modifying state during view update".
+        if let requested = model.textRequests[block.id] {
+            let blockId = block.id
+            let needsReplacing = view.text != requested
+            DispatchQueue.main.async {
+                if needsReplacing { replaceAll(in: view, with: requested) }
+                model.textRequests[blockId] = nil
+            }
+        }
+
         // After the text sync, never before: assigning `.text` rebuilds the
         // storage from the view's plain font/colour, dropping the underline
         // attribute, so styling has to be re-stamped on top of the new string.
@@ -90,6 +116,26 @@ struct BlockTextView: UIViewRepresentable {
                 model.caretRequests[blockId] = nil
             }
         }
+    }
+
+    /// Swap the field's whole contents through the text-input protocol.
+    ///
+    /// Assigning `.text` is not enough while the view is first responder: the
+    /// live input session still holds the keystroke that is being completed,
+    /// and reconciling the two padded the result — accepting "DEV" over a
+    /// typed "D" produced "D EV". `replace(_:withText:)` goes through the same
+    /// path as typing, so the session is updated rather than contradicted, and
+    /// it calls the delegate, which is what reports the new text back to the
+    /// model and arms the debounced save.
+    private func replaceAll(in view: BlockUITextView, with text: String) {
+        // A composition in progress would otherwise survive the replacement.
+        view.unmarkText()
+        let whole = view.textRange(from: view.beginningOfDocument, to: view.endOfDocument)
+        guard let whole else {
+            view.text = text
+            return
+        }
+        view.replace(whole, withText: text)
     }
 
     private func apply(font: UIFont, alignment: NSTextAlignment,
@@ -195,6 +241,38 @@ struct BlockTextView: UIViewRepresentable {
             Task { await model.cycleType(block, backward: backward) }
         }
 
+        /// Paste the clipboard as elements below this one, if it holds a
+        /// screenplay. Returns whether it did, so the text view knows whether
+        /// to fall back to inserting text at the caret.
+        func pasteScript() -> Bool {
+            guard ScriptClipboard.holdsElements, block.hasLink(.createBelow) else {
+                return false
+            }
+            let block = block
+            Task { await model.pasteElements(after: block) }
+            return true
+        }
+
+        /// Reorder this element. The move renumbers the script and reloads it,
+        /// which takes focus away — deliberately, and the same as tapping the
+        /// element menu: after a move the writer is looking at where the line
+        /// landed, not typing into it.
+        @discardableResult
+        func move(up: Bool) -> Bool {
+            let block = block
+            guard up ? model.canMoveUp(block) : model.canMoveDown(block) else {
+                return false
+            }
+            Task {
+                if up {
+                    await model.moveBlockUp(block)
+                } else {
+                    await model.moveBlockDown(block)
+                }
+            }
+            return true
+        }
+
         func applyCaret(_ characterOffset: Int) {
             guard let textView else { return }
             let string = textView.text ?? ""
@@ -217,12 +295,38 @@ struct BlockTextView: UIViewRepresentable {
     }
 }
 
-/// A UITextView that reports a Backspace pressed with the caret at the very
-/// start (nothing to delete) and Shift-Tab, both of which have no plain-text
-/// representation to catch in the delegate.
+/// A UITextView that reports the keys with no plain-text representation to
+/// catch in the delegate: Backspace pressed with the caret at the very start
+/// (nothing to delete), Shift-Tab, and ⌥↑/⌥↓ to reorder.
+///
+/// Reordering has to be declared here rather than as a SwiftUI
+/// `.keyboardShortcut` further up the view. Those are only consulted once the
+/// first responder declines the key, and a text view declines none of the
+/// modifier+arrow combinations — it reads ⌥↑ as "caret to the top of the
+/// paragraph" and ⌃⇧↑ as "extend the selection upward". A `UIKeyCommand`
+/// declared on the text view outranks its own built-in bindings, so this is
+/// the only level at which the shortcut can win.
 final class BlockUITextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onShiftTab: (() -> Void)?
+    /// Returns whether it handled the move. False means the text view should
+    /// do what it normally does with the key.
+    var onMove: ((_ up: Bool) -> Bool)?
+    /// Asked before every paste. Returning true means the paste was handled as
+    /// elements and the text view should not insert anything.
+    var onPasteScript: (() -> Bool)?
+
+    /// Intercepts ⌘V only when the pasteboard holds a screenplay.
+    ///
+    /// Ordinary text keeps the system behaviour — a sentence copied from a
+    /// browser belongs in the element the caret is in, and turning every paste
+    /// into new rows would be worse than never splitting at all. The decision
+    /// lives in ScriptClipboard, which requires either Scripty's own payload
+    /// or text carrying real screenplay structure.
+    override func paste(_ sender: Any?) {
+        if onPasteScript?() == true { return }
+        super.paste(sender)
+    }
 
     override func deleteBackward() {
         if selectedRange.location == 0, selectedRange.length == 0 {
@@ -238,5 +342,34 @@ final class BlockUITextView: UITextView {
 
     @objc private func handleShiftTab() {
         onShiftTab?()
+    }
+
+    /// Claims ⌥↑ / ⌥↓ before the text system sees them.
+    ///
+    /// A `UIKeyCommand` is not enough for arrow keys: the text-input responder
+    /// handles those ahead of `keyCommands`, so declaring them there left ⌥↑
+    /// still moving the caret to the top of the paragraph. `pressesBegan` runs
+    /// before either, and swallowing the press by not calling `super` is what
+    /// stops the caret from moving as well.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        for press in presses {
+            guard let key = press.key else { continue }
+            // Option and nothing else: ⌥⇧↑ is a selection gesture the text
+            // view should keep, and ⌘↑ jumps to the top of the document.
+            let modifiers = key.modifierFlags.intersection([.alternate, .command, .control, .shift])
+            guard modifiers == .alternate else { continue }
+            // Only swallow the key if the element can actually move. On the
+            // first element ⌥↑ used to do nothing at all — the move no-opped
+            // and the caret motion it replaced was eaten too.
+            switch key.keyCode {
+            case .keyboardUpArrow:
+                if onMove?(true) == true { return }
+            case .keyboardDownArrow:
+                if onMove?(false) == true { return }
+            default:
+                continue
+            }
+        }
+        super.pressesBegan(presses, with: event)
     }
 }

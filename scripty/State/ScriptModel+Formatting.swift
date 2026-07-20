@@ -45,11 +45,18 @@ extension ScriptModel {
     /// Move `block` to the absolute `order` value `position`. The server
     /// renumbers the rest of the script, so the collection is reloaded rather
     /// than patched locally.
+    ///
+    /// The response body is deliberately not decoded. Moving renumbers every
+    /// element, so the server answers with the whole refreshed collection —
+    /// decoding that as a single `Block` threw before the reload below could
+    /// run, and every move failed with "the data couldn't be read". Since the
+    /// reload is what this method relies on either way, reading the body only
+    /// ever created a way to fail.
     func moveBlock(_ block: Block, to position: Int) async {
         guard let link = block.link(.move) else { return }
         do {
-            let _: Block = try await app.client.fetch(
-                from: link, method: "POST", body: MoveBlockCommand(position: position))
+            try await app.client.data(
+                for: link, method: "POST", body: MoveBlockCommand(position: position))
             await loadBlocks()
             await refreshUndoRedo()
             errorMessage = nil

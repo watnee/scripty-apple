@@ -120,7 +120,12 @@ enum FountainDetector {
     }
 
     /// A short ALL-CAPS line that reads as an intentional speaker cue.
-    private static func isCharacterCueLine(_ line: String) -> Bool {
+    ///
+    /// Internal rather than private so the paste parser can ask the same
+    /// question. It had its own looser test — uppercase, has a letter, short —
+    /// which accepted "MEANWHILE, ACROSS TOWN" and "BANG!" as speakers and
+    /// turned the line beneath them into dialogue.
+    static func isCharacterCueLine(_ line: String) -> Bool {
         guard !line.isEmpty, line.count <= 60 else { return false }
         if matches(#"[.?!]$"#, line) { return false }
         if fullMatch(sceneHeading, line) || fullMatch(transition, line) || fullMatch(shot, line) {

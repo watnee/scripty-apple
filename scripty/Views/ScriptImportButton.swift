@@ -16,12 +16,26 @@ struct ScriptImportButton: View {
     /// every block in the project has just been replaced.
     private let onImported: (Project) async -> Void
 
+    /// Raised from outside — by ⌘⇧I — to open the file picker without pressing
+    /// the button. The button owns the picker, the confirmation and the upload,
+    /// so the keyboard reaches in rather than duplicating any of that.
+    ///
+    /// Folded into the picker's presentation binding rather than watched with
+    /// an `.onChange`: this view is hosted inside a `ToolbarItemGroup`, and an
+    /// `.onChange` attached to toolbar content is not reliably evaluated —
+    /// ⌘⇧I did nothing at all while the trigger was observed that way. A
+    /// binding is read wherever the value is needed, so it has no such gap.
+    @Binding private var trigger: Bool
+
     @State private var showingImporter = false
     @State private var pending: PendingScriptFile?
     @State private var statusMessage: String?
 
-    init(app: AppModel, project: Project, onImported: @escaping (Project) async -> Void) {
+    init(app: AppModel, project: Project,
+         trigger: Binding<Bool> = .constant(false),
+         onImported: @escaping (Project) async -> Void) {
         _model = State(initialValue: ScriptImportModel(app: app, project: project))
+        _trigger = trigger
         self.onImported = onImported
     }
 
@@ -40,7 +54,7 @@ struct ScriptImportButton: View {
                 .disabled(model.isImporting)
             }
         }
-        .fileImporter(isPresented: $showingImporter,
+        .fileImporter(isPresented: pickerBinding,
                       allowedContentTypes: Self.importTypes,
                       allowsMultipleSelection: false) { result in
             handlePick(result)
@@ -93,6 +107,14 @@ struct ScriptImportButton: View {
                 statusMessage = model.errorMessage ?? "Could not import that file."
             }
         }
+    }
+
+    /// Open when either the button or ⌘⇧I asked. Lowering the trigger on
+    /// dismissal is what lets the shortcut work twice running.
+    private var pickerBinding: Binding<Bool> {
+        Binding(
+            get: { showingImporter || (trigger && !model.isImporting) },
+            set: { showingImporter = $0; if !$0 { trigger = false } })
     }
 
     private var confirmBinding: Binding<Bool> {

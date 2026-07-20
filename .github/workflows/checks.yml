@@ -1,0 +1,101 @@
+#
+# Runs the logic checks and builds the app on every pull request.
+#
+# The two jobs are split on purpose. `logic` compiles the pure-Swift parts with
+# swiftc and needs no Xcode in particular, so it is the one that must stay
+# green. `build` needs the iOS SDK the project targets, which is newer than
+# what GitHub's default images ship — so it reports honestly when the SDK is
+# missing rather than failing red for a reason nobody can fix in the PR. A red
+# X that means "the runner is old" teaches people to ignore red Xs.
+#
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  logic:
+    name: Logic checks
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Newest installed Xcode, whatever the image happens to carry. The
+      # checks only need a Swift compiler; pinning a version would break the
+      # job every time GitHub rotates the image.
+      - name: Select the newest Xcode
+        run: |
+          newest=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$newest" ]; then sudo xcode-select -s "$newest"; fi
+          xcodebuild -version
+
+      # Pagination, script stats, autocomplete, Fountain paste parsing,
+      # presentation settings, and the demo backend's HAL contract.
+      - name: Run Tests/run.sh
+        run: ./Tests/run.sh
+
+  build:
+    name: App build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          newest=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$newest" ]; then sudo xcode-select -s "$newest"; fi
+          xcodebuild -version
+
+      # The project targets a newer iOS than the runner image may carry.
+      # Checked up front so the log says which it is.
+      #
+      # A *newer* SDK builds an older deployment target perfectly well, so this
+      # compares versions rather than matching them. The first version of this
+      # step tested for the exact target, which meant a runner carrying 26.5
+      # skipped a build of a 26.2-target app and reported the job as passing —
+      # the job was green and did nothing, which is worse than red.
+      - name: Check for a usable SDK
+        id: sdk
+        run: |
+          target=$(grep -m1 'IPHONEOS_DEPLOYMENT_TARGET' scripty.xcodeproj/project.pbxproj \
+            | sed 's/[^0-9.]//g')
+          echo "Project targets iOS $target"
+          echo "Installed iOS simulator SDKs:"
+          xcodebuild -showsdks | grep -i iphonesimulator || true
+          newest=$(xcodebuild -showsdks \
+            | grep -oE 'iphonesimulator[0-9]+(\.[0-9]+)*' \
+            | sed 's/iphonesimulator//' | sort -V | tail -1)
+          if [ -z "$newest" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No iOS simulator SDK on this runner — skipping the app build. The logic checks still ran."
+          elif [ "$(printf '%s\n%s\n' "$target" "$newest" | sort -V | head -1)" = "$target" ]; then
+            echo "Newest SDK $newest satisfies target $target"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Newest iOS SDK is $newest but the project targets $target — skipping the app build. The logic checks still ran."
+          fi
+
+      # One build, teed: the grep keeps the log readable, and the final check
+      # is what decides the job — a `| grep` alone would report the grep's
+      # exit status, which succeeds whenever it matched *anything*, including
+      # the errors.
+      - name: Build
+        if: steps.sdk.outputs.available == 'true'
+        run: |
+          xcodebuild \
+            -project scripty.xcodeproj \
+            -scheme scripty \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            build \
+            CODE_SIGNING_ALLOWED=NO 2>&1 \
+            | tee /tmp/build.log \
+            | grep -E 'error:|warning:.*(unused|never)|BUILD ' || true
+          grep -q 'BUILD SUCCEEDED' /tmp/build.log

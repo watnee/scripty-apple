@@ -22,6 +22,10 @@ struct EditableBlockRow: View {
     /// does not change as the text grows.
     @Environment(\.scriptTextScale) private var textScale
 
+    /// Read for the element-label toggle; shared app-wide like the rest of
+    /// presentation.
+    private let settings = PresentationSettings.shared
+
     private static let pageWidth: CGFloat = 640
     private static var dialogueWidth: CGFloat {
         pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
@@ -38,7 +42,34 @@ struct EditableBlockRow: View {
             .frame(maxWidth: .infinity, alignment: pageAlignment)
             .padding(.top, topPadding)
             .overlay(alignment: .topTrailing) { badges }
+            .overlay(alignment: .topLeading) { elementLabel }
             .contextMenu { contextMenu }
+    }
+
+    /// Names the element's type out in the margin, when the writer has asked
+    /// for labels.
+    ///
+    /// Drawn as an overlay rather than as a column beside the text so turning
+    /// labels on does not reflow the script — the measure a line breaks at is
+    /// the shape of the page, and a toggle about *naming* elements has no
+    /// business changing where the words fall.
+    @ViewBuilder
+    private var elementLabel: some View {
+        if settings.showsElementLabels {
+            Text(block.blockType.marginLabel)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.top, topPadding)
+                // Out into the gutter the script view opens up when labels are
+                // on. Without this the label lands on top of the first word of
+                // every left-aligned element.
+                .offset(x: -44, y: -1)
+                .frame(width: 40, alignment: .trailing)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)   // the row already announces its type
+        }
     }
 
     // MARK: - Row actions
@@ -71,6 +102,23 @@ struct EditableBlockRow: View {
                 Task { await model.moveBlockDown(block) }
             } label: {
                 Label("Move Down", systemImage: "arrow.down")
+            }
+        }
+        if model.canDuplicate(block) {
+            Button {
+                Task { await model.duplicateBlock(block) }
+            } label: {
+                Label("Duplicate", systemImage: "plus.square.on.square")
+            }
+        }
+        // Only when the pasteboard actually holds a script. Ordinary copied
+        // text pastes into the element the caret is in, the way it always
+        // has — this is the menu entry for "and paste it as its own rows".
+        if model.canPasteElements {
+            Button {
+                Task { await model.pasteElements(after: block) }
+            } label: {
+                Label("Paste Elements", systemImage: "doc.on.clipboard")
             }
         }
         if block.hasLink(.togglePinned) {
@@ -159,11 +207,13 @@ struct EditableBlockRow: View {
         return base * textScale
     }
 
+    /// Capitals for the types the writer has asked for, sentence case for the
+    /// rest. The preference is the writer's, not this device's, because the
+    /// exporters bake the case into the file.
     private var capitalization: UITextAutocapitalizationType {
-        switch block.blockType {
-        case .scene, .character, .dualDialogue, .transition, .shot: return .allCharacters
-        default: return .sentences
-        }
+        model.app.capitalization.preferences.applies(to: block.blockType)
+            ? .allCharacters
+            : .sentences
     }
 
     private var uiFont: UIFont {
