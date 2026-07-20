@@ -75,6 +75,12 @@ struct ScriptView: View {
         .onDisappear { model.stopSyncPolling() }
         .onChange(of: model.blocks) { _, _ in repaginate() }
         .onChange(of: settings.pageSetup) { _, _ in repaginate() }
+        // Pagination is skipped while the editor is up, so switching into page
+        // view is the first point at which it can be computed. Today the mode
+        // switch changes this view's identity and re-runs the .task above,
+        // which happens to repaginate — but that is incidental, and the sheets
+        // would come up empty if the Group were ever restructured.
+        .onChange(of: settings.isPageView) { _, _ in repaginate() }
         .sheet(isPresented: $showingRead) {
             ReadScriptView(
                 title: model.project.displayTitle,
