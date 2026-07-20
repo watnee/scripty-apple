@@ -337,6 +337,24 @@ final class ScriptModel {
         focus(updatedPrevious.id, caret: seam)
     }
 
+    /// Words in the screenplay right now.
+    ///
+    /// Runs the same `ScriptStats` the report runs rather than counting
+    /// separately, so the running total and Script Stats cannot disagree —
+    /// which element types count toward the total is a real rule (cues do not,
+    /// lyrics do) and having it written down twice would be having it written
+    /// down wrong. The blocks are handed over carrying their *live* text, so
+    /// the number moves as the writer types instead of lurching when the
+    /// debounced save lands.
+    var liveWordCount: Int {
+        let live = blocks.map { block -> Block in
+            var copy = block
+            copy.content = currentText(block)
+            return copy
+        }
+        return ScriptStats(blocks: live).totalWords
+    }
+
     // MARK: - Autocomplete
 
     /// Completions for whatever holds the caret. Empty unless a block is

@@ -22,6 +22,10 @@ struct EditableBlockRow: View {
     /// does not change as the text grows.
     @Environment(\.scriptTextScale) private var textScale
 
+    /// Read for the element-label toggle; shared app-wide like the rest of
+    /// presentation.
+    private let settings = PresentationSettings.shared
+
     private static let pageWidth: CGFloat = 640
     private static var dialogueWidth: CGFloat {
         pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
@@ -38,7 +42,34 @@ struct EditableBlockRow: View {
             .frame(maxWidth: .infinity, alignment: pageAlignment)
             .padding(.top, topPadding)
             .overlay(alignment: .topTrailing) { badges }
+            .overlay(alignment: .topLeading) { elementLabel }
             .contextMenu { contextMenu }
+    }
+
+    /// Names the element's type out in the margin, when the writer has asked
+    /// for labels.
+    ///
+    /// Drawn as an overlay rather than as a column beside the text so turning
+    /// labels on does not reflow the script — the measure a line breaks at is
+    /// the shape of the page, and a toggle about *naming* elements has no
+    /// business changing where the words fall.
+    @ViewBuilder
+    private var elementLabel: some View {
+        if settings.showsElementLabels {
+            Text(block.blockType.marginLabel)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.top, topPadding)
+                // Out into the gutter the script view opens up when labels are
+                // on. Without this the label lands on top of the first word of
+                // every left-aligned element.
+                .offset(x: -44, y: -1)
+                .frame(width: 40, alignment: .trailing)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)   // the row already announces its type
+        }
     }
 
     // MARK: - Row actions

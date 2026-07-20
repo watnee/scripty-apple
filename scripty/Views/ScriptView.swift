@@ -78,6 +78,7 @@ struct ScriptView: View {
         // working when the control it mirrors is hidden by focus mode or
         // dropped at phone width.
         .background { ScriptShortcutLayer(isEnabled: isEnabled, perform: perform) }
+        .preferredColorScheme(settings.appearance.colorScheme)
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -216,6 +217,8 @@ struct ScriptView: View {
             return true
         case .readScript:
             return model.hasScriptContent
+        case .wordCount, .elementLabels:
+            return true
         case .outline(let tab):
             // Songs and characters have their own sheets elsewhere, but every
             // outline tab is derived from the blocks we already hold.
@@ -270,6 +273,8 @@ struct ScriptView: View {
         case .focusMode: settings.isFocusMode.toggle()
         case .pageView: settings.isPageView.toggle()
         case .readScript: showingRead = true
+        case .wordCount: settings.showsWordCount.toggle()
+        case .elementLabels: settings.showsElementLabels.toggle()
         case .outline(let tab):
             outlineSheet = tab
         case .documents(let kind):
@@ -408,6 +413,11 @@ struct ScriptView: View {
                     ForEach(model.blocks) { block in
                         row(for: block)
                             .padding(.horizontal, 24)
+                            // Labels live in a gutter of their own. Widening
+                            // the leading inset shifts the column across but
+                            // does not change its width, so the lines break
+                            // in exactly the same places with labels on.
+                            .padding(.leading, settings.showsElementLabels ? 44 : 0)
                             .id(block.id)
                     }
                 }
@@ -427,10 +437,31 @@ struct ScriptView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .overlay { emptyState }
+        .safeAreaInset(edge: .bottom) { wordCountBar }
         .safeAreaInset(edge: .bottom) { editingBars }
         .safeAreaInset(edge: .bottom) { searchBar }
         .safeAreaInset(edge: .bottom) { bulkBar }
         .environment(\.scriptTextScale, settings.textScale)
+    }
+
+    /// A running word count, when asked for.
+    ///
+    /// Off by default and deliberately plain: a number that moves while you
+    /// write is either useful or a distraction depending on the writer, which
+    /// is exactly why the web app makes it a toggle rather than a fixture.
+    @ViewBuilder
+    private var wordCountBar: some View {
+        if settings.showsWordCount && !selection.isSelecting {
+            let count = model.liveWordCount
+            Text("^[\(count) word](inflect: true)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+                .background(.bar)
+                .accessibilityLabel("\(count) words in the screenplay")
+        }
     }
 
     @ViewBuilder
@@ -770,6 +801,26 @@ struct ScriptView: View {
             }
 
             Section {
+                Toggle(isOn: wordCountBinding) {
+                    Label("Word Count", systemImage: "textformat.123")
+                }
+
+                Toggle(isOn: elementLabelsBinding) {
+                    Label("Element Labels", systemImage: "tag")
+                }
+            }
+
+            Section("Appearance") {
+                Picker("Appearance", selection: appearanceBinding) {
+                    ForEach(PresentationSettings.Appearance.allCases) { option in
+                        Label(option.label, systemImage: option.systemImage)
+                            .tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+            Section {
                 Button {
                     showingPageSetup = true
                 } label: {
@@ -791,6 +842,19 @@ struct ScriptView: View {
 
     private var pageViewBinding: Binding<Bool> {
         Binding(get: { settings.isPageView }, set: { settings.isPageView = $0 })
+    }
+
+    private var wordCountBinding: Binding<Bool> {
+        Binding(get: { settings.showsWordCount }, set: { settings.showsWordCount = $0 })
+    }
+
+    private var elementLabelsBinding: Binding<Bool> {
+        Binding(get: { settings.showsElementLabels },
+                set: { settings.showsElementLabels = $0 })
+    }
+
+    private var appearanceBinding: Binding<PresentationSettings.Appearance> {
+        Binding(get: { settings.appearance }, set: { settings.appearance = $0 })
     }
 
     private var focusModeBinding: Binding<Bool> {

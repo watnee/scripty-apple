@@ -25,7 +25,7 @@ enum ScriptShortcutAction: Hashable, Identifiable {
 
     // Search & navigation
     case search, findReplace, nextMatch, previousMatch
-    case focusMode, pageView, readScript
+    case focusMode, pageView, readScript, wordCount, elementLabels
     case outline(ScriptOutlineView.Tab)
     case documents(DocumentType)
     case shortcutsReference
@@ -56,6 +56,8 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         case .focusMode: return "focusMode"
         case .pageView: return "pageView"
         case .readScript: return "readScript"
+        case .wordCount: return "wordCount"
+        case .elementLabels: return "elementLabels"
         case .outline(let tab): return "outline.\(tab.rawValue)"
         case .documents(let kind): return "documents.\(kind.rawValue)"
         case .shortcutsReference: return "shortcutsReference"
@@ -87,6 +89,8 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         case .focusMode: return "Focus Mode"
         case .pageView: return "Page View"
         case .readScript: return "Read Script"
+        case .wordCount: return "Word Count"
+        case .elementLabels: return "Element Labels"
         case .outline(let tab): return tab.shortcutTitle
         case .documents(let kind): return kind == .song ? "Songs" : "Notes"
         case .shortcutsReference: return "Keyboard Shortcuts"
@@ -124,6 +128,8 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         case .focusMode: return "f"
         case .pageView: return "p"
         case .readScript: return "x"
+        case .wordCount: return "y"
+        case .elementLabels: return "u"
         case .outline(let tab): return tab.shortcutKey
         case .documents(let kind): return kind == .song ? "s" : "d"
         case .shortcutsReference: return "/"
@@ -166,6 +172,7 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         // convention for Help. Plain ⌘/ does not register as a SwiftUI
         // KeyEquivalent, which is the other reason it is spelled this way.
         case .redo, .previousMatch, .focusMode, .pageView, .readScript,
+             .wordCount, .elementLabels,
              .outline, .documents, .titlePage, .versionHistory,
              .importFile, .export, .align, .shortcutsReference:
             return [.command, .shift]
@@ -201,8 +208,8 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         switch self {
         case .undo, .redo: return .edit
         case .search, .findReplace, .nextMatch, .previousMatch,
-             .focusMode, .pageView, .readScript, .outline, .documents,
-             .shortcutsReference:
+             .focusMode, .pageView, .readScript, .wordCount, .elementLabels,
+             .outline, .documents, .shortcutsReference:
             return .navigation
         case .titlePage, .versionHistory, .importFile, .printScript, .export:
             return .file
@@ -265,7 +272,7 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         .undo, .redo,
 
         .search, .findReplace, .nextMatch, .previousMatch,
-        .focusMode, .pageView, .readScript,
+        .focusMode, .pageView, .readScript, .wordCount, .elementLabels,
         .outline(.outline), .outline(.characters), .outline(.locations),
         .outline(.songs), .outline(.bookmarks), .outline(.pins),
         .documents(.song), .documents(.notes),

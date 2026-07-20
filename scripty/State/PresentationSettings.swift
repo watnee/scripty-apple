@@ -14,6 +14,7 @@
 
 import Foundation
 import Observation
+import SwiftUI
 
 @Observable
 @MainActor
@@ -66,6 +67,66 @@ final class PresentationSettings {
         }
     }
 
+    /// Shows a running word count while writing.
+    var showsWordCount: Bool {
+        didSet {
+            guard showsWordCount != oldValue else { return }
+            defaults.set(showsWordCount, forKey: Key.wordCount)
+        }
+    }
+
+    /// Names each element's type down the margin.
+    var showsElementLabels: Bool {
+        didSet {
+            guard showsElementLabels != oldValue else { return }
+            defaults.set(showsElementLabels, forKey: Key.elementLabels)
+        }
+    }
+
+    // MARK: - Appearance
+
+    /// Light, dark, or whatever the device is doing.
+    ///
+    /// A device-wide setting like the rest of this class, and stored under the
+    /// web app's key so a writer who picked dark there finds it dark here.
+    enum Appearance: String, CaseIterable, Identifiable {
+        case system, light, dark
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .system: return "System"
+            case .light: return "Light"
+            case .dark: return "Dark"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .system: return "circle.lefthalf.filled"
+            case .light: return "sun.max"
+            case .dark: return "moon"
+            }
+        }
+
+        /// Nil means "follow the device", which is what SwiftUI wants.
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .system: return nil
+            case .light: return .light
+            case .dark: return .dark
+            }
+        }
+    }
+
+    var appearance: Appearance {
+        didSet {
+            guard appearance != oldValue else { return }
+            defaults.set(appearance.rawValue, forKey: Key.appearance)
+        }
+    }
+
     // MARK: - Zoom
 
     static let defaultZoom = 100
@@ -113,6 +174,9 @@ final class PresentationSettings {
         static let focusMode = "scripty-focus-mode"
         static let pageZoom = "scripty-page-zoom"
         static let pageSetup = "scripty-page-setup"
+        static let wordCount = "scripty-word-count"
+        static let elementLabels = "scripty-element-labels"
+        static let appearance = "scripty-theme"
     }
 
     private let defaults: UserDefaults
@@ -131,6 +195,10 @@ final class PresentationSettings {
 
         isPageView = defaults.bool(forKey: Key.pageView)
         isFocusMode = defaults.bool(forKey: Key.focusMode)
+        showsWordCount = defaults.bool(forKey: Key.wordCount)
+        showsElementLabels = defaults.bool(forKey: Key.elementLabels)
+        appearance = (defaults.string(forKey: Key.appearance)
+            .flatMap(Appearance.init(rawValue:))) ?? .system
 
         if let data = defaults.data(forKey: Key.pageSetup),
            let decoded = try? JSONDecoder().decode(PageSetup.self, from: data) {
