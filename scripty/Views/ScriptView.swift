@@ -233,7 +233,9 @@ struct ScriptView: View {
             return true
 
         case .titlePage:
-            return !settings.isFocusMode
+            // Not focus-gated: the sheet hangs off this view, not off the
+            // overflow menu, so it opens fine with the chrome cleared away.
+            return true
         case .versionHistory:
             return model.project.hasLink(.versions)
         case .importFile:
@@ -243,7 +245,9 @@ struct ScriptView: View {
         case .printScript:
             return model.printOption != nil
         case .export(let rel):
-            return model.exportOptions.contains { $0.rel == rel } && !settings.isFocusMode
+            // Likewise: ScriptView runs keyboard exports itself and presents
+            // its own share sheet, so focus mode does not take them away.
+            return model.exportOptions.contains { $0.rel == rel }
 
         case .biggerText: return settings.canIncreaseTextSize
         case .smallerText: return settings.canDecreaseTextSize

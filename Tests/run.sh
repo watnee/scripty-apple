@@ -43,6 +43,17 @@ swiftc -o "$BUILD/pagination" \
 "$BUILD/pagination" || status=1
 
 echo
+echo "== Presentation settings =="
+swiftc -o "$BUILD/presentation" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/PageSetup.swift" \
+    "$SRC/Models/ScreenplayLayout.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/PresentationSettings/main.swift"
+"$BUILD/presentation" || status=1
+
+echo
 echo "== Script autocomplete =="
 swiftc -o "$BUILD/autocomplete" \
     "$SRC/Models/Block.swift" \

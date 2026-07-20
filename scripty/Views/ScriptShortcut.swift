@@ -116,6 +116,8 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         case .exportPdf: return "PDF"
         case .exportDocx: return "Word"
         case .exportFdx: return "Final Draft"
+        case .exportEpub: return "EPUB"
+        case .exportArchive: return "Project Archive"
         default: return "Fountain"
         }
     }
@@ -137,14 +139,23 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         case .versionHistory: return "h"
         case .importFile: return "i"
         case .printScript: return "p"
+        // Every advertised format needs its own digit. A `default` here would
+        // hand two exports the same binding, which in SwiftUI silently breaks
+        // both — and the reference sheet would list a key twice.
         case .export(let rel):
             switch rel {
             case .exportPdf: return "1"
             case .exportDocx: return "2"
             case .exportFdx: return "3"
-            default: return "4"
+            case .exportEpub: return "5"
+            case .exportArchive: return "6"
+            default: return "4"   // Fountain
             }
-        case .biggerText: return "+"
+        // "=" rather than "+", which is the same physical key: a KeyEquivalent
+        // that needs Shift to type, declared without `.shift`, never matches —
+        // neither ⌘= nor ⌘⇧= fired it. ⌘= is also what every other Mac app
+        // actually binds, whatever its menu prints.
+        case .biggerText: return "="
         case .smallerText: return "-"
         case .bold: return "b"
         case .italic: return "i"
@@ -294,6 +305,7 @@ enum ScriptShortcutAction: Hashable, Identifiable {
         .titlePage, .versionHistory, .importFile, .printScript,
         .export(.exportPdf), .export(.exportDocx),
         .export(.exportFdx), .export(.export),
+        .export(.exportEpub), .export(.exportArchive),
     ]
 
     static func inGroup(_ group: Group) -> [ScriptShortcutAction] {

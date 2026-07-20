@@ -800,7 +800,7 @@ actor DemoBackend {
         if isSong {
             links["shareEmail"] = link("/api/document/\(document.id)/share-email")
             // Text only, for the same reason the project offers no PDF here.
-            links["exportTxt"] = link("/api/document/\(document.id)/export/txt")
+            links["exportSongTxt"] = link("/api/document/\(document.id)/export/txt")
             // Songs are lyric blocks on the server, so only they have editions
             // to scope. A note is plain text with nothing to vary.
             links["editions"] = link("/api/song/edition?documentId=\(document.id)")
@@ -2318,8 +2318,12 @@ actor DemoBackend {
 
     // MARK: - Export
 
-    /// The project as a `.scripty.json` archive — the shape `demoImport` reads
-    /// back, so an archive exported here can be imported here.
+    /// The project as a `.scripty.json` archive.
+    ///
+    /// The blocks are written for shape, not for round-tripping: `demoImport`
+    /// reads only the title and starts the imported project empty, so
+    /// re-importing an archive here does not restore the screenplay. The real
+    /// server does restore it; the demo has never claimed to.
     private func archiveExport(_ project: DemoProject) -> (Int, Data) {
         let payload: [String: Any] = [
             "title": project.title,
@@ -2334,14 +2338,16 @@ actor DemoBackend {
         return (200, data)
     }
 
-    /// A song as plain lyrics, one line per block — what the server's TXT
-    /// export produces.
+    /// A song as plain lyrics — what the server's TXT export produces.
+    ///
+    /// Reads `document.content` rather than looking up lyric blocks. An earlier
+    /// version indexed `songBlocks` by the document's id, but that dictionary
+    /// is keyed by *edition* id from an independent counter, so the two id
+    /// spaces overlap and a song could export another song's words.
+    /// `syncSongText` already keeps `content` in step with the default
+    /// edition, which is exactly what a plain export wants.
     private func songTextExport(_ document: DemoDocument) -> String {
-        let lyrics = songBlocks[document.id]?
-            .sorted { $0.order < $1.order }
-            .map(\.content)
-            .joined(separator: "\n")
-        return ([document.title, ""] + [lyrics ?? document.content]).joined(separator: "\n")
+        [document.title, "", document.content].joined(separator: "\n")
     }
 
     private func fountainExport(_ project: DemoProject) -> String {

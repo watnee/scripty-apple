@@ -40,7 +40,7 @@ struct BlockTextView: UIViewRepresentable {
             coordinator?.tab(backward: true)
         }
         view.onMove = { [weak coordinator = context.coordinator] up in
-            coordinator?.move(up: up)
+            coordinator?.move(up: up) ?? false
         }
         view.onPasteScript = { [weak coordinator = context.coordinator] in
             coordinator?.pasteScript() ?? false
@@ -83,10 +83,18 @@ struct BlockTextView: UIViewRepresentable {
         // An explicit request outranks the liveText rule above: accepting a
         // completion rewrites the field deliberately, which is the one case
         // where the model, not the view, has the newer text.
+        // Deferred, like the caret request below. `replaceAll` goes through the
+        // text-input protocol, which synchronously calls the delegate and so
+        // writes `model.liveText` — and the bar showing the completions is
+        // being laid out from that very value in this same pass. Doing it
+        // inline is "modifying state during view update".
         if let requested = model.textRequests[block.id] {
-            if view.text != requested { replaceAll(in: view, with: requested) }
             let blockId = block.id
-            DispatchQueue.main.async { model.textRequests[blockId] = nil }
+            let needsReplacing = view.text != requested
+            DispatchQueue.main.async {
+                if needsReplacing { replaceAll(in: view, with: requested) }
+                model.textRequests[blockId] = nil
+            }
         }
 
         // After the text sync, never before: assigning `.text` rebuilds the
@@ -249,8 +257,12 @@ struct BlockTextView: UIViewRepresentable {
         /// which takes focus away — deliberately, and the same as tapping the
         /// element menu: after a move the writer is looking at where the line
         /// landed, not typing into it.
-        func move(up: Bool) {
+        @discardableResult
+        func move(up: Bool) -> Bool {
             let block = block
+            guard up ? model.canMoveUp(block) : model.canMoveDown(block) else {
+                return false
+            }
             Task {
                 if up {
                     await model.moveBlockUp(block)
@@ -258,6 +270,7 @@ struct BlockTextView: UIViewRepresentable {
                     await model.moveBlockDown(block)
                 }
             }
+            return true
         }
 
         func applyCaret(_ characterOffset: Int) {
@@ -296,7 +309,9 @@ struct BlockTextView: UIViewRepresentable {
 final class BlockUITextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onShiftTab: (() -> Void)?
-    var onMove: ((_ up: Bool) -> Void)?
+    /// Returns whether it handled the move. False means the text view should
+    /// do what it normally does with the key.
+    var onMove: ((_ up: Bool) -> Bool)?
     /// Asked before every paste. Returning true means the paste was handled as
     /// elements and the text view should not insert anything.
     var onPasteScript: (() -> Bool)?
@@ -343,13 +358,14 @@ final class BlockUITextView: UITextView {
             // view should keep, and ⌘↑ jumps to the top of the document.
             let modifiers = key.modifierFlags.intersection([.alternate, .command, .control, .shift])
             guard modifiers == .alternate else { continue }
+            // Only swallow the key if the element can actually move. On the
+            // first element ⌥↑ used to do nothing at all — the move no-opped
+            // and the caret motion it replaced was eaten too.
             switch key.keyCode {
             case .keyboardUpArrow:
-                onMove?(true)
-                return
+                if onMove?(true) == true { return }
             case .keyboardDownArrow:
-                onMove?(false)
-                return
+                if onMove?(false) == true { return }
             default:
                 continue
             }

@@ -60,7 +60,12 @@ enum FountainScript {
             guard index + 1 < elements.count else { return text }
             let current = elements[index].type
             let next = elements[index + 1].type
-            let glued = (current.isCharacterCue || current == .parenthetical)
+            // A parenthetical always belongs to the speech it sits in, so it
+            // glues to whatever precedes it — including dialogue, for the
+            // interior "(beat)" case. Without that the blank line before it
+            // ends the speech, and the dialogue after it reads back as action.
+            let glued = (current.isCharacterCue || current == .parenthetical
+                            || current == .dialogue)
                 && (next == .dialogue || next == .parenthetical)
             return text + (glued ? "\n" : "\n\n")
         }
@@ -121,10 +126,20 @@ enum FountainScript {
         // A structural first line with text under it: a writer who omitted the
         // blank line after a scene heading still meant two elements. Emit it,
         // then read what is left as its own paragraph.
-        if lines.count > 1,
+        if lines.count > 1, !isParenthetical(first),
            let detected = FountainDetector.detect(first),
            isStructural(detected.type) {
             return [FountainElement(type: detected.type, content: detected.content)]
+                + parse(paragraph: lines.dropFirst().joined(separator: "\n"))
+        }
+
+        // A parenthetical with lines under it, checked before the detector for
+        // the same reason the single-line case is: the detector strips the
+        // brackets and the rest of the app stores them. Missing this made the
+        // same clipboard text land differently depending on whether a line
+        // happened to follow it.
+        if lines.count > 1, isParenthetical(first) {
+            return [FountainElement(type: .parenthetical, content: first)]
                 + parse(paragraph: lines.dropFirst().joined(separator: "\n"))
         }
 
@@ -157,23 +172,20 @@ enum FountainScript {
         }
     }
 
-    /// A cue line, or nil. Deliberately stricter than the detector's: this
-    /// runs on a line that has text under it, where a false positive would
-    /// turn a paragraph of action into a character speaking.
+    /// A cue line, or nil.
+    ///
+    /// Asks the detector rather than testing here. An earlier version tried to
+    /// be stricter and was in fact looser: it only rejected a line the detector
+    /// positively identified as something *else*, so anything the detector
+    /// simply declined — a line ending in punctuation, a long one, one with
+    /// stray characters — sailed through on "uppercase and short". That made a
+    /// speaker of "MEANWHILE, ACROSS TOWN" and of "BANG!", and dialogue of
+    /// whatever followed. A cue needs a positive test, and the detector
+    /// already has the right one.
     private static func cueType(for line: String) -> BlockType? {
-        let bare = line.hasSuffix("^") ? String(line.dropLast()) : line
-        let name = bare.split(separator: "(").first.map(String.init) ?? bare
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, trimmed.count <= 40 else { return nil }
-        guard trimmed == trimmed.uppercased() else { return nil }
-        guard trimmed.rangeOfCharacter(from: .letters) != nil else { return nil }
-        // A heading or a transition is uppercase too, and is not a cue.
-        if FountainDetector.detect(line)?.type != nil,
-           let detected = FountainDetector.detect(line)?.type,
-           detected != .character, detected != .dualDialogue {
-            return nil
-        }
-        return line.hasSuffix("^") ? .dualDialogue : .character
+        guard FountainDetector.isCharacterCueLine(line) else { return nil }
+        return line.trimmingCharacters(in: .whitespaces).hasSuffix("^")
+            ? .dualDialogue : .character
     }
 
     private static func bareCue(_ line: String) -> String {

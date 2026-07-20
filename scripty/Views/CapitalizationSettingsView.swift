@@ -50,8 +50,9 @@ struct CapitalizationSettingsView: View {
         }
     }
 
-    /// Character and dual dialogue share a flag, so the row says so rather
-    /// than naming one and quietly changing both.
+    /// "Character Cues" rather than "Characters", because the flag covers dual
+    /// dialogue too and both are cues — naming one element type would promise
+    /// something narrower than the switch delivers.
     private func label(for type: BlockType) -> String {
         type == .character ? "Character Cues" : type.label + "s"
     }

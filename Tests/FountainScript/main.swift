@@ -71,6 +71,24 @@ check("a full speech and scene together",
 check("a lone parenthetical is a parenthetical",
       parsed("(beat)"), ["PARENTHETICAL:(beat)"])
 
+print("\n-- all-caps prose is not a speaker --")
+
+// Found by review: the cue test only rejected lines the detector positively
+// identified as something else, so anything it merely declined sailed through
+// on "uppercase and short" — and the line beneath became that speaker's
+// dialogue, persisted to the server.
+check("an all-caps scene-setter is not a cue",
+      parsed("MEANWHILE, ACROSS TOWN\nThe rain has not stopped."),
+      ["ACTION:MEANWHILE, ACROSS TOWN The rain has not stopped."])
+
+check("an all-caps exclamation is not a cue",
+      parsed("BANG!\nThe door bursts open."),
+      ["ACTION:BANG! The door bursts open."])
+
+check("a real cue still reads as one",
+      parsed("MAYA\nStill here."),
+      ["CHARACTER:MAYA", "DIALOGUE:Still here."])
+
 print("\n-- prose is left alone --")
 
 check("one paragraph is one action element",
@@ -110,6 +128,14 @@ check("a parenthetical stays inside the speech",
       fountain([(.character, "MAYA"), (.parenthetical, "(quietly)"), (.dialogue, "Late.")]),
       "MAYA\n(quietly)\nLate.")
 
+// Found by review: the glue rule only looked at what *preceded* the gap, so a
+// parenthetical inside a speech got a blank line before it, which ends the
+// speech — and the dialogue after it came back as action.
+check("an interior parenthetical does not break the speech",
+      fountain([(.character, "MAYA"), (.dialogue, "Hi."),
+                (.parenthetical, "(beat)"), (.dialogue, "Okay.")]),
+      "MAYA\nHi.\n(beat)\nOkay.")
+
 check("markers are restored",
       fountain([(.section, "Act One"), (.synopsis, "They meet"), (.note, "check this")]),
       "# Act One\n\n= They meet\n\n[[check this]]")
@@ -117,11 +143,21 @@ check("markers are restored",
 check("a page break writes as its marker",
       fountain([(.pageBreak, "===")]), "===")
 
+// Found by review: the multi-line branch sent a leading parenthetical through
+// the detector, which strips the brackets — so the same clipboard text stored
+// differently depending on whether a line happened to follow it.
+check("a parenthetical keeps its brackets with a line under it",
+      parsed("(beat)\nOkay."),
+      ["PARENTHETICAL:(beat)", "ACTION:Okay."])
+
+check("and stores the same way on its own",
+      parsed("(beat)"), ["PARENTHETICAL:(beat)"])
+
 // MARK: - Round trip
 
 print("\n-- round trip --")
 
-let original = "INT. CAFE - DAY\n\nMAYA\n(quietly)\nWe are late.\n\nShe runs.\n\nSMASH CUT TO:"
+let original = "INT. CAFE - DAY\n\nMAYA\n(quietly)\nWe are late.\n(beat)\nReally late.\n\nShe runs.\n\nSMASH CUT TO:"
 check("parsing what we wrote gives back what we had",
       FountainScript.fountain(from: FountainScript.parse(original)),
       original)

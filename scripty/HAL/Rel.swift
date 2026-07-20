@@ -63,7 +63,7 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     // A song exports on its own, in the formats the server lays lyrics out in.
     // Advertised on the document, and outside its edit gate — a view-only
     // collaborator can still take a copy away.
-    static let exportSongTxt = Rel("exportTxt")
+    static let exportSongTxt = Rel("exportSongTxt")
     static let exportSongPdf = Rel("exportSongPdf")
     static let exportSongDocx = Rel("exportSongDocx")
     static let exportSongEpub = Rel("exportSongEpub")
