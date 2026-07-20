@@ -54,19 +54,32 @@ jobs:
 
       # The project targets a newer iOS than the runner image may carry.
       # Checked up front so the log says which it is.
-      - name: Check the target SDK is available
+      #
+      # A *newer* SDK builds an older deployment target perfectly well, so this
+      # compares versions rather than matching them. The first version of this
+      # step tested for the exact target, which meant a runner carrying 26.5
+      # skipped a build of a 26.2-target app and reported the job as passing —
+      # the job was green and did nothing, which is worse than red.
+      - name: Check for a usable SDK
         id: sdk
         run: |
           target=$(grep -m1 'IPHONEOS_DEPLOYMENT_TARGET' scripty.xcodeproj/project.pbxproj \
             | sed 's/[^0-9.]//g')
           echo "Project targets iOS $target"
-          echo "Installed iOS SDKs:"
+          echo "Installed iOS simulator SDKs:"
           xcodebuild -showsdks | grep -i iphonesimulator || true
-          if xcodebuild -showsdks | grep -qi "iphonesimulator$target"; then
+          newest=$(xcodebuild -showsdks \
+            | grep -oE 'iphonesimulator[0-9]+(\.[0-9]+)*' \
+            | sed 's/iphonesimulator//' | sort -V | tail -1)
+          if [ -z "$newest" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No iOS simulator SDK on this runner — skipping the app build. The logic checks still ran."
+          elif [ "$(printf '%s\n%s\n' "$target" "$newest" | sort -V | head -1)" = "$target" ]; then
+            echo "Newest SDK $newest satisfies target $target"
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::iOS $target simulator SDK not on this runner — skipping the app build. The logic checks still ran."
+            echo "::warning::Newest iOS SDK is $newest but the project targets $target — skipping the app build. The logic checks still ran."
           fi
 
       # One build, teed: the grep keeps the log readable, and the final check
