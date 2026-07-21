@@ -88,6 +88,17 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let headshot = Rel("headshot")
     static let documents = Rel("documents")
     static let document = Rel("document")
+
+    /// The same document list narrowed to one kind, advertised beside
+    /// `documents` on a project and on the API root. Following these beats
+    /// fetching `documents` and filtering here: the server already knows which
+    /// is which, and the root's copies come out templated on `{projectId}`.
+    static let songs = Rel("songs")
+    static let notes = Rel("notes")
+
+    /// The song a lyric collection, edition or snapshot belongs to. A back-link
+    /// home from the resources hung beneath it.
+    static let song = Rel("song")
     static let insert = Rel("insert")
     static let shareEmail = Rel("shareEmail")
     static let importDocument = Rel("importDocument")
@@ -145,6 +156,20 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let editions = Rel("editions")
     static let setDefault = Rel("setDefault")
     static let setPublished = Rel("setPublished")
+
+    /// A song's editions. Named apart from `editions` because a song hangs its
+    /// own collection off the document rather than the project, but the
+    /// resource on the other end is shaped exactly like a script edition —
+    /// `ScriptEdition` decodes both, and `CreateEditionCommand` and
+    /// `RenameEditionCommand` write to both, which is why there is no separate
+    /// song edition type. The server reuses its request records the same way.
+    ///
+    /// `setDefault` and `setPublished` above are advertised on a song edition
+    /// too, and song snapshots arrive as `ProjectVersion` under the `versions`
+    /// rel — a song version reports `title` and `lineCount` where a screenplay
+    /// reports scenes and elements, and that model already carries both.
+    static let songEditions = Rel("songEditions")
+    static let songEdition = Rel("songEdition")
 
     // The signed-in user's own account — advertised on the API root to anyone
     // signed in, unlike the admin-only `users`. `passkeys` appears only where

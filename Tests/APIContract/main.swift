@@ -53,7 +53,78 @@ func checkCurieTolerance() {
           "got \(mixed?.link(.actors)?.href ?? "nil")")
 }
 
+/// A song's editions and snapshots come back shaped exactly like a script's, so
+/// the client reads them with `ScriptEdition` and `ProjectVersion` rather than
+/// carrying a near-identical second pair of types. `SongEditionResource`
+/// serializes field-for-field like `ScriptEditionResource` (the server even
+/// reuses its request records), and `SongVersionResource` is a strict subset of
+/// the screenplay snapshot — title and line counts in place of scenes and
+/// elements. These payloads are the server's, so if that ever stops being true
+/// this is what says so.
+func checkSongResourcesReuseScriptModels() {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let edition = Data("""
+    {"id":7,"name":"Bridge rewrite","default":true,"published":false,\
+    "lastEdited":"2026-07-21T10:15:00Z","blockCount":24,\
+    "_links":{"self":{"href":"/api/song/edition/7?documentId=3"},\
+    "setDefault":{"href":"/api/song/edition/7/set-default?documentId=3"},\
+    "song":{"href":"/api/document/3"}}}
+    """.utf8)
+    if let e = try? decoder.decode(ScriptEdition.self, from: edition) {
+        check("a song edition decodes as ScriptEdition", e.id == 7)
+        check("its name survives", e.displayName == "Bridge rewrite", "got \(e.displayName)")
+        check("`default` maps onto isDefault", e.isTheDefault)
+        check("`published` maps onto isPublished", !e.isThePublished)
+        check("its lyric count reads as elements", e.sizeSummary == "24 elements",
+              "got \(e.sizeSummary)")
+        check("a song edition advertises setDefault", e.hasLink(.setDefault))
+        check("a song edition links home to its song", e.hasLink(.song))
+    } else {
+        check("a song edition decodes as ScriptEdition", false)
+    }
+
+    let version = Data("""
+    {"id":12,"label":"Before the key change","title":"Ferris Wheel",\
+    "createdAt":"2026-07-21T10:15:00Z","autoSave":false,"lineCount":31,\
+    "changeSummary":{"linesAdded":4,"linesRemoved":1,"linesEdited":2,\
+    "titleChanged":true,"details":["Retitled to Ferris Wheel"]},\
+    "_links":{"self":{"href":"/api/song/version/12?documentId=3"},\
+    "restore":{"href":"/api/song/version/12/restore?documentId=3"},\
+    "song":{"href":"/api/document/3"}}}
+    """.utf8)
+    if let v = try? decoder.decode(ProjectVersion.self, from: version) {
+        check("a song snapshot decodes as ProjectVersion", v.id == 12)
+        check("a named snapshot keeps its label", v.displayLabel == "Before the key change",
+              "got \(v.displayLabel)")
+        check("a hand-named snapshot is not an autosave", !v.isAutoSave)
+        check("the song's title rides along", v.title == "Ferris Wheel")
+        check("lyric lines report as lines", v.sizeSummary == "31 lines", "got \(v.sizeSummary)")
+        check("song line tallies add up", v.changeSummary?.tallies.count == 3)
+        check("a retitle is not an empty summary", v.changeSummary?.isEmpty == false)
+        check("a song snapshot offers restore", v.hasLink(.restore))
+    } else {
+        check("a song snapshot decodes as ProjectVersion", false)
+    }
+
+    // The screenplay reading of the shared summary must not drift: a snapshot
+    // with no song fields still totals its scenes and elements.
+    let screenplay = Data("""
+    {"id":4,"autoSave":true,"sceneCount":12,"blockCount":240,"characterCount":6}
+    """.utf8)
+    if let v = try? decoder.decode(ProjectVersion.self, from: screenplay) {
+        check("a screenplay snapshot still reads as before",
+              v.sizeSummary == "12 scenes · 240 elements · 6 characters", "got \(v.sizeSummary)")
+        check("an unlabelled autosave says so", v.displayLabel == "Autosave")
+    } else {
+        check("a screenplay snapshot still reads as before", false)
+    }
+}
+
 func run() async {
+    checkSongResourcesReuseScriptModels()
+
     // --- root advertises actors ---
     let root = json(await be.respond(method: "GET", url: url("/api"), body: nil).data)
     check("root advertises `actors` rel", links(root)["actors"] != nil)
