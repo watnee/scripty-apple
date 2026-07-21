@@ -1,0 +1,26 @@
+# Per-user Xcode state. Scheme order, window layout and breakpoints belong to
+# whoever opened the project, not to the project — tracking them means every
+# developer's Xcode rewrites a shared file just by launching.
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Build products. The test suite compiles to a temp dir, but Xcode does not.
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager. Package.resolved is deliberately not ignored — the
+# resolved versions are part of a reproducible build.
+.swiftpm/
+.build/
+
+# Finder and editor leftovers.
+.DS_Store
+*.swp
+*~
