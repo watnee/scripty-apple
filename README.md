@@ -4,6 +4,26 @@ A SwiftUI client for Scripty, the screenplay editor. It talks to the same HAL
 API the web app does, and it ships with an offline demo so you can see the
 whole editor without an account or a server.
 
+## Run it
+
+```sh
+./scripts/run.sh
+```
+
+That is the whole thing. If an unlocked iPhone or iPad is plugged in and this
+Mac can sign, Scripty lands on the device; otherwise it opens the offline demo
+in a simulator. It says which it chose and why before it starts.
+
+```sh
+./scripts/run.sh --simulator             # ignore any plugged-in device
+./scripts/run.sh --device                # insist on the real device
+./scripts/run.sh --device "Clint iPhone" # pick one by name
+./scripts/run.sh -- --reset              # pass the rest to whichever it picks
+```
+
+It only chooses between the two commands below, so reach for those directly
+when you already know which one you want.
+
 ## Try it in the simulator
 
 ```sh
