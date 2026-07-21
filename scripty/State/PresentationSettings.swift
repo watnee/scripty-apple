@@ -66,6 +66,18 @@ final class PresentationSettings {
         }
     }
 
+    /// Lets the text column run the whole width of the window instead of
+    /// holding to the printed six-inch measure. Off by default, because the
+    /// measure is what makes a script look like a script — but a landscape iPad
+    /// is much wider than a page, and someone reformatting rather than writing
+    /// would rather use the room.
+    var isFullWidth: Bool {
+        didSet {
+            guard isFullWidth != oldValue else { return }
+            defaults.set(isFullWidth, forKey: Key.fullWidth)
+        }
+    }
+
     // MARK: - Zoom
 
     static let defaultZoom = 100
@@ -111,6 +123,7 @@ final class PresentationSettings {
         static let textSize = "scripty-text-size"
         static let pageView = "scripty-page-view-mode"
         static let focusMode = "scripty-focus-mode"
+        static let fullWidth = "scripty-screenplay-full-width"
         static let pageZoom = "scripty-page-zoom"
         static let pageSetup = "scripty-page-setup"
     }
@@ -131,6 +144,7 @@ final class PresentationSettings {
 
         isPageView = defaults.bool(forKey: Key.pageView)
         isFocusMode = defaults.bool(forKey: Key.focusMode)
+        isFullWidth = defaults.bool(forKey: Key.fullWidth)
 
         if let data = defaults.data(forKey: Key.pageSetup),
            let decoded = try? JSONDecoder().decode(PageSetup.self, from: data) {

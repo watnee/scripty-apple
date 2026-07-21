@@ -41,6 +41,14 @@ struct ScriptView: View {
     /// model is the app-wide one rather than one per script.
     private let settings = PresentationSettings.shared
 
+    /// What this script shows and whether it can be typed into. Per project
+    /// rather than shared, so marking up one draft leaves the others alone.
+    @State private var options: ScriptViewOptions
+
+    /// How much room the writing column actually has, for full-width mode.
+    /// Zero until the first layout, which reads as "use the printed measure".
+    @State private var availableWidth: CGFloat = 0
+
     /// Pagination is recomputed when the script or the paper changes rather
     /// than on every redraw — it walks the whole script.
     @State private var pages: [ScriptPage] = []
@@ -51,6 +59,7 @@ struct ScriptView: View {
         _model = State(initialValue: model)
         _editions = State(initialValue: EditionsModel(app: app, project: project))
         _exporter = State(initialValue: ScriptExportModel(model: model))
+        _options = State(initialValue: ScriptViewOptions(projectId: project.id))
     }
 
     var body: some View {
@@ -87,6 +96,11 @@ struct ScriptView: View {
         .onDisappear { model.stopSyncPolling() }
         .onChange(of: model.blocks) { _, _ in repaginate() }
         .onChange(of: settings.pageSetup) { _, _ in repaginate() }
+        // Hidden notes are hidden on paper too — otherwise the page count in
+        // the navigator disagrees with the script on screen.
+        .onChange(of: options.showsNotes) { _, _ in repaginate() }
+        // The editing lock is per edition, so it has to follow the switch.
+        .onChange(of: editions.selectedId) { _, id in options.editionId = id }
         // Pagination is skipped while the editor is up, so switching into page
         // view is the first point at which it can be computed. Today the mode
         // switch changes this view's identity and re-runs the .task above,
@@ -283,7 +297,7 @@ struct ScriptView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.blocks) { block in
+                    ForEach(visibleBlocks) { block in
                         row(for: block)
                             .padding(.horizontal, 24)
                             .id(block.id)
@@ -304,11 +318,51 @@ struct ScriptView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .overlay { emptyState }
         .safeAreaInset(edge: .bottom) { editingBars }
         .safeAreaInset(edge: .bottom) { searchBar }
         .safeAreaInset(edge: .bottom) { bulkBar }
         .environment(\.scriptTextScale, settings.textScale)
+        .environment(\.scriptRowChrome, rowChrome)
+    }
+
+    /// The elements the writer has asked to see. Notes are the only thing that
+    /// can be hidden — they are annotations on the script rather than part of
+    /// it, which is exactly why the web offers to take them off the page.
+    private var visibleBlocks: [Block] {
+        guard !options.showsNotes else { return model.blocks }
+        return model.blocks.filter { $0.blockType != .note }
+    }
+
+    /// What the rows should draw, gathered from the project's view options and
+    /// the room the window has.
+    private var rowChrome: ScriptRowChrome {
+        var chrome = ScriptRowChrome()
+        chrome.showsPins = options.showsPins
+        chrome.showsBookmarks = options.showsBookmarks
+        chrome.showsElementLabels = options.showsElementLabels
+        guard availableWidth > 0 else { return chrome }
+        // Each row is padded by 24 either side, so that much of the window was
+        // never the column's to use.
+        let usable = availableWidth - 48
+
+        // The badges sit in the margin beyond the column, so full width leaves
+        // them room rather than running the text underneath them.
+        if settings.isFullWidth {
+            chrome.columnWidth = max(320, usable - 48)
+            chrome.isFullWidth = true
+        }
+        // The labels hang off the left of the column, so the column gives up
+        // the room when the window has none to spare — without this they print
+        // straight over the scene headings, which start at the margin.
+        if options.showsElementLabels {
+            let margin = (usable - chrome.columnWidth) / 2
+            if margin < ElementLabelTag.gutter {
+                chrome.columnWidth = max(280, usable - 2 * ElementLabelTag.gutter)
+            }
+        }
+        return chrome
     }
 
     @ViewBuilder
@@ -331,9 +385,11 @@ struct ScriptView: View {
     /// whole script otherwise. A query that matches nothing deliberately
     /// leaves the set empty rather than silently selecting everything.
     private var selectableIds: [Int] {
-        guard isSearching && search.hasQuery else { return model.blocks.map(\.id) }
+        // Hidden notes are off the table too: selecting all should never reach
+        // an element the writer cannot see.
+        guard isSearching && search.hasQuery else { return visibleBlocks.map(\.id) }
         let hits = Set(search.matches.map(\.blockId))
-        return model.blocks.map(\.id).filter { hits.contains($0) }
+        return visibleBlocks.map(\.id).filter { hits.contains($0) }
     }
 
     /// The paper surface: read-only sheets with a pager.
@@ -373,7 +429,7 @@ struct ScriptView: View {
     /// nothing would read the result.
     private func repaginate() {
         guard settings.isPageView else { return }
-        pages = ScriptPagination.paginate(blocks: model.blocks, setup: settings.pageSetup)
+        pages = ScriptPagination.paginate(blocks: visibleBlocks, setup: settings.pageSetup)
         currentPage = min(max(1, currentPage), max(1, pages.count))
     }
 
@@ -384,7 +440,7 @@ struct ScriptView: View {
                 selection.toggle(block.id)
             }
             .blockReorderDrag(block, in: model)
-        } else if block.isEditable {
+        } else if block.isEditable && !options.isEditingLocked {
             EditableBlockRow(model: model, block: block) { commented in
                 commentTarget = commented
             }
@@ -424,7 +480,9 @@ struct ScriptView: View {
     @ViewBuilder
     private var editingBars: some View {
         // Selection mode has its own bar, and nothing is focused for typing.
-        if !selection.isSelecting,
+        // A locked script has no text view to act on either — the last focused
+        // id outlives the lock, so it has to be checked rather than trusted.
+        if !selection.isSelecting, !options.isEditingLocked,
            let id = model.focusedBlockId,
            let block = model.blocks.first(where: { $0.id == id }) {
             VStack(spacing: 0) {
@@ -461,14 +519,16 @@ struct ScriptView: View {
         actions.undo = { Task { await model.undo() } }
         actions.redo = { Task { await model.redo() } }
 
-        actions.addElement = { Task { await model.appendBlock() } }
+        if !options.isEditingLocked {
+            actions.addElement = { Task { await model.appendBlock() } }
+        }
         actions.titlePage = { showingTitlePage = true }
         actions.pageSetup = { showingPageSetup = true }
         actions.exporter = model.exportOptions.isEmpty ? nil : exporter
 
         if let focused = model.blocks.first(where: { $0.id == model.focusedBlockId }) {
             actions.focusedType = focused.blockType
-            if focused.isEditable {
+            if focused.isEditable && !options.isEditingLocked {
                 actions.setType = { type in
                     Task { await model.changeType(focused, to: type) }
                 }
@@ -497,7 +557,7 @@ struct ScriptView: View {
             // The View menu stays put in focus mode — it is the way back out.
             viewMenu
 
-            if !settings.isPageView {
+            if !settings.isPageView && !options.isEditingLocked {
                 Button {
                     Task { await model.appendBlock() }
                 } label: {
@@ -663,6 +723,43 @@ struct ScriptView: View {
                 .disabled(!model.hasScriptContent)
             }
 
+            // Only offered where it changes anything: the page view lays the
+            // script out on paper, which has a width of its own.
+            if !settings.isPageView {
+                Section {
+                    Toggle(isOn: fullWidthBinding) {
+                        Label("Full Page Width", systemImage: "arrow.left.and.right")
+                    }
+                    .keyboardShortcut("\\", modifiers: .command)
+                }
+            }
+
+            Section("Show") {
+                Toggle(isOn: option(\.showsPins, set: { options.showsPins = $0 })) {
+                    Label("Pins", systemImage: "pin")
+                }
+                Toggle(isOn: option(\.showsBookmarks, set: { options.showsBookmarks = $0 })) {
+                    Label("Bookmarks", systemImage: "bookmark")
+                }
+                Toggle(isOn: option(\.showsElementLabels,
+                                    set: { options.showsElementLabels = $0 })) {
+                    Label("Element Labels", systemImage: "tag")
+                }
+                Toggle(isOn: option(\.showsNotes, set: { options.showsNotes = $0 })) {
+                    Label("Notes", systemImage: "note.text")
+                }
+            }
+
+            // A lock is only worth offering where there is something to lock:
+            // a reader who was never given editing rights has one already.
+            if canEditScript {
+                Section {
+                    Toggle(isOn: lockBinding) {
+                        Label("Lock Editing", systemImage: "lock")
+                    }
+                }
+            }
+
             Section("Text Size") {
                 Button {
                     settings.increaseTextSize()
@@ -706,6 +803,29 @@ struct ScriptView: View {
 
     private var focusModeBinding: Binding<Bool> {
         Binding(get: { settings.isFocusMode }, set: { settings.isFocusMode = $0 })
+    }
+
+    /// Whether the server gave this writer somewhere to type. A reader is
+    /// locked already, so offering them the lock would only be noise. Asks the
+    /// links rather than the lock, which is a choice about this device.
+    private var canEditScript: Bool {
+        model.blocks.contains(where: \.isEditable) || model.canSeedScript
+    }
+
+    private var fullWidthBinding: Binding<Bool> {
+        Binding(get: { settings.isFullWidth }, set: { settings.isFullWidth = $0 })
+    }
+
+    /// The lock's setter is a method rather than a property, because what it
+    /// writes depends on which edition is open.
+    private var lockBinding: Binding<Bool> {
+        Binding(get: { options.isEditingLocked }, set: { options.setEditingLocked($0) })
+    }
+
+    /// One of the view options, as a Toggle can use it.
+    private func option(_ keyPath: KeyPath<ScriptViewOptions, Bool>,
+                        set: @escaping (Bool) -> Void) -> Binding<Bool> {
+        Binding(get: { options[keyPath: keyPath] }, set: set)
     }
 
     private var errorBinding: Binding<Bool> {

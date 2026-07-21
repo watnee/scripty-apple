@@ -21,12 +21,13 @@ struct EditableBlockRow: View {
     /// keeps the same number of characters on a line, so the shape of the page
     /// does not change as the text grows.
     @Environment(\.scriptTextScale) private var textScale
+    @Environment(\.scriptRowChrome) private var chrome
 
-    private static let pageWidth: CGFloat = 640
-    private static var dialogueWidth: CGFloat {
+    private var pageWidth: CGFloat { chrome.columnWidth }
+    private var dialogueWidth: CGFloat {
         pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
     }
-    private static var parentheticalWidth: CGFloat {
+    private var parentheticalWidth: CGFloat {
         pageWidth * CGFloat(ScreenplayLayout.parentheticalBox.widthFraction)
     }
 
@@ -36,8 +37,12 @@ struct EditableBlockRow: View {
                       accessibilityLabel: accessibilityDescription)
             .blockHighlight(block)
             .frame(maxWidth: columnWidth, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: pageAlignment)
+            // Speech is centred inside the page column rather than inside the
+            // window, so the label below can hang off the column's own margin.
+            .frame(maxWidth: pageWidth, alignment: pageAlignment)
             .padding(.top, topPadding)
+            .overlay(alignment: .topLeading) { elementLabel }
+            .frame(maxWidth: .infinity)
             .overlay(alignment: .topTrailing) { badges }
             .contextMenu { contextMenu }
     }
@@ -48,8 +53,8 @@ struct EditableBlockRow: View {
     /// text, so reading, editing and caret navigation all still work.
     private var accessibilityDescription: String {
         var parts = [block.blockType.label]
-        if block.isPinned { parts.append("Pinned") }
-        if block.isBookmarked { parts.append("Bookmarked") }
+        if block.isPinned && chrome.showsPins { parts.append("Pinned") }
+        if block.isBookmarked && chrome.showsBookmarks { parts.append("Bookmarked") }
         if let comments = CommentCountBadge.spokenLabel(model.commentCount(for: block)) {
             parts.append(comments)
         }
@@ -114,13 +119,22 @@ struct EditableBlockRow: View {
     }
 
     @ViewBuilder
+    private var elementLabel: some View {
+        if chrome.showsElementLabels {
+            ElementLabelTag(type: block.blockType)
+                .padding(.top, topPadding + 5)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
     private var badges: some View {
         HStack(spacing: 4) {
             // The writer's own marks share one tint; the comment badge brings
             // its own, since it is other people's.
             HStack(spacing: 4) {
-                if block.isPinned { Image(systemName: "pin.fill") }
-                if block.isBookmarked { Image(systemName: "bookmark.fill") }
+                if block.isPinned && chrome.showsPins { Image(systemName: "pin.fill") }
+                if block.isBookmarked && chrome.showsBookmarks { Image(systemName: "bookmark.fill") }
             }
             .foregroundStyle(.orange)
             CommentCountBadge(count: model.commentCount(for: block))
@@ -135,11 +149,14 @@ struct EditableBlockRow: View {
     private var columnWidth: CGFloat {
         let base: CGFloat
         switch block.blockType {
-        case .dialogue, .lyrics: base = Self.dialogueWidth
-        case .parenthetical: base = Self.parentheticalWidth
-        default: base = Self.pageWidth
+        case .dialogue, .lyrics: base = dialogueWidth
+        case .parenthetical: base = parentheticalWidth
+        default: base = pageWidth
         }
-        return base * textScale
+        // A full-width column was measured against the window, so it is already
+        // as wide as it can be; the type grows inside it rather than pushing it
+        // off the edge of the screen.
+        return chrome.isFullWidth ? base : base * textScale
     }
 
     private var pageAlignment: Alignment {

@@ -21,6 +21,63 @@ extension EnvironmentValues {
     }
 }
 
+/// Which of a row's marks are drawn, and how wide its text column runs.
+///
+/// Carried in the environment rather than passed down: rows are built in three
+/// places — the editor, the pagination preview and the bulk-action strip — and
+/// only the script page has the project's view options to hand. Somewhere
+/// without them gets the defaults, which is how the rows have always looked.
+struct ScriptRowChrome: Equatable {
+    var showsPins = true
+    var showsBookmarks = true
+    var showsElementLabels = false
+    /// The text column, in points: the printed six-inch measure by default, or
+    /// the width of whatever contains the row when full width is on.
+    var columnWidth: CGFloat = 640
+    /// Whether that width was measured against the window rather than being the
+    /// fixed measure. The editable row grows its column with the type size, and
+    /// a measured width must not be grown a second time.
+    var isFullWidth = false
+}
+
+private struct ScriptRowChromeKey: EnvironmentKey {
+    static let defaultValue = ScriptRowChrome()
+}
+
+extension EnvironmentValues {
+    var scriptRowChrome: ScriptRowChrome {
+        get { self[ScriptRowChromeKey.self] }
+        set { self[ScriptRowChromeKey.self] = newValue }
+    }
+}
+
+/// The element's type, set small in the left margin — the counterpart of the
+/// web row's element label. Hidden unless the writer asks for it.
+///
+/// Offset out of the text column rather than laid out beside it: the column is
+/// the printed measure and must not move when the labels are switched on, or
+/// every line in the script would re-wrap. The margin is made wide enough to
+/// hold them in `ScriptView.rowChrome` instead.
+struct ElementLabelTag: View {
+    let type: BlockType
+
+    /// Room for the longest of them, PARENTHETICAL, without an ellipsis.
+    static let width: CGFloat = 94
+    /// That, plus the gap between the label and the text it names.
+    static let gutter: CGFloat = width + 12
+
+    var body: some View {
+        Text(type.label.uppercased())
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(0.4)
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .frame(width: Self.width, alignment: .trailing)
+            .offset(x: -Self.gutter)
+            .accessibilityHidden(true)
+    }
+}
+
 extension BlockHighlight {
     /// The tints from the web app's stylesheet, so a highlighted line looks the
     /// same in either client. Each carries a light and a dark value — a
@@ -108,15 +165,18 @@ struct BlockRowView: View {
     var commentCount: Int = 0
 
     @Environment(\.scriptTextScale) private var textScale
+    @Environment(\.scriptRowChrome) private var chrome
 
     /// The continuous column stands in for the printed six-inch text block, so
     /// the speech widths are the real screenplay proportions rather than
-    /// hand-picked numbers: dialogue is 3.5in of 6in, parentheticals 2in.
-    private static let pageWidth: CGFloat = 640
-    private static var dialogueWidth: CGFloat {
+    /// hand-picked numbers: dialogue is 3.5in of 6in, parentheticals 2in. They
+    /// stay proportional when the column is widened, so a full-width script is
+    /// still recognisably a script.
+    private var pageWidth: CGFloat { chrome.columnWidth }
+    private var dialogueWidth: CGFloat {
         pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
     }
-    private static var parentheticalWidth: CGFloat {
+    private var parentheticalWidth: CGFloat {
         pageWidth * CGFloat(ScreenplayLayout.parentheticalBox.widthFraction)
     }
 
@@ -126,7 +186,11 @@ struct BlockRowView: View {
                 .blockHighlight(block)
             tagRow
         }
-        .frame(maxWidth: Self.pageWidth, alignment: .leading)
+        .frame(maxWidth: pageWidth, alignment: .leading)
+        // The label hangs off the column, so it is attached here rather than to
+        // the centring frame below — otherwise it would sit at the far left of
+        // the window instead of beside the line it names.
+        .overlay(alignment: .topLeading) { elementLabel }
         .frame(maxWidth: .infinity)
         .overlay(alignment: .topTrailing) { badges }
         // A screenplay is carried by which *kind* of line each one is: sighted
@@ -148,8 +212,10 @@ struct BlockRowView: View {
         if !tags.isEmpty {
             parts.append("Tagged " + tags.joined(separator: ", "))
         }
-        if block.isPinned { parts.append("Pinned") }
-        if block.isBookmarked { parts.append("Bookmarked") }
+        // Only the marks that are actually drawn: a writer who has hidden the
+        // pins has said they are not interested in hearing about them either.
+        if block.isPinned && chrome.showsPins { parts.append("Pinned") }
+        if block.isBookmarked && chrome.showsBookmarks { parts.append("Bookmarked") }
         if let comments = CommentCountBadge.spokenLabel(commentCount) {
             parts.append(comments)
         }
@@ -193,13 +259,13 @@ struct BlockRowView: View {
 
         case .dialogue:
             styledText(displayContent)
-                .frame(maxWidth: Self.dialogueWidth, alignment: .leading)
+                .frame(maxWidth: dialogueWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
 
         case .parenthetical:
             styledText(parenthesized(displayContent))
                 .italic()
-                .frame(maxWidth: Self.parentheticalWidth, alignment: .leading)
+                .frame(maxWidth: parentheticalWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
 
         case .transition:
@@ -220,7 +286,7 @@ struct BlockRowView: View {
         case .lyrics:
             styledText(displayContent)
                 .italic()
-                .frame(maxWidth: Self.dialogueWidth, alignment: .leading)
+                .frame(maxWidth: dialogueWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
 
         case .section:
@@ -266,15 +332,23 @@ struct BlockRowView: View {
     }
 
     @ViewBuilder
+    private var elementLabel: some View {
+        if chrome.showsElementLabels, block.blockType != .pageBreak {
+            ElementLabelTag(type: block.blockType)
+                .padding(.top, 3)
+        }
+    }
+
+    @ViewBuilder
     private var badges: some View {
         HStack(spacing: 4) {
             // The writer's own marks share one tint; the comment badge brings
             // its own, since it is other people's.
             HStack(spacing: 4) {
-                if block.isPinned {
+                if block.isPinned && chrome.showsPins {
                     Image(systemName: "pin.fill")
                 }
-                if block.isBookmarked {
+                if block.isBookmarked && chrome.showsBookmarks {
                     Image(systemName: "bookmark.fill")
                 }
             }

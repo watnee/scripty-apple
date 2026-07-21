@@ -150,6 +150,12 @@ struct ScriptCommands: Commands {
         }
         .keyboardShortcut("d", modifiers: [.command, .control])
 
+        Button(settings.isFullWidth ? "Standard Screenplay Width" : "Full Page Width") {
+            settings.isFullWidth.toggle()
+        }
+        .keyboardShortcut("\\", modifiers: .command)
+        .disabled(settings.isPageView)
+
         Button("Outline") { actions?.outline?() }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(actions?.outline == nil)

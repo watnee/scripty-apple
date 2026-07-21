@@ -43,6 +43,13 @@ swiftc -o "$BUILD/pagination" \
 "$BUILD/pagination" || status=1
 
 echo
+echo "== Script view options =="
+swiftc -o "$BUILD/viewoptions" \
+    "$SRC/State/ScriptViewOptions.swift" \
+    "$ROOT/Tests/ViewOptions/main.swift"
+"$BUILD/viewoptions" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \
