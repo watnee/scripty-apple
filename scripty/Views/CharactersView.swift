@@ -95,7 +95,7 @@ struct CharactersView: View {
                 CharacterEditorSheet(model: model, casting: casting, person: person)
             }
             .sheet(isPresented: $showingActors) {
-                ActorsView(casting: casting)
+                ActorsView(casting: casting, characters: model.characters)
             }
         }
     }

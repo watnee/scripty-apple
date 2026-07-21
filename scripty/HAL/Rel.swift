@@ -68,6 +68,11 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let exportSongDocx = Rel("exportSongDocx")
     static let exportSongEpub = Rel("exportSongEpub")
 
+    /// Replace the set of characters an actor auditions for in a project.
+    /// Advertised on a project-scoped actor only — auditions have no meaning
+    /// without a project. The audition character ids ride on the same resource.
+    static let setAuditions = Rel("setAuditions")
+
     static let headshot = Rel("headshot")
     static let documents = Rel("documents")
     static let document = Rel("document")
@@ -116,6 +121,14 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let editions = Rel("editions")
     static let setDefault = Rel("setDefault")
     static let setPublished = Rel("setPublished")
+
+    // The signed-in user's own account — advertised on the API root to anyone
+    // signed in, unlike the admin-only `users`. `passkeys` appears only where
+    // the deployment has passkeys configured; registering a new one stays a
+    // browser ceremony, so the API offers listing and revoking only.
+    static let account = Rel("account")
+    static let changePassword = Rel("changePassword")
+    static let passkeys = Rel("passkeys")
 
     // Editor preferences the server keeps because exports bake them in.
     // Advertised on the API root; `update` (declared above) posts a change.

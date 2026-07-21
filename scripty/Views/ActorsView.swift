@@ -12,9 +12,13 @@ import SwiftUI
 
 struct ActorsView: View {
     let casting: CastingModel
+    /// The project's characters, used to name and pick auditions. Empty when the
+    /// caller has none to offer, which also hides the audition affordances.
+    var characters: [Person] = []
 
     @Environment(\.dismiss) private var dismiss
     @State private var editingActor: ScriptyActor?
+    @State private var auditioningActor: ScriptyActor?
     @State private var showingCreate = false
     @State private var searchText = ""
 
@@ -47,6 +51,9 @@ struct ActorsView: View {
             .sheet(item: $editingActor) { actor in
                 ActorEditorSheet(casting: casting, actor: actor)
             }
+            .sheet(item: $auditioningActor) { actor in
+                AuditionPickerSheet(casting: casting, actor: actor, characters: characters)
+            }
             .alert("Casting", isPresented: errorBinding) {
                 Button("OK", role: .cancel) { casting.errorMessage = nil }
             } message: {
@@ -74,10 +81,25 @@ struct ActorsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if let line = auditionLine(for: actor) {
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
         .foregroundStyle(.primary)
+        .swipeActions(edge: .leading) {
+            if canAudition(actor) {
+                Button {
+                    auditioningActor = actor
+                } label: {
+                    Label("Auditions", systemImage: "theatermasks")
+                }
+                .tint(.purple)
+            }
+        }
         .swipeActions(edge: .trailing) {
             if actor.hasLink(.delete) {
                 Button(role: .destructive) {
@@ -87,6 +109,33 @@ struct ActorsView: View {
                 }
             }
         }
+        .contextMenu {
+            if canAudition(actor) {
+                Button {
+                    auditioningActor = actor
+                } label: {
+                    Label("Auditions…", systemImage: "theatermasks")
+                }
+            }
+        }
+    }
+
+    /// The server offers auditions on the actor, and the caller gave us
+    /// characters to pick from.
+    private func canAudition(_ actor: ScriptyActor) -> Bool {
+        actor.canSetAuditions && !characters.isEmpty
+    }
+
+    /// "Auditioning for MAYA, DEV" — the character names this actor is trying
+    /// out for, or nil when there are none to show.
+    private func auditionLine(for actor: ScriptyActor) -> String? {
+        let ids = actor.auditionCharacterIds ?? []
+        guard !ids.isEmpty else { return nil }
+        let names = characters
+            .filter { ids.contains($0.id) }
+            .map(\.displayName)
+        guard !names.isEmpty else { return nil }
+        return "Auditioning for " + names.joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -126,6 +175,83 @@ struct ActorsView: View {
     private var errorBinding: Binding<Bool> {
         Binding(get: { casting.errorMessage != nil },
                 set: { if !$0 { casting.errorMessage = nil } })
+    }
+}
+
+/// Picks which characters an actor auditions for. Starts from what they audition
+/// for now, and sends the whole set back — the server replaces it wholesale.
+private struct AuditionPickerSheet: View {
+    let casting: CastingModel
+    let actor: ScriptyActor
+    let characters: [Person]
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Set<Int> = []
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if characters.isEmpty {
+                    Text("This project has no characters to audition for yet.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(characters) { character in
+                    Button {
+                        toggle(character.id)
+                    } label: {
+                        HStack {
+                            Text(character.displayName)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if selected.contains(character.id) {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Auditions")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") { save() }
+                    }
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                Text(actor.displayName)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, 4)
+            }
+            .onAppear { selected = Set(actor.auditionCharacterIds ?? []) }
+        }
+    }
+
+    private func toggle(_ id: Int) {
+        if selected.contains(id) {
+            selected.remove(id)
+        } else {
+            selected.insert(id)
+        }
+    }
+
+    private func save() {
+        isSaving = true
+        Task {
+            let ok = await casting.setAuditions(actor, characterIds: Array(selected))
+            isSaving = false
+            if ok { dismiss() }
+        }
     }
 }
 

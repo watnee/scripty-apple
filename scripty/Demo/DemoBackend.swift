@@ -160,12 +160,120 @@ actor DemoBackend {
         case (_, "api", "user"):
             return routeUser(method: method, path: Array(path.dropFirst(2)),
                              query: query, fields: fields)
+        case (_, "api", "account"):
+            return routeAccount(method: method, path: Array(path.dropFirst(2)),
+                                fields: fields)
         case (_, "api", "preferences"):
             return routePreferences(method: method, path: Array(path.dropFirst(2)),
                                     fields: fields)
         default:
             return notFound()
         }
+    }
+
+    // MARK: - Account (own password and passkeys)
+
+    private struct DemoPasskey {
+        var credentialId: String
+        var label: String
+        var created: Date
+        var lastUsed: Date?
+    }
+
+    /// The demo account's password. Changing it is checked against this, so the
+    /// "current password is wrong" path is reachable offline.
+    private lazy var accountPassword = "demo1234"
+
+    /// Seeded so the list is not empty; one never used, to show that state.
+    private lazy var passkeyStore: [DemoPasskey] = [
+        DemoPasskey(credentialId: "ZGVtby1pcGhvbmU",
+                    label: "iPhone",
+                    created: Date(timeIntervalSinceNow: -60 * 60 * 24 * 30),
+                    lastUsed: Date(timeIntervalSinceNow: -60 * 60 * 24 * 2)),
+        DemoPasskey(credentialId: "ZGVtby1sYXB0b3A",
+                    label: "MacBook Pro",
+                    created: Date(timeIntervalSinceNow: -60 * 60 * 24 * 5),
+                    lastUsed: nil),
+    ]
+
+    private func routeAccount(method: String, path: [String],
+                              fields: [String: Any]) -> (Int, Data) {
+        switch (method, path.first) {
+        case ("GET", nil):
+            return ok(accountJSON())
+        case ("POST", "password"):
+            guard let current = fields["currentPassword"] as? String,
+                  current == accountPassword else {
+                return (400, (try? JSONSerialization.data(
+                    withJSONObject: ["message": "Current password is incorrect."]))
+                    ?? Data("{}".utf8))
+            }
+            guard let new = fields["newPassword"] as? String, new.count >= 8 else {
+                return (400, (try? JSONSerialization.data(
+                    withJSONObject: ["message": "New password is too weak: use at least 8 characters."]))
+                    ?? Data("{}".utf8))
+            }
+            guard new != accountPassword else {
+                return (400, (try? JSONSerialization.data(
+                    withJSONObject: ["message": "New password must be different from the current password."]))
+                    ?? Data("{}".utf8))
+            }
+            accountPassword = new
+            return ok(accountJSON())
+        case ("GET", "passkeys"):
+            return ok(passkeyCollectionJSON())
+        case ("DELETE", "passkeys"):
+            guard let credentialId = path.dropFirst().first,
+                  let index = passkeyStore.firstIndex(where: { $0.credentialId == credentialId })
+            else {
+                return notFound()
+            }
+            passkeyStore.remove(at: index)
+            return ok(passkeyCollectionJSON())
+        default:
+            return notFound()
+        }
+    }
+
+    private func accountJSON() -> [String: Any] {
+        [
+            "username": "demo",
+            "firstName": "Demo",
+            "lastName": "Admin",
+            "passwordChangeRequired": false,
+            "passkeysEnabled": true,
+            "_links": [
+                "self": link("/api/account"),
+                "changePassword": link("/api/account/password"),
+                "passkeys": link("/api/account/passkeys"),
+            ],
+        ]
+    }
+
+    private func passkeyCollectionJSON() -> [String: Any] {
+        [
+            "_embedded": ["passkeyResourceList": passkeyStore.map(passkeyJSON)],
+            "_links": [
+                "self": link("/api/account/passkeys"),
+                "account": link("/api/account"),
+            ],
+        ]
+    }
+
+    private func passkeyJSON(_ passkey: DemoPasskey) -> [String: Any] {
+        var json: [String: Any] = [
+            "credentialId": passkey.credentialId,
+            "label": passkey.label,
+            "created": iso.string(from: passkey.created),
+            "_links": [
+                "delete": link("/api/account/passkeys/\(passkey.credentialId)"),
+                "passkeys": link("/api/account/passkeys"),
+            ],
+        ]
+        if let lastUsed = passkey.lastUsed {
+            json["lastUsed"] = iso.string(from: lastUsed)
+        }
+        return json
     }
 
     // MARK: - Editor preferences
@@ -386,6 +494,11 @@ actor DemoBackend {
 
     // MARK: - Actors (casting)
 
+    /// Which characters an actor auditions for, keyed projectId → actorId → the
+    /// set of character ids. Only meaningful in a project scope, mirroring the
+    /// server's per-project audition table.
+    private var auditions: [Int: [Int: Set<Int>]] = [:]
+
     private func routeActor(method: String, path: [String],
                             query: [String: String],
                             fields: [String: Any]) -> (Int, Data) {
@@ -396,7 +509,8 @@ actor DemoBackend {
                 actors.filter { $0.projectIds.contains(id) }
             } ?? actors
             let selfHref = projectId.map { "/api/actor?projectId=\($0)" } ?? "/api/actor"
-            return ok(["_embedded": ["actorResourceList": visible.map(actorJSON)],
+            return ok(["_embedded": ["actorResourceList":
+                        visible.map { actorJSON($0, projectId: projectId) }],
                        "_links": ["self": link(selfHref)]])
         case ("POST", 0):
             guard let first = fields["first"] as? String, !first.isEmpty else {
@@ -428,13 +542,29 @@ actor DemoBackend {
             if let value = fields["email"] as? String { actors[index].email = value }
             if let value = fields["projectIds"] as? [Int] { actors[index].projectIds = value }
             return ok(actorJSON(actors[index]))
+        case ("POST", "auditions"):
+            // Replace the actor's auditions for one project, wholesale. Per
+            // project, so a projectId is required; an empty list clears them.
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  actors[index].projectIds.contains(projectId) else {
+                return badRequest("projectId")
+            }
+            let characterIds = fields["characterIds"] as? [Int] ?? []
+            // Keep only ids that are real characters in the project.
+            let valid = Set((people[projectId] ?? []).map(\.id))
+            auditions[projectId, default: [:]][id] = Set(characterIds).intersection(valid)
+            return ok(actorJSON(actors[index], projectId: projectId))
         case ("DELETE", nil):
             let removed = actors.remove(at: index)
-            // Anyone cast as this actor becomes uncast rather than dangling.
+            // Anyone cast as this actor becomes uncast rather than dangling, and
+            // their auditions go with them.
             for (projectId, list) in people {
                 for (i, person) in list.enumerated() where person.actorId == removed.id {
                     people[projectId]?[i].actorId = nil
                 }
+            }
+            for projectId in auditions.keys {
+                auditions[projectId]?[removed.id] = nil
             }
             return ok([:])
         default:
@@ -442,20 +572,28 @@ actor DemoBackend {
         }
     }
 
-    private func actorJSON(_ actor: DemoActor) -> [String: Any] {
+    private func actorJSON(_ actor: DemoActor, projectId: Int? = nil) -> [String: Any] {
+        var links: [String: Any] = [
+            "self": link("/api/actor/\(actor.id)"),
+            "actors": link("/api/actor"),
+            "update": link("/api/actor/\(actor.id)"),
+            "delete": link("/api/actor/\(actor.id)"),
+        ]
         var json: [String: Any] = [
             "id": actor.id,
             "first": actor.first,
             "last": actor.last,
             "hasHeadshot": false,
             "projectIds": actor.projectIds,
-            "_links": [
-                "self": link("/api/actor/\(actor.id)"),
-                "actors": link("/api/actor"),
-                "update": link("/api/actor/\(actor.id)"),
-                "delete": link("/api/actor/\(actor.id)"),
-            ],
         ]
+        // Auditions ride along only on a project-scoped actor — the same as the
+        // server, which omits them (null) otherwise.
+        if let projectId {
+            let ids = (auditions[projectId]?[actor.id] ?? []).sorted()
+            json["auditionCharacterIds"] = ids
+            links["setAuditions"] = link("/api/actor/\(actor.id)/auditions?projectId=\(projectId)")
+        }
+        json["_links"] = links
         if let phone = actor.phone { json["phone"] = phone }
         if let email = actor.email { json["email"] = email }
         return json
@@ -2423,6 +2561,9 @@ actor DemoBackend {
                     "projects": link("/api/project"),
                     "actors": link("/api/actor"),
                     "capitalizationPreferences": link("/api/preferences/capitalization"),
+                    // Your own account: offered to anyone signed in, unlike the
+                    // admin-only `users` and `teams`.
+                    "account": link("/api/account"),
                     "teams": link("/api/team"),
                     "users": link("/api/user")]]
     }

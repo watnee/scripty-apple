@@ -139,6 +139,28 @@ final class CastingModel {
         }
     }
 
+    /// Replaces the set of characters an actor auditions for in this project.
+    /// The server answers with the refreshed project-scoped actor, so the row's
+    /// audition ids update without a full reload. Gated on the `setAuditions`
+    /// link the server advertises only to a caster.
+    @discardableResult
+    func setAuditions(_ actor: ScriptyActor, characterIds: [Int]) async -> Bool {
+        guard let link = actor.link(.setAuditions) else { return false }
+        do {
+            let updated: ScriptyActor = try await app.client.fetch(
+                from: link, method: "POST",
+                body: SetAuditionsCommand(characterIds: characterIds))
+            if let index = actors.firstIndex(where: { $0.id == actor.id }) {
+                actors[index] = updated
+            }
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
     func deleteActor(_ actor: ScriptyActor) async {
         guard let link = actor.link(.delete) else { return }
         do {
