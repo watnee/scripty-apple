@@ -1006,8 +1006,36 @@ func run() async {
     await checkAuditions(pid: pid)
     await checkAccount(root: root)
     await checkUsers(root: root)
+    await checkContactSuggestions(pid: pid)
 
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
+}
+
+/// Invite autofill hangs off one rel, and the rel's spelling is the whole
+/// contract: the server names it `contactSuggestions` (camel, curied to
+/// `scripty:contactSuggestions`) even though the path it points at is
+/// kebab-cased. The client once declared the path's spelling instead, so the
+/// suggestions worked offline and silently vanished against a real deployment.
+/// These checks pin the name in both spellings the client can meet.
+func checkContactSuggestions(pid: Int) async {
+    let projects = json(await be.respond(method: "GET", url: url("/api/project"), body: nil).data)
+    guard let p = embedded(projects).first(where: { $0["id"] as? Int == pid }) else {
+        check("the project is still listed", false)
+        return
+    }
+    check("project advertises `contactSuggestions` under the server's spelling",
+          links(p)[Rel.contactSuggestions.rawValue] != nil,
+          "links were \(links(p).keys.sorted())")
+
+    let curied = Data("""
+    {"_links":{"scripty:contactSuggestions":{"href":"/api/project/1/contact-suggestions"}}}
+    """.utf8)
+    let probe = try? JSONDecoder().decode(LinkProbe.self, from: curied)
+    check("a curied contactSuggestions resolves", probe?.hasLink(.contactSuggestions) == true)
+
+    let suggestions = json(await be.respond(
+        method: "GET", url: url("/api/project/\(pid)/contact-suggestions?q=ava"), body: nil).data)
+    check("the link answers with a match", embedded(suggestions).count == 1)
 }
 
 /// The signed-in user's own account: the password, and the passkeys registered

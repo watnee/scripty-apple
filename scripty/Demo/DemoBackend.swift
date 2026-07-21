@@ -2597,7 +2597,7 @@ actor DemoBackend {
                 "editions": link("/api/project/edition?projectId=\(project.id)"),
                 "activity": link("/api/project/\(project.id)/activity"),
                 "invitations": link("/api/project/\(project.id)/invitations"),
-                "contact-suggestions": link("/api/project/\(project.id)/contact-suggestions"),
+                "contactSuggestions": link("/api/project/\(project.id)/contact-suggestions"),
             ],
         ]
         if let writers = project.writers { json["writers"] = writers }

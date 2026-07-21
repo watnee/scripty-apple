@@ -106,7 +106,7 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     /// Names known to this project, offered while typing an invite address so
     /// the sender need not remember the email. Scoped to the project, so it is
     /// not a directory of everyone.
-    static let contactSuggestions = Rel("contact-suggestions")
+    static let contactSuggestions = Rel("contactSuggestions")
 
     // Teams — a production's people, managed by an admin. The `teams` rel is
     // declared above; it is advertised on the API root only when the signed-in
