@@ -160,12 +160,120 @@ actor DemoBackend {
         case (_, "api", "user"):
             return routeUser(method: method, path: Array(path.dropFirst(2)),
                              query: query, fields: fields)
+        case (_, "api", "account"):
+            return routeAccount(method: method, path: Array(path.dropFirst(2)),
+                                fields: fields)
         case (_, "api", "preferences"):
             return routePreferences(method: method, path: Array(path.dropFirst(2)),
                                     fields: fields)
         default:
             return notFound()
         }
+    }
+
+    // MARK: - Account (own password and passkeys)
+
+    private struct DemoPasskey {
+        var credentialId: String
+        var label: String
+        var created: Date
+        var lastUsed: Date?
+    }
+
+    /// The demo account's password. Changing it is checked against this, so the
+    /// "current password is wrong" path is reachable offline.
+    private lazy var accountPassword = "demo1234"
+
+    /// Seeded so the list is not empty; one never used, to show that state.
+    private lazy var passkeyStore: [DemoPasskey] = [
+        DemoPasskey(credentialId: "ZGVtby1pcGhvbmU",
+                    label: "iPhone",
+                    created: Date(timeIntervalSinceNow: -60 * 60 * 24 * 30),
+                    lastUsed: Date(timeIntervalSinceNow: -60 * 60 * 24 * 2)),
+        DemoPasskey(credentialId: "ZGVtby1sYXB0b3A",
+                    label: "MacBook Pro",
+                    created: Date(timeIntervalSinceNow: -60 * 60 * 24 * 5),
+                    lastUsed: nil),
+    ]
+
+    private func routeAccount(method: String, path: [String],
+                              fields: [String: Any]) -> (Int, Data) {
+        switch (method, path.first) {
+        case ("GET", nil):
+            return ok(accountJSON())
+        case ("POST", "password"):
+            guard let current = fields["currentPassword"] as? String,
+                  current == accountPassword else {
+                return (400, (try? JSONSerialization.data(
+                    withJSONObject: ["message": "Current password is incorrect."]))
+                    ?? Data("{}".utf8))
+            }
+            guard let new = fields["newPassword"] as? String, new.count >= 8 else {
+                return (400, (try? JSONSerialization.data(
+                    withJSONObject: ["message": "New password is too weak: use at least 8 characters."]))
+                    ?? Data("{}".utf8))
+            }
+            guard new != accountPassword else {
+                return (400, (try? JSONSerialization.data(
+                    withJSONObject: ["message": "New password must be different from the current password."]))
+                    ?? Data("{}".utf8))
+            }
+            accountPassword = new
+            return ok(accountJSON())
+        case ("GET", "passkeys"):
+            return ok(passkeyCollectionJSON())
+        case ("DELETE", "passkeys"):
+            guard let credentialId = path.dropFirst().first,
+                  let index = passkeyStore.firstIndex(where: { $0.credentialId == credentialId })
+            else {
+                return notFound()
+            }
+            passkeyStore.remove(at: index)
+            return ok(passkeyCollectionJSON())
+        default:
+            return notFound()
+        }
+    }
+
+    private func accountJSON() -> [String: Any] {
+        [
+            "username": "demo",
+            "firstName": "Demo",
+            "lastName": "Admin",
+            "passwordChangeRequired": false,
+            "passkeysEnabled": true,
+            "_links": [
+                "self": link("/api/account"),
+                "changePassword": link("/api/account/password"),
+                "passkeys": link("/api/account/passkeys"),
+            ],
+        ]
+    }
+
+    private func passkeyCollectionJSON() -> [String: Any] {
+        [
+            "_embedded": ["passkeyResourceList": passkeyStore.map(passkeyJSON)],
+            "_links": [
+                "self": link("/api/account/passkeys"),
+                "account": link("/api/account"),
+            ],
+        ]
+    }
+
+    private func passkeyJSON(_ passkey: DemoPasskey) -> [String: Any] {
+        var json: [String: Any] = [
+            "credentialId": passkey.credentialId,
+            "label": passkey.label,
+            "created": iso.string(from: passkey.created),
+            "_links": [
+                "delete": link("/api/account/passkeys/\(passkey.credentialId)"),
+                "passkeys": link("/api/account/passkeys"),
+            ],
+        ]
+        if let lastUsed = passkey.lastUsed {
+            json["lastUsed"] = iso.string(from: lastUsed)
+        }
+        return json
     }
 
     // MARK: - Editor preferences
@@ -2453,6 +2561,9 @@ actor DemoBackend {
                     "projects": link("/api/project"),
                     "actors": link("/api/actor"),
                     "capitalizationPreferences": link("/api/preferences/capitalization"),
+                    // Your own account: offered to anyone signed in, unlike the
+                    // admin-only `users` and `teams`.
+                    "account": link("/api/account"),
                     "teams": link("/api/team"),
                     "users": link("/api/user")]]
     }

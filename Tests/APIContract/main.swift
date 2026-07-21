@@ -20,6 +20,39 @@ func embedded(_ o: [String: Any]) -> [[String: Any]] {
 }
 func links(_ o: [String: Any]) -> [String: Any] { o["_links"] as? [String: Any] ?? [:] }
 
+/// Just enough of a resource to decode a `_links` object on its own.
+struct LinkProbe: Decodable, HALResource {
+    let links: HALLinks?
+    enum CodingKeys: String, CodingKey { case links = "_links" }
+}
+
+/// The deployed server namespaces its own rels through a HAL curie, so `actors`
+/// arrives as `scripty:actors`; the demo backend answers without one. Rel
+/// lookups have to work either way, or every affordance vanishes against a
+/// curie-providing server.
+func checkCurieTolerance() {
+    let curied = Data("""
+    {"_links":{"self":{"href":"/api"},"scripty:actors":{"href":"/api/actor"},\
+    "scripty:setAuditions":{"href":"/api/actor/1/auditions?projectId=1"}}}
+    """.utf8)
+    guard let probe = try? JSONDecoder().decode(LinkProbe.self, from: curied) else {
+        check("a curied _links object decodes", false)
+        return
+    }
+    check("a curied rel resolves by its bare name", probe.link(.actors) != nil)
+    check("a curied setAuditions resolves", probe.hasLink(.setAuditions))
+    check("an IANA rel is untouched by curie handling", probe.link(.selfRel) != nil)
+
+    // A bare payload keeps working, and an exact match beats an alias.
+    let bare = Data("""
+    {"_links":{"actors":{"href":"/bare"},"scripty:actors":{"href":"/curied"}}}
+    """.utf8)
+    let mixed = try? JSONDecoder().decode(LinkProbe.self, from: bare)
+    check("an exact rel wins over a curied alias",
+          mixed?.link(.actors)?.href == "/bare",
+          "got \(mixed?.link(.actors)?.href ?? "nil")")
+}
+
 func run() async {
     // --- root advertises actors ---
     let root = json(await be.respond(method: "GET", url: url("/api"), body: nil).data)
@@ -969,10 +1002,86 @@ func run() async {
     _ = await be.respond(method: "POST", url: url("/api/preferences/capitalization"),
                          body: body(["character": true]))
 
+    checkCurieTolerance()
     await checkAuditions(pid: pid)
+    await checkAccount(root: root)
     await checkUsers(root: root)
 
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
+}
+
+/// The signed-in user's own account: the password, and the passkeys registered
+/// to it. Unlike `users`, this is advertised to anyone signed in — it is your
+/// own account, not an admin's view of someone else's. Registering a passkey is
+/// deliberately absent (a browser-side WebAuthn ceremony), so the API offers
+/// listing and revoking only.
+func checkAccount(root: [String: Any]) async {
+    check("root advertises `account` rel", links(root)["account"] != nil)
+
+    let account = json(await be.respond(method: "GET", url: url("/api/account"), body: nil).data)
+    check("the account names who is signed in", account["username"] as? String == "demo")
+    check("the account offers `changePassword`", links(account)["changePassword"] != nil)
+    check("the account offers `passkeys` where they are configured",
+          links(account)["passkeys"] != nil)
+    check("the account says whether passkeys are enabled",
+          account["passkeysEnabled"] as? Bool == true)
+
+    // The current password is required, and its message is worth showing.
+    let wrong = await be.respond(method: "POST", url: url("/api/account/password"),
+                                 body: body(["currentPassword": "nope",
+                                             "newPassword": "correcthorse"]))
+    check("a wrong current password -> 400", wrong.status == 400, "got \(wrong.status)")
+    check("and the refusal carries a message",
+          (json(wrong.data)["message"] as? String)?.isEmpty == false)
+    check("a too-short new password -> 400",
+          await be.respond(method: "POST", url: url("/api/account/password"),
+                           body: body(["currentPassword": "demo1234",
+                                       "newPassword": "short"])).status == 400)
+    check("reusing the current password -> 400",
+          await be.respond(method: "POST", url: url("/api/account/password"),
+                           body: body(["currentPassword": "demo1234",
+                                       "newPassword": "demo1234"])).status == 400)
+
+    let changed = await be.respond(method: "POST", url: url("/api/account/password"),
+                                   body: body(["currentPassword": "demo1234",
+                                               "newPassword": "correcthorse"]))
+    check("changing the password -> 200", changed.status == 200, "got \(changed.status)")
+    // The change is real: the old one no longer works, the new one does.
+    check("the old password stops working",
+          await be.respond(method: "POST", url: url("/api/account/password"),
+                           body: body(["currentPassword": "demo1234",
+                                       "newPassword": "somethingelse"])).status == 400)
+    check("the new password is the current one now",
+          await be.respond(method: "POST", url: url("/api/account/password"),
+                           body: body(["currentPassword": "correcthorse",
+                                       "newPassword": "demo1234"])).status == 200)
+
+    // Passkeys: listed, each revocable, and revoking answers with what is left.
+    let keysDoc = json(await be.respond(method: "GET", url: url("/api/account/passkeys"), body: nil).data)
+    var keys = embedded(keysDoc)
+    check("the passkey collection points back at the account",
+          links(keysDoc)["account"] != nil)
+    check("seeded passkeys are present", keys.count >= 2, "got \(keys.count)")
+    check("a passkey carries its credential id",
+          keys.allSatisfy { ($0["credentialId"] as? String)?.isEmpty == false })
+    check("a passkey says when it was added", keys.allSatisfy { $0["created"] != nil })
+    check("a never-used passkey simply omits lastUsed",
+          keys.contains { $0["lastUsed"] == nil })
+    check("a passkey advertises `delete`",
+          keys.allSatisfy { ($0["_links"] as? [String: Any])?["delete"] != nil })
+
+    let victim = keys.first?["credentialId"] as? String ?? ""
+    let revoked = await be.respond(method: "DELETE",
+                                   url: url("/api/account/passkeys/\(victim)"), body: nil)
+    check("revoke passkey -> 200", revoked.status == 200, "got \(revoked.status)")
+    keys = embedded(json(revoked.data))
+    check("the revoked passkey is gone",
+          !keys.contains { $0["credentialId"] as? String == victim })
+    check("the other passkey survived", keys.count == 1, "got \(keys.count)")
+    check("revoking an unknown passkey -> 404",
+          await be.respond(method: "DELETE",
+                           url: url("/api/account/passkeys/not-a-real-id"),
+                           body: nil).status == 404)
 }
 
 /// Auditions get their own function: `run()` had grown large enough that the

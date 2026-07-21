@@ -80,15 +80,27 @@ extension HALLinks: Decodable {
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode([String: Value].self)
         var links: [String: HALLink] = [:]
+        var curied: [String: HALLink] = [:]
         for (rel, value) in raw {
+            let link: HALLink?
             switch value {
-            case .single(let link):
-                links[rel] = link
+            case .single(let one):
+                link = one
             case .many(let list):
-                links[rel] = list.first
+                link = list.first
+            }
+            guard let link else { continue }
+            links[rel] = link
+            // The server namespaces its own rels through a HAL curie, so
+            // `actors` arrives as `scripty:actors`. Record the bare name too, so
+            // a lookup by rel works whether or not a curie provider is in play —
+            // the demo backend answers without one.
+            if let colon = rel.firstIndex(of: ":") {
+                curied[String(rel[rel.index(after: colon)...])] = link
             }
         }
-        storage = links
+        // An exact match always wins; the un-prefixed aliases only fill gaps.
+        storage = curied.merging(links) { _, exact in exact }
     }
 }
 

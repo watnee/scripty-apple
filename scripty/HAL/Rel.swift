@@ -122,6 +122,14 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let setDefault = Rel("setDefault")
     static let setPublished = Rel("setPublished")
 
+    // The signed-in user's own account — advertised on the API root to anyone
+    // signed in, unlike the admin-only `users`. `passkeys` appears only where
+    // the deployment has passkeys configured; registering a new one stays a
+    // browser ceremony, so the API offers listing and revoking only.
+    static let account = Rel("account")
+    static let changePassword = Rel("changePassword")
+    static let passkeys = Rel("passkeys")
+
     // Editor preferences the server keeps because exports bake them in.
     // Advertised on the API root; `update` (declared above) posts a change.
     static let capitalizationPreferences = Rel("capitalizationPreferences")
