@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- The app's only cryptography is HTTPS to the Scripty API, which is exempt
+	     from export regulations. Saying so here means a TestFlight upload does
+	     not stop and wait for someone to answer that question by hand. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
 	<!-- scripty://demo launches the offline demo (e.g. from a Shortcut). -->
 	<key>CFBundleURLTypes</key>
 	<array>

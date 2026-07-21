@@ -64,6 +64,43 @@ words rather than leaving you in the build log:
 Apps signed with a free Apple ID stop working after seven days. Rerun
 `install.sh` to renew them.
 
+## Send it to someone else
+
+```sh
+./scripts/share.sh
+```
+
+That archives a Release build, signs it for distribution, and uploads it to
+TestFlight. Testers install Apple's TestFlight app and tap Install — no Mac, no
+Xcode, no cable. Processing on Apple's side takes a few minutes; after that you
+add people under TestFlight in App Store Connect and they get an email invite.
+
+```sh
+./scripts/share.sh --no-upload   # build the .ipa into build/share, don't send it
+./scripts/share.sh --ad-hoc      # .ipa for devices already registered to the team
+./scripts/share.sh --build 42    # build number, otherwise a UTC timestamp
+./scripts/share.sh --out DIR     # where the .ipa lands
+```
+
+This is the one path a free Apple ID cannot take: sharing needs a distribution
+certificate, which only the paid Developer Program issues. Sending a build also
+needs an App Store Connect API key — App Store Connect > Users and Access >
+Integrations > App Store Connect API, create one with the App Manager role, and
+keep the `.p8` it downloads once:
+
+```sh
+./scripts/share.sh --key ~/Downloads/AuthKey_XXXXXXXXXX.p8 --issuer ISSUER-UUID
+```
+
+Drop that file in `~/.appstoreconnect/private_keys/` and the script finds it on
+its own; the issuer id can live in `SCRIPTY_ASC_ISSUER`. Two more things
+App Store Connect insists on before a first upload: an app record for the bundle
+id, and a build number it has not seen — hence the timestamp default.
+
+`--ad-hoc` skips all of that and writes an `.ipa` you can hand over directly,
+but it only installs on devices whose UDIDs are already registered at
+developer.apple.com > Devices.
+
 ## Which server it talks to
 
 By default the app uses the hosted backend in
