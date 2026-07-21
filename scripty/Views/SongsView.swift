@@ -250,6 +250,20 @@ struct SongsView: View {
                 EditButton()
             }
         }
+        // The whole songbook in one file. Exporting is a read, so this is
+        // offered to a view-only collaborator too, and only while the songs
+        // are on screen — the notes list has no songbook to take away.
+        if listType == .song, !model.songbookExportOptions.isEmpty {
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    ForEach(model.songbookExportOptions) { option in
+                        Button(option.label) { exportSongbook(option) }
+                    }
+                } label: {
+                    Label("Export All Songs…", systemImage: "square.and.arrow.up.on.square")
+                }
+            }
+        }
         if canEdit {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
@@ -338,6 +352,20 @@ struct SongsView: View {
                 exportedSong = ExportedSong(url: url)
             } catch {
                 statusMessage = "Could not export \"\(document.displayTitle)\"."
+            }
+        }
+    }
+
+    /// The songbook is named after the project, not after any one song, since
+    /// that is what the file holds.
+    private func exportSongbook(_ option: ScriptModel.ExportOption) {
+        let name = model.project.displayTitle.isEmpty ? "songs" : model.project.displayTitle + " Songs"
+        Task {
+            do {
+                let url = try await model.downloadExport(option, named: name)
+                exportedSong = ExportedSong(url: url)
+            } catch {
+                statusMessage = "Could not export the songs."
             }
         }
     }

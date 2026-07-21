@@ -926,6 +926,21 @@ final class ScriptModel {
         }
     }
 
+    /// The formats the project's songs are offered in as one songbook. These
+    /// ride on the document collection, so they appear once there is a song to
+    /// put in the book — a project of notes alone advertises none of them.
+    var songbookExportOptions: [ExportOption] {
+        let all: [(Rel, String, String)] = [
+            (.exportSongsTxt, "Text", "txt"),
+            (.exportSongsPdf, "PDF", "pdf"),
+            (.exportSongsDocx, "Word", "docx"),
+            (.exportSongsEpub, "EPUB", "epub"),
+        ]
+        return all.compactMap { rel, label, ext in
+            documentsLinks[rel].map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
+        }
+    }
+
     /// Downloads an export with auth and writes it to a shareable temp file,
     /// named after whatever is being exported.
     ///

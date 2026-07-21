@@ -1009,6 +1009,7 @@ func run() async {
     await checkAccount(root: root)
     await checkUsers(root: root)
     await checkContactSuggestions(pid: pid)
+    await checkBundleExports(pid: pid)
 
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 }
@@ -1123,6 +1124,76 @@ func checkDocumentCopyAndType(pid: Int) async {
     _ = await be.respond(method: "DELETE", url: url("/api/document/\(id)"), body: nil)
     if let copyId = copy["id"] as? Int {
         _ = await be.respond(method: "DELETE", url: url("/api/document/\(copyId)"), body: nil)
+    }
+}
+
+/// The two "take the whole set away" exports: a songbook of a project's songs,
+/// and every project as one archive. Both hang off a collection rather than off
+/// any one resource, and both disappear when there is nothing to bundle — a
+/// client that advertised them anyway would offer an empty download.
+func checkBundleExports(pid: Int) async {
+    func documents() async -> [String: Any] {
+        json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data)
+    }
+
+    let songbookRels = ["exportSongsTxt", "exportSongsPdf", "exportSongsDocx", "exportSongsEpub"]
+    let collection = await documents()
+    check("the document collection advertises every songbook format",
+          songbookRels.allSatisfy { links(collection)[$0] != nil },
+          "got \(links(collection).keys.sorted())")
+
+    // Follow the advertised href rather than rebuilding the path.
+    guard let href = (links(collection)["exportSongsTxt"] as? [String: Any])?["href"] as? String,
+          let bookURL = URL(string: href) else {
+        check("the songbook link is followable", false)
+        return
+    }
+    let book = await be.respond(method: "GET", url: bookURL, body: nil)
+    check("the songbook download -> 200", book.status == 200, "got \(book.status)")
+    let text = String(data: book.data, encoding: .utf8) ?? ""
+    let songTitles = embedded(collection)
+        .filter { $0["documentType"] as? String == "SONG" }
+        .compactMap { $0["title"] as? String }
+    check("the songbook holds every song in the project",
+          !songTitles.isEmpty && songTitles.allSatisfy(text.contains),
+          "missing \(songTitles.filter { !text.contains($0) })")
+    check("a PDF songbook comes back as a PDF",
+          await be.respond(method: "GET",
+                           url: url("/api/document/export-songs?projectId=\(pid)&format=pdf"),
+                           body: nil).data.starts(with: Data("%PDF".utf8)))
+    check("a songbook for an unknown project -> 400",
+          await be.respond(method: "GET",
+                           url: url("/api/document/export-songs?projectId=987654"),
+                           body: nil).status == 400)
+
+    // A project of notes alone has no songbook to offer.
+    let notesOnly = json(await be.respond(
+        method: "POST", url: url("/api/project"), body: body(["title": "Notes Only"])).data)
+    if let emptyId = notesOnly["id"] as? Int {
+        let empty = json(await be.respond(
+            method: "GET", url: url("/api/document?projectId=\(emptyId)"), body: nil).data)
+        check("a project without songs advertises no songbook",
+              songbookRels.allSatisfy { links(empty)[$0] == nil })
+    }
+
+    // --- every project as one bundle ---
+    let projects = json(await be.respond(method: "GET", url: url("/api/project"), body: nil).data)
+    check("the project collection advertises `exportProjects`",
+          links(projects)["exportProjects"] != nil)
+    guard let bundleHref = (links(projects)["exportProjects"] as? [String: Any])?["href"] as? String,
+          let bundleURL = URL(string: bundleHref) else {
+        check("the exportProjects link is followable", false)
+        return
+    }
+    let bundle = await be.respond(method: "GET", url: bundleURL, body: nil)
+    check("the projects bundle -> 200", bundle.status == 200, "got \(bundle.status)")
+    let listed = (json(bundle.data)["projects"] as? [[String: Any]]) ?? []
+    check("the bundle holds every project the list showed",
+          listed.count == embedded(projects).count,
+          "\(listed.count) bundled vs \(embedded(projects).count) listed")
+
+    if let emptyId = notesOnly["id"] as? Int {
+        _ = await be.respond(method: "DELETE", url: url("/api/project/\(emptyId)"), body: nil)
     }
 }
 

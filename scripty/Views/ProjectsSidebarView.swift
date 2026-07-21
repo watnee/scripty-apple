@@ -50,6 +50,9 @@ struct ProjectsSidebarView: View {
     /// anyone signed in rather than only an admin.
     @State private var accountLink: HALLink?
     @State private var showingPreferences = false
+    /// The finished projects archive, waiting for the system share sheet.
+    @State private var exportedProjects: ExportedProjects?
+    @State private var isExportingProjects = false
     @State private var searchText = ""
     @AppStorage("projectListSort") private var sortMode = ProjectSort.lastEdited
 
@@ -150,6 +153,19 @@ struct ProjectsSidebarView: View {
                     }
                 }
             }
+            // The whole list as one re-importable archive — what the web list's
+            // Download button sends. Exporting is a read, so it needs no more
+            // than the projects the server already showed us.
+            if model.canExportAll {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        exportAllProjects()
+                    } label: {
+                        Label("Export All Projects", systemImage: "square.and.arrow.up.on.square")
+                    }
+                    .disabled(isExportingProjects)
+                }
+            }
             ToolbarItem(placement: .secondaryAction) {
                 Picker("Sort", selection: $sortMode) {
                     ForEach(ProjectSort.allCases) { mode in
@@ -243,6 +259,9 @@ struct ProjectsSidebarView: View {
         .sheet(item: $accountLink) { link in
             AccountView(app: app, source: link)
         }
+        .sheet(item: $exportedProjects) { export in
+            ShareSheet(items: [export.url])
+        }
         .sheet(isPresented: $showingCreate) {
             ProjectTitleSheet(title: "", heading: "New Project") { title in
                 await model.createProject(title: title) != nil
@@ -281,6 +300,26 @@ struct ProjectsSidebarView: View {
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } })
     }
+
+    /// The archive can take a moment to build on a busy account, so the button
+    /// stays disabled until the file is on disk and the share sheet is up. A
+    /// failure has already been reported through the model's error alert.
+    private func exportAllProjects() {
+        isExportingProjects = true
+        Task {
+            if let url = await model.exportAllProjects() {
+                exportedProjects = ExportedProjects(url: url)
+            }
+            isExportingProjects = false
+        }
+    }
+}
+
+/// The downloaded projects archive, identified by where it landed so the share
+/// sheet opens only once the file exists.
+private struct ExportedProjects: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }
 
 /// Demo mode looks exactly like a real session, so say so plainly: nothing

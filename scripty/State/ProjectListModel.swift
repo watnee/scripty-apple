@@ -72,6 +72,28 @@ final class ProjectListModel {
         }
     }
 
+    /// Whether the whole list can be taken away as one archive — advertised on
+    /// the collection only when it holds a project.
+    var canExportAll: Bool { collectionLinks[.exportProjects] != nil }
+
+    /// Downloads every project the signed-in user can see as one
+    /// `.scripty.json` bundle — the file `importProject` reads back — and
+    /// writes it where the share sheet can pick it up.
+    func exportAllProjects() async -> URL? {
+        guard let link = collectionLinks[.exportProjects] else { return nil }
+        do {
+            let data = try await app.client.data(for: link)
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Scripty Projects.scripty.json")
+            try data.write(to: url, options: .atomic)
+            errorMessage = nil
+            return url
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
     @discardableResult
     func rename(_ project: Project, to title: String) async -> Bool {
         guard let link = project.link(.update) else { return false }

@@ -332,6 +332,11 @@ actor DemoBackend {
             return routeEdition(method: method, path: Array(path.dropFirst()),
                                 query: query, fields: fields)
         }
+        // The whole list as one bundle — a sibling of the project resources,
+        // not a project id.
+        if method == "GET", path.first == "export-projects" {
+            return demoProjectsBundle()
+        }
         switch (method, path.count) {
         case ("GET", 0):
             return projectCollection()
@@ -843,12 +848,9 @@ actor DemoBackend {
                 .map { documentJSON($0, includeContent: false) }
             var selfHref = "/api/document?projectId=\(projectId)"
             if let type { selfHref += "&type=\(type)" }
-            return ok(["_embedded": ["textDocumentResourceList": items],
-                       "_links": ["self": link(selfHref),
-                                  "project": link("/api/project/\(projectId)"),
-                                  "importDocument": link("/api/document/import"),
-                                  "reorder": link("/api/document/reorder?projectId=\(projectId)"),
-                                  "trash": link("/api/document/trash?projectId=\(projectId)")]])
+            var links = documentCollectionLinks(projectId: projectId)
+            links["self"] = link(selfHref)
+            return ok(["_embedded": ["textDocumentResourceList": items], "_links": links])
         case ("POST", nil):
             guard let projectId = fields["projectId"] as? Int,
                   documents[projectId] != nil,
@@ -874,6 +876,14 @@ actor DemoBackend {
         // `/api/document/reorder` is likewise a sibling, not an id.
         if method == "POST", path.first == "reorder" {
             return reorderDocuments(query: query, fields: fields)
+        }
+
+        // …as is the songbook, which exports the collection rather than any one
+        // document in it.
+        if method == "GET", path.first == "export-songs" {
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  documents[projectId] != nil else { return badRequest("projectId") }
+            return demoSongbookExport(projectId: projectId, format: query["format"] ?? "txt")
         }
 
         guard let id = path.first.flatMap(Int.init),
@@ -949,9 +959,31 @@ actor DemoBackend {
         let items = (documents[projectId] ?? [])
             .sorted { $0.sortOrder < $1.sortOrder }
             .map { documentJSON($0, includeContent: false) }
+        // The reorder answer replaces the client's held collection links, so it
+        // carries the same set the listing did — otherwise every other
+        // affordance would disappear after a drag.
         return ok(["_embedded": ["textDocumentResourceList": items],
-                   "_links": ["self": link("/api/document?projectId=\(projectId)"),
-                              "reorder": link("/api/document/reorder?projectId=\(projectId)")]])
+                   "_links": documentCollectionLinks(projectId: projectId)])
+    }
+
+    /// The links a project's document collection carries. The songbook exports
+    /// appear only where there is a song to put in the book, matching the
+    /// server, and sit outside the edit gate because exporting is a read.
+    private func documentCollectionLinks(projectId: Int) -> [String: Any] {
+        var links: [String: Any] = [
+            "self": link("/api/document?projectId=\(projectId)"),
+            "project": link("/api/project/\(projectId)"),
+            "importDocument": link("/api/document/import"),
+            "reorder": link("/api/document/reorder?projectId=\(projectId)"),
+            "trash": link("/api/document/trash?projectId=\(projectId)"),
+        ]
+        if (documents[projectId] ?? []).contains(where: { $0.documentType == "SONG" }) {
+            for (rel, format) in [("exportSongsTxt", "txt"), ("exportSongsPdf", "pdf"),
+                                  ("exportSongsDocx", "docx"), ("exportSongsEpub", "epub")] {
+                links[rel] = link("/api/document/export-songs?projectId=\(projectId)&format=\(format)")
+            }
+        }
+        return links
     }
 
     /// A song exported on its own. The demo serves the format it can actually
@@ -964,6 +996,25 @@ actor DemoBackend {
         default:
             let header = document.title.isEmpty ? "" : document.title + "\n\n"
             return (200, Data((header + document.content).utf8))
+        }
+    }
+
+    /// Every song in a project, one after another — the songbook the web's
+    /// Export menu downloads. Same shortcut as the single-song export: the
+    /// point is that the rel resolves and a file comes back.
+    private func demoSongbookExport(projectId: Int, format: String) -> (Int, Data) {
+        let songs = (documents[projectId] ?? [])
+            .filter { $0.documentType == "SONG" }
+            .sorted { $0.sortOrder < $1.sortOrder }
+        let title = projects.first { $0.id == projectId }?.title ?? "Songs"
+        switch format {
+        case "pdf":
+            return (200, minimalPDF(title: title))
+        default:
+            let book = songs
+                .map { ($0.title.isEmpty ? "" : $0.title + "\n\n") + $0.content }
+                .joined(separator: "\n\n\n")
+            return (200, Data(book.utf8))
         }
     }
 
@@ -2100,12 +2151,18 @@ actor DemoBackend {
     }
 
     private func projectCollection() -> (Int, Data) {
-        ok(["_embedded": ["projectResourceList": projects.map(projectJSON)],
-            "_links": [
-                "self": link("/api/project"),
-                "importProject": link("/api/project/import"),
-                "trash": link("/api/project/trash"),
-            ]])
+        var links: [String: Any] = [
+            "self": link("/api/project"),
+            "importProject": link("/api/project/import"),
+            "trash": link("/api/project/trash"),
+        ]
+        // Nothing to bundle from an empty list, so the rel goes away with the
+        // last project — the same rule the server applies.
+        if !projects.isEmpty {
+            links["exportProjects"] = link("/api/project/export-projects")
+        }
+        return ok(["_embedded": ["projectResourceList": projects.map(projectJSON)],
+                   "_links": links])
     }
 
     // MARK: - Version history
@@ -2984,6 +3041,22 @@ actor DemoBackend {
             // actually produce; the point offline is that the rel resolves.
             return (200, Data(fountainExport(project).utf8))
         }
+    }
+
+    /// Every project as one archive, in the shape a single project's
+    /// `exportArchive` uses — a bundle is the same document with a list at the
+    /// top, so what goes out here is what `importProject` could read back.
+    private func demoProjectsBundle() -> (Int, Data) {
+        let bundle: [String: Any] = [
+            "projects": projects.map { project in
+                ["project": ["title": project.title],
+                 "blocks": (blocks[project.id] ?? [])
+                     .sorted { $0.order < $1.order }
+                     .map { ["type": $0.type, "content": $0.content] }]
+            },
+        ]
+        let data = (try? JSONSerialization.data(withJSONObject: bundle, options: [.prettyPrinted])) ?? Data()
+        return (200, data)
     }
 
     /// The smallest well-formed PDF: one blank US-Letter page. Enough for the

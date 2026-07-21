@@ -60,6 +60,11 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     /// reads back, so this is the round trip that moves a project between servers.
     static let exportArchive = Rel("exportArchive")
 
+    /// Every project the signed-in user can see, as one archive. Advertised on
+    /// the project collection rather than on a project — it is the collection
+    /// it exports — and only when there is something in it.
+    static let exportProjects = Rel("exportProjects")
+
     /// A single song, exported in the formats SongExportService offers. Advertised
     /// on each song document, not on the project — a note has no song layout to
     /// export, so these appear only for songs.
@@ -67,6 +72,13 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let exportSongPdf = Rel("exportSongPdf")
     static let exportSongDocx = Rel("exportSongDocx")
     static let exportSongEpub = Rel("exportSongEpub")
+
+    /// The project's songs gathered into one songbook, in the same formats.
+    /// Advertised on the document collection, and only when it holds a song.
+    static let exportSongsTxt = Rel("exportSongsTxt")
+    static let exportSongsPdf = Rel("exportSongsPdf")
+    static let exportSongsDocx = Rel("exportSongsDocx")
+    static let exportSongsEpub = Rel("exportSongsEpub")
 
     /// Replace the set of characters an actor auditions for in a project.
     /// Advertised on a project-scoped actor only — auditions have no meaning
