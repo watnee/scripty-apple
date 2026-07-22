@@ -7,6 +7,7 @@
 //  when the write is refused.
 //
 
+import PhotosUI
 import SwiftUI
 
 struct ActorEditorSheet: View {
@@ -20,6 +21,8 @@ struct ActorEditorSheet: View {
     @State private var email: String
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var pickedPhoto: PhotosPickerItem?
+    @State private var isUploadingHeadshot = false
 
     init(casting: CastingModel, actor: ScriptyActor?) {
         self.casting = casting
@@ -56,6 +59,7 @@ struct ActorEditorSheet: View {
                     TextField("Last name", text: $last)
                         .textContentType(.familyName)
                 }
+                headshotSection
                 Section("Contact") {
                     TextField("Email", text: $email)
                         .keyboardType(.emailAddress)
@@ -88,6 +92,114 @@ struct ActorEditorSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    /// The actor as the model now holds it. Uploading or removing a headshot
+    /// changes which links the actor carries, and the copy this sheet was
+    /// opened with cannot know that — reading it back is what makes "Choose"
+    /// turn into "Replace" without closing the form.
+    private var currentActor: ScriptyActor? {
+        guard let actor else { return nil }
+        return casting.actors.first { $0.id == actor.id } ?? actor
+    }
+
+    /// The headshot, and the two things that can be done to it.
+    ///
+    /// Only for an actor that already exists: the upload needs somewhere to put
+    /// the image, and a new actor has no id until the form is saved. Adding a
+    /// picture is therefore a second visit, which is how the web form behaves
+    /// on create too.
+    @ViewBuilder
+    private var headshotSection: some View {
+        if let actor = currentActor, casting.canSetHeadshot(actor) {
+            Section("Headshot") {
+                HStack(spacing: 14) {
+                    thumbnail(for: actor)
+                    VStack(alignment: .leading, spacing: 8) {
+                        PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                            Label(casting.canRemoveHeadshot(actor) ? "Replace Photo…" : "Choose Photo…",
+                                  systemImage: "photo")
+                        }
+                        .disabled(isUploadingHeadshot)
+
+                        if casting.canRemoveHeadshot(actor) {
+                            Button(role: .destructive) {
+                                Task { await removeHeadshot(actor) }
+                            } label: {
+                                Label("Remove Photo", systemImage: "trash")
+                            }
+                            .disabled(isUploadingHeadshot)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if isUploadingHeadshot { ProgressView() }
+                }
+                .padding(.vertical, 2)
+            }
+            .onChange(of: pickedPhoto) { _, picked in
+                guard let picked else { return }
+                Task { await upload(picked, for: actor) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(for actor: ScriptyActor) -> some View {
+        Group {
+            if let data = casting.headshotData(for: actor),
+               let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: 64, height: 64)
+        .clipShape(Circle())
+        .task { await casting.loadHeadshot(for: actor) }
+        .accessibilityHidden(true)
+    }
+
+    /// Sends the chosen image as JPEG rather than whatever the photo library
+    /// held. A photo off a modern iPhone is HEIC, which the server does not
+    /// accept and no browser would have offered it either — re-encoding here is
+    /// what makes "choose a photo" mean the same thing on both clients.
+    private func upload(_ picked: PhotosPickerItem, for actor: ScriptyActor) async {
+        isUploadingHeadshot = true
+        errorMessage = nil
+        defer {
+            isUploadingHeadshot = false
+            pickedPhoto = nil
+        }
+
+        guard let raw = try? await picked.loadTransferable(type: Data.self),
+              let image = UIImage(data: raw),
+              let jpeg = image.jpegData(compressionQuality: 0.85) else {
+            errorMessage = "That image could not be read."
+            return
+        }
+        if !(await casting.setHeadshot(actor, data: jpeg,
+                                       fileName: "headshot.jpg",
+                                       mimeType: "image/jpeg")) {
+            // The server's message names the rule that was broken — too large,
+            // wrong format — so it is worth more than anything written here.
+            errorMessage = casting.errorMessage
+            casting.errorMessage = nil
+        }
+    }
+
+    private func removeHeadshot(_ actor: ScriptyActor) async {
+        isUploadingHeadshot = true
+        errorMessage = nil
+        defer { isUploadingHeadshot = false }
+        if !(await casting.removeHeadshot(actor)) {
+            errorMessage = casting.errorMessage
+            casting.errorMessage = nil
+        }
     }
 
     private func save() {

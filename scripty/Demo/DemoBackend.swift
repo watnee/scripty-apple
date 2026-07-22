@@ -57,6 +57,10 @@ actor DemoBackend {
         var id: Int
         var first: String
         var last: String
+        /// The bytes of whatever was uploaded, held so the demo can serve them
+        /// back — the point of the feature is seeing the picture appear.
+        /// Defaulted so the seed and the create route need not mention it.
+        var headshot: Data? = nil
         var phone: String?
         var email: String?
         var projectIds: [Int]
@@ -159,7 +163,7 @@ actor DemoBackend {
             }
         case (_, "api", "actor"):
             return routeActor(method: method, path: Array(path.dropFirst(2)),
-                              query: query, fields: fields)
+                              query: query, fields: fields, body: body)
         case (_, "api", "team"):
             return routeTeam(method: method, path: Array(path.dropFirst(2)),
                              query: query, fields: fields)
@@ -514,7 +518,8 @@ actor DemoBackend {
 
     private func routeActor(method: String, path: [String],
                             query: [String: String],
-                            fields: [String: Any]) -> (Int, Data) {
+                            fields: [String: Any],
+                            body: Data?) -> (Int, Data) {
         switch (method, path.count) {
         case ("GET", 0):
             let projectId = query["projectId"].flatMap(Int.init)
@@ -567,6 +572,19 @@ actor DemoBackend {
             let valid = Set((people[projectId] ?? []).map(\.id))
             auditions[projectId, default: [:]][id] = Set(characterIds).intersection(valid)
             return ok(actorJSON(actors[index], projectId: projectId))
+        case ("POST", "headshot"):
+            // Multipart, like the server. The demo does not parse the envelope
+            // — it only has to remember that a picture arrived, and how big it
+            // was, for the links to change.
+            guard let body, !body.isEmpty else { return badRequest("headshot") }
+            actors[index].headshot = body
+            return ok(actorJSON(actors[index]))
+        case ("DELETE", "headshot"):
+            actors[index].headshot = nil
+            return ok(actorJSON(actors[index]))
+        case ("GET", "headshot"):
+            guard let data = actors[index].headshot else { return notFound() }
+            return (200, data)
         case ("DELETE", nil):
             let removed = actors.remove(at: index)
             // Anyone cast as this actor becomes uncast rather than dangling, and
@@ -591,12 +609,21 @@ actor DemoBackend {
             "actors": link("/api/actor"),
             "update": link("/api/actor/\(actor.id)"),
             "delete": link("/api/actor/\(actor.id)"),
+            // Always on offer: replacing a headshot is the same action as
+            // adding one.
+            "setHeadshot": link("/api/actor/\(actor.id)/headshot"),
         ]
+        // Reading and removing one are offered only where there is a headshot,
+        // so a client can draw its controls from the links alone.
+        if actor.headshot != nil {
+            links["headshot"] = link("/api/actor/\(actor.id)/headshot")
+            links["removeHeadshot"] = link("/api/actor/\(actor.id)/headshot")
+        }
         var json: [String: Any] = [
             "id": actor.id,
             "first": actor.first,
             "last": actor.last,
-            "hasHeadshot": false,
+            "hasHeadshot": actor.headshot != nil,
             "projectIds": actor.projectIds,
         ]
         // Auditions ride along only on a project-scoped actor — the same as the
@@ -1027,7 +1054,8 @@ actor DemoBackend {
         ]
         if (documents[projectId] ?? []).contains(where: { $0.documentType == "SONG" }) {
             for (rel, format) in [("exportSongsTxt", "txt"), ("exportSongsPdf", "pdf"),
-                                  ("exportSongsDocx", "docx"), ("exportSongsEpub", "epub")] {
+                                  ("exportSongsDocx", "docx"), ("exportSongsEpub", "epub"),
+                                  ("exportSongsMusicXml", "musicxml")] {
                 links[rel] = link("/api/document/export-songs?projectId=\(projectId)&format=\(format)")
             }
             // Deleting a selection is songs-only and an edit, so it rides with
@@ -1162,6 +1190,9 @@ actor DemoBackend {
             links["exportSongPdf"] = link("/api/document/\(document.id)/export-song?format=pdf")
             links["exportSongDocx"] = link("/api/document/\(document.id)/export-song?format=docx")
             links["exportSongEpub"] = link("/api/document/\(document.id)/export-song?format=epub")
+            // A score rather than a document to read, and the format the song
+            // importer reads back.
+            links["exportSongMusicXml"] = link("/api/document/\(document.id)/export-song?format=musicxml")
         }
         var json: [String: Any] = [
             "id": document.id,
@@ -2887,6 +2918,11 @@ actor DemoBackend {
         // `teams` and `users` are advertised here as they are on the server for a
         // user allowed to manage them; the demo's single account stands in for
         // that admin.
+        //
+        // Password recovery is deliberately absent, and is the one rel the real
+        // server has that this does not. It rides on the 401 challenge rather
+        // than on any document — and the demo never challenges anyone, because
+        // there is no sign-in to fail. There is nothing here to recover from.
         ["_links": ["self": link("/api"),
                     "projects": link("/api/project"),
                     "actors": link("/api/actor"),

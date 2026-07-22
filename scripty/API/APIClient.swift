@@ -98,6 +98,37 @@ final class APIClient {
         }
     }
 
+    /// What the server says a caller with no credentials may do.
+    ///
+    /// The entry point answers an unauthenticated request with a 401 challenge,
+    /// and that challenge carries links — today just the way into password
+    /// recovery, which is the one thing you can only need while signed out.
+    /// Every other document that could advertise it is behind the sign-in, so
+    /// the challenge is where it has to live.
+    ///
+    /// Deliberately swallows everything. This runs on the way to a login screen
+    /// that works perfectly well without it; a server that offers nothing, or
+    /// no server at all, should cost the writer nothing but a missing button.
+    func signedOutLinks() async -> HALLinks {
+        guard demo == nil, let url = rootLink.url(relativeTo: baseURL) else { return HALLinks() }
+        var request = URLRequest(url: url)
+        request.setValue("application/hal+json", forHTTPHeaderField: "Accept")
+        guard let (_, data) = try? await perform(request),
+              let document = try? decoder.decode(SignedOutDocument.self, from: data) else {
+            return HALLinks()
+        }
+        return document.links ?? HALLinks()
+    }
+
+    /// Just the links: the challenge body says nothing else worth decoding.
+    private struct SignedOutDocument: Decodable {
+        let links: HALLinks?
+
+        private enum CodingKeys: String, CodingKey {
+            case links = "_links"
+        }
+    }
+
     /// Runs a request and reports the outcome as a status code, translating
     /// transport failures into `APIError` so no caller ever has to surface a
     /// raw `NSURLErrorDomain` string to the writer.

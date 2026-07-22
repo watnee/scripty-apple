@@ -14,6 +14,10 @@ import UIKit
 struct BlockTextView: UIViewRepresentable {
     let model: ScriptModel
     let block: Block
+    /// The suggestion list, which this view both feeds (every keystroke
+    /// recomputes it) and obeys (Return accepts rather than splits while it is
+    /// open).
+    let autocomplete: ScriptAutocomplete
     let font: UIFont
     let alignment: NSTextAlignment
     let autocapitalize: UITextAutocapitalizationType
@@ -23,7 +27,9 @@ struct BlockTextView: UIViewRepresentable {
     /// the block's own text.
     let accessibilityLabel: String
 
-    func makeCoordinator() -> Coordinator { Coordinator(model: model, block: block) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(model: model, block: block, autocomplete: autocomplete)
+    }
 
     func makeUIView(context: Context) -> BlockUITextView {
         let view = BlockUITextView()
@@ -40,6 +46,18 @@ struct BlockTextView: UIViewRepresentable {
         }
         view.onShiftTab = { [weak coordinator = context.coordinator] in
             coordinator?.tab(backward: true)
+        }
+        // The arrow keys and Escape only belong to the suggestion list while it
+        // is open; the rest of the time they are the caret's, so the view asks
+        // before claiming them.
+        view.isSuggesting = { [weak coordinator = context.coordinator] in
+            coordinator?.isSuggesting ?? false
+        }
+        view.onMoveSuggestion = { [weak coordinator = context.coordinator] delta in
+            coordinator?.autocomplete.moveSelection(by: delta)
+        }
+        view.onDismissSuggestions = { [weak coordinator = context.coordinator] in
+            coordinator?.dismissSuggestions()
         }
         context.coordinator.textView = view
         apply(font: font, alignment: alignment, capitalize: autocapitalize,
@@ -170,26 +188,37 @@ struct BlockTextView: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
         let model: ScriptModel
+        let autocomplete: ScriptAutocomplete
         var block: Block
         weak var textView: BlockUITextView?
 
-        init(model: ScriptModel, block: Block) {
+        init(model: ScriptModel, block: Block, autocomplete: ScriptAutocomplete) {
             self.model = model
             self.block = block
+            self.autocomplete = autocomplete
+        }
+
+        /// Whether the list is open *for this element*. The object is shared by
+        /// every row, so a row that no longer has focus must not answer yes.
+        var isSuggesting: Bool {
+            autocomplete.isOpen && autocomplete.blockId == block.id
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             model.focusedBlockId = block.id
             model.hasActiveEdit = true
+            refreshSuggestions(textView.text)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
             let block = block
+            if autocomplete.blockId == block.id { autocomplete.clear() }
             Task { await model.blur(block) }
         }
 
         func textViewDidChange(_ textView: UITextView) {
             model.liveEdit(block, text: textView.text)
+            refreshSuggestions(textView.text)
         }
 
         func textView(_ textView: UITextView,
@@ -197,16 +226,46 @@ struct BlockTextView: UIViewRepresentable {
                       replacementText text: String) -> Bool {
             switch text {
             case "\n":
+                // While the list is open Return means "yes, that one" — the
+                // same bargain the web editor strikes, and the reason the list
+                // closes as soon as the writer types past every match.
+                if acceptSuggestion() { return false }
                 let caret = characterOffset(in: textView, utf16Location: textView.selectedRange.location)
                 let block = block
                 Task { await model.splitBlock(block, caret: caret) }
                 return false
             case "\t":
+                if acceptSuggestion() { return false }
                 tab(backward: false)
                 return false
             default:
                 return true
             }
+        }
+
+        // MARK: - Suggestions
+
+        private func refreshSuggestions(_ text: String) {
+            guard model.focusedBlockId == block.id else { return }
+            autocomplete.update(blockId: block.id,
+                                text: text,
+                                type: block.blockType,
+                                blocks: model.blocks,
+                                characters: model.characters)
+        }
+
+        @discardableResult
+        func acceptSuggestion() -> Bool {
+            guard isSuggesting, let suggestion = autocomplete.selected else { return false }
+            let block = block
+            autocomplete.clear()
+            Task { await model.accept(suggestion, on: block) }
+            return true
+        }
+
+        func dismissSuggestions() {
+            guard isSuggesting else { return }
+            autocomplete.dismiss(showing: textView?.text ?? "")
         }
 
         func backspaceAtStart() {
@@ -247,6 +306,11 @@ struct BlockTextView: UIViewRepresentable {
 final class BlockUITextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onShiftTab: (() -> Void)?
+    /// Whether a suggestion list is open for this element. The arrow keys and
+    /// Escape are only borrowed while it is.
+    var isSuggesting: (() -> Bool)?
+    var onMoveSuggestion: ((Int) -> Void)?
+    var onDismissSuggestions: (() -> Void)?
 
     override func deleteBackward() {
         if selectedRange.location == 0, selectedRange.length == 0 {
@@ -257,10 +321,37 @@ final class BlockUITextView: UITextView {
     }
 
     override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(handleShiftTab))]
+        var commands = [
+            UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(handleShiftTab))
+        ]
+        // Asked fresh each time UIKit builds the responder's commands, so the
+        // arrows go back to moving the caret the moment the list closes.
+        if isSuggesting?() == true {
+            commands += [
+                UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [],
+                             action: #selector(handleSuggestionUp)),
+                UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [],
+                             action: #selector(handleSuggestionDown)),
+                UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [],
+                             action: #selector(handleSuggestionEscape))
+            ]
+        }
+        return commands
     }
 
     @objc private func handleShiftTab() {
         onShiftTab?()
+    }
+
+    @objc private func handleSuggestionUp() {
+        onMoveSuggestion?(-1)
+    }
+
+    @objc private func handleSuggestionDown() {
+        onMoveSuggestion?(1)
+    }
+
+    @objc private func handleSuggestionEscape() {
+        onDismissSuggestions?()
     }
 }

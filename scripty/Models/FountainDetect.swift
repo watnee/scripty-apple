@@ -139,6 +139,219 @@ enum FountainDetector {
         return base == base.uppercased()
     }
 
+    // MARK: - Parsing a whole passage
+
+    /// Splits pasted text into typed elements, mirroring the web editor's
+    /// `parseFountainToBlocks`.
+    ///
+    /// `detect` above answers "what is this one line?"; this answers "what is
+    /// this page?", which needs the extra state a screenplay carries between
+    /// lines — a cue puts the following lines into dialogue until a blank line
+    /// ends the speech, and a parenthetical interrupts without ending it.
+    static func parseBlocks(_ text: String) -> [ClipboardBlock] {
+        let lines = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+
+        var blocks: [ClipboardBlock] = []
+        var mode = Mode.action
+        var pendingCharacter = ""
+        var dialogue: [String] = []
+        var inBoneyard = false
+
+        func flushDialogue() {
+            guard !dialogue.isEmpty else { return }
+            blocks.append(ClipboardBlock(
+                type: .dialogue,
+                content: dialogue.joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                characterName: pendingCharacter))
+            dialogue = []
+        }
+
+        /// Ends any speech in progress and returns to prose.
+        func breakOut() {
+            flushDialogue()
+            mode = .action
+            pendingCharacter = ""
+        }
+
+        for rawLine in lines {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if inBoneyard {
+                if trimmed.contains("*/") { inBoneyard = false }
+                continue
+            }
+            if trimmed.hasPrefix("/*") {
+                if !trimmed.contains("*/") { inBoneyard = true }
+                continue
+            }
+
+            if trimmed.hasPrefix("[[") && trimmed.hasSuffix("]]") {
+                breakOut()
+                blocks.append(ClipboardBlock(
+                    type: .note,
+                    content: String(trimmed.dropFirst(2).dropLast(2))
+                        .trimmingCharacters(in: .whitespaces)))
+                continue
+            }
+
+            // A blank line ends a speech — that is the whole of Fountain's
+            // dialogue grammar.
+            if trimmed.isEmpty {
+                breakOut()
+                continue
+            }
+
+            if matches(#"^={3,}$"#, trimmed) {
+                breakOut()
+                blocks.append(ClipboardBlock(type: .pageBreak, content: "==="))
+                continue
+            }
+            if let forced = forcedElement(trimmed) {
+                breakOut()
+                blocks.append(forced)
+                continue
+            }
+            if fullMatch(sceneHeading, trimmed) {
+                breakOut()
+                blocks.append(ClipboardBlock(type: .scene, content: trimmed))
+                continue
+            }
+            if fullMatch(transition, trimmed) {
+                breakOut()
+                blocks.append(ClipboardBlock(type: .transition, content: trimmed))
+                continue
+            }
+            if fullMatch(shot, trimmed) {
+                breakOut()
+                blocks.append(ClipboardBlock(type: .shot, content: trimmed))
+                continue
+            }
+
+            // A parenthetical belongs to the speech around it, so it flushes
+            // what has been said so far without clearing the speaker.
+            if mode != .action && trimmed.hasPrefix("(") {
+                flushDialogue()
+                let inner = trimmed.hasSuffix(")")
+                    ? String(trimmed.dropFirst().dropLast())
+                    : String(trimmed.dropFirst())
+                blocks.append(ClipboardBlock(
+                    type: .parenthetical,
+                    content: inner.trimmingCharacters(in: .whitespaces)))
+                mode = .dialogue
+                continue
+            }
+
+            if mode == .action && isCharacterCueLine(trimmed) {
+                flushDialogue()
+                pendingCharacter = normalizeCharacterName(trimmed)
+                let dual = matches(#"\^\s*$"#, trimmed)
+                blocks.append(ClipboardBlock(type: dual ? .dualDialogue : .character,
+                                             content: pendingCharacter,
+                                             characterName: pendingCharacter))
+                mode = .character
+                continue
+            }
+
+            if mode != .action {
+                // Leading space is a writer's indent; trailing space is noise.
+                dialogue.append(rawLine.replacing(regex(#"\s+$"#), with: ""))
+                mode = .dialogue
+                continue
+            }
+
+            flushDialogue()
+            pendingCharacter = ""
+            blocks.append(ClipboardBlock(
+                type: .action,
+                content: trimmed.hasPrefix("!") ? String(trimmed.dropFirst()) : trimmed))
+            mode = .action
+        }
+
+        flushDialogue()
+        return blocks
+    }
+
+    /// Whether pasted text is worth splitting into elements at all.
+    ///
+    /// Soft-wrapped prose would otherwise come back as a stack of one-line
+    /// action elements, which is a worse paste than leaving it as typing. So a
+    /// split needs some positive sign of a screenplay: a heading, a force
+    /// marker, a cue with something under it — or, failing all that, several
+    /// lines separated by a blank one.
+    static func looksLikeScreenplay(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        let lines = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+
+        var nonEmpty = 0
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { continue }
+            nonEmpty += 1
+
+            if fullMatch(sceneHeading, trimmed) || fullMatch(transition, trimmed) { return true }
+            if matches(#"^(?:ANGLE ON|CLOSE ON|POV|INSERT)\b"#, trimmed.uppercased()) { return true }
+            if matches(#"^[@.~>#=]"#, trimmed) || trimmed.hasPrefix("[[") { return true }
+
+            // An all-caps line with anything under it reads as a cue.
+            if trimmed == trimmed.uppercased(), trimmed.count <= 60,
+               trimmed.rangeOfCharacter(from: .uppercaseLetters) != nil,
+               !matches(#"[.?!]$"#, trimmed),
+               lines.dropFirst(index + 1).contains(where: {
+                   !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+               }) {
+                return true
+            }
+        }
+        return nonEmpty >= 2 && matches(#"\n\s*\n"#, text)
+    }
+
+    private enum Mode {
+        case action, character, dialogue
+    }
+
+    /// The force markers, which name an element outright.
+    private static func forcedElement(_ trimmed: String) -> ClipboardBlock? {
+        func stripped(_ pattern: String) -> String {
+            trimmed.replacing(regex(pattern), with: "").trimmingCharacters(in: .whitespaces)
+        }
+        if trimmed.hasPrefix("#") {
+            return ClipboardBlock(type: .section, content: stripped(#"^#+"#))
+        }
+        if trimmed.hasPrefix("=") && !trimmed.hasPrefix("==") {
+            return ClipboardBlock(type: .synopsis, content: stripped(#"^=+"#))
+        }
+        if trimmed.hasPrefix("~") {
+            return ClipboardBlock(type: .lyrics, content: stripped(#"^~"#))
+        }
+        if trimmed.hasPrefix(".") && !trimmed.hasPrefix("..") {
+            return ClipboardBlock(type: .scene, content: stripped(#"^\."#))
+        }
+        if trimmed.hasPrefix(">") && trimmed.hasSuffix("<") && trimmed.count > 2 {
+            return ClipboardBlock(type: .centered,
+                                  content: String(trimmed.dropFirst().dropLast())
+                                      .trimmingCharacters(in: .whitespaces))
+        }
+        if trimmed.hasPrefix(">") {
+            return ClipboardBlock(type: .transition,
+                                  content: String(trimmed.dropFirst())
+                                      .trimmingCharacters(in: .whitespaces))
+        }
+        return nil
+    }
+
+    private static func normalizeCharacterName(_ line: String) -> String {
+        line.replacing(regex(#"\^\*?"#), with: "")
+            .replacing(regex(#"^@"#), with: "")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
     // MARK: - Regex helpers
 
     private static func stripFirstLine(_ trimmed: String, _ replacer: (String) -> String) -> String {

@@ -203,7 +203,9 @@ struct ProjectsSidebarView: View {
         }
         // Appearance keeps the account entries company, as it does in the web
         // app's user dropdown. Nothing gates it: it is a choice about this
-        // device, so there is no link to ask about.
+        // device, so there is no link to ask about. Help sits alongside it for
+        // the same reason, and because that is where the web app's account menu
+        // keeps its two help entries.
         //
         // Grouped with signing out rather than added as an eleventh item —
         // `ToolbarContentBuilder` takes ten, and the eleventh fails as a
@@ -211,6 +213,18 @@ struct ProjectsSidebarView: View {
         // toolbars.
         ToolbarItemGroup(placement: .secondaryAction) {
             appearancePicker
+
+            Button {
+                HelpPresentation.shared.screen = .help
+            } label: {
+                Label("Scripty Help", systemImage: "questionmark.circle")
+            }
+
+            Button {
+                HelpPresentation.shared.screen = .shortcuts
+            } label: {
+                Label("Keyboard Shortcuts", systemImage: "keyboard")
+            }
 
             Button(role: .destructive) {
                 app.signOut()

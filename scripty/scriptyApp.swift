@@ -46,7 +46,20 @@ struct scriptyApp: App {
 struct RootView: View {
     let app: AppModel
 
+    /// Help is presented here rather than from the project list so that the
+    /// menu bar's Help items work in every phase — including signed out, where
+    /// "how do I get in" is exactly the question being asked.
+    private let help = HelpPresentation.shared
+
     var body: some View {
+        phase
+            .sheet(item: helpBinding) { screen in
+                HelpSheet(screen: screen)
+            }
+    }
+
+    @ViewBuilder
+    private var phase: some View {
         switch app.phase {
         case .loading:
             ProgressView()
@@ -59,5 +72,9 @@ struct RootView: View {
             ContentView(app: app)
                 .id(app.isDemo)
         }
+    }
+
+    private var helpBinding: Binding<HelpPresentation.Screen?> {
+        Binding(get: { help.screen }, set: { help.screen = $0 })
     }
 }

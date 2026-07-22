@@ -72,6 +72,9 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let exportSongPdf = Rel("exportSongPdf")
     static let exportSongDocx = Rel("exportSongDocx")
     static let exportSongEpub = Rel("exportSongEpub")
+    /// The lyric as a score rather than as a document to read — and the format
+    /// `importDocument` reads back.
+    static let exportSongMusicXml = Rel("exportSongMusicXml")
 
     /// The project's songs gathered into one songbook, in the same formats.
     /// Advertised on the document collection, and only when it holds a song.
@@ -79,6 +82,7 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let exportSongsPdf = Rel("exportSongsPdf")
     static let exportSongsDocx = Rel("exportSongsDocx")
     static let exportSongsEpub = Rel("exportSongsEpub")
+    static let exportSongsMusicXml = Rel("exportSongsMusicXml")
 
     /// Replace the set of characters an actor auditions for in a project.
     /// Advertised on a project-scoped actor only — auditions have no meaning
@@ -86,6 +90,10 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let setAuditions = Rel("setAuditions")
 
     static let headshot = Rel("headshot")
+    static let forgotPassword = Rel("forgotPassword")
+    static let resetPassword = Rel("resetPassword")
+    static let setHeadshot = Rel("setHeadshot")
+    static let removeHeadshot = Rel("removeHeadshot")
     static let documents = Rel("documents")
     static let document = Rel("document")
 

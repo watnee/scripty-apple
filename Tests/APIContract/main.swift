@@ -1003,7 +1003,8 @@ func run() async {
     // A song exports on its own, in the formats SongExportService offers. Like
     // script export, these sit outside the edit gate — a reader can take a copy.
     // Song-only: a note has no song layout, so it carries none of these links.
-    for rel in ["exportSongTxt", "exportSongPdf", "exportSongDocx", "exportSongEpub"] {
+    for rel in ["exportSongTxt", "exportSongPdf", "exportSongDocx", "exportSongEpub",
+                "exportSongMusicXml"] {
         check("a song advertises `\(rel)`",
               (songDoc["_links"] as? [String: Any])?[rel] != nil)
         check("a note does not advertise `\(rel)`",
@@ -1077,6 +1078,7 @@ func run() async {
     await checkDocumentCopyAndType(pid: pid)
     await checkCommentCounts(pid: pid)
     await checkAuditions(pid: pid)
+    await checkHeadshots(pid: pid)
     await checkAccount(root: root)
     await checkUsers(root: root)
     await checkContactSuggestions(pid: pid)
@@ -1210,7 +1212,8 @@ func checkBundleExports(pid: Int) async {
         json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data)
     }
 
-    let songbookRels = ["exportSongsTxt", "exportSongsPdf", "exportSongsDocx", "exportSongsEpub"]
+    let songbookRels = ["exportSongsTxt", "exportSongsPdf", "exportSongsDocx", "exportSongsEpub",
+                        "exportSongsMusicXml"]
     let collection = await documents()
     check("the document collection advertises every songbook format",
           songbookRels.allSatisfy { links(collection)[$0] != nil },
@@ -1374,6 +1377,49 @@ func checkAccount(root: [String: Any]) async {
 
 /// Auditions get their own function: `run()` had grown large enough that the
 /// Swift optimizer crashed splitting the one async body.
+func checkHeadshots(pid: Int) async {
+    // --- HEADSHOTS ---
+    //
+    // The links are the whole feature: `setHeadshot` is always there, because
+    // replacing a picture is the same action as adding one, while `headshot`
+    // and `removeHeadshot` appear only once there is one. A client draws its
+    // controls from that alone, so getting the condition backwards would offer
+    // to delete a picture nobody uploaded.
+    let actor = json(await be.respond(method: "POST", url: url("/api/actor"),
+                                      body: body(["first": "Iris", "last": "Vance",
+                                                  "projectIds": [pid]])).data)
+    let actorId = actor["id"] as! Int
+    check("a new actor may be given a headshot", links(actor)["setHeadshot"] != nil)
+    check("and offers nothing to remove", links(actor)["removeHeadshot"] == nil)
+    check("nor anything to fetch", links(actor)["headshot"] == nil)
+    check("and says it has none", actor["hasHeadshot"] as? Bool == false)
+
+    // The demo does not parse the multipart envelope; what matters here is
+    // that bytes arriving change what the actor offers.
+    let picture = Data("not really a jpeg, but bytes".utf8)
+    let uploaded = json(await be.respond(
+        method: "POST", url: url("/api/actor/\(actorId)/headshot"), body: picture).data)
+    check("uploading answers with the refreshed actor", uploaded["id"] as? Int == actorId)
+    check("which now says it has one", uploaded["hasHeadshot"] as? Bool == true)
+    check("offers the image", links(uploaded)["headshot"] != nil)
+    check("offers to remove it", links(uploaded)["removeHeadshot"] != nil)
+    check("and still offers to replace it", links(uploaded)["setHeadshot"] != nil)
+
+    let fetched = await be.respond(method: "GET", url: url("/api/actor/\(actorId)/headshot"), body: nil)
+    check("the image comes back as it went in", fetched.data == picture)
+
+    let empty = await be.respond(method: "POST", url: url("/api/actor/\(actorId)/headshot"), body: nil)
+    check("an empty upload -> 400", empty.status == 400)
+
+    let removed = json(await be.respond(
+        method: "DELETE", url: url("/api/actor/\(actorId)/headshot"), body: nil).data)
+    check("removing answers with the refreshed actor", removed["hasHeadshot"] as? Bool == false)
+    check("and the remove link goes with it", links(removed)["removeHeadshot"] == nil)
+    check("while the upload link stays", links(removed)["setHeadshot"] != nil)
+    let gone = await be.respond(method: "GET", url: url("/api/actor/\(actorId)/headshot"), body: nil)
+    check("the image is gone", gone.status == 404)
+}
+
 func checkAuditions(pid: Int) async {
     // --- AUDITIONS ---
     //

@@ -29,6 +29,7 @@ struct SongsView: View {
     /// The finished song export, waiting for the system share sheet.
     @State private var exportedSong: ExportedSong?
     @State private var showingImporter = false
+    @State private var showingWorkspace = false
     /// The songs ticked in edit mode, by id. Edit mode is held here rather
     /// than left to the environment so leaving it can drop the selection —
     /// otherwise the actions bar would outlive the ticks that filled it.
@@ -111,6 +112,9 @@ struct SongsView: View {
             }
             .sheet(item: $exportedSong) { export in
                 ShareSheet(items: [export.url])
+            }
+            .sheet(isPresented: $showingWorkspace) {
+                SongsWorkspaceView(app: model.app, model: model)
             }
             .sheet(item: $editingDocument) { document in
                 // A song is lyric lines on the server, so it opens the line
@@ -308,6 +312,18 @@ struct SongsView: View {
                     } label: {
                         Label("Export \(selection.count)…", systemImage: "square.and.arrow.up")
                     }
+                }
+            }
+        }
+        // Every song on one screen, for the edits that span several of them.
+        // Only where the songs are, and only with more than one — a workspace
+        // of a single song is just the editor with extra steps.
+        if listType == .song, model.songs.count > 1 {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    showingWorkspace = true
+                } label: {
+                    Label("Edit All on One Page", systemImage: "rectangle.stack")
                 }
             }
         }

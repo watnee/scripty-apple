@@ -11,6 +11,11 @@ struct LoginView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var isSigningIn = false
+    /// Where password recovery lives, if this server offers it. Learned from
+    /// the 401 challenge — it is the only document a caller with no credentials
+    /// can read, so it is the only place the link could come from.
+    @State private var recoveryLink: HALLink?
+    @State private var presentedRecovery: HALLink?
     @FocusState private var focusedField: Field?
 
     private enum Field {
@@ -81,6 +86,15 @@ struct LoginView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canSubmit)
 
+            if let recoveryLink {
+                Button("Forgot password?") {
+                    focusedField = nil
+                    self.presentedRecovery = recoveryLink
+                }
+                .font(.callout)
+                .disabled(isSigningIn)
+            }
+
             VStack(spacing: 6) {
                 Button {
                     enterDemo()
@@ -101,6 +115,12 @@ struct LoginView: View {
             Spacer()
         }
         .padding()
+        // Asked for once, on the way in. A server that offers nothing simply
+        // leaves the button out.
+        .task { recoveryLink = await app.client.signedOutLinks()[.forgotPassword] }
+        .sheet(item: $presentedRecovery) { link in
+            PasswordRecoveryView(client: app.client, request: link)
+        }
     }
 
     private func enterDemo() {
