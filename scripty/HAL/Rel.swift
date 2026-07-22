@@ -72,7 +72,6 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let exportSongPdf = Rel("exportSongPdf")
     static let exportSongDocx = Rel("exportSongDocx")
     static let exportSongEpub = Rel("exportSongEpub")
-
     /// The lyric as a score, for setting to music in a notation program. The
     /// odd one out among the song exports: the others are documents to read,
     /// this one is meant to be opened and worked on — and it is the format
@@ -98,6 +97,10 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let setAuditions = Rel("setAuditions")
 
     static let headshot = Rel("headshot")
+    static let forgotPassword = Rel("forgotPassword")
+    static let resetPassword = Rel("resetPassword")
+    static let setHeadshot = Rel("setHeadshot")
+    static let removeHeadshot = Rel("removeHeadshot")
     static let documents = Rel("documents")
     static let document = Rel("document")
 

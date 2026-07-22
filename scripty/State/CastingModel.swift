@@ -209,6 +209,75 @@ final class CastingModel {
         await task.value
     }
 
+    /// Whether this caller may put a headshot on this actor. Advertised on
+    /// every actor a caster can edit, whether or not there is one already —
+    /// replacing a headshot is the same action as adding one.
+    func canSetHeadshot(_ actor: ScriptyActor) -> Bool {
+        actor.hasLink(.setHeadshot)
+    }
+
+    /// Only where there is one to take away, so the control is drawn from the
+    /// link rather than from a flag the client has to interpret.
+    func canRemoveHeadshot(_ actor: ScriptyActor) -> Bool {
+        actor.hasLink(.removeHeadshot)
+    }
+
+    /// Stores a new headshot. Multipart, because the server puts the upload
+    /// through the same validation the web form is held to — which is also why
+    /// the rejection messages here are worth showing verbatim: they name the
+    /// rule that was broken rather than saying the upload failed.
+    @discardableResult
+    func setHeadshot(_ actor: ScriptyActor,
+                     data: Data,
+                     fileName: String,
+                     mimeType: String) async -> Bool {
+        guard let link = actor.link(.setHeadshot) else { return false }
+        do {
+            let updated: ScriptyActor = try await app.client.upload(
+                to: link,
+                fileFieldName: "headshot",
+                fileName: fileName,
+                fileData: data,
+                mimeType: mimeType)
+            // Straight into the cache: the bytes just uploaded are the bytes
+            // the server now has, so refetching them would only add a delay
+            // before the picture the writer chose appears.
+            headshotCache[actor.id] = data
+            replace(updated)
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func removeHeadshot(_ actor: ScriptyActor) async -> Bool {
+        guard let link = actor.link(.removeHeadshot) else { return false }
+        do {
+            let updated: ScriptyActor = try await app.client.fetch(from: link, method: "DELETE")
+            // Cached as an explicit "no headshot" rather than cleared, so the
+            // row settles on its placeholder instead of asking for it again.
+            let none: Data? = nil
+            headshotCache[actor.id] = none
+            replace(updated)
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Swaps in the actor the server answered with, so the row's links — and
+    /// therefore its controls — match what is now true of it.
+    private func replace(_ updated: ScriptyActor) {
+        if let index = actors.firstIndex(where: { $0.id == updated.id }) {
+            actors[index] = updated
+        }
+    }
+
     private func report(_ error: Error) {
         app.handle(error)
         errorMessage = error.localizedDescription

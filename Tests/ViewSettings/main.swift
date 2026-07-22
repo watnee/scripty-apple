@@ -50,6 +50,42 @@ func runWordCount() {
 }
 
 @MainActor
+func runOutlineMode() {
+    print("")
+    print("Outline mode")
+    let store = scratch("outlinemode")
+    let settings = PresentationSettings(defaults: store)
+    check("the whole script shows on a first run", settings.isOutlineMode, false)
+
+    settings.isOutlineMode = true
+    // The web writes "1"/"0", not a boolean, and reads anything else as off.
+    check("it lands in the web's key as a string",
+          store.string(forKey: "scripty-outline-mode") ?? "", "1")
+    check("and survives a relaunch",
+          PresentationSettings(defaults: store).isOutlineMode, true)
+
+    settings.isOutlineMode = false
+    check("turning it off writes zero rather than clearing the key",
+          store.string(forKey: "scripty-outline-mode") ?? "", "0")
+
+    // Paper sheets full of gaps where the scenes used to be are nobody's idea
+    // of an outline, so the two modes cannot both be on.
+    settings.isPageView = true
+    settings.isOutlineMode = true
+    check("turning it on leaves page view", settings.isPageView, false)
+
+    // UserDefaults renders a stored boolean as "1"/"0", so a key written as a
+    // boolean by something older still reads the way it was meant to.
+    let legacy = scratch("outlinemode-legacy")
+    legacy.set(true, forKey: "scripty-outline-mode")
+    check("a boolean in the key still reads as on",
+          PresentationSettings(defaults: legacy).isOutlineMode, true)
+    legacy.set(false, forKey: "scripty-outline-mode")
+    check("and a false one as off",
+          PresentationSettings(defaults: legacy).isOutlineMode, false)
+}
+
+@MainActor
 func runSpellcheck() {
     print("")
     print("Spellcheck")
@@ -62,6 +98,44 @@ func runSpellcheck() {
           store.object(forKey: "spellcheck") as? Bool ?? true, false)
     check("and stays off across a relaunch",
           PresentationSettings(defaults: store).isSpellcheckEnabled, false)
+}
+
+@MainActor
+func runIgnoredWords() {
+    print("")
+    print("Ignored words")
+    let store = scratch("ignoredwords")
+    let dictionary = SpellcheckDictionary(defaults: store)
+    check("nothing ignored on a first run", dictionary.words, [String]())
+
+    // Uppercased and stripped, so "Maya," and "maya" are one entry.
+    dictionary.add("Maya,")
+    dictionary.add("maya")
+    dictionary.add("Kessler")
+    check("normalised and deduplicated", dictionary.words, ["KESSLER", "MAYA"])
+    check("and looked up either way", dictionary.contains("maya"), true)
+
+    // The web's shape: an object keyed by the word.
+    let json = store.string(forKey: "scripty-spell-ignored") ?? ""
+    check("stored as the web stores it",
+          json.contains("\"MAYA\":true") && json.contains("\"KESSLER\":true"), true)
+    check("and survives a relaunch",
+          SpellcheckDictionary(defaults: store).words, ["KESSLER", "MAYA"])
+
+    dictionary.remove("MAYA")
+    check("removing takes it off", dictionary.words, ["KESSLER"])
+
+    // A word the browser took off its list is written as false, not deleted.
+    let mixed = scratch("ignoredwords-false")
+    mixed.set(#"{"MAYA":true,"KESSLER":false}"#, forKey: "scripty-spell-ignored")
+    check("a false entry is not ignored",
+          SpellcheckDictionary(defaults: mixed).words, ["MAYA"])
+
+    // Nothing usable in the key must not throw away the feature.
+    let broken = scratch("ignoredwords-broken")
+    broken.set("not json", forKey: "scripty-spell-ignored")
+    check("unreadable storage reads as empty",
+          SpellcheckDictionary(defaults: broken).words, [String]())
 }
 
 @MainActor
@@ -86,7 +160,9 @@ func runAppearance() {
 
 MainActor.assumeIsolated {
     runWordCount()
+    runOutlineMode()
     runSpellcheck()
+    runIgnoredWords()
     runAppearance()
 }
 

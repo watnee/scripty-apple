@@ -208,7 +208,30 @@ struct BulkActionBar: View {
             .disabled(disabled)
         }
 
+        // Copying needs nothing from the server, so unlike everything else in
+        // this bar it is offered even to a reader.
+        Button {
+            model.copyBlocks(selectedBlocks)
+            selection.clear()
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
+        .disabled(disabled)
+
         if model.canBulkDelete {
+            Button {
+                let blocks = selectedBlocks
+                isWorking = true
+                Task {
+                    await model.cutBlocks(blocks)
+                    isWorking = false
+                    selection.clear()
+                }
+            } label: {
+                Label("Cut", systemImage: "scissors")
+            }
+            .disabled(disabled)
+
             Button(role: .destructive) {
                 confirmDelete = true
             } label: {
@@ -216,6 +239,11 @@ struct BulkActionBar: View {
             }
             .disabled(disabled)
         }
+    }
+
+    private var selectedBlocks: [Block] {
+        let selected = Set(ids)
+        return model.blocks.filter { selected.contains($0.id) }
     }
 
     private var ids: [Int] { selection.orderedIds(in: model.blocks) }

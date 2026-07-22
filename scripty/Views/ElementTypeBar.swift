@@ -13,16 +13,25 @@ struct ElementTypeBar: View {
     let model: ScriptModel
     let block: Block
 
+    /// Narrowed while the script is collapsed to its outline, the way the web
+    /// editor narrows the same bar: every other type would take the element
+    /// straight off the screen the moment it was applied.
+    private let settings = PresentationSettings.shared
+
     /// The types offered on the bar — the logical Tab cycle plus the handful
     /// of extras a writer reaches for often.
     private static let types: [BlockType] =
         [.scene, .action, .character, .dialogue, .parenthetical,
          .transition, .shot, .centered, .lyrics, .section, .synopsis, .note]
 
+    private var types: [BlockType] {
+        settings.isOutlineMode ? PresentationSettings.outlineTypes : Self.types
+    }
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(Self.types) { type in
+                ForEach(types) { type in
                     Button {
                         Task { await model.changeType(block, to: type) }
                     } label: {

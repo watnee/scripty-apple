@@ -269,6 +269,15 @@ final class ScriptModel {
         scheduleCommit(block.id)
     }
 
+    /// Put text on screen for a block without arming a save.
+    ///
+    /// For a caller that is about to persist the text itself — accepting a
+    /// suggestion, say — where `liveEdit` would arm a second, racing write of
+    /// the same words. Passing nil hands the model's own value back.
+    func showLive(_ block: Block, text: String?) {
+        liveText[block.id] = text
+    }
+
     /// Focus left this block — flush any pending text and stop treating its live
     /// value as authoritative.
     ///
@@ -946,6 +955,9 @@ final class ScriptModel {
             (.exportSongPdf, "PDF", "pdf"),
             (.exportSongDocx, "Word", "docx"),
             (.exportSongEpub, "EPUB", "epub"),
+            // The odd one out: the others are documents to read, this is a
+            // score to open in a notation program — and it is the format the
+            // song importer reads back.
             (.exportSongMusicXml, "MusicXML", "musicxml"),
         ]
         return all.compactMap { rel, label, ext in
@@ -962,6 +974,7 @@ final class ScriptModel {
             (.exportSongsPdf, "PDF", "pdf"),
             (.exportSongsDocx, "Word", "docx"),
             (.exportSongsEpub, "EPUB", "epub"),
+            // Every song as sections of one score; MusicXML has no second piece.
             (.exportSongsMusicXml, "MusicXML", "musicxml"),
         ]
         return all.compactMap { rel, label, ext in

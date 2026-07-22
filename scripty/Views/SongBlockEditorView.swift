@@ -35,7 +35,7 @@ struct SongBlockEditorView: View {
             ScrollViewReader { proxy in
                 List {
                     ForEach(model.blocks) { block in
-                        line(block)
+                        SongLineRow(model: model, block: block, focusedLine: $focusedLine)
                             .id(block.id)
                     }
                 }
@@ -92,111 +92,6 @@ struct SongBlockEditorView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(model.errorMessage ?? "")
-            }
-        }
-    }
-
-    /// One lyric line.
-    ///
-    /// The per-line actions hang off the number in the margin rather than off
-    /// a context menu on the row. The text field fills the row and swallows a
-    /// long press, so a row-level menu is simply unreachable — which is how the
-    /// first version of this shipped, with Move, Highlight and Delete visible
-    /// in the code and unusable in the app. The number is also worth having:
-    /// lyrics get discussed by line.
-    private func line(_ block: SongBlock) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Menu {
-                lineMenu(block)
-            } label: {
-                Text("\(block.order ?? 0)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 22, alignment: .trailing)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityLabel("Line \(block.order ?? 0) actions")
-
-            TextField("", text: binding(for: block), axis: .vertical)
-                .focused($focusedLine, equals: block.id)
-                .disabled(!block.isEditable)
-                .submitLabel(.return)
-                .onSubmit {
-                    Task {
-                        if let created = await model.addLine(below: block) {
-                            focusedLine = created
-                        }
-                    }
-                }
-                .onChange(of: focusedLine) { previous, _ in
-                    // Save on the way out rather than waiting for the debounce.
-                    if previous == block.id {
-                        Task { await model.commit(block) }
-                    }
-                }
-        }
-        .padding(.vertical, 2)
-        .padding(.horizontal, 4)
-        .listRowBackground(rowBackground(block))
-        .swipeActions(edge: .trailing) {
-            if block.hasLink(.delete) {
-                Button(role: .destructive) {
-                    Task { await model.delete(block) }
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rowBackground(_ block: SongBlock) -> some View {
-        if let tint = block.tint {
-            tint.color(for: colorScheme)
-        } else {
-            Color.clear
-        }
-    }
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    @ViewBuilder
-    private func lineMenu(_ block: SongBlock) -> some View {
-        if model.canMoveUp(block) {
-            Button {
-                Task { await model.move(block, by: -1) }
-            } label: {
-                Label("Move Up", systemImage: "arrow.up")
-            }
-        }
-        if model.canMoveDown(block) {
-            Button {
-                Task { await model.move(block, by: 1) }
-            } label: {
-                Label("Move Down", systemImage: "arrow.down")
-            }
-        }
-        if block.hasLink(.setHighlight) {
-            Menu {
-                ForEach(BlockHighlight.allCases) { colour in
-                    Button(colour.label) {
-                        Task { await model.setHighlight(block, to: colour) }
-                    }
-                }
-                Button("None") {
-                    Task { await model.setHighlight(block, to: nil) }
-                }
-            } label: {
-                Label("Highlight", systemImage: "highlighter")
-            }
-        }
-        if block.hasLink(.delete) {
-            Button(role: .destructive) {
-                Task { await model.delete(block) }
-            } label: {
-                Label("Delete", systemImage: "trash")
             }
         }
     }
@@ -356,12 +251,6 @@ struct SongBlockEditorView: View {
                 }
             }
         }
-    }
-
-    private func binding(for block: SongBlock) -> Binding<String> {
-        Binding(
-            get: { model.currentText(block) },
-            set: { model.edit(block, text: $0) })
     }
 
     private var errorBinding: Binding<Bool> {

@@ -43,6 +43,33 @@ swiftc -o "$BUILD/pagination" \
 "$BUILD/pagination" || status=1
 
 echo
+echo "== Element clipboard =="
+swiftc -o "$BUILD/clipboard" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/ScriptClipboard.swift" \
+    "$SRC/Models/FountainDetect.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Clipboard/main.swift"
+"$BUILD/clipboard" || status=1
+
+echo
+echo "== Note formatting =="
+swiftc -o "$BUILD/notes" \
+    "$SRC/Models/NoteFormatting.swift" \
+    "$ROOT/Tests/NoteFormatting/main.swift"
+"$BUILD/notes" || status=1
+
+echo
+echo "== Autocomplete =="
+swiftc -o "$BUILD/suggestions" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/Person.swift" \
+    "$SRC/Models/ScriptSuggestions.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Suggestions/main.swift"
+"$BUILD/suggestions" || status=1
+
+echo
 echo "== Script view options =="
 swiftc -o "$BUILD/viewoptions" \
     "$SRC/State/ScriptViewOptions.swift" \
@@ -54,6 +81,7 @@ echo "== Presentation / appearance settings =="
 swiftc -o "$BUILD/viewsettings" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/AppearanceSettings.swift" \
+    "$SRC/State/SpellcheckDictionary.swift" \
     "$SRC/Models/PageSetup.swift" \
     "$SRC/Models/ScreenplayLayout.swift" \
     "$SRC/Models/Block.swift" \

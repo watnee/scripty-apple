@@ -21,6 +21,10 @@ struct SongEditorView: View {
     @State private var isLoading = false
     @State private var didLoad = false
     @State private var errorMessage: String?
+    /// The formatting bar's handle on the text view.
+    @State private var formatting = NoteEditorController()
+
+    private let settings = PresentationSettings.shared
 
     init(model: ScriptModel, document: TextDocument?, type: DocumentType) {
         self.model = model
@@ -50,17 +54,24 @@ struct SongEditorView: View {
                         .disabled(!canEdit)
                 }
                 Section(type == .song ? "Lyrics" : "Notes") {
-                    TextEditor(text: $content)
-                        .font(.body.monospaced())
+                    // Notes get the list and heading controls; lyrics take the
+                    // same keyboard rules but not the bar, which is the split
+                    // the browser makes too.
+                    if type != .song && canEdit {
+                        NoteFormatBar(controller: formatting)
+                            .listRowSeparator(.hidden)
+                    }
+                    NoteTextView(text: $content,
+                                 controller: formatting,
+                                 isEditable: canEdit,
+                                 spellChecks: settings.isSpellcheckEnabled)
                         .frame(minHeight: 260)
-                        .disabled(!canEdit)
                         .overlay(alignment: .topLeading) {
                             if content.isEmpty {
                                 Text(type == .song
                                      ? "Write the lyrics here…"
                                      : "Write your notes here…")
                                     .foregroundStyle(.tertiary)
-                                    .padding(.top, 8)
                                     .allowsHitTesting(false)
                             }
                         }

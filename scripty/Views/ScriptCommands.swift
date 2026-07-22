@@ -31,7 +31,15 @@ struct ScriptActions {
     /// in the Format menu and whether retyping is offered at all.
     var focusedType: BlockType?
 
+    /// The clipboard, at the level of whole elements rather than of the text
+    /// inside one. Nil when nothing is focused, or when the pasteboard holds
+    /// nothing worth pasting.
+    var copyElement: (() -> Void)?
+    var cutElement: (() -> Void)?
+    var pasteElements: (() -> Void)?
+
     var find: (() -> Void)?
+    var ignoredWords: (() -> Void)?
     var outline: (() -> Void)?
     var titlePage: (() -> Void)?
     var stats: (() -> Void)?
@@ -62,6 +70,10 @@ struct ScriptCommands: Commands {
     /// the shared store the same way.
     private let appearance = AppearanceSettings.shared
 
+    /// Help belongs to no window either, and a `Commands` body cannot present
+    /// a sheet — so the menu sets the flag and the root view opens it.
+    private let help = HelpPresentation.shared
+
     @FocusedValue(\.scriptActions) private var actions
 
     var body: some Commands {
@@ -77,8 +89,11 @@ struct ScriptCommands: Commands {
             Divider()
             Button("Title Page…") { actions?.titlePage?() }
                 .disabled(actions?.titlePage == nil)
+            // ⌘⌥P, not ⌘⇧P: the toolbar's Page View toggle already claims that
+            // chord, as the browser does, and two views binding one chord means
+            // whichever loses the responder race silently does nothing.
             Button("Page Setup…") { actions?.pageSetup?() }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(actions?.pageSetup == nil)
         }
 
@@ -95,6 +110,23 @@ struct ScriptCommands: Commands {
                 .disabled(!(actions?.canRedo ?? false))
         }
 
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            // Shifted, and named for what they act on, because ⌘C and ⌘V
+            // belong to the words inside the element the writer is typing in.
+            // Taking those would mean a copy did something different depending
+            // on where the caret happened to be.
+            Button("Copy Element") { actions?.copyElement?() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(actions?.copyElement == nil)
+            Button("Cut Element") { actions?.cutElement?() }
+                .keyboardShortcut("x", modifiers: [.command, .shift])
+                .disabled(actions?.cutElement == nil)
+            Button("Paste Elements Below") { actions?.pasteElements?() }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(actions?.pasteElements == nil)
+        }
+
         CommandGroup(after: .undoRedo) {
             Divider()
             Button("Find in Script…") { actions?.find?() }
@@ -108,6 +140,15 @@ struct ScriptCommands: Commands {
 
         CommandGroup(after: .toolbar) {
             viewMenu
+        }
+
+        // The stock Help menu points at a help book this app does not ship, so
+        // it is replaced rather than added to: an item that opens nothing is
+        // worse company for these two than no item at all.
+        CommandGroup(replacing: .help) {
+            Button("Scripty Help") { help.screen = .help }
+            Button("Keyboard Shortcuts") { help.screen = .shortcuts }
+                .keyboardShortcut("/", modifiers: .command)
         }
     }
 
@@ -160,8 +201,16 @@ struct ScriptCommands: Commands {
         .keyboardShortcut("\\", modifiers: .command)
         .disabled(settings.isPageView)
 
+        // ⌘⇧O is the browser's outline *mode*, so it stays with the mode here
+        // too; the outline panel — which is ours, and has no counterpart on the
+        // web — moves along one modifier.
+        Button(settings.isOutlineMode ? "Show Whole Script" : "Outline Mode") {
+            settings.isOutlineMode.toggle()
+        }
+        .keyboardShortcut("o", modifiers: [.command, .shift])
+
         Button("Outline") { actions?.outline?() }
-            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .keyboardShortcut("o", modifiers: [.command, .option])
             .disabled(actions?.outline == nil)
 
         Button("Read Script") { actions?.readScript?() }
@@ -179,6 +228,9 @@ struct ScriptCommands: Commands {
             settings.isSpellcheckEnabled.toggle()
         }
         .keyboardShortcut(";", modifiers: [.command, .shift])
+
+        Button("Ignored Words…") { actions?.ignoredWords?() }
+            .disabled(actions?.ignoredWords == nil)
 
         Button("Version History") { actions?.versions?() }
             .disabled(actions?.versions == nil)
