@@ -4,6 +4,28 @@ A SwiftUI client for Scripty, the screenplay editor. It talks to the same HAL
 API the web app does, and it ships with an offline demo so you can see the
 whole editor without an account or a server.
 
+## Start from nothing
+
+On a Mac with none of this yet, one line gets you a running app:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/watnee/scripty-apple/main/scripts/get.sh | bash
+```
+
+That checks Xcode, clones this repository into `~/scripty-apple`, and runs the
+app. It asks before anything that needs your password, and Xcode itself is the
+one thing it cannot install for you — it is a free App Store download, and the
+script points you at it and stops.
+
+```sh
+... | bash -s -- --dir ~/code/scripty   # clone somewhere else
+... | bash -s -- --no-run               # set up, don't launch
+... | bash -s -- -- --simulator         # pass the rest to run.sh
+```
+
+Rerunning it updates an existing clone and starts the app again. If you would
+rather do it by hand, `git clone` this repository and read on.
+
 ## Run it
 
 ```sh
