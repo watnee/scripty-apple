@@ -78,6 +78,28 @@ final class PresentationSettings {
         }
     }
 
+    /// Collapses the script to its scenes, sections and synopses so the shape
+    /// of the story can be rearranged without the scenes' contents in the way.
+    ///
+    /// Distinct from the outline *panel*, which lists the same elements to
+    /// navigate by. This is the editor itself, narrowed: what is left is still
+    /// typed into, retyped and reordered in place.
+    ///
+    /// Turning it on leaves page view, as it does in the browser — paper sheets
+    /// full of gaps where the scenes used to be are nobody's idea of an outline.
+    var isOutlineMode: Bool {
+        didSet {
+            guard isOutlineMode != oldValue else { return }
+            defaults.set(isOutlineMode ? "1" : "0", forKey: Key.outlineMode)
+            if isOutlineMode { isPageView = false }
+        }
+    }
+
+    /// The elements outline mode keeps — and, while it is on, the only ones the
+    /// element-type bar offers, since retyping a scene into dialogue would make
+    /// it vanish under the writer's hands.
+    static let outlineTypes: [BlockType] = [.scene, .section, .synopsis]
+
     /// Shows the running word count and page estimate under the script.
     ///
     /// Stored as the web stores it — the key names the *hidden* state, and an
@@ -150,6 +172,8 @@ final class PresentationSettings {
         static let fullWidth = "scripty-screenplay-full-width"
         static let pageZoom = "scripty-page-zoom"
         static let pageSetup = "scripty-page-setup"
+        /// Stored as "1"/"0" rather than a boolean — the web's spelling.
+        static let outlineMode = "scripty-outline-mode"
         /// Names the hidden state, not the shown one — the web's spelling.
         static let wordCountHidden = "scripty-word-count-hidden"
         /// Unprefixed in the web app too.
@@ -175,6 +199,10 @@ final class PresentationSettings {
         let hidden = defaults.object(forKey: Key.wordCountHidden) as? Bool ?? true
         showsWordCount = !hidden
         isSpellcheckEnabled = defaults.object(forKey: Key.spellcheck) as? Bool ?? true
+
+        // The web writes "1" and reads anything else as off, so an old boolean
+        // or a missing key both mean the whole script is showing.
+        isOutlineMode = defaults.string(forKey: Key.outlineMode) == "1"
 
         isPageView = defaults.bool(forKey: Key.pageView)
         isFocusMode = defaults.bool(forKey: Key.focusMode)

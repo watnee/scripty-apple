@@ -184,8 +184,16 @@ struct ScriptCommands: Commands {
         .keyboardShortcut("\\", modifiers: .command)
         .disabled(settings.isPageView)
 
+        // ⌘⇧O is the browser's outline *mode*, so it stays with the mode here
+        // too; the outline panel — which is ours, and has no counterpart on the
+        // web — moves along one modifier.
+        Button(settings.isOutlineMode ? "Show Whole Script" : "Outline Mode") {
+            settings.isOutlineMode.toggle()
+        }
+        .keyboardShortcut("o", modifiers: [.command, .shift])
+
         Button("Outline") { actions?.outline?() }
-            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .keyboardShortcut("o", modifiers: [.command, .option])
             .disabled(actions?.outline == nil)
 
         Button("Read Script") { actions?.readScript?() }

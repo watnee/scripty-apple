@@ -333,10 +333,17 @@ struct ScriptView: View {
         .environment(\.scriptRowChrome, rowChrome)
     }
 
-    /// The elements the writer has asked to see. Notes are the only thing that
-    /// can be hidden — they are annotations on the script rather than part of
-    /// it, which is exactly why the web offers to take them off the page.
+    /// The elements the writer has asked to see.
+    ///
+    /// Two independent narrowings. Notes can be hidden because they are
+    /// annotations on the script rather than part of it. Outline mode goes much
+    /// further and keeps only the story's skeleton — and it wins outright, since
+    /// a note is not a scene, a section or a synopsis.
     private var visibleBlocks: [Block] {
+        if settings.isOutlineMode {
+            let outline = Set(PresentationSettings.outlineTypes)
+            return model.blocks.filter { outline.contains($0.blockType) }
+        }
         guard !options.showsNotes else { return model.blocks }
         return model.blocks.filter { $0.blockType != .note }
     }
@@ -514,6 +521,18 @@ struct ScriptView: View {
                     "Empty Script",
                     systemImage: "doc.plaintext",
                     description: Text("This script has no elements yet."))
+            }
+        } else if visibleBlocks.isEmpty && settings.isOutlineMode {
+            // A script with plenty in it but no skeleton yet. Saying so beats a
+            // blank page that reads as "your writing is gone".
+            ContentUnavailableView {
+                Label("No Outline Yet", systemImage: "list.bullet.indent")
+            } description: {
+                Text("Outline mode shows only scenes, sections and synopses. "
+                     + "This script has none of them.")
+            } actions: {
+                Button("Show Whole Script") { settings.isOutlineMode = false }
+                    .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -765,6 +784,11 @@ struct ScriptView: View {
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
 
+                Toggle(isOn: outlineModeBinding) {
+                    Label("Outline Mode", systemImage: "list.bullet.indent")
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+
                 Button {
                     showingRead = true
                 } label: {
@@ -865,6 +889,10 @@ struct ScriptView: View {
 
     private var focusModeBinding: Binding<Bool> {
         Binding(get: { settings.isFocusMode }, set: { settings.isFocusMode = $0 })
+    }
+
+    private var outlineModeBinding: Binding<Bool> {
+        Binding(get: { settings.isOutlineMode }, set: { settings.isOutlineMode = $0 })
     }
 
     /// Whether the server gave this writer somewhere to type. A reader is
