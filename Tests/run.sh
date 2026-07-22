@@ -53,6 +53,13 @@ swiftc -o "$BUILD/clipboard" \
 "$BUILD/clipboard" || status=1
 
 echo
+echo "== Note formatting =="
+swiftc -o "$BUILD/notes" \
+    "$SRC/Models/NoteFormatting.swift" \
+    "$ROOT/Tests/NoteFormatting/main.swift"
+"$BUILD/notes" || status=1
+
+echo
 echo "== Autocomplete =="
 swiftc -o "$BUILD/suggestions" \
     "$SRC/Models/Block.swift" \
@@ -74,6 +81,7 @@ echo "== Presentation / appearance settings =="
 swiftc -o "$BUILD/viewsettings" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/AppearanceSettings.swift" \
+    "$SRC/State/SpellcheckDictionary.swift" \
     "$SRC/Models/PageSetup.swift" \
     "$SRC/Models/ScreenplayLayout.swift" \
     "$SRC/Models/Block.swift" \

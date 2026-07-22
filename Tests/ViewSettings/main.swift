@@ -101,6 +101,44 @@ func runSpellcheck() {
 }
 
 @MainActor
+func runIgnoredWords() {
+    print("")
+    print("Ignored words")
+    let store = scratch("ignoredwords")
+    let dictionary = SpellcheckDictionary(defaults: store)
+    check("nothing ignored on a first run", dictionary.words, [String]())
+
+    // Uppercased and stripped, so "Maya," and "maya" are one entry.
+    dictionary.add("Maya,")
+    dictionary.add("maya")
+    dictionary.add("Kessler")
+    check("normalised and deduplicated", dictionary.words, ["KESSLER", "MAYA"])
+    check("and looked up either way", dictionary.contains("maya"), true)
+
+    // The web's shape: an object keyed by the word.
+    let json = store.string(forKey: "scripty-spell-ignored") ?? ""
+    check("stored as the web stores it",
+          json.contains("\"MAYA\":true") && json.contains("\"KESSLER\":true"), true)
+    check("and survives a relaunch",
+          SpellcheckDictionary(defaults: store).words, ["KESSLER", "MAYA"])
+
+    dictionary.remove("MAYA")
+    check("removing takes it off", dictionary.words, ["KESSLER"])
+
+    // A word the browser took off its list is written as false, not deleted.
+    let mixed = scratch("ignoredwords-false")
+    mixed.set(#"{"MAYA":true,"KESSLER":false}"#, forKey: "scripty-spell-ignored")
+    check("a false entry is not ignored",
+          SpellcheckDictionary(defaults: mixed).words, ["MAYA"])
+
+    // Nothing usable in the key must not throw away the feature.
+    let broken = scratch("ignoredwords-broken")
+    broken.set("not json", forKey: "scripty-spell-ignored")
+    check("unreadable storage reads as empty",
+          SpellcheckDictionary(defaults: broken).words, [String]())
+}
+
+@MainActor
 func runAppearance() {
     print("")
     print("Appearance")
@@ -124,6 +162,7 @@ MainActor.assumeIsolated {
     runWordCount()
     runOutlineMode()
     runSpellcheck()
+    runIgnoredWords()
     runAppearance()
 }
 

@@ -39,6 +39,7 @@ struct ScriptActions {
     var pasteElements: (() -> Void)?
 
     var find: (() -> Void)?
+    var ignoredWords: (() -> Void)?
     var outline: (() -> Void)?
     var titlePage: (() -> Void)?
     var stats: (() -> Void)?
@@ -211,6 +212,9 @@ struct ScriptCommands: Commands {
             settings.isSpellcheckEnabled.toggle()
         }
         .keyboardShortcut(";", modifiers: [.command, .shift])
+
+        Button("Ignored Words…") { actions?.ignoredWords?() }
+            .disabled(actions?.ignoredWords == nil)
 
         Button("Version History") { actions?.versions?() }
             .disabled(actions?.versions == nil)

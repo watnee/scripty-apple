@@ -17,6 +17,7 @@ struct ScriptView: View {
     @State private var showingTitlePage = false
     @State private var showingOutline = false
     @State private var showingStats = false
+    @State private var showingIgnoredWords = false
     @State private var isSearching = false
     @State private var showingRead = false
     @State private var showingPageSetup = false
@@ -197,6 +198,9 @@ struct ScriptView: View {
         }
         .sheet(isPresented: $showingStats) {
             ScriptStatsView(model: model)
+        }
+        .sheet(isPresented: $showingIgnoredWords) {
+            SpellcheckWordsView()
         }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {}
@@ -585,6 +589,7 @@ struct ScriptView: View {
             actions.addElement = { Task { await model.appendBlock() } }
         }
         actions.titlePage = { showingTitlePage = true }
+        actions.ignoredWords = { showingIgnoredWords = true }
         actions.pageSetup = { showingPageSetup = true }
         actions.exporter = model.exportOptions.isEmpty ? nil : exporter
 
@@ -839,6 +844,11 @@ struct ScriptView: View {
                 Section {
                     Toggle(isOn: spellcheckBinding) {
                         Label("Check Spelling", systemImage: "textformat.abc.dottedunderline")
+                    }
+                    Button {
+                        showingIgnoredWords = true
+                    } label: {
+                        Label("Ignored Words…", systemImage: "character.book.closed")
                     }
                     Toggle(isOn: lockBinding) {
                         Label("Lock Editing", systemImage: "lock")
