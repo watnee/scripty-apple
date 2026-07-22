@@ -18,6 +18,9 @@ struct SongBlockEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedLine: Int?
+
+    /// The same device-wide readout preference the screenplay honours.
+    private let settings = PresentationSettings.shared
     @State private var showingEditions = false
     @State private var showingVersions = false
     @State private var showingTrash = false
@@ -44,6 +47,7 @@ struct SongBlockEditorView: View {
             }
             .overlay { emptyState }
             .safeAreaInset(edge: .top, spacing: 0) { editionBanner }
+            .safeAreaInset(edge: .bottom, spacing: 0) { wordCountBar }
             .navigationTitle(model.document.displayTitle)
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -261,6 +265,11 @@ struct SongBlockEditorView: View {
                 .disabled(!model.canRedo)
             }
         }
+        ToolbarItem(placement: .secondaryAction) {
+            Toggle(isOn: wordCountBinding) {
+                Label("Word Count", systemImage: "number")
+            }
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             if model.trashLink != nil {
                 Button {
@@ -295,6 +304,32 @@ struct SongBlockEditorView: View {
                 }
             }
         }
+    }
+
+    /// How many words the lyric runs to, counted over what is on screen rather
+    /// than what was last saved — the web watches the textareas for the same
+    /// reason. No page estimate here: a song is measured in lines, not pages.
+    @ViewBuilder
+    private var wordCountBar: some View {
+        if settings.showsWordCount {
+            let words = model.blocks.reduce(0) { running, block in
+                running + ScriptStats.countWords(model.currentText(block))
+            }
+            Text("\(ScriptWordCount.formatted(words)) words")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(.separator).frame(height: 0.5)
+                }
+        }
+    }
+
+    private var wordCountBinding: Binding<Bool> {
+        Binding(get: { settings.showsWordCount }, set: { settings.showsWordCount = $0 })
     }
 
     @ViewBuilder

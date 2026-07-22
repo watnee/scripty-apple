@@ -34,6 +34,7 @@ struct EditableBlockRow: View {
     var body: some View {
         BlockTextView(model: model, block: block,
                       font: uiFont, alignment: nsAlignment, autocapitalize: capitalization,
+                      spellChecks: spellChecks,
                       accessibilityLabel: accessibilityDescription)
             .blockHighlight(block)
             .frame(maxWidth: columnWidth, alignment: .leading)
@@ -203,6 +204,14 @@ struct EditableBlockRow: View {
     /// server stores — turning one off matches the case the export will carry.
     private var capitalization: UITextAutocapitalizationType {
         CapitalizationSettings.shared.isOn(forBlockType: block.blockType) ? .allCharacters : .sentences
+    }
+
+    /// Whether the keyboard underlines what it does not recognise. Read here
+    /// rather than passed down from the script view, the way capitalization is:
+    /// both are device-wide settings, and the observation is what makes every
+    /// visible row re-draw when one is switched.
+    private var spellChecks: Bool {
+        PresentationSettings.shared.isSpellcheckEnabled
     }
 
     private var uiFont: UIFont {

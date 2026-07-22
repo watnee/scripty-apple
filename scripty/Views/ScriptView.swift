@@ -76,6 +76,9 @@ struct ScriptView: View {
                 editionBanner
             }
         }
+        // Outside the mode switch, so the readout is in the same place whether
+        // the script is a column or a stack of pages.
+        .safeAreaInset(edge: .bottom, spacing: 0) { wordCountBar }
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -363,6 +366,43 @@ struct ScriptView: View {
             }
         }
         return chrome
+    }
+
+    /// How long the script is, while it is being written.
+    ///
+    /// Off until asked for, as in the web app — a word count in the corner is
+    /// either exactly what a writer on a deadline wants or the last thing they
+    /// want to be looking at.
+    @ViewBuilder
+    private var wordCountBar: some View {
+        if settings.showsWordCount {
+            let words = ScriptWordCount.total(in: visibleBlocks)
+            HStack(spacing: 6) {
+                Text("\(ScriptWordCount.formatted(words)) words")
+                Text("·").foregroundStyle(.tertiary)
+                Text(pageReadout(words: words))
+            }
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+            .overlay(alignment: .top) {
+                Rectangle().fill(.separator).frame(height: 0.5)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// The page view has really laid the script out, so it reports what it
+    /// found; the editor has not, and says so with a tilde. The web draws the
+    /// same distinction for the same reason.
+    private func pageReadout(words: Int) -> String {
+        if settings.isPageView && !pages.isEmpty {
+            return pages.count == 1 ? "1 page" : "\(pages.count) pages"
+        }
+        return "~\(ScriptWordCount.pageEstimate(words: words)) pages"
     }
 
     @ViewBuilder
@@ -748,12 +788,24 @@ struct ScriptView: View {
                 Toggle(isOn: option(\.showsNotes, set: { options.showsNotes = $0 })) {
                     Label("Notes", systemImage: "note.text")
                 }
+                // The odd one out in this section: the readout is a device
+                // preference, where the marks are per project. It sits here
+                // anyway because "what is on the page" is how a writer looks
+                // for it, and it is where the web app keeps it too.
+                Toggle(isOn: wordCountBinding) {
+                    Label("Word Count", systemImage: "number")
+                }
             }
 
             // A lock is only worth offering where there is something to lock:
             // a reader who was never given editing rights has one already.
+            // Spellcheck keeps it company for the same reason — both are about
+            // typing, and neither means anything to someone who cannot.
             if canEditScript {
                 Section {
+                    Toggle(isOn: spellcheckBinding) {
+                        Label("Check Spelling", systemImage: "textformat.abc.dottedunderline")
+                    }
                     Toggle(isOn: lockBinding) {
                         Label("Lock Editing", systemImage: "lock")
                     }
@@ -810,6 +862,15 @@ struct ScriptView: View {
     /// links rather than the lock, which is a choice about this device.
     private var canEditScript: Bool {
         model.blocks.contains(where: \.isEditable) || model.canSeedScript
+    }
+
+    private var wordCountBinding: Binding<Bool> {
+        Binding(get: { settings.showsWordCount }, set: { settings.showsWordCount = $0 })
+    }
+
+    private var spellcheckBinding: Binding<Bool> {
+        Binding(get: { settings.isSpellcheckEnabled },
+                set: { settings.isSpellcheckEnabled = $0 })
     }
 
     private var fullWidthBinding: Binding<Bool> {

@@ -56,6 +56,27 @@ struct ProjectsSidebarView: View {
     @State private var searchText = ""
     @AppStorage("projectListSort") private var sortMode = ProjectSort.lastEdited
 
+    /// Light or dark, for the whole app rather than this list.
+    private let appearance = AppearanceSettings.shared
+
+    private var appearanceBinding: Binding<AppearanceSettings.Appearance> {
+        Binding(get: { appearance.appearance }, set: { appearance.appearance = $0 })
+    }
+
+    /// Its own property rather than inline in the toolbar: the toolbar builder
+    /// is already long enough that adding a Picker to it defeats the type
+    /// checker outright.
+    private var appearancePicker: some View {
+        Picker(selection: appearanceBinding) {
+            ForEach(AppearanceSettings.Appearance.allCases) { choice in
+                Label(choice.label, systemImage: choice.systemImage).tag(choice)
+            }
+        } label: {
+            Label("Appearance", systemImage: appearance.appearance.systemImage)
+        }
+        .pickerStyle(.menu)
+    }
+
     /// Client-side search + sort, matching the web list which filters by title
     /// and orders by the chosen mode (with a title tie-break on last-edited).
     private var displayedProjects: [Project] {
@@ -82,6 +103,121 @@ struct ProjectsSidebarView: View {
         case 0: "Your screenplays live here."
         case 1: "1 screenplay"
         case let n: "\(n) screenplays"
+        }
+    }
+
+    /// Its own property rather than inline on the list: the toolbar has
+    /// grown enough entries that leaving it in `body` puts the whole view
+    /// past what the type checker will attempt.
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showingCreate = true
+            } label: {
+                Label("New Project", systemImage: "plus")
+            }
+        }
+        if model.canImport {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    showingImporter = true
+                } label: {
+                    Label("Import Project", systemImage: "square.and.arrow.down")
+                }
+            }
+        }
+        // The whole list as one re-importable archive — what the web list's
+        // Download button sends. Exporting is a read, so it needs no more
+        // than the projects the server already showed us.
+        if model.canExportAll {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    exportAllProjects()
+                } label: {
+                    Label("Export All Projects", systemImage: "square.and.arrow.up.on.square")
+                }
+                .disabled(isExportingProjects)
+            }
+        }
+        ToolbarItem(placement: .secondaryAction) {
+            Picker("Sort", selection: $sortMode) {
+                ForEach(ProjectSort.allCases) { mode in
+                    Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        if let trash = model.collectionLinks[.trash] {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    trashLink = trash
+                } label: {
+                    Label("Recently Deleted", systemImage: "trash")
+                }
+            }
+        }
+        // Only for a user the server lets manage teams — the root advertises
+        // the rel to no one else.
+        if let teams = app.apiRoot?.link(.teams) {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    teamsLink = teams
+                } label: {
+                    Label("Teams", systemImage: "person.3")
+                }
+            }
+        }
+        // Admin-only, same gate as teams: the root advertises `users` to no
+        // one else.
+        if let users = app.apiRoot?.link(.users) {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    usersLink = users
+                } label: {
+                    Label("Users", systemImage: "person.crop.circle")
+                }
+            }
+        }
+        // Your own account: password and passkeys. Advertised to anyone
+        // signed in, unlike the admin-only entries above.
+        if let account = app.apiRoot?.link(.account) {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    accountLink = account
+                } label: {
+                    Label("Account", systemImage: "person.badge.key")
+                }
+            }
+        }
+        // Editor preferences (auto-capitalization) — advertised on the root
+        // only for a signed-in account, since they are stored per user.
+        if app.apiRoot?.hasLink(.capitalizationPreferences) == true {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    showingPreferences = true
+                } label: {
+                    Label("Editor Preferences", systemImage: "textformat")
+                }
+            }
+        }
+        // Appearance keeps the account entries company, as it does in the web
+        // app's user dropdown. Nothing gates it: it is a choice about this
+        // device, so there is no link to ask about.
+        //
+        // Grouped with signing out rather than added as an eleventh item —
+        // `ToolbarContentBuilder` takes ten, and the eleventh fails as a
+        // baffling "extra argument in call" rather than as anything about
+        // toolbars.
+        ToolbarItemGroup(placement: .secondaryAction) {
+            appearancePicker
+
+            Button(role: .destructive) {
+                app.signOut()
+            } label: {
+                Label(app.isDemo ? "Exit Demo" : "Sign Out",
+                      systemImage: "rectangle.portrait.and.arrow.right")
+            }
         }
     }
 
@@ -136,106 +272,7 @@ struct ProjectsSidebarView: View {
         .navigationSubtitle(countSubtitle)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
         .refreshable { await model.refresh() }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingCreate = true
-                } label: {
-                    Label("New Project", systemImage: "plus")
-                }
-            }
-            if model.canImport {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        showingImporter = true
-                    } label: {
-                        Label("Import Project", systemImage: "square.and.arrow.down")
-                    }
-                }
-            }
-            // The whole list as one re-importable archive — what the web list's
-            // Download button sends. Exporting is a read, so it needs no more
-            // than the projects the server already showed us.
-            if model.canExportAll {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        exportAllProjects()
-                    } label: {
-                        Label("Export All Projects", systemImage: "square.and.arrow.up.on.square")
-                    }
-                    .disabled(isExportingProjects)
-                }
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Picker("Sort", selection: $sortMode) {
-                    ForEach(ProjectSort.allCases) { mode in
-                        Label(mode.label, systemImage: mode.systemImage).tag(mode)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-            if let trash = model.collectionLinks[.trash] {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        trashLink = trash
-                    } label: {
-                        Label("Recently Deleted", systemImage: "trash")
-                    }
-                }
-            }
-            // Only for a user the server lets manage teams — the root advertises
-            // the rel to no one else.
-            if let teams = app.apiRoot?.link(.teams) {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        teamsLink = teams
-                    } label: {
-                        Label("Teams", systemImage: "person.3")
-                    }
-                }
-            }
-            // Admin-only, same gate as teams: the root advertises `users` to no
-            // one else.
-            if let users = app.apiRoot?.link(.users) {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        usersLink = users
-                    } label: {
-                        Label("Users", systemImage: "person.crop.circle")
-                    }
-                }
-            }
-            // Your own account: password and passkeys. Advertised to anyone
-            // signed in, unlike the admin-only entries above.
-            if let account = app.apiRoot?.link(.account) {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        accountLink = account
-                    } label: {
-                        Label("Account", systemImage: "person.badge.key")
-                    }
-                }
-            }
-            // Editor preferences (auto-capitalization) — advertised on the root
-            // only for a signed-in account, since they are stored per user.
-            if app.apiRoot?.hasLink(.capitalizationPreferences) == true {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        showingPreferences = true
-                    } label: {
-                        Label("Editor Preferences", systemImage: "textformat")
-                    }
-                }
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Button(role: .destructive) {
-                    app.signOut()
-                } label: {
-                    Label(app.isDemo ? "Exit Demo" : "Sign Out",
-                          systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            }
-        }
+        .toolbar { toolbar }
         .sheet(isPresented: $showingPreferences) {
             CapitalizationSettingsView(app: app)
         }

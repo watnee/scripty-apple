@@ -85,5 +85,23 @@ check("locations", outline.locations.map(\.name), ["SOUNDSTAGE 7", "STUDIO PARKI
 check("adjacent LYRICS group into one song", outline.songs.count, 1)
 check("song line count", outline.songs.first?.lineCount ?? -1, 2)
 
+print("\nScriptWordCount")
+// The running readout counts what the stats call script content — structure
+// (sections, synopses, notes) is left out of both, so the number in the corner
+// agrees with the one in the stats sheet.
+check("running total matches the stats total", ScriptWordCount.total(in: blocks), stats.totalWords)
+check("a section is not script", ScriptWordCount.counts(.section), false)
+// The cue is the one the web counts and this does not — see ScriptWordCount.
+check("a character cue is not counted", ScriptWordCount.counts(.character), false)
+check("a note is not script", ScriptWordCount.counts(.note), false)
+check("action is", ScriptWordCount.counts(.action), true)
+
+// The web's formatPageEstimate: a decimal below ten pages, whole above, and a
+// bare "0" for an empty script rather than "0.0".
+check("an empty script has no pages", ScriptWordCount.pageEstimate(words: 0), "0")
+check("a short script keeps its decimal", ScriptWordCount.pageEstimate(words: 375), "1.5")
+check("a round short script drops it", ScriptWordCount.pageEstimate(words: 500), "2")
+check("a feature rounds to whole pages", ScriptWordCount.pageEstimate(words: 27_500), "110")
+
 print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -244,6 +244,59 @@ struct ScriptStats: Equatable {
     }
 }
 
+/// The running readout under the script: how many words, and roughly how many
+/// pages that is.
+///
+/// Separate from `ScriptStats` because it is recomputed as the writer types
+/// and so must stay cheap — no character tables, no location tables, no line
+/// wrapping. The rules are the web's `collectScriptWordCount` and
+/// `formatPageEstimate` in fountain-power.js, including its rougher
+/// 250-words-to-the-page guess: the honest per-line pagination is what the page
+/// view shows, and a number that jumped between the two while typing would read
+/// as a bug rather than as a refinement.
+enum ScriptWordCount {
+    static let wordsPerPage = 250
+
+    /// Structure rather than script. The web leaves out notes, synopses,
+    /// sections and page breaks; this leaves out the character cue as well, and
+    /// deliberately, because `ScriptStats` does — the readout and the stats
+    /// sheet are a tap apart in this client, and two different word counts for
+    /// the same script reads as one of them being broken. The web can afford
+    /// the inconsistency, having put them on different screens.
+    static func counts(_ type: BlockType) -> Bool {
+        switch type {
+        case .note, .synopsis, .section, .pageBreak, .character, .dualDialogue: return false
+        default: return true
+        }
+    }
+
+    static func total(in blocks: [Block]) -> Int {
+        blocks.reduce(0) { running, block in
+            guard counts(block.blockType) else { return running }
+            return running + ScriptStats.countWords(block.content ?? "")
+        }
+    }
+
+    /// One decimal below ten pages, whole pages above — a half-page difference
+    /// matters when there are three of them and not when there are ninety.
+    static func pageEstimate(words: Int) -> String {
+        guard words > 0 else { return "0" }
+        let pages = Double(words) / Double(wordsPerPage)
+        if pages < 10 {
+            let rounded = (pages * 10).rounded() / 10
+            return rounded == rounded.rounded()
+                ? String(Int(rounded))
+                : String(format: "%.1f", rounded)
+        }
+        return String(Int(pages.rounded()))
+    }
+
+    /// Grouped for reading, as `toLocaleString` does in the browser.
+    static func formatted(_ words: Int) -> String {
+        words.formatted(.number.grouping(.automatic))
+    }
+}
+
 /// A parsed Fountain scene heading: `INT. KITCHEN - NIGHT`.
 ///
 /// Mirrors the server's SCENE_HEADING pattern — the prefix alternatives are

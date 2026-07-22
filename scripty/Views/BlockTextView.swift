@@ -17,6 +17,8 @@ struct BlockTextView: UIViewRepresentable {
     let font: UIFont
     let alignment: NSTextAlignment
     let autocapitalize: UITextAutocapitalizationType
+    /// Whether misspellings are underlined as the writer types.
+    let spellChecks: Bool
     /// Names the screenplay element type for VoiceOver; the spoken value stays
     /// the block's own text.
     let accessibilityLabel: String
@@ -40,7 +42,8 @@ struct BlockTextView: UIViewRepresentable {
             coordinator?.tab(backward: true)
         }
         context.coordinator.textView = view
-        apply(font: font, alignment: alignment, capitalize: autocapitalize, to: view)
+        apply(font: font, alignment: alignment, capitalize: autocapitalize,
+              spellChecks: spellChecks, to: view)
         if view.accessibilityLabel != accessibilityLabel {
             view.accessibilityLabel = accessibilityLabel
         }
@@ -80,7 +83,8 @@ struct BlockTextView: UIViewRepresentable {
         // After the text sync, never before: assigning `.text` rebuilds the
         // storage from the view's plain font/colour, dropping the underline
         // attribute, so styling has to be re-stamped on top of the new string.
-        apply(font: font, alignment: alignment, capitalize: autocapitalize, to: view)
+        apply(font: font, alignment: alignment, capitalize: autocapitalize,
+              spellChecks: spellChecks, to: view)
         if view.accessibilityLabel != accessibilityLabel {
             view.accessibilityLabel = accessibilityLabel
         }
@@ -102,10 +106,21 @@ struct BlockTextView: UIViewRepresentable {
     }
 
     private func apply(font: UIFont, alignment: NSTextAlignment,
-                       capitalize: UITextAutocapitalizationType, to view: BlockUITextView) {
+                       capitalize: UITextAutocapitalizationType,
+                       spellChecks: Bool, to view: BlockUITextView) {
         if view.font != font { view.font = font }
         if view.textAlignment != alignment { view.textAlignment = alignment }
         if view.autocapitalizationType != capitalize { view.autocapitalizationType = capitalize }
+
+        // Explicit rather than `.default`, which would mean "on" and leave the
+        // preference with nothing to say. A live text view has already told the
+        // keyboard how it wants to be treated, so the change only takes hold
+        // once its input configuration is asked for again.
+        let checking: UITextSpellCheckingType = spellChecks ? .yes : .no
+        if view.spellCheckingType != checking {
+            view.spellCheckingType = checking
+            if view.isFirstResponder { view.reloadInputViews() }
+        }
         applyUnderline(block.textUnderline ?? false, font: font, to: view)
     }
 

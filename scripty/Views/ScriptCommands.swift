@@ -58,6 +58,10 @@ struct ScriptCommands: Commands {
     /// menu talks to the same shared settings the toolbar does.
     private let settings = PresentationSettings.shared
 
+    /// Light or dark is app-wide rather than per window, so the menu talks to
+    /// the shared store the same way.
+    private let appearance = AppearanceSettings.shared
+
     @FocusedValue(\.scriptActions) private var actions
 
     var body: some Commands {
@@ -167,6 +171,15 @@ struct ScriptCommands: Commands {
         Button("Script Stats") { actions?.stats?() }
             .disabled(actions?.stats == nil)
 
+        Button(settings.showsWordCount ? "Hide Word Count" : "Show Word Count") {
+            settings.showsWordCount.toggle()
+        }
+
+        Button(settings.isSpellcheckEnabled ? "Stop Checking Spelling" : "Check Spelling") {
+            settings.isSpellcheckEnabled.toggle()
+        }
+        .keyboardShortcut(";", modifiers: [.command, .shift])
+
         Button("Version History") { actions?.versions?() }
             .disabled(actions?.versions == nil)
 
@@ -179,6 +192,17 @@ struct ScriptCommands: Commands {
             .disabled(!settings.canDecreaseTextSize)
         Button("Actual Size") { settings.resetTextSize() }
             .keyboardShortcut("0", modifiers: .command)
+
+        Divider()
+        Picker("Appearance", selection: appearanceBinding) {
+            ForEach(AppearanceSettings.Appearance.allCases) { choice in
+                Text(choice.label).tag(choice)
+            }
+        }
+    }
+
+    private var appearanceBinding: Binding<AppearanceSettings.Appearance> {
+        Binding(get: { appearance.appearance }, set: { appearance.appearance = $0 })
     }
 }
 

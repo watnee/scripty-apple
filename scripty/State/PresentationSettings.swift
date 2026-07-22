@@ -78,6 +78,30 @@ final class PresentationSettings {
         }
     }
 
+    /// Shows the running word count and page estimate under the script.
+    ///
+    /// Stored as the web stores it — the key names the *hidden* state, and an
+    /// unset key means hidden — so a writer who has never asked for the readout
+    /// gets a clean page in both clients.
+    var showsWordCount: Bool {
+        didSet {
+            guard showsWordCount != oldValue else { return }
+            defaults.set(!showsWordCount, forKey: Key.wordCountHidden)
+        }
+    }
+
+    /// Whether the keyboard marks misspellings while typing into an element.
+    ///
+    /// On by default, as it is in the browser. Screenplays are full of names
+    /// and shouted sluglines that no dictionary knows, so this is the one view
+    /// preference a writer is likely to want off for good.
+    var isSpellcheckEnabled: Bool {
+        didSet {
+            guard isSpellcheckEnabled != oldValue else { return }
+            defaults.set(isSpellcheckEnabled, forKey: Key.spellcheck)
+        }
+    }
+
     // MARK: - Zoom
 
     static let defaultZoom = 100
@@ -126,6 +150,10 @@ final class PresentationSettings {
         static let fullWidth = "scripty-screenplay-full-width"
         static let pageZoom = "scripty-page-zoom"
         static let pageSetup = "scripty-page-setup"
+        /// Names the hidden state, not the shown one — the web's spelling.
+        static let wordCountHidden = "scripty-word-count-hidden"
+        /// Unprefixed in the web app too.
+        static let spellcheck = "spellcheck"
     }
 
     private let defaults: UserDefaults
@@ -141,6 +169,12 @@ final class PresentationSettings {
 
         let storedZoom = defaults.object(forKey: Key.pageZoom) as? Int
         pageZoom = min(Self.maxZoom, max(Self.minZoom, storedZoom ?? Self.defaultZoom))
+
+        // Hidden unless the key says otherwise, matching the web's
+        // `getItem(...) !== 'false'`; spellcheck is the other way round.
+        let hidden = defaults.object(forKey: Key.wordCountHidden) as? Bool ?? true
+        showsWordCount = !hidden
+        isSpellcheckEnabled = defaults.object(forKey: Key.spellcheck) as? Bool ?? true
 
         isPageView = defaults.bool(forKey: Key.pageView)
         isFocusMode = defaults.bool(forKey: Key.focusMode)

@@ -50,6 +50,18 @@ swiftc -o "$BUILD/viewoptions" \
 "$BUILD/viewoptions" || status=1
 
 echo
+echo "== Presentation / appearance settings =="
+swiftc -o "$BUILD/viewsettings" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/AppearanceSettings.swift" \
+    "$SRC/Models/PageSetup.swift" \
+    "$SRC/Models/ScreenplayLayout.swift" \
+    "$SRC/Models/Block.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/ViewSettings/main.swift"
+"$BUILD/viewsettings" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \
