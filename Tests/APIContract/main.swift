@@ -1799,6 +1799,44 @@ func checkSongSelection(pid: Int) async {
         check("the songbook link takes an ids list", false)
     }
 
+    // --- emailing a selection ---
+    check("the document collection advertises `bulkShareEmail`",
+          links(collection)["bulkShareEmail"] != nil,
+          "got \(links(collection).keys.sorted())")
+    if let shareHref = (links(collection)["bulkShareEmail"] as? [String: Any])?["href"] as? String,
+       let shareURL = URL(string: shareHref) {
+        check("an empty selection -> 400",
+              await be.respond(method: "POST", url: shareURL,
+                               body: body(["ids": [Int](), "email": "cast@example.com"])).status == 400)
+        check("no recipient -> 400",
+              await be.respond(method: "POST", url: shareURL,
+                               body: body(["ids": [keep], "email": ""])).status == 400)
+
+        let sent = json(await be.respond(
+            method: "POST", url: shareURL,
+            body: body(["ids": [keep, drop], "email": "cast@example.com"])).data)
+        check("both songs went in one message", sent["shared"] as? Int == 2,
+              "got \(sent["shared"] ?? "nothing")")
+        check("and it says which",
+              (sent["titles"] as? [String])?.sorted() == ["Selection Goner", "Selection Keeper"],
+              "got \(sent["titles"] ?? "nothing")")
+
+        // A note swept up in the ticks is skipped, so the count is what
+        // actually went rather than what was chosen — the client reports the
+        // server's number for exactly this reason.
+        if let note = json(await be.respond(
+            method: "POST", url: url("/api/document"),
+            body: body(["projectId": pid, "title": "Selection Note",
+                        "documentType": "NOTES", "content": "not a song"])).data)["id"] as? Int {
+            let mixed = json(await be.respond(
+                method: "POST", url: shareURL,
+                body: body(["ids": [keep, note], "email": "cast@example.com"])).data)
+            check("a note in the selection is skipped", mixed["shared"] as? Int == 1,
+                  "got \(mixed["shared"] ?? "nothing")")
+            _ = await be.respond(method: "DELETE", url: url("/api/document/\(note)"), body: nil)
+        }
+    }
+
     // --- deleting a selection ---
     guard let deleteHref = (links(collection)["bulkDelete"] as? [String: Any])?["href"] as? String,
           let deleteURL = URL(string: deleteHref) else {

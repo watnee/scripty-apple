@@ -48,6 +48,10 @@ struct ScriptView: View {
     /// What this script shows and whether it can be typed into. Per project
     /// rather than shared, so marking up one draft leaves the others alone.
     @State private var options: ScriptViewOptions
+    /// The remembered position is restored once per visit — a later reload
+    /// (a restore from trash, a version rollback) must not yank the writer
+    /// back to where they came in.
+    @State private var hasRestoredPosition = false
 
     /// How much room the writing column actually has, for full-width mode.
     /// Zero until the first layout, which reads as "use the printed measure".
@@ -99,9 +103,17 @@ struct ScriptView: View {
             // Loaded quietly: most projects have a single edition and should
             // show no sign of the feature at all.
             await editions.load()
+            await reopenRememberedEdition()
         }
         .onDisappear { model.stopSyncPolling() }
-        .onChange(of: model.blocks) { _, _ in repaginate() }
+        // Where the writer is, kept as they go rather than only on the way out:
+        // a script left open and then killed should still reopen in the right
+        // place.
+        .onChange(of: model.focusedBlockId) { _, id in options.rememberBlock(id) }
+        .onChange(of: model.blocks) { _, _ in
+            repaginate()
+            restoreRememberedPosition()
+        }
         .onChange(of: settings.pageSetup) { _, _ in repaginate() }
         // Hidden notes are hidden on paper too — otherwise the page count in
         // the navigator disagrees with the script on screen.
@@ -476,6 +488,50 @@ struct ScriptView: View {
                 systemImage: "doc.richtext",
                 description: Text("This script has no elements yet."))
         }
+    }
+
+    /// Scrolls to the element the writer left off at, once, the first time a
+    /// script arrives.
+    ///
+    /// Driven off the blocks landing rather than off `.task`, because the
+    /// remembered edition loads a second time and the position belongs to
+    /// whichever script ends up on screen. Routed through the navigator so it
+    /// uses the same scroll the outline and search already do; an element that
+    /// has since been deleted is not found and the script simply opens at the
+    /// top.
+    private func restoreRememberedPosition() {
+        guard !hasRestoredPosition, !model.blocks.isEmpty else { return }
+        guard let id = options.rememberedBlockId else {
+            hasRestoredPosition = true
+            return
+        }
+        // Not found yet is not the same as gone: when a remembered edition is
+        // being reopened the default's elements land first, and the element
+        // being looked for belongs to the script still on its way. Leaving the
+        // flag unset lets the next arrival try again. An element that really
+        // was deleted is never found, so this quietly stops mattering.
+        guard model.blocks.contains(where: { $0.id == id }) else { return }
+        hasRestoredPosition = true
+        navigator.jump(to: id)
+    }
+
+    /// Puts the writer back in the edition they were last reading, which is
+    /// what the web's `project/show` does by redirecting to the remembered
+    /// `editionId`.
+    ///
+    /// Only ever loads a *non-default* edition: the default's elements are
+    /// already on screen from `loadEverything`, so restoring it would be a
+    /// second round trip for the same script. An edition the server has since
+    /// dropped is not found and the default simply stays.
+    private func reopenRememberedEdition() async {
+        guard let id = options.rememberedEditionId,
+              let edition = editions.edition(withId: id),
+              !edition.isTheDefault,
+              let link = editions.blocksLink(for: edition) else { return }
+        editions.selectedId = edition.id
+        model.editionBlocksLink = link
+        await model.refreshUndoRedo()
+        repaginate()
     }
 
     /// Pagination walks the whole script, so it is only worth doing while the

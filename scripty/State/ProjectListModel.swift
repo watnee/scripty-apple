@@ -76,15 +76,28 @@ final class ProjectListModel {
     /// the collection only when it holds a project.
     var canExportAll: Bool { collectionLinks[.exportProjects] != nil }
 
-    /// Downloads every project the signed-in user can see as one
-    /// `.scripty.json` bundle — the file `importProject` reads back — and
-    /// writes it where the share sheet can pick it up.
-    func exportAllProjects() async -> URL? {
-        guard let link = collectionLinks[.exportProjects] else { return nil }
+    /// Downloads projects as one `.scripty.json` bundle — the file
+    /// `importProject` reads back — and writes it where the share sheet can
+    /// pick it up.
+    ///
+    /// An empty `ids` means every project the signed-in user can see, which is
+    /// what the endpoint already does when asked for none. Narrowing to a
+    /// selection needs no second rel: the archive endpoint reads an `ids` list
+    /// and the web's own export ticks append to the very same href, so the
+    /// choice rides as a query on the advertised link — the same move the
+    /// songbook export makes.
+    func exportProjects(ids: [Int] = [], named baseName: String = "Scripty Projects") async -> URL? {
+        guard let base = collectionLinks[.exportProjects] else { return nil }
+        let link = ids.isEmpty
+            ? base
+            : base.addingQuery(["ids": ids.map(String.init).joined(separator: ",")])
         do {
             let data = try await app.client.data(for: link)
+            let safeName = baseName
+                .components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>"))
+                .joined()
             let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("Scripty Projects.scripty.json")
+                .appendingPathComponent((safeName.isEmpty ? "Projects" : safeName) + ".scripty.json")
             try data.write(to: url, options: .atomic)
             errorMessage = nil
             return url

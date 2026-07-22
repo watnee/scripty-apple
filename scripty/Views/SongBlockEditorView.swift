@@ -24,17 +24,48 @@ struct SongBlockEditorView: View {
     @State private var showingEditions = false
     @State private var showingVersions = false
     @State private var showingTrash = false
+    @State private var searchText = ""
+    /// Which lines the current search matched, by id.
+    ///
+    /// Held rather than recomputed from the text on every redraw because these
+    /// rows are editable: typing in a visible line changes what it says, and a
+    /// live filter would make the line vanish out from under the cursor the
+    /// moment it stopped matching. The set is refreshed when the query changes
+    /// or the lyric is reloaded, which is exactly when the web re-runs its own
+    /// filter.
+    @State private var matchedLines: Set<Int> = []
 
     init(app: AppModel, document: TextDocument) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: SongEditionsModel(app: app, document: document))
     }
 
+    private var query: String {
+        searchText.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The lyric, narrowed to the lines that matched. An empty query shows the
+    /// whole song, which is the ordinary state of this editor.
+    private var shownBlocks: [SongBlock] {
+        query.isEmpty ? model.blocks : model.blocks.filter { matchedLines.contains($0.id) }
+    }
+
+    /// Recomputes the matched set from what the lines currently say.
+    private func runSearch() {
+        let needle = query.lowercased()
+        guard !needle.isEmpty else {
+            matchedLines = []
+            return
+        }
+        matchedLines = Set(
+            model.blocks.filter { $0.text.lowercased().contains(needle) }.map(\.id))
+    }
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
                 List {
-                    ForEach(model.blocks) { block in
+                    ForEach(shownBlocks) { block in
                         SongLineRow(model: model, block: block, focusedLine: $focusedLine)
                             .id(block.id)
                     }
@@ -53,9 +84,16 @@ struct SongBlockEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            .searchable(text: $searchText,
+                        placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: "Search lyrics")
+            .onChange(of: searchText) { _, _ in runSearch() }
             .task {
                 await model.load()
                 await editions.load()
+                // A reloaded lyric is a different set of lines; re-match so a
+                // search left running does not keep hiding rows by stale id.
+                runSearch()
             }
             .sheet(isPresented: $showingEditions) {
                 EditionsView(model: editions) { edition in
@@ -70,6 +108,7 @@ struct SongBlockEditorView: View {
                         // A restore rewrites the lyric, so reload rather than
                         // trusting the lines on screen.
                         await model.load()
+                        runSearch()
                     }
                 }
             }
@@ -83,6 +122,7 @@ struct SongBlockEditorView: View {
                                   // A restored line goes back into the lyric,
                                   // so the list on screen is out of date.
                                   await model.load()
+                                  runSearch()
                               }) { (line: DeletedSongBlock) in
                         DeletedSongBlockRow(line: line)
                     }
@@ -145,15 +185,24 @@ struct SongBlockEditorView: View {
         // and only appears where the server keeps a stack for this song.
         if model.hasUndoStack {
             ToolbarItemGroup(placement: .navigation) {
+                // Both rewind the lyric to a different set of lines, so the
+                // matched set has to be taken again or a search would keep
+                // hiding rows by ids that no longer mean anything.
                 Button {
-                    Task { await model.undo() }
+                    Task {
+                        await model.undo()
+                        runSearch()
+                    }
                 } label: {
                     Label("Undo", systemImage: "arrow.uturn.backward")
                 }
                 .disabled(!model.canUndo)
 
                 Button {
-                    Task { await model.redo() }
+                    Task {
+                        await model.redo()
+                        runSearch()
+                    }
                 } label: {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
@@ -189,6 +238,9 @@ struct SongBlockEditorView: View {
             }
             if model.canAddLine {
                 Button {
+                    // A new line is blank, so it matches no search — drop the
+                    // filter rather than adding a line the writer cannot see.
+                    searchText = ""
                     Task {
                         if let created = await model.appendLine() {
                             focusedLine = created
@@ -229,8 +281,11 @@ struct SongBlockEditorView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if model.blocks.isEmpty {
-            if model.isLoading {
+        if shownBlocks.isEmpty {
+            if !query.isEmpty {
+                // The song has lines, none of them say this — not an empty song.
+                ContentUnavailableView.search(text: query)
+            } else if model.isLoading {
                 ProgressView()
             } else {
                 ContentUnavailableView {

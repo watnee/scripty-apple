@@ -33,6 +33,31 @@ final class ScriptViewOptions {
         didSet {
             guard editionId != oldValue else { return }
             isEditingLocked = readLock()
+            rememberEdition()
+        }
+    }
+
+    /// The edition this project was last read in, so reopening it lands back in
+    /// the revision that was actually being written rather than in the default
+    /// draft. The web does the same thing from the other end: `project/show`
+    /// redirects to the remembered `editionId` when the URL names none.
+    ///
+    /// Read once when the script opens. An id the server no longer lists simply
+    /// will not be found among the editions, so a deleted revision falls back
+    /// to the default rather than to an empty script.
+    var rememberedEditionId: Int? {
+        defaults.object(forKey: Self.editionKey(project: projectId)) as? Int
+    }
+
+    /// Going back to the default forgets the choice rather than storing the
+    /// default's own id: the default is whatever the server currently calls
+    /// one, and pinning today's answer would outlive it.
+    private func rememberEdition() {
+        let key = Self.editionKey(project: projectId)
+        if let editionId {
+            defaults.set(editionId, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
         }
     }
 
@@ -68,6 +93,29 @@ final class ScriptViewOptions {
         didSet { defaults.set(showsNotes, forKey: Self.markerKey("notes", project: projectId)) }
     }
 
+    // MARK: - Where the writer left off
+
+    /// The element the writer was last working on, so reopening a long script
+    /// lands where they stopped instead of at FADE IN.
+    ///
+    /// The web keeps a whole caret position here — block, selection range and
+    /// scroll offset — because it is restoring a specific textarea in a
+    /// specific window. Only the element travels here: a pixel offset means
+    /// nothing across a rotation or a different device, and the row is the
+    /// anchor that survives both. Storage is this app's own, so the shapes
+    /// never meet; the key name is shared to keep the intent traceable.
+    var rememberedBlockId: Int? {
+        defaults.object(forKey: Self.positionKey(project: projectId)) as? Int
+    }
+
+    /// Called as the writer moves through the script. Nil is ignored rather
+    /// than stored: putting the cursor away is not the same as leaving, and
+    /// forgetting then would lose the position on the way out.
+    func rememberBlock(_ blockId: Int?) {
+        guard let blockId else { return }
+        defaults.set(blockId, forKey: Self.positionKey(project: projectId))
+    }
+
     // MARK: - Editing lock
 
     /// Read-only until unlocked. A private setter because the value depends on
@@ -86,6 +134,14 @@ final class ScriptViewOptions {
     /// The web's localStorage keys, project-scoped exactly as they are there.
     private static func markerKey(_ marker: String, project: Int) -> String {
         "scripty-show-block-\(marker)-project-\(project)"
+    }
+
+    private static func editionKey(project: Int) -> String {
+        "scripty-edition-project-\(project)"
+    }
+
+    private static func positionKey(project: Int) -> String {
+        "scripty-editor-position-project-\(project)"
     }
 
     private static func lockKey(edition: Int) -> String {

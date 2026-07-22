@@ -345,7 +345,9 @@ actor DemoBackend {
         // The whole list as one bundle — a sibling of the project resources,
         // not a project id.
         if method == "GET", path.first == "export-projects" {
-            return demoProjectsBundle()
+            // `ids` narrows the bundle to a selection, exactly as the real
+            // endpoint does; absent means every project.
+            return demoProjectsBundle(ids: idList(query["ids"]))
         }
         switch (method, path.count) {
         case ("GET", 0):
@@ -927,6 +929,9 @@ actor DemoBackend {
         if method == "POST", path.first == "bulk", path.dropFirst().first == "delete" {
             return bulkDeleteDocuments(query: query, fields: fields)
         }
+        if method == "POST", path.first == "bulk", path.dropFirst().first == "share-email" {
+            return bulkShareDocuments(query: query, fields: fields)
+        }
 
         guard let id = path.first.flatMap(Int.init),
               let (projectId, index) = locateDocument(id) else { return notFound() }
@@ -1035,6 +1040,24 @@ actor DemoBackend {
                    "_links": documentCollectionLinks(projectId: projectId)])
     }
 
+    /// Emails several songs at once. Nothing leaves the device in demo mode —
+    /// there is no mail to send — but the reply is shaped like the server's so
+    /// the client can say honestly how many *would* have gone: notes caught in
+    /// the selection are skipped here exactly as they are there.
+    private func bulkShareDocuments(query: [String: String], fields: [String: Any]) -> (Int, Data) {
+        guard let projectId = query["projectId"].flatMap(Int.init),
+              let songs = documents[projectId] else { return badRequest("projectId") }
+        let ids = (fields["ids"] as? [Any])?.compactMap { $0 as? Int } ?? []
+        guard !ids.isEmpty else { return badRequest("ids") }
+        let email = (fields["email"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !email.isEmpty else { return badRequest("email") }
+        let titles = songs
+            .filter { ids.contains($0.id) && $0.documentType == "SONG" }
+            .map(\.title)
+        guard !titles.isEmpty else { return badRequest("email") }
+        return ok(["shared": titles.count, "titles": titles, "email": email])
+    }
+
     /// The ids of a comma-separated query value, as Spring reads a `List<Integer>`
     /// parameter.
     private func idList(_ value: String?) -> [Int] {
@@ -1062,6 +1085,7 @@ actor DemoBackend {
             // the songbook's condition but inside the edit gate — which the
             // demo is always on the right side of.
             links["bulkDelete"] = link("/api/document/bulk/delete?projectId=\(projectId)")
+            links["bulkShareEmail"] = link("/api/document/bulk/share-email?projectId=\(projectId)")
         }
         return links
     }
@@ -3360,9 +3384,12 @@ actor DemoBackend {
     /// Every project as one archive, in the shape a single project's
     /// `exportArchive` uses — a bundle is the same document with a list at the
     /// top, so what goes out here is what `importProject` could read back.
-    private func demoProjectsBundle() -> (Int, Data) {
+    /// An empty `ids` means the whole shelf, which is what the real endpoint
+    /// does with no selection.
+    private func demoProjectsBundle(ids: [Int] = []) -> (Int, Data) {
+        let chosen = ids.isEmpty ? projects : projects.filter { ids.contains($0.id) }
         let bundle: [String: Any] = [
-            "projects": projects.map { project in
+            "projects": chosen.map { project in
                 ["project": ["title": project.title],
                  "blocks": (blocks[project.id] ?? [])
                      .sorted { $0.order < $1.order }

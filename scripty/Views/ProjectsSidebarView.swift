@@ -55,6 +55,12 @@ struct ProjectsSidebarView: View {
     @State private var isExportingProjects = false
     @State private var searchText = ""
     @AppStorage("projectListSort") private var sortMode = ProjectSort.lastEdited
+    /// The projects ticked in edit mode, by id — the web list's checkbox
+    /// column, which is there to narrow the archive to a few screenplays.
+    /// Edit mode is held here rather than left to the environment so leaving it
+    /// can drop the ticks along with the bar that acts on them.
+    @State private var exportSelection = Set<Int>()
+    @State private var editMode: EditMode = .inactive
 
     /// Light or dark, for the whole app rather than this list.
     private let appearance = AppearanceSettings.shared
@@ -133,7 +139,7 @@ struct ProjectsSidebarView: View {
         if model.canExportAll {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
-                    exportAllProjects()
+                    download()
                 } label: {
                     Label("Export All Projects", systemImage: "square.and.arrow.up.on.square")
                 }
@@ -235,38 +241,95 @@ struct ProjectsSidebarView: View {
         }
     }
 
-    var body: some View {
-        List(selection: $selection) {
-            if app.isDemo {
-                DemoBanner()
-            }
-            ForEach(displayedProjects) { project in
-                ProjectRow(project: project) {
-                    Task { await model.toggleDefault(project) }
-                }
-                    .tag(project)
-                    .swipeActions(edge: .trailing) {
-                        // Affordances are driven by the links the server returned.
-                        if project.hasLink(.delete) {
-                            Button(role: .destructive) {
-                                Task {
-                                    if selection?.id == project.id { selection = nil }
-                                    await model.delete(project)
-                                }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        if project.hasLink(.update) {
-                            Button {
-                                renamingProject = project
-                            } label: {
-                                Label("Rename", systemImage: "pencil")
-                            }
-                            .tint(.blue)
-                        }
+    /// One row, without the tag: what a row is tagged with depends on which
+    /// list it is in, and the two lists mean different things by "selected".
+    @ViewBuilder
+    private func projectRow(for project: Project) -> some View {
+        ProjectRow(project: project) {
+            Task { await model.toggleDefault(project) }
+        }
+        .swipeActions(edge: .trailing) {
+            // Affordances are driven by the links the server returned.
+            if project.hasLink(.delete) {
+                Button(role: .destructive) {
+                    Task {
+                        if selection?.id == project.id { selection = nil }
+                        await model.delete(project)
                     }
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
+            if project.hasLink(.update) {
+                Button {
+                    renamingProject = project
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                .tint(.blue)
+            }
+        }
+    }
+
+    /// The selection in list order, so a bundle of several reads in the order
+    /// the list was showing rather than the order rows happened to be tapped.
+    private var selectedProjects: [Project] {
+        displayedProjects.filter { exportSelection.contains($0.id) }
+    }
+
+    /// Its own `.toolbar`, not another branch of `toolbar` above: that builder
+    /// is already at the ten items `ToolbarContentBuilder` accepts, and the
+    /// eleventh fails as a baffling "extra argument in call".
+    @ToolbarContentBuilder
+    private var selectionToolbar: some ToolbarContent {
+        // Worth entering only where there is an archive to narrow, and only
+        // with more than one screenplay to choose between.
+        if model.canExportAll && model.projects.count > 1 {
+            ToolbarItem(placement: .primaryAction) {
+                EditButton()
+            }
+        }
+        // Shown once something is ticked — an empty bar under a list nobody is
+        // selecting from is noise.
+        if editMode.isEditing && !exportSelection.isEmpty {
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    exportSelected()
+                } label: {
+                    Label("Export \(exportSelection.count)", systemImage: "square.and.arrow.up")
+                }
+                .disabled(isExportingProjects)
+            }
+        }
+    }
+
+    var body: some View {
+        // Two lists rather than one, because a sidebar's selection *is* the
+        // navigation — tapping a row opens that screenplay. Ticking several to
+        // export is a different question with a different answer type, so edit
+        // mode swaps in a list that asks it instead of overloading the one
+        // binding to mean both.
+        Group {
+            if editMode.isEditing {
+                List(selection: $exportSelection) {
+                    ForEach(displayedProjects) { project in
+                        projectRow(for: project)
+                    }
+                }
+            } else {
+                List(selection: $selection) {
+                    if app.isDemo {
+                        DemoBanner()
+                    }
+                    ForEach(displayedProjects) { project in
+                        projectRow(for: project).tag(project)
+                    }
+                }
+            }
+        }
+        .environment(\.editMode, $editMode)
+        .onChange(of: editMode) { _, mode in
+            if !mode.isEditing { exportSelection.removeAll() }
         }
         .overlay {
             if model.projects.isEmpty {
@@ -287,6 +350,7 @@ struct ProjectsSidebarView: View {
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
         .refreshable { await model.refresh() }
         .toolbar { toolbar }
+        .toolbar { selectionToolbar }
         .sheet(isPresented: $showingPreferences) {
             CapitalizationSettingsView(app: app)
         }
@@ -352,14 +416,27 @@ struct ProjectsSidebarView: View {
             set: { if !$0 { model.errorMessage = nil } })
     }
 
+    /// The archive narrowed to the ticked screenplays. A single one comes back
+    /// as that project's own archive — the server unwraps a selection of one —
+    /// so it is named after the project rather than after the bundle.
+    private func exportSelected() {
+        let chosen = selectedProjects
+        guard !chosen.isEmpty else { return }
+        let name = chosen.count == 1 ? chosen[0].displayTitle : "Scripty Projects"
+        download(ids: chosen.map(\.id), named: name)
+    }
+
     /// The archive can take a moment to build on a busy account, so the button
     /// stays disabled until the file is on disk and the share sheet is up. A
     /// failure has already been reported through the model's error alert.
-    private func exportAllProjects() {
+    private func download(ids: [Int] = [], named name: String = "Scripty Projects") {
         isExportingProjects = true
         Task {
-            if let url = await model.exportAllProjects() {
+            if let url = await model.exportProjects(ids: ids, named: name) {
                 exportedProjects = ExportedProjects(url: url)
+                // The bundle is on its way to the share sheet, so the ticks
+                // have done their job.
+                editMode = .inactive
             }
             isExportingProjects = false
         }

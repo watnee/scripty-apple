@@ -116,6 +116,7 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let song = Rel("song")
     static let insert = Rel("insert")
     static let shareEmail = Rel("shareEmail")
+    static let bulkShareEmail = Rel("bulkShareEmail")
     static let importDocument = Rel("importDocument")
     static let importScript = Rel("importScript")
 

@@ -15,6 +15,55 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Mirrors the songs/notes list's sort control on the web. Raw values back an
+/// @AppStorage so the choice sticks, as the web's `<select>` does in
+/// sessionStorage — under the same `songListSort` / `noteListSort` names.
+enum DocumentSort: String, CaseIterable, Identifiable {
+    /// The order the writer dragged the list into — what the server stores as
+    /// `sortOrder` and returns the collection in.
+    case custom
+    case lastEdited
+    case title
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .custom: "Custom order"
+        case .lastEdited: "Last edited"
+        case .title: "Name A–Z"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .custom: "arrow.up.arrow.down"
+        case .lastEdited: "clock"
+        case .title: "textformat"
+        }
+    }
+
+    /// Sorts a list that arrived from the server already in custom order, so
+    /// `.custom` is the identity.
+    func applied(to documents: [TextDocument]) -> [TextDocument] {
+        switch self {
+        case .custom:
+            return documents
+        case .title:
+            return documents.sorted {
+                $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
+            }
+        case .lastEdited:
+            return documents.sorted { lhs, rhs in
+                let l = lhs.updatedAt ?? .distantPast
+                let r = rhs.updatedAt ?? .distantPast
+                if l != r { return l > r }
+                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            }
+        }
+    }
+}
+
 struct SongsView: View {
     let model: ScriptModel
 
@@ -36,17 +85,55 @@ struct SongsView: View {
     @State private var selection = Set<Int>()
     @State private var editMode: EditMode = .inactive
     @State private var confirmingBulkDelete = false
+    /// Emailing the ticked songs asks for the address in its own alert: the
+    /// single-song one keys off `sharingDocument`, and there is no one
+    /// document here to hang it on.
+    @State private var promptingBulkShare = false
     /// Presented from the link the document collection advertised.
     @State private var trashLink: HALLink?
     @State private var isLoading = false
     @State private var statusMessage: String?
+    @State private var searchText = ""
+    // Songs and notes sort independently, as they do on the web — they are two
+    // lists that happen to share a screen.
+    //
+    // Deliberate divergence: the web defaults to "Last edited" and this
+    // defaults to the writer's own order. The client has only ever shown the
+    // list in that order, so defaulting to anything else would look like the
+    // songs had scrambled themselves on upgrade.
+    @AppStorage("songListSort") private var songSort = DocumentSort.custom
+    @AppStorage("noteListSort") private var noteSort = DocumentSort.custom
 
     /// The import link is advertised on the collection only for editors, so it
     /// doubles as the "can add/import" gate — the same rule the web uses.
     private var canEdit: Bool { model.documentsLinks.contains(.importDocument) }
 
+    /// Whichever list is on screen sorts and searches on its own terms.
+    private var sortBinding: Binding<DocumentSort> {
+        listType == .song ? $songSort : $noteSort
+    }
+
+    private var sortMode: DocumentSort {
+        listType == .song ? songSort : noteSort
+    }
+
     private var shown: [TextDocument] {
-        listType == .song ? model.songs : model.notes
+        let all = listType == .song ? model.songs : model.notes
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let matching = query.isEmpty
+            ? all
+            : all.filter { $0.displayTitle.lowercased().contains(query) }
+        return sortMode.applied(to: matching)
+    }
+
+    /// Dragging rows is only meaningful while the list is showing the writer's
+    /// own order in full: `moveDocuments` sends the rows on screen as the new
+    /// order, so doing it to an alphabetized or searched-down list would save
+    /// an arrangement nobody asked for. The web reaches the same place from the
+    /// other side, flipping its sort back to "Custom order" after a drop.
+    private var canReorder: Bool {
+        model.canReorderDocuments && sortMode == .custom
+            && searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// Selecting several is a song affordance: the bulk delete is advertised
@@ -62,21 +149,29 @@ struct SongsView: View {
         shown.filter { selection.contains($0.id) }
     }
 
+    /// Its own property rather than inline in `body`: with the search and sort
+    /// on it, leaving the list in the body puts the view past what the type
+    /// checker will attempt ("unable to type-check this expression in
+    /// reasonable time" — nothing about lists or about search).
+    private var list: some View {
+        List(selection: $selection) {
+            ForEach(shown) { document in
+                row(for: document)
+            }
+            .onMove { source, destination in
+                // Guarded rather than conditionally attached — a plain
+                // closure keeps the list's content type unambiguous, and
+                // edit mode is reachable for selecting even when the list
+                // is sorted or searched down and so cannot be rearranged.
+                guard canReorder else { return }
+                moveDocuments(from: source, to: destination)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            List(selection: $selection) {
-                ForEach(shown) { document in
-                    row(for: document)
-                }
-                .onMove { source, destination in
-                    // Edit mode is only reachable when reordering is allowed
-                    // (the toolbar gates its button on the same rule), so this
-                    // is guarded rather than conditionally attached — a plain
-                    // closure keeps the list's content type unambiguous.
-                    guard model.canReorderDocuments else { return }
-                    moveDocuments(from: source, to: destination)
-                }
-            }
+            list
             .overlay { emptyState }
             .safeAreaInset(edge: .top) { picker }
             .navigationTitle("Songs & Notes")
@@ -84,9 +179,16 @@ struct SongsView: View {
             .toolbar { toolbarContent }
             .task { await reload() }
             .refreshable { await reload() }
+            .searchable(text: $searchText,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: listType == .song ? "Search songs" : "Search notes")
             // Songs and notes are two lists, so a selection made in one has no
-            // meaning in the other.
-            .onChange(of: listType) { _, _ in selection.removeAll() }
+            // meaning in the other — nor does a search for a title that only
+            // exists in the one being left.
+            .onChange(of: listType) { _, _ in
+                selection.removeAll()
+                searchText = ""
+            }
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }
             }
@@ -139,6 +241,16 @@ struct SongsView: View {
                 Button("Send") { commitShare() }
             } message: {
                 Text("Send the lyrics to a collaborator.")
+            }
+            .alert("Email \(selection.count) \(selection.count == 1 ? "Song" : "Songs")",
+                   isPresented: $promptingBulkShare) {
+                TextField("Recipient email", text: $shareEmail)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) {}
+                Button("Send") { commitBulkShare() }
+            } message: {
+                Text("Send the lyrics to a collaborator in one message.")
             }
             .alert("Delete Songs", isPresented: $confirmingBulkDelete) {
                 Button("Cancel", role: .cancel) {}
@@ -255,7 +367,11 @@ struct SongsView: View {
     @ViewBuilder
     private var emptyState: some View {
         if shown.isEmpty {
-            if isLoading {
+            if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                // The list has rows, they just do not match — say so rather
+                // than claiming the project has no songs.
+                ContentUnavailableView.search(text: searchText)
+            } else if isLoading {
                 ProgressView()
             } else {
                 ContentUnavailableView(
@@ -279,6 +395,20 @@ struct SongsView: View {
         .background(.bar)
     }
 
+    /// Its own property rather than inline in the toolbar: a Picker in a
+    /// toolbar builder is what tips this view past what the type checker will
+    /// attempt, as it did in the projects sidebar.
+    private var sortPicker: some View {
+        Picker(selection: sortBinding) {
+            ForEach(DocumentSort.allCases) { mode in
+                Label(mode.label, systemImage: mode.systemImage).tag(mode)
+            }
+        } label: {
+            Label("Sort", systemImage: sortMode.systemImage)
+        }
+        .pickerStyle(.menu)
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
@@ -286,7 +416,7 @@ struct SongsView: View {
         }
         // Edit mode is worth entering when there is an order to change or a
         // selection to make, and either way only with more than one row.
-        if (model.canReorderDocuments || canSelect) && shown.count > 1 {
+        if (canReorder || canSelect) && shown.count > 1 {
             ToolbarItem(placement: .primaryAction) {
                 EditButton()
             }
@@ -302,6 +432,14 @@ struct SongsView: View {
                         Label("Delete \(selection.count)", systemImage: "trash")
                     }
                 }
+                if model.canBulkShareDocuments {
+                    Button {
+                        shareEmail = ""
+                        promptingBulkShare = true
+                    } label: {
+                        Label("Email \(selection.count)", systemImage: "envelope")
+                    }
+                }
                 Spacer()
                 let exports = model.songbookExportOptions(for: selectedDocuments.map(\.id))
                 if !exports.isEmpty {
@@ -313,6 +451,14 @@ struct SongsView: View {
                         Label("Export \(selection.count)…", systemImage: "square.and.arrow.up")
                     }
                 }
+            }
+        }
+        // Nothing to put in an order until there are two of them. Gated on the
+        // whole list rather than on `shown`, so searching down to one row
+        // cannot take the control away mid-search.
+        if (listType == .song ? model.songs.count : model.notes.count) > 1 {
+            ToolbarItem(placement: .secondaryAction) {
+                sortPicker
             }
         }
         // Every song on one screen, for the edits that span several of them.
@@ -477,6 +623,23 @@ struct SongsView: View {
             statusMessage = ok
                 ? "Emailed \"\(document.displayTitle)\" to \(email)."
                 : (model.errorMessage ?? "Could not email that song.")
+        }
+    }
+
+    /// Emails the ticked songs. The count reported back is the server's, not
+    /// the selection's: a note swept up in the ticks is skipped there, and
+    /// saying "emailed 3" when two went would be a lie about someone's inbox.
+    private func commitBulkShare() {
+        let email = shareEmail.trimmingCharacters(in: .whitespaces)
+        let chosen = selectedDocuments.map(\.id)
+        guard !email.isEmpty, !chosen.isEmpty else { return }
+        Task {
+            guard let sent = await model.bulkShareDocuments(chosen, email: email) else {
+                statusMessage = model.errorMessage ?? "Could not email those songs."
+                return
+            }
+            statusMessage = "Emailed \(sent) \(sent == 1 ? "song" : "songs") to \(email)."
+            editMode = .inactive
         }
     }
 

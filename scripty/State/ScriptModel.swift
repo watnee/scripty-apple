@@ -889,6 +889,27 @@ final class ScriptModel {
         }
     }
 
+    /// Advertised on the collection for an editor with a song to send, the
+    /// same pair of conditions the bulk delete rides on.
+    var canBulkShareDocuments: Bool { documentsLinks.contains(.bulkShareEmail) }
+
+    /// Emails several songs in one message. Returns how many actually went —
+    /// a note caught in the selection is skipped by the server, so "sent 3"
+    /// is not the same as "you chose 3" and the caller says which it means.
+    func bulkShareDocuments(_ ids: [Int], email: String) async -> Int? {
+        guard let link = documentsLinks[.bulkShareEmail], !ids.isEmpty else { return nil }
+        do {
+            let result: BulkShareResult = try await app.client.fetch(
+                from: link, method: "POST",
+                body: BulkShareEmailCommand(ids: ids, email: email))
+            errorMessage = nil
+            return result.shared ?? result.titles?.count ?? 0
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
     @discardableResult
     func importDocument(fileName: String, data: Data, type: DocumentType,
                         mimeType: String = "application/octet-stream") async -> TextDocument? {

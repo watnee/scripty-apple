@@ -106,6 +106,63 @@ func run() {
         check("adopting does not write the edition's key",
               store.object(forKey: "scripty-block-edit-locked-edition-3") == nil, true)
     }
+
+    print("")
+    print("Remembering the edition")
+    do {
+        let store = scratch("edition")
+        let options = ScriptViewOptions(projectId: 7, defaults: store)
+        check("nothing remembered to begin with", options.rememberedEditionId == nil, true)
+
+        options.editionId = 3
+        check("the choice lands in the web's key",
+              store.object(forKey: "scripty-edition-project-7") as? Int ?? -1, 3)
+        check("reopening the project offers it back",
+              ScriptViewOptions(projectId: 7, defaults: store).rememberedEditionId ?? -1, 3)
+        // One project's revision is not another's.
+        check("it is remembered per project",
+              ScriptViewOptions(projectId: 8, defaults: store).rememberedEditionId == nil, true)
+
+        // Back to the default: forgotten rather than stored, since which
+        // edition is default is the server's to change.
+        options.editionId = nil
+        check("going back to the default forgets",
+              store.object(forKey: "scripty-edition-project-7") == nil, true)
+        check("and reopening lands on the default",
+              ScriptViewOptions(projectId: 7, defaults: store).rememberedEditionId == nil, true)
+
+        // Opening straight into an edition must not clear what is stored:
+        // property observers do not run during init, which is what keeps
+        // `ScriptView` from wiping the key before it has read it.
+        options.editionId = 5
+        let reopened = ScriptViewOptions(projectId: 7, editionId: 5, defaults: store)
+        check("opening in an edition leaves the key alone",
+              reopened.rememberedEditionId ?? -1, 5)
+    }
+
+    print("")
+    print("Where the writer left off")
+    do {
+        let store = scratch("position")
+        let options = ScriptViewOptions(projectId: 7, defaults: store)
+        check("nothing remembered to begin with", options.rememberedBlockId == nil, true)
+
+        options.rememberBlock(42)
+        check("the element lands in the web's key",
+              store.object(forKey: "scripty-editor-position-project-7") as? Int ?? -1, 42)
+        check("reopening the script offers it back",
+              ScriptViewOptions(projectId: 7, defaults: store).rememberedBlockId ?? -1, 42)
+        check("it is remembered per project",
+              ScriptViewOptions(projectId: 8, defaults: store).rememberedBlockId == nil, true)
+
+        // Tapping away from the text is not leaving the script, so the last
+        // place the writer actually was must survive it.
+        options.rememberBlock(nil)
+        check("losing focus does not forget", options.rememberedBlockId ?? -1, 42)
+
+        options.rememberBlock(43)
+        check("moving on overwrites", options.rememberedBlockId ?? -1, 43)
+    }
 }
 
 MainActor.assumeIsolated { run() }

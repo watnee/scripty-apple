@@ -109,6 +109,20 @@ struct ShareEmailCommand: Encodable {
     var email: String
 }
 
+/// Several songs in one message. The server skips anything in `ids` that is
+/// not a song of this project, so it answers with what actually went.
+struct BulkShareEmailCommand: Encodable {
+    var ids: [Int]
+    var email: String
+}
+
+/// What the server sent, and to whom.
+struct BulkShareResult: Decodable {
+    var shared: Int?
+    var titles: [String]?
+    var email: String?
+}
+
 /// Result of an insert-into-script call.
 struct InsertResult: Decodable {
     var inserted: Int?

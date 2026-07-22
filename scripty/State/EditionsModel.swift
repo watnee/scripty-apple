@@ -78,6 +78,12 @@ final class EditionsModel {
     /// what to load once the writer picks one.
     func blocksLink(for edition: ScriptEdition) -> HALLink? { edition.link(.blocks) }
 
+    /// The edition with this id, if the server still lists it — how a
+    /// remembered choice from a previous visit is matched back up.
+    func edition(withId id: Int) -> ScriptEdition? {
+        editions.first { $0.id == id }
+    }
+
     // MARK: - Mutations
 
     @discardableResult
