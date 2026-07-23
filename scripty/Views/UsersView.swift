@@ -12,6 +12,44 @@
 
 import SwiftUI
 
+/// Mirrors the admin user list's sort control on the web. Raw values back an
+/// @AppStorage under the same `userListSort` name the web's `<select>` uses, so
+/// the choice sticks between visits.
+enum UserSort: String, CaseIterable, Identifiable {
+    case nameAsc
+    case nameDesc
+    case usernameAsc
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .nameAsc: "Name A–Z"
+        case .nameDesc: "Name Z–A"
+        case .usernameAsc: "Username A–Z"
+        }
+    }
+
+    /// Web sorts on `firstName + ' ' + lastName` and, for the third option, the
+    /// username — both case-insensitively.
+    func applied(to users: [User]) -> [User] {
+        switch self {
+        case .nameAsc:
+            return users.sorted {
+                $0.sortName.localizedCaseInsensitiveCompare($1.sortName) == .orderedAscending
+            }
+        case .nameDesc:
+            return users.sorted {
+                $0.sortName.localizedCaseInsensitiveCompare($1.sortName) == .orderedDescending
+            }
+        case .usernameAsc:
+            return users.sorted {
+                ($0.username ?? "").localizedCaseInsensitiveCompare($1.username ?? "") == .orderedAscending
+            }
+        }
+    }
+}
+
 struct UsersView: View {
     @State private var model: UsersModel
 
@@ -19,19 +57,33 @@ struct UsersView: View {
     @State private var isCreating = false
     @State private var editingUser: User?
     @State private var pendingDelete: User?
+    @State private var searchText = ""
+    @AppStorage("userListSort") private var sort = UserSort.nameAsc
 
     init(app: AppModel, source: HALLink) {
         _model = State(initialValue: UsersModel(app: app, source: source))
     }
 
+    /// The list as the admin sees it: filtered by the search field, then sorted.
+    /// The web matches the whole row's text; here that is the name, username,
+    /// team and role summary a row shows.
+    private var shown: [User] {
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let filtered = query.isEmpty ? model.users : model.users.filter { user in
+            user.searchHaystackLowercased.contains(query)
+        }
+        return sort.applied(to: filtered)
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                ForEach(model.users) { user in
+                ForEach(shown) { user in
                     row(user)
                 }
             }
             .overlay { emptyState }
+            .searchable(text: $searchText, prompt: "Search by name, username, team, or role")
             .navigationTitle("Users")
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -39,6 +91,17 @@ struct UsersView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Picker("Sort", selection: $sort) {
+                            ForEach(UserSort.allCases) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                    }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -138,9 +201,11 @@ struct UsersView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if model.users.isEmpty {
+        if shown.isEmpty {
             if model.isLoading {
                 ProgressView()
+            } else if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                ContentUnavailableView.search(text: searchText)
             } else {
                 ContentUnavailableView {
                     Label("No Users Yet", systemImage: "person.crop.circle")
@@ -161,6 +226,24 @@ struct UsersView: View {
     private var errorBinding: Binding<Bool> {
         Binding(get: { model.errorMessage != nil },
                 set: { if !$0 { model.errorMessage = nil } })
+    }
+}
+
+private extension User {
+    /// The key the web sorts "Name A–Z/Z–A" on: given name then surname.
+    var sortName: String {
+        [firstName, lastName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    /// The text the web's row-level search scans — everything a row shows, so
+    /// searching by name, username, team or role all work.
+    var searchHaystackLowercased: String {
+        [displayName, username.map { "@\($0)" } ?? "", team ?? "", roleSummary]
+            .joined(separator: " ")
+            .lowercased()
     }
 }
 

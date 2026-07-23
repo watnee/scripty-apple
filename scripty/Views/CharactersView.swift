@@ -16,16 +16,21 @@ struct CharactersView: View {
     /// picker read the same list. Hidden entirely when the server doesn't
     /// advertise actors or answers 403 for them.
     @State private var casting: CastingModel
+    /// Shared with the Casting screen: the web's one sort control orders both
+    /// lists, so both read the same `castingListSort` preference.
+    @AppStorage("castingListSort") private var sort = CastSort.nameAsc
 
     init(model: ScriptModel) {
         self.model = model
         _casting = State(initialValue: CastingModel(app: model.app, project: model.project))
     }
 
+    private var shown: [Person] { sort.applied(to: model.characters) }
+
     var body: some View {
         NavigationStack {
             List {
-                ForEach(model.characters) { person in
+                ForEach(shown) { person in
                     Button {
                         if person.hasLink(.update) {
                             editingPerson = person
@@ -73,6 +78,15 @@ struct CharactersView: View {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Menu {
+                        Picker("Sort", selection: $sort) {
+                            ForEach(CastSort.allCases) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                    }
                     if casting.isAvailable {
                         Button {
                             showingActors = true

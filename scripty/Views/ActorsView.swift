@@ -10,6 +10,38 @@
 
 import SwiftUI
 
+/// Mirrors the web Casting screen's single sort control, which orders both the
+/// characters and the actors lists. Backs an @AppStorage under the same
+/// `castingListSort` name the web's `<select>` uses. Names sort on what each row
+/// shows — an actor's "First Last", a character's script name — matching the
+/// web's `first + ' ' + last` and `character.name` keys.
+enum CastSort: String, CaseIterable, Identifiable {
+    case nameAsc
+    case nameDesc
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .nameAsc: "Name A–Z"
+        case .nameDesc: "Name Z–A"
+        }
+    }
+
+    private func inOrder(_ a: String, _ b: String) -> Bool {
+        let result = a.localizedCaseInsensitiveCompare(b)
+        return self == .nameAsc ? result == .orderedAscending : result == .orderedDescending
+    }
+
+    func applied(to actors: [ScriptyActor]) -> [ScriptyActor] {
+        actors.sorted { inOrder($0.displayName, $1.displayName) }
+    }
+
+    func applied(to characters: [Person]) -> [Person] {
+        characters.sorted { inOrder($0.displayName, $1.displayName) }
+    }
+}
+
 struct ActorsView: View {
     let casting: CastingModel
     /// The project's characters, used to name and pick auditions. Empty when the
@@ -21,14 +53,15 @@ struct ActorsView: View {
     @State private var auditioningActor: ScriptyActor?
     @State private var showingCreate = false
     @State private var searchText = ""
+    @AppStorage("castingListSort") private var sort = CastSort.nameAsc
 
     private var shown: [ScriptyActor] {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return casting.actors }
-        return casting.actors.filter { actor in
+        let filtered = query.isEmpty ? casting.actors : casting.actors.filter { actor in
             [actor.displayName, actor.email ?? "", actor.phone ?? ""]
                 .contains { $0.lowercased().contains(query) }
         }
+        return sort.applied(to: filtered)
     }
 
     var body: some View {
@@ -160,6 +193,17 @@ struct ActorsView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("Done") { dismiss() }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Picker("Sort", selection: $sort) {
+                    ForEach(CastSort.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+            } label: {
+                Label("Sort", systemImage: "arrow.up.arrow.down")
+            }
         }
         if casting.canCreate {
             ToolbarItem(placement: .primaryAction) {
