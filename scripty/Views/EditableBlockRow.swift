@@ -26,6 +26,11 @@ struct EditableBlockRow: View {
     @Environment(\.scriptTextScale) private var textScale
     @Environment(\.scriptRowChrome) private var chrome
 
+    /// Drives the per-block "Edit Tags" prompt. The draft is seeded from the
+    /// block's current tags when the field opens.
+    @State private var isEditingTags = false
+    @State private var tagDraft = ""
+
     private var pageWidth: CGFloat { chrome.columnWidth }
     private var dialogueWidth: CGFloat {
         pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
@@ -49,6 +54,16 @@ struct EditableBlockRow: View {
             .frame(maxWidth: .infinity)
             .overlay(alignment: .topTrailing) { badges }
             .contextMenu { contextMenu }
+            .alert("Tags", isPresented: $isEditingTags) {
+                TextField("e.g. funny, action", text: $tagDraft)
+                    .textInputAutocapitalization(.never)
+                Button("Save") {
+                    Task { await model.setTags(block, to: tagDraft) }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Separate tags with commas. Clearing the field removes them.")
+            }
             .overlay(alignment: .bottomLeading) { suggestionList }
             // A list hanging below the line has to draw over the elements it
             // covers, which in a LazyVStack means winning on z order.
@@ -178,6 +193,17 @@ struct EditableBlockRow: View {
                 }
             } label: {
                 Label("Highlight", systemImage: "highlighter")
+            }
+        }
+        // The web block editor's "Tags (comma separated)" field, brought to the
+        // element menu. Editing rides the same `update` PUT as a text save, so
+        // it is gated on the block being editable rather than on a bulk link.
+        if block.isEditable {
+            Button {
+                tagDraft = block.tagList.joined(separator: ", ")
+                isEditingTags = true
+            } label: {
+                Label("Edit Tags", systemImage: "tag")
             }
         }
         // The clipboard trio sits in its own section, below the marks and above

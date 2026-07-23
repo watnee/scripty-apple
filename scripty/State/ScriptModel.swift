@@ -337,6 +337,43 @@ final class ScriptModel {
         }
     }
 
+    /// Set (or clear) the tags on a single block — the web block editor's
+    /// "Tags (comma separated)" field. The client otherwise only reached tags
+    /// by entering selection mode and bulk-adding, which could append but never
+    /// edit or remove them on one element. Rides the same `update` PUT the text
+    /// auto-save uses, carrying the block's freshest text so a pending edit is
+    /// not lost. An empty string *clears* the tags: the server (and demo) leave
+    /// an absent field alone, so clearing must send "" rather than nil.
+    @discardableResult
+    func setTags(_ block: Block, to tags: String) async -> Block? {
+        guard let link = block.link(.update) else { return nil }
+        // Normalise the comma list the way the badges show it: trimmed, no
+        // empties, single ", " separators. Empty collapses to "" to clear.
+        let normalised = tags
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        // Flush any debounced text commit first, then send the live text with
+        // the new tags in one write so the two do not race.
+        commitTasks[block.id]?.cancel()
+        commitTasks[block.id] = nil
+        let text = liveText[block.id] ?? block.content ?? ""
+        do {
+            let updated: Block = try await app.client.fetch(
+                from: link, method: "PUT",
+                body: EditBlockCommand(content: text, personId: block.personId, tags: normalised))
+            replace(updated)
+            markSaved(block.id)
+            await refreshUndoRedo()
+            errorMessage = nil
+            return updated
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
     // MARK: - Unsaved-work bookkeeping
 
     /// The server has this block's text; the live copy is no longer precious.

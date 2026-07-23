@@ -1117,8 +1117,48 @@ func run() async {
     await checkDocumentInsert(pid: pid)
     await checkActorProjects()
     await checkProjectTeams(pid: pid)
+    await checkBlockTags(pid: pid)
 
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
+}
+
+/// The block menu's "Edit Tags" — the web editor's "Tags (comma separated)"
+/// field, which the client otherwise reached only by bulk-adding to a
+/// selection. Setting rides the plain `update` PUT (no dedicated rel), so this
+/// pins that a tags value round-trips, that an empty string *clears* the tags,
+/// and — the reason clearing must send "" rather than an omitted field — that
+/// a content-only write (the debounced text auto-save) leaves the tags alone.
+func checkBlockTags(pid: Int) async {
+    let collection = json(await be.respond(
+        method: "GET", url: url("/api/block?projectId=\(pid)"), body: nil).data)
+    guard let block = embedded(collection).first, let bid = block["id"] as? Int else {
+        check("a block to tag was found", false)
+        return
+    }
+    let original = block["content"] as? String ?? ""
+
+    let tagged = json(await be.respond(method: "PUT", url: url("/api/block/\(bid)"),
+        body: body(["content": original, "tags": "funny, action"])).data)
+    check("tags on a single block round-trip",
+          tagged["tags"] as? String == "funny, action",
+          "got \(tagged["tags"] as? String ?? "nil")")
+
+    // A content-only save must not wipe the tags — this is exactly why clearing
+    // has to send an explicit "", not an omitted field.
+    let renamed = json(await be.respond(method: "PUT", url: url("/api/block/\(bid)"),
+        body: body(["content": "changed text"])).data)
+    check("a content-only save leaves tags alone",
+          renamed["tags"] as? String == "funny, action",
+          "got \(renamed["tags"] as? String ?? "nil")")
+
+    let cleared = json(await be.respond(method: "PUT", url: url("/api/block/\(bid)"),
+        body: body(["content": "changed text", "tags": ""])).data)
+    check("an empty tags string clears them",
+          (cleared["tags"] as? String ?? "").isEmpty,
+          "got \(cleared["tags"] as? String ?? "nil")")
+
+    _ = await be.respond(method: "PUT", url: url("/api/block/\(bid)"),
+                         body: body(["content": original]))
 }
 
 /// A project can be assigned to teams from its own row (the web production
