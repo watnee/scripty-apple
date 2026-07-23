@@ -152,6 +152,44 @@ final class ScriptSearchModel {
         }
     }
 
+    /// The block the single "Replace" would act on: the current hit, but only
+    /// when its content holds a match a replace would actually change under the
+    /// present case and whole-word switches. A hit that landed on a character
+    /// name or a tag, or one the switches now exclude, has nothing in its text
+    /// to swap, so there is no target and the button stays disabled.
+    func currentReplaceTarget(in blocks: [Block]) -> Block? {
+        guard let current, current.field == .content,
+              let block = blocks.first(where: { $0.id == current.blockId }) else { return nil }
+        if !includeCharacterCues && block.blockType.isCharacterCue { return nil }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self.containsMatch(block.content ?? "", needle: needle,
+                                  matchCase: matchCase, wholeWord: wholeWord)
+            ? block : nil
+    }
+
+    /// Re-scan after a single replace, leaving the cursor on the next hit to
+    /// visit rather than snapping back to the top: the same block when it still
+    /// holds an occurrence, otherwise whatever slid into its place. That is what
+    /// makes repeated Replace walk forward, as it does on the web.
+    func refreshAfterReplace(in blocks: [Block]) {
+        let anchorIndex = currentIndex
+        let anchorBlock = current?.blockId
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else {
+            matches = []
+            currentIndex = 0
+            return
+        }
+        matches = blocks.compactMap { Self.match($0, needle: needle) }
+        if let anchorBlock, let index = matches.firstIndex(where: { $0.blockId == anchorBlock }) {
+            currentIndex = index
+        } else if matches.isEmpty {
+            currentIndex = 0
+        } else {
+            currentIndex = min(anchorIndex, matches.count - 1)
+        }
+    }
+
     /// Literal containment under the same rules the server applies: `find` is
     /// never a pattern, and whole-word means a word boundary either side.
     static func containsMatch(_ text: String,

@@ -117,6 +117,40 @@ extension ScriptModel {
         }
     }
 
+    /// Replaces a single occurrence in one block — the "Replace" that steps
+    /// through a find, as against "Replace All". Answers with the one block the
+    /// server rewrote, so unlike the bulk calls it patches that block in place
+    /// rather than adopting the whole collection.
+    ///
+    /// Always the first occurrence: the client navigates block by block, so the
+    /// current match *is* the block, and its first remaining occurrence is the
+    /// one to take next. Pressing Replace again lands on the next. The web sends
+    /// the highlighted occurrence's index instead, because it highlights each
+    /// one separately; the result of repeated presses is the same.
+    @discardableResult
+    func replaceOne(_ block: Block,
+                    find: String,
+                    replace: String,
+                    matchCase: Bool,
+                    wholeWord: Bool) async -> Bool {
+        let needle = find.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty, let link = block.link(.replace) else { return false }
+        do {
+            let updated: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: ReplaceOneCommand(find: needle, replace: replace,
+                                        matchCase: matchCase, wholeWord: wholeWord,
+                                        occurrence: 0))
+            adoptRewritten(updated)
+            await refreshUndoRedo()
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
     // MARK: - Shared plumbing
 
     /// Posts a bulk command and adopts the collection the server returns.

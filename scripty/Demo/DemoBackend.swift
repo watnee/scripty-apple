@@ -810,6 +810,21 @@ actor DemoBackend {
             blocks[projectId]![index] = updated
             touch(projectId)
             return ok(blockJSON(updated, projectId: projectId))
+        case ("POST", "replace"):
+            guard let find = fields["find"] as? String, !find.isEmpty else {
+                return badRequest("find")
+            }
+            let replacement = fields["replace"] as? String ?? ""
+            let matchCase = fields["matchCase"] as? Bool ?? false
+            let wholeWord = fields["wholeWord"] as? Bool ?? false
+            let occurrence = fields["occurrence"] as? Int ?? 0
+            snapshot(projectId)
+            blocks[projectId]![index].content = Self.replaceOccurrence(
+                in: blocks[projectId]![index].content,
+                find: find, with: replacement,
+                matchCase: matchCase, wholeWord: wholeWord, occurrence: occurrence)
+            touch(projectId)
+            return ok(blockJSON(blocks[projectId]![index], projectId: projectId))
         default:
             return notFound()
         }
@@ -3319,6 +3334,30 @@ actor DemoBackend {
             withTemplate: template)
     }
 
+    /// Replaces a single occurrence — the `occurrence`-th match, zero-based —
+    /// leaving the rest of the text alone. An index past the last match changes
+    /// nothing, matching the server's single-replace. Same literal rules as
+    /// `literalReplace`.
+    private static func replaceOccurrence(in text: String,
+                                          find: String,
+                                          with replacement: String,
+                                          matchCase: Bool,
+                                          wholeWord: Bool,
+                                          occurrence: Int) -> String {
+        guard !find.isEmpty, occurrence >= 0 else { return text }
+        var pattern = NSRegularExpression.escapedPattern(for: find)
+        if wholeWord { pattern = "\\b\(pattern)\\b" }
+        let options: NSRegularExpression.Options = matchCase ? [] : [.caseInsensitive]
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+            return text
+        }
+        let full = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, range: full)
+        guard occurrence < matches.count,
+              let hit = Range(matches[occurrence].range, in: text) else { return text }
+        return text.replacingCharacters(in: hit, with: replacement)
+    }
+
     private func blockJSON(_ block: DemoBlock, projectId: Int) -> [String: Any] {
         var json: [String: Any] = [
             "id": block.id,
@@ -3338,6 +3377,7 @@ actor DemoBackend {
                 "createBelow": link("/api/block/\(block.id)/below"),
                 "setType": link("/api/block/\(block.id)/type"),
                 "move": link("/api/block/\(block.id)/move"),
+                "replace": link("/api/block/\(block.id)/replace"),
                 // Commenting needs only read access, so this is offered
                 // alongside the editing links rather than gated with them.
                 "comments": link("/api/block/\(block.id)/comments"),

@@ -244,6 +244,17 @@ final class ScriptModel {
         }
     }
 
+    /// Adopt a single block the server just rewrote: swap it in, drop any live
+    /// edit buffer for it, and clear its unsaved flag. The tail shared by the
+    /// per-block writes that answer with one block — a retype, a single replace
+    /// — and the seam that lets those live in another file, where `liveText`
+    /// and `markSaved` are out of reach.
+    func adoptRewritten(_ block: Block) {
+        replace(block)
+        liveText[block.id] = nil
+        markSaved(block.id)
+    }
+
     // MARK: - Inline editing (continuous typing, like the web editor)
 
     /// The text to show for a block: the uncommitted live value while it is
@@ -489,9 +500,7 @@ final class ScriptModel {
                 from: link, method: "POST",
                 body: SetTypeCommand(type: type.rawValue, content: content,
                                      personId: block.personId, tags: block.tags))
-            replace(updated)
-            liveText[block.id] = nil
-            markSaved(block.id)
+            adoptRewritten(updated)
             await refreshUndoRedo()
             errorMessage = nil
             return updated

@@ -1113,6 +1113,7 @@ func run() async {
     await checkProjectAccess(pid: pid)
     await checkSongSelection(pid: pid)
     await checkMusicXmlRoundTrip(pid: pid)
+    await checkReplaceOne(pid: pid)
 
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 }
@@ -1889,6 +1890,55 @@ func checkSongSelection(pid: Int) async {
           embedded(trash).contains { $0["title"] as? String == "Selection Goner" })
 
     _ = await be.respond(method: "DELETE", url: url("/api/document/\(keep)"), body: nil)
+}
+
+/// Single-occurrence replace — the "Replace" that walks a find one hit at a
+/// time, advertised per block as `replace` beside the collection's `bulkReplace`
+/// "Replace All". Pins that it takes one occurrence, that repeating it walks
+/// forward, and that an out-of-range index is a no-op.
+func checkReplaceOne(pid: Int) async {
+    let collection = json(await be.respond(
+        method: "GET", url: url("/api/block?projectId=\(pid)"), body: nil).data)
+    guard let block = embedded(collection).first, let bid = block["id"] as? Int else {
+        check("a block to replace within was found", false)
+        return
+    }
+    check("a block advertises `replace`", links(block)["replace"] != nil,
+          "got \(links(block).keys.sorted())")
+    guard let href = (links(block)["replace"] as? [String: Any])?["href"] as? String,
+          let replaceURL = URL(string: href) else {
+        check("the replace link is followable", false)
+        return
+    }
+
+    // Seed a known line with two occurrences, and put it back at the end.
+    let original = block["content"] as? String ?? ""
+    _ = await be.respond(method: "PUT", url: url("/api/block/\(bid)"),
+                         body: body(["content": "cat and cat"]))
+
+    let first = json(await be.respond(method: "POST", url: replaceURL,
+        body: body(["find": "cat", "replace": "dog", "occurrence": 0])).data)
+    check("replace swaps only the first occurrence",
+          first["content"] as? String == "dog and cat",
+          "got \(first["content"] as? String ?? "nil")")
+
+    let second = json(await be.respond(method: "POST", url: replaceURL,
+        body: body(["find": "cat", "replace": "dog", "occurrence": 0])).data)
+    check("repeating it walks to the next occurrence",
+          second["content"] as? String == "dog and dog",
+          "got \(second["content"] as? String ?? "nil")")
+
+    let past = json(await be.respond(method: "POST", url: replaceURL,
+        body: body(["find": "cat", "replace": "dog", "occurrence": 3])).data)
+    check("an occurrence past the last match changes nothing",
+          past["content"] as? String == "dog and dog")
+
+    check("replace with an empty find -> 400",
+          await be.respond(method: "POST", url: replaceURL,
+                           body: body(["find": "", "replace": "x"])).status == 400)
+
+    _ = await be.respond(method: "PUT", url: url("/api/block/\(bid)"),
+                         body: body(["content": original]))
 }
 
 await run()

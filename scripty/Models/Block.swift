@@ -212,3 +212,16 @@ struct SetTypeCommand: Encodable {
     var personId: Int?
     var tags: String?
 }
+
+/// Replace one occurrence in one block (rel `replace`) — the single-step
+/// "Replace" that walks a find through the script. `occurrence` is the
+/// zero-based match to swap; this client always sends the first, because it
+/// navigates block by block and the first remaining occurrence is the one under
+/// the cursor. `find` and `replace` are literal, never patterns.
+struct ReplaceOneCommand: Encodable {
+    var find: String
+    var replace: String
+    var matchCase: Bool
+    var wholeWord: Bool
+    var occurrence: Int
+}
