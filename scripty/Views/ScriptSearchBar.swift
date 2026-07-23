@@ -156,6 +156,15 @@ struct ScriptSearchBar: View {
                 .padding(.vertical, 6)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
 
+                // Replace the current hit, then step to the next — the
+                // one-at-a-time counterpart of Replace All. Only where the
+                // server offered the per-block link and the cursor is on a
+                // hit whose text a replace would actually change.
+                Button("Replace") {
+                    Task { await replaceCurrent() }
+                }
+                .disabled(replaceTarget == nil)
+
                 Button("Replace All") {
                     confirmReplaceAll = true
                 }
@@ -209,6 +218,30 @@ struct ScriptSearchBar: View {
         let count = replaceTargetCount
         if count == 0 { return "Nothing to replace" }
         return "\(count) " + (count == 1 ? "element" : "elements")
+    }
+
+    /// The block a single Replace would rewrite, or nil when the cursor is not
+    /// on a replaceable hit or the server never offered the per-block link.
+    private var replaceTarget: Block? {
+        guard search.hasQuery,
+              let target = search.currentReplaceTarget(in: model.blocks),
+              target.link(.replace) != nil else { return nil }
+        return target
+    }
+
+    private func replaceCurrent() async {
+        guard let target = replaceTarget else { return }
+        let replaced = await model.replaceOne(
+            target,
+            find: search.query,
+            replace: search.replacement,
+            matchCase: search.matchCase,
+            wholeWord: search.wholeWord)
+        guard replaced else { return }
+        // The hit is gone; re-scan and let the cursor walk forward to the next.
+        search.refreshAfterReplace(in: model.blocks)
+        if let match = search.current { navigator.jump(to: match.blockId) }
+        resultMessage = search.hasMatches ? "Replaced" : "Replaced — no more matches"
     }
 
     private func replaceAll() async {

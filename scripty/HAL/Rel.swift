@@ -42,6 +42,9 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let createInitial = Rel("createInitial")
     static let setType = Rel("setType")
     static let move = Rel("move")
+    // Replace one occurrence in one block — the single-step "Replace", advertised
+    // per block. Its "Replace All" sibling is `bulkReplace` on the collection.
+    static let replace = Rel("replace")
 
     // Bulk operations are advertised on the block collection, not on a block,
     // because they act on a set of them.
