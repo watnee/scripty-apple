@@ -149,7 +149,10 @@ if len(live) > 1 and not wanted:
 device = live[0]
 if device["deviceProperties"].get("developerModeStatus") == "disabled":
     say("devmode", name(device))
-say("ok", device["identifier"], device["hardwareProperties"]["udid"], name(device))
+# The marketing name ("iPhone 15 Pro Max", "iPad Pro 13-inch") confirms which
+# thing this is landing on when the device name is something generic.
+say("ok", device["identifier"], device["hardwareProperties"]["udid"], name(device),
+    device["hardwareProperties"].get("marketingName", ""))
 ' "$DEVICES_JSON"
 }
 
@@ -171,6 +174,7 @@ while :; do
     case "${FOUND[0]}" in
         ok)
             DEVICE_ID="${FOUND[1]}"; DEVICE_UDID="${FOUND[2]}"; DEVICE_NAME="${FOUND[3]}"
+            DEVICE_MODEL="${FOUND[4]:-}"
             break ;;
         many)
             if interactive; then
@@ -186,8 +190,10 @@ while :; do
             nudge none "No iPhone or iPad is paired with this Mac. Plug one in over USB," \
                 "unlock it, and tap Trust$THEN" ;;
         asleep)
-            nudge asleep "${FOUND[1]} is paired but not connected right now." \
-                "Plug it in and unlock it$THEN" ;;
+            # Paired already, so the cable is optional: a device set up for
+            # "Connect via network" in Xcode comes back over Wi-Fi on its own.
+            nudge asleep "${FOUND[1]} is paired but not reachable right now." \
+                "Connect it — a cable, or Wi-Fi if it's set up for that — and unlock it$THEN" ;;
         devmode)
             nudge devmode "Developer Mode is off on ${FOUND[1]}. Turn it on in Settings >" \
                 "Privacy & Security > Developer Mode and restart the device$THEN" ;;
@@ -205,7 +211,11 @@ while :; do
     fi
     sleep 3
 done
-echo "Device: $DEVICE_NAME"
+if [ -n "$DEVICE_MODEL" ] && [ "$DEVICE_MODEL" != "$DEVICE_NAME" ]; then
+    echo "Device: $DEVICE_NAME ($DEVICE_MODEL)"
+else
+    echo "Device: $DEVICE_NAME"
+fi
 
 # Signing on a device is not optional. One team in the keychain is the common
 # case, so find it rather than making everyone look up their team id.

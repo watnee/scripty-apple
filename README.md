@@ -78,7 +78,9 @@ sudo xcode-select --switch /Applications/Xcode.app
 
 Run that, then plug the device in over USB and unlock it. It waits for a device
 rather than telling you it found none, finds your signing team, builds,
-installs, and launches.
+installs, and launches. The first pairing needs the cable; after that, if you
+turn on "Connect via network" for the device in Xcode's Devices window, later
+runs find it over Wi-Fi and you can leave the cable out.
 
 ```sh
 ./scripts/install.sh --list                      # show paired devices
