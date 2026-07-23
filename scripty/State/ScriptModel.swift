@@ -440,6 +440,27 @@ final class ScriptModel {
         }
     }
 
+    /// Create a new, empty element of `type` immediately below `block` — the
+    /// element half of the web's create-below "+" menu (its Songs/Notes half
+    /// is `insertDocument`). The type rides `CreateBelowCommand`, which the
+    /// `createBelow` endpoint already honours; Return uses the same call with
+    /// the following-type convention. This is the only touch route to the
+    /// types the element-type bar leaves off (Text, Dual Dialogue, Page Break).
+    func insertBlock(below block: Block, type: BlockType) async {
+        guard let link = block.link(.createBelow) else { return }
+        do {
+            let created: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: CreateBelowCommand(content: "", personId: nil, type: type.rawValue))
+            await loadBlocks()
+            await refreshUndoRedo()
+            focus(created.id, caret: 0)
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
     /// Backspace at offset 0: merge this block into the previous editable one
     /// and place the caret at the seam.
     func mergeIntoPrevious(_ block: Block) async {

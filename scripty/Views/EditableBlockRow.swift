@@ -138,6 +138,28 @@ struct EditableBlockRow: View {
                       systemImage: block.isBookmarked ? "bookmark.slash" : "bookmark")
             }
         }
+        // Retype this element, the web block menu's "Elements" submenu. The
+        // element-type bar covers the same ground for the common types, but
+        // curates them down and leaves Text, Dual Dialogue and Page Break off;
+        // this is the only touch route to those three, since the full-set
+        // Format menu is a hardware-keyboard affordance.
+        if block.hasLink(.setType) {
+            Menu {
+                ForEach(BlockType.allCases) { type in
+                    Button {
+                        Task { await model.changeType(block, to: type) }
+                    } label: {
+                        if type == block.blockType {
+                            Label(type.label, systemImage: "checkmark")
+                        } else {
+                            Text(type.label)
+                        }
+                    }
+                }
+            } label: {
+                Label("Change Type", systemImage: "textformat")
+            }
+        }
         // A per-block highlight, the way the web's block menu offers it. It
         // rides the bulk-format link with a single id rather than a dedicated
         // per-block endpoint, so one tap is one undo step — the same call the
@@ -178,6 +200,23 @@ struct EditableBlockRow: View {
                     Task { await model.pasteBlocks(below: block) }
                 } label: {
                     Label("Paste Below", systemImage: "doc.on.clipboard")
+                }
+            }
+        }
+        // Start a fresh element of any type below this one — the element half
+        // of the web's create-below "+" menu (its Songs/Notes sections are the
+        // Insert submenus below). Return already creates the following-type
+        // element; this places one of a chosen type in a single action.
+        if block.hasLink(.createBelow) {
+            Section {
+                Menu {
+                    ForEach(BlockType.allCases) { type in
+                        Button(type.label) {
+                            Task { await model.insertBlock(below: block, type: type) }
+                        }
+                    }
+                } label: {
+                    Label("Add Element Below", systemImage: "plus")
                 }
             }
         }
