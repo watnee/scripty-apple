@@ -656,6 +656,20 @@ struct ScriptView: View {
         actions.pageSetup = { showingPageSetup = true }
         actions.exporter = model.exportOptions.isEmpty ? nil : exporter
 
+        // The View menu's per-project display toggles, so the keyboard reaches
+        // the marks the toolbar's "Show" section shows. Lock is offered only
+        // where there is something to lock, matching that section.
+        actions.showsPins = options.showsPins
+        actions.showsBookmarks = options.showsBookmarks
+        actions.showsElementLabels = options.showsElementLabels
+        actions.isEditingLocked = options.isEditingLocked
+        actions.toggleShowPins = { options.showsPins.toggle() }
+        actions.toggleShowBookmarks = { options.showsBookmarks.toggle() }
+        actions.toggleShowElementLabels = { options.showsElementLabels.toggle() }
+        if canEditScript {
+            actions.toggleEditingLock = { options.setEditingLocked(!options.isEditingLocked) }
+        }
+
         if let focused = model.blocks.first(where: { $0.id == model.focusedBlockId }) {
             actions.focusedType = focused.blockType
             if focused.isEditable && !options.isEditingLocked {
