@@ -17,6 +17,11 @@ import SwiftUI
 
 struct ScreenplayPageView: View {
     let pages: [ScriptPage]
+    /// The front matter as an unnumbered first sheet, when the script has a
+    /// title — the web page-view mode's cover page. Nil means no sheet, exactly
+    /// as the web omits it. It sits outside `pages`, so it never counts toward
+    /// "Page N of M" and carries no page number, the same as in every export.
+    var cover: ScreenplayCover? = nil
     let setup: PageSetup
     let zoomScale: Double
     /// Fit-to-width sizes the sheet to the space it has, so the scale comes
@@ -31,6 +36,13 @@ struct ScreenplayPageView: View {
         GeometryReader { outer in
             ScrollView {
                 LazyVStack(spacing: 28) {
+                    if let cover {
+                        // Page one is numbered from the script, so the cover
+                        // takes id 0 — a number the navigator never jumps to —
+                        // and reports no offset, keeping the page count honest.
+                        coverSheet(cover, containerWidth: outer.size.width)
+                            .id(0)
+                    }
                     ForEach(pages) { page in
                         sheet(page, containerWidth: outer.size.width)
                             .id(page.number)
@@ -121,6 +133,69 @@ struct ScreenplayPageView: View {
         .accessibilityLabel("Page \(page.number) of \(pages.count)")
     }
 
+    /// The title page, typeset as a full sheet at the front: the title set in
+    /// capitals on the upper middle, "written by" and the draft version beneath
+    /// it, and the contact block in the bottom-left corner — the same layout the
+    /// title-page editor previews and a PDF export puts on page one. Sized off
+    /// `unit` like every other sheet, and deliberately given no page number and
+    /// no visibility probe so it stays outside the numbered run.
+    @ViewBuilder
+    private func coverSheet(_ cover: ScreenplayCover, containerWidth: CGFloat) -> some View {
+        let width = sheetWidth(containerWidth: containerWidth)
+        let unit = width / setup.paper.widthIn
+        let height = width / setup.paper.aspectRatio
+        let font = Font.custom("Courier New", size: coverFontSize(unit: unit))
+
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: unit * 0.16) {
+                Text(cover.title)
+                    .font(font.weight(.bold))
+                    .multilineTextAlignment(.center)
+                if let writers = cover.writers {
+                    Text("written by").font(font)
+                    Text(writers)
+                        .font(font)
+                        .multilineTextAlignment(.center)
+                }
+                if let version = cover.version {
+                    Text(version)
+                        .font(font)
+                        .padding(.top, unit * 0.12)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            Spacer(minLength: 0)
+            if let contact = cover.contact {
+                Text(contact)
+                    .font(font)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .foregroundStyle(inkColor)
+        .padding(.top, setup.margins.topIn * unit)
+        .padding(.bottom, setup.margins.bottomIn * unit)
+        .padding(.leading, setup.margins.leftIn * unit)
+        .padding(.trailing, setup.margins.rightIn * unit)
+        .frame(minWidth: width, maxWidth: width,
+               minHeight: height, alignment: .topLeading)
+        .background(paperColor)
+        .overlay {
+            Rectangle()
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Title page")
+    }
+
+    /// The 12pt screenplay body size, worked out exactly as a sheet row is so
+    /// the cover matches the pages behind it.
+    private func coverFontSize(unit: CGFloat) -> CGFloat {
+        ScreenplayLayout.lineHeightPt * unit / ScreenplayLayout.pointsPerInch / 1.15
+    }
+
     /// Page one is unnumbered by screenplay convention, as in the web app.
     @ViewBuilder
     private func pageNumber(_ page: ScriptPage, unit: CGFloat) -> some View {
@@ -168,6 +243,41 @@ struct ScreenplayPageView: View {
         colorScheme == .dark
             ? Color(red: 0.10, green: 0.12, blue: 0.15)
             : Color(white: 0.91)
+    }
+}
+
+/// The front matter of a script, resolved to what the cover sheet should show.
+///
+/// The rules match the title-page editor's live preview and the web page-view
+/// cover: the title falls back to the project name and is set in capitals, and
+/// the "written by", version and contact lines each appear only when they carry
+/// text. A script with no title at all has no cover, exactly as the web omits
+/// the sheet — so this is a failable initialiser rather than a set of optionals.
+struct ScreenplayCover: Equatable {
+    let title: String
+    let writers: String?
+    let version: String?
+    let contact: String?
+
+    init?(project: Project) {
+        let entered = project.screenplayTitle.trimmed
+        let raw = entered.isEmpty ? project.title.trimmed : entered
+        guard !raw.isEmpty else { return nil }
+        title = raw.uppercased()
+        writers = project.writers.trimmedOrNil
+        version = project.screenplayVersion.trimmedOrNil
+        contact = project.contactInfo.trimmedOrNil
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var trimmed: String {
+        (self ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var trimmedOrNil: String? {
+        let value = trimmed
+        return value.isEmpty ? nil : value
     }
 }
 
