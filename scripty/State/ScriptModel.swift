@@ -37,6 +37,16 @@ final class ScriptModel {
     private(set) var isLoading = false
     var errorMessage: String?
 
+    /// A one-off confirmation shown after an undo/redo, mirroring the web
+    /// editor's history toast. The token changes on every issue so re-showing
+    /// the same text (two "Change undone" in a row) still re-triggers the view.
+    struct HistoryToast: Equatable {
+        var token: Int
+        var text: String
+    }
+    private(set) var historyToast: HistoryToast?
+    private var historyToastToken = 0
+
     /// Set while the writer is typing so a sync refresh doesn't clobber
     /// in-progress edits.
     var hasActiveEdit = false
@@ -675,13 +685,33 @@ final class ScriptModel {
 
     private func performUndoRedo(rel: Rel) async {
         guard let link = undoRedo?.link(rel) else { return }
+        // The web's toast reads a server `blockDelta`, defined there as the net
+        // change in block count across the step; the count on hand before and
+        // after the reload is the same number, so no server field is needed.
+        let before = blocks.count
         do {
             undoRedo = try await app.client.fetch(UndoRedoStatus.self, from: link, method: "POST")
             await loadBlocks()
             errorMessage = nil
+            presentHistoryToast(rel: rel, delta: blocks.count - before)
         } catch {
             report(error)
         }
+    }
+
+    /// Mirrors the web's `historyToastMessage`: a positive delta means the step
+    /// brought elements back (an undone delete or a redone insert), which is
+    /// worth naming; anything else gets the generic confirmation. "Element" is
+    /// the client's word for a block throughout its menus.
+    private func presentHistoryToast(rel: Rel, delta: Int) {
+        let text: String
+        if delta > 0 {
+            text = "Restored \(delta) element\(delta == 1 ? "" : "s")"
+        } else {
+            text = rel == .undo ? "Change undone" : "Change redone"
+        }
+        historyToastToken += 1
+        historyToast = HistoryToast(token: historyToastToken, text: text)
     }
 
     // MARK: - Sync polling
