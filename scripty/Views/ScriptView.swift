@@ -62,6 +62,12 @@ struct ScriptView: View {
     @State private var pages: [ScriptPage] = []
     @State private var currentPage = 1
 
+    /// The undo/redo confirmation currently on screen, if any, and the task
+    /// that clears it. Kept in the view because how long it stays up is pure
+    /// presentation — the model only says what happened.
+    @State private var toastText: String?
+    @State private var toastHideTask: Task<Void, Never>?
+
     init(app: AppModel, project: Project) {
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
@@ -87,6 +93,20 @@ struct ScriptView: View {
         // Outside the mode switch, so the readout is in the same place whether
         // the script is a column or a stack of pages.
         .safeAreaInset(edge: .bottom, spacing: 0) { wordCountBar }
+        // Floated after the word-count inset, so it settles just above the bar
+        // (or the bottom safe area when the bar is off) rather than over it.
+        .overlay(alignment: .bottom) { historyToastOverlay }
+        .onChange(of: model.historyToast?.token) { _, token in
+            guard token != nil, let toast = model.historyToast else { return }
+            toastHideTask?.cancel()
+            withAnimation(.spring(duration: 0.3)) { toastText = toast.text }
+            toastHideTask = Task {
+                // Matches the web toast's 3.2s visible span.
+                try? await Task.sleep(for: .seconds(3.2))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.3)) { toastText = nil }
+            }
+        }
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -396,6 +416,24 @@ struct ScriptView: View {
             }
         }
         return chrome
+    }
+
+    /// The transient confirmation after an undo/redo, as the web editor shows.
+    /// Non-interactive so it never swallows a tap on the writing underneath.
+    @ViewBuilder
+    private var historyToastOverlay: some View {
+        if let text = toastText {
+            Text(text)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.black.opacity(0.82), in: Capsule())
+                .padding(.bottom, 12)
+                .allowsHitTesting(false)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityAddTraits(.isStaticText)
+        }
     }
 
     /// How long the script is, while it is being written.
