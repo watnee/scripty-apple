@@ -53,6 +53,21 @@ struct ScriptActions {
     var cutElement: (() -> Void)?
     var pasteElements: (() -> Void)?
 
+    /// The View menu's per-project display toggles — Pins, Bookmarks, Element
+    /// Labels and the editing lock, which the web binds to ⌘⇧N / ⌘⇧B / ⌘⇧U /
+    /// ⌘⇧Q (`toolbar-shortcuts.js`) and the client otherwise offered only as
+    /// toolbar toggles with no keyboard route. Nil when no script is focused;
+    /// the flags drive the label ("Show"/"Hide", "Lock"/"Unlock"). Word count
+    /// is device-wide, so the View menu reaches its own `settings` directly.
+    var toggleShowPins: (() -> Void)?
+    var toggleShowBookmarks: (() -> Void)?
+    var toggleShowElementLabels: (() -> Void)?
+    var toggleEditingLock: (() -> Void)?
+    var showsPins = false
+    var showsBookmarks = false
+    var showsElementLabels = false
+    var isEditingLocked = false
+
     var find: (() -> Void)?
     var ignoredWords: (() -> Void)?
     var outline: (() -> Void)?
@@ -310,6 +325,28 @@ struct ScriptCommands: Commands {
         Button(settings.showsWordCount ? "Hide Word Count" : "Show Word Count") {
             settings.showsWordCount.toggle()
         }
+        .keyboardShortcut("y", modifiers: [.command, .shift])
+
+        // The per-project marks the toolbar's "Show" section carries, given the
+        // same keyboard route the web binds. These come through the focused
+        // script (nil when none is open) because the marks are per project,
+        // where word count above is a device preference. Notes has no chord on
+        // the web, so it stays a toolbar-only toggle.
+        if let toggle = actions?.toggleShowPins {
+            Button((actions?.showsPins ?? false) ? "Hide Pins" : "Show Pins") { toggle() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+        }
+        if let toggle = actions?.toggleShowBookmarks {
+            Button((actions?.showsBookmarks ?? false) ? "Hide Bookmarks" : "Show Bookmarks") {
+                toggle()
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+        }
+        if let toggle = actions?.toggleShowElementLabels {
+            Button((actions?.showsElementLabels ?? false)
+                    ? "Hide Element Labels" : "Show Element Labels") { toggle() }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+        }
 
         Button(settings.isSpellcheckEnabled ? "Stop Checking Spelling" : "Check Spelling") {
             settings.isSpellcheckEnabled.toggle()
@@ -318,6 +355,16 @@ struct ScriptCommands: Commands {
 
         Button("Ignored Words…") { actions?.ignoredWords?() }
             .disabled(actions?.ignoredWords == nil)
+
+        // Lock keeps company with spellcheck as in the toolbar: both are about
+        // typing, and both are offered only where there is something to type in
+        // (`toggleEditingLock` is nil for a reader).
+        if let toggle = actions?.toggleEditingLock {
+            Button((actions?.isEditingLocked ?? false) ? "Unlock Editing" : "Lock Editing") {
+                toggle()
+            }
+            .keyboardShortcut("q", modifiers: [.command, .shift])
+        }
 
         Button("Version History") { actions?.versions?() }
             .disabled(actions?.versions == nil)
