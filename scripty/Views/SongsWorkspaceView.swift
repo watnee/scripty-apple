@@ -25,6 +25,10 @@ struct SongsWorkspaceView: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedLine: Int?
 
+    /// The device-wide type size, so lyrics in the workspace read at the same
+    /// size the writer chose in a song or the screenplay — it is one setting.
+    private let settings = PresentationSettings.shared
+
     /// One per song, made on first expand. Songs nobody opens cost nothing.
     @State private var lyrics: [Int: SongBlockModel] = [:]
     @State private var expanded: Set<Int> = []
@@ -61,6 +65,7 @@ struct SongsWorkspaceView: View {
                 }
             }
             .listStyle(.plain)
+            .environment(\.scriptTextScale, settings.textScale)
             .searchable(text: $filter, prompt: "Filter songs")
             .overlay { emptyState }
             .navigationTitle("All Songs")

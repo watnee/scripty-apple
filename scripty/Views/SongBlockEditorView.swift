@@ -71,6 +71,10 @@ struct SongBlockEditorView: View {
                     }
                 }
                 .listStyle(.plain)
+                // One device-wide type size scales the lyric here, the way it
+                // scales the screenplay — the web reuses its global text-size
+                // preference for song lines for the same reason.
+                .environment(\.scriptTextScale, settings.textScale)
                 .onChange(of: focusedLine) { _, id in
                     guard let id else { return }
                     withAnimation { proxy.scrollTo(id, anchor: .center) }
@@ -212,6 +216,36 @@ struct SongBlockEditorView: View {
         ToolbarItem(placement: .secondaryAction) {
             Toggle(isOn: wordCountBinding) {
                 Label("Word Count", systemImage: "number")
+            }
+        }
+        // Text size, the web song editor's Tools-menu A−/A+. It drives the same
+        // device-wide preference the screenplay editor changes, so a size set
+        // here shows up there and vice versa. No keyboard shortcuts: the
+        // screenplay already owns ⌘+/⌘−, and this editor opens over it.
+        ToolbarItem(placement: .secondaryAction) {
+            Menu {
+                Button {
+                    settings.increaseTextSize()
+                } label: {
+                    Label("Bigger", systemImage: "textformat.size.larger")
+                }
+                .disabled(!settings.canIncreaseTextSize)
+
+                Button {
+                    settings.decreaseTextSize()
+                } label: {
+                    Label("Smaller", systemImage: "textformat.size.smaller")
+                }
+                .disabled(!settings.canDecreaseTextSize)
+
+                Button {
+                    settings.resetTextSize()
+                } label: {
+                    Label("Actual Size (\(settings.textSize)%)", systemImage: "textformat")
+                }
+                .disabled(settings.textSize == PresentationSettings.defaultTextSize)
+            } label: {
+                Label("Text Size", systemImage: "textformat.size")
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {

@@ -21,6 +21,15 @@ struct SongLineRow: View {
     @FocusState.Binding var focusedLine: Int?
 
     @Environment(\.colorScheme) private var colorScheme
+    /// The writer's chosen type size, shared with the screenplay through the
+    /// same environment key so one preference scales lyrics wherever they show
+    /// — the song editor and the all-songs workspace both set it. Defaults to
+    /// 1.0, so a host that never sets it leaves the line at its natural size.
+    @Environment(\.scriptTextScale) private var textScale
+
+    /// The lyric's base point size at 100%. Matches the default body text this
+    /// row used before it scaled, so nothing moves at the default setting.
+    private static let baseLineSize: CGFloat = 17
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -38,6 +47,7 @@ struct SongLineRow: View {
             .accessibilityLabel("Line \(block.order ?? 0) actions")
 
             TextField("", text: text, axis: .vertical)
+                .font(.system(size: Self.baseLineSize * textScale))
                 .focused($focusedLine, equals: block.id)
                 .disabled(!block.isEditable)
                 .submitLabel(.return)
