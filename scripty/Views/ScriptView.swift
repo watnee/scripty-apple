@@ -467,6 +467,7 @@ struct ScriptView: View {
         ScrollViewReader { proxy in
             ScreenplayPageView(
                 pages: pages,
+                cover: ScreenplayCover(project: model.project),
                 setup: settings.pageSetup,
                 zoomScale: settings.zoomScale,
                 isFitToWidth: settings.isPageZoomFit,
