@@ -2959,7 +2959,9 @@ actor DemoBackend {
 
         switch (method, path.dropFirst().first) {
         case ("GET", nil):
-            return ok(userJSON(usersStore[index]))
+            // The single-user resource is the one place the access breakdown
+            // rides, exactly as the server computes it only on the profile.
+            return ok(userJSON(usersStore[index], includeAccess: true))
         case ("PUT", nil):
             if let value = (fields["username"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
@@ -3009,7 +3011,7 @@ actor DemoBackend {
         ])
     }
 
-    private func userJSON(_ user: DemoUser) -> [String: Any] {
+    private func userJSON(_ user: DemoUser, includeAccess: Bool = false) -> [String: Any] {
         var links: [String: Any] = [
             "self": link("/api/user/\(user.id)"),
             "users": link("/api/user"),
@@ -3038,7 +3040,45 @@ actor DemoBackend {
             "_links": links,
         ]
         if let team = user.team { json["team"] = team }
+        if includeAccess { json["projectAccess"] = userProjectAccess(for: user) }
         return json
+    }
+
+    /// The demo's stand-in for the server's per-user project access, computed
+    /// the same way: a disabled account reaches nothing; otherwise every demo
+    /// project, with edit rights for writers/admins and a reason drawn from a
+    /// privileged role, the team, or "Open project". Enough to exercise the
+    /// profile's access list, chips and empty states.
+    private func userProjectAccess(for user: DemoUser) -> [[String: Any]] {
+        guard user.enabled else { return [] }
+        let canEdit = user.writer || user.admin
+        let reason = userAccessReason(for: user)
+        return projects
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            .map { project in
+                [
+                    "projectId": project.id,
+                    "projectName": project.title,
+                    "canEdit": canEdit,
+                    "permissionLabel": canEdit ? "Can edit" : "View only",
+                    "accessReason": reason,
+                ]
+            }
+    }
+
+    private func userAccessReason(for user: DemoUser) -> String {
+        if user.admin { return "Admin" }
+        if user.director { return "Director" }
+        if user.producer { return "Producer" }
+        if user.writer { return "Writer" }
+        if user.actor { return "Actor" }
+        if user.crew { return "Crew" }
+        if user.directorOfPhotography { return "Director of Photography" }
+        if user.castingDirector { return "Casting Director" }
+        if let team = user.team, !team.trimmingCharacters(in: .whitespaces).isEmpty {
+            return team
+        }
+        return "Open project"
     }
 
     private func rootJSON() -> [String: Any] {

@@ -146,23 +146,26 @@ struct UsersView: View {
     }
 
     private func row(_ user: User) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(user.displayName)
-            HStack(spacing: 6) {
-                if let username = user.username, !username.isEmpty {
-                    Text("@\(username)")
+        // Tapping a row opens the profile — identity, roles and the per-project
+        // access breakdown — mirroring the web, where the list links to the
+        // profile page. Editing and deleting stay on the swipe and context menu.
+        NavigationLink {
+            UserProfileView(user: user, model: model)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(user.displayName)
+                HStack(spacing: 6) {
+                    if let username = user.username, !username.isEmpty {
+                        Text("@\(username)")
+                    }
+                    Text(user.roleSummary)
+                    if user.enabled == false {
+                        Text("Disabled").foregroundStyle(.orange)
+                    }
                 }
-                Text(user.roleSummary)
-                if user.enabled == false {
-                    Text("Disabled").foregroundStyle(.orange)
-                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if user.canUpdate { editingUser = user }
         }
         .swipeActions(edge: .trailing) {
             if user.canDelete {
