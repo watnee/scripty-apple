@@ -13,10 +13,10 @@
 
 import SwiftUI
 
-struct EditionsView<Model: EditionListing>: View {
-    /// Generic over what is being edited: a screenplay's editions and a song's
-    /// are the same picker over different contents.
-    let model: Model
+struct EditionsView: View {
+    /// A screenplay's editions and a song's are the same picker over
+    /// different contents; the model carries the difference.
+    let model: EditionsModel
     /// Called when the writer chooses a different edition to read.
     let onSelect: (ScriptEdition) async -> Void
 

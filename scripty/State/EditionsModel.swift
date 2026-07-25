@@ -2,13 +2,19 @@
 //  EditionsModel.swift
 //  scripty
 //
-//  The named editions of one screenplay, and which one the writer is looking
-//  at.
+//  The named editions of one screenplay or one song, and which one the
+//  writer is looking at.
 //
 //  The server has always taken an `editionId`; what it never offered was a way
 //  to find out which ids exist. With that in place the client can do what the
 //  web app does from its session — open a different draft — by naming the
 //  edition on the block request instead.
+//
+//  Scripts and songs have the same six operations, the same default/published
+//  rules, and the same picker; they differ only in where the collection link
+//  lives, which rel an edition's contents hang off, and what one item is
+//  called. Those three travel through the initialisers, so the two kinds
+//  share every line of behaviour rather than drifting apart a fix at a time.
 //
 
 import Foundation
@@ -18,7 +24,17 @@ import Observation
 @MainActor
 final class EditionsModel {
     private let app: AppModel
-    private let project: Project
+    /// The editions collection, from whichever resource owns it.
+    private let sourceLink: HALLink?
+    /// Where an edition's contents hang: `blocks` for a screenplay,
+    /// `songBlocks` for a lyric.
+    private let blocksRel: Rel
+
+    /// What one item of this kind of edition is called, singular. A script
+    /// edition holds elements; a song's holds lines. The picker is otherwise
+    /// identical, and calling a lyric line an "element" would be the one
+    /// place the sharing showed through.
+    let itemNoun: String
 
     private(set) var editions: [ScriptEdition] = []
     private(set) var links = HALLinks()
@@ -30,10 +46,7 @@ final class EditionsModel {
     /// which is what an untouched project and every older client asks for.
     var selectedId: Int?
 
-    var isAvailable: Bool { project.hasLink(.editions) }
     var canCreate: Bool { links.contains(.create) }
-
-    let itemNoun = "element"
 
     /// Only worth showing a picker once there is a choice to make.
     var hasChoice: Bool { editions.count > 1 }
@@ -45,13 +58,28 @@ final class EditionsModel {
         return editions.first(where: \.isTheDefault) ?? editions.first
     }
 
-    init(app: AppModel, project: Project) {
+    /// A screenplay's editions.
+    convenience init(app: AppModel, project: Project) {
+        self.init(app: app, sourceLink: project.link(.editions),
+                  blocksRel: .blocks, itemNoun: "element")
+    }
+
+    /// A song's editions — an alternate lyric, a rewrite, a version cut for a
+    /// different scene.
+    convenience init(app: AppModel, document: TextDocument) {
+        self.init(app: app, sourceLink: document.link(.editions),
+                  blocksRel: .songBlocks, itemNoun: "line")
+    }
+
+    private init(app: AppModel, sourceLink: HALLink?, blocksRel: Rel, itemNoun: String) {
         self.app = app
-        self.project = project
+        self.sourceLink = sourceLink
+        self.blocksRel = blocksRel
+        self.itemNoun = itemNoun
     }
 
     func load() async {
-        guard let link = project.link(.editions) else { return }
+        guard let link = sourceLink else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -74,9 +102,8 @@ final class EditionsModel {
     func canSetDefault(_ edition: ScriptEdition) -> Bool { edition.hasLink(.setDefault) }
     func canSetPublished(_ edition: ScriptEdition) -> Bool { edition.hasLink(.setPublished) }
 
-    /// The block collection for an edition, which is how the script view knows
-    /// what to load once the writer picks one.
-    func blocksLink(for edition: ScriptEdition) -> HALLink? { edition.link(.blocks) }
+    /// The contents of an edition — what the editor loads once one is picked.
+    func blocksLink(for edition: ScriptEdition) -> HALLink? { edition.link(blocksRel) }
 
     /// The edition with this id, if the server still lists it — how a
     /// remembered choice from a previous visit is matched back up.

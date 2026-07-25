@@ -14,7 +14,7 @@ import SwiftUI
 
 struct SongBlockEditorView: View {
     @State private var model: SongBlockModel
-    @State private var editions: SongEditionsModel
+    @State private var editions: EditionsModel
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedLine: Int?
@@ -37,7 +37,7 @@ struct SongBlockEditorView: View {
 
     init(app: AppModel, document: TextDocument) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
-        _editions = State(initialValue: SongEditionsModel(app: app, document: document))
+        _editions = State(initialValue: EditionsModel(app: app, document: document))
     }
 
     private var query: String {
