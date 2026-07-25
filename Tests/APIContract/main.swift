@@ -1775,6 +1775,36 @@ func checkUsers(root: [String: Any]) async {
     check("an admin deleting their own account -> 400",
           await be.respond(method: "DELETE", url: url("/api/user/1"), body: nil).status == 400)
 
+    // --- Per-project access breakdown (profile only) ---
+    //
+    // Which projects an account can reach, and why, is computed only on the
+    // single-user resource — mirroring the web, where the list shows who
+    // someone is and the profile shows what they can get to. So a list item
+    // carries no `projectAccess`; the account's own resource does.
+    check("the list omits the access breakdown",
+          (await userList()).allSatisfy { $0["projectAccess"] == nil })
+
+    let adminProfile = json(await be.respond(method: "GET", url: url("/api/user/1"), body: nil).data)
+    let adminAccess = adminProfile["projectAccess"] as? [[String: Any]]
+    check("the profile carries a project-access list", adminAccess != nil)
+    check("an enabled admin can reach the seeded projects", (adminAccess?.count ?? 0) >= 1,
+          "got \(adminAccess?.count ?? 0)")
+    let firstAccess = adminAccess?.first
+    check("an access row names its project", firstAccess?["projectName"] as? String != nil)
+    check("an access row carries the server's permission label",
+          firstAccess?["permissionLabel"] as? String != nil)
+    check("an access row explains the reason", firstAccess?["accessReason"] as? String != nil)
+    check("an admin's access is editable and reasoned as the role",
+          firstAccess?["canEdit"] as? Bool == true
+              && firstAccess?["accessReason"] as? String == "Admin")
+
+    // A disabled account (seeded id 3) reaches nothing — an empty list, not a
+    // missing field, so the profile can say "no project access" with certainty.
+    let disabledProfile = json(await be.respond(method: "GET", url: url("/api/user/3"), body: nil).data)
+    check("a disabled account's profile still carries the field",
+          disabledProfile["projectAccess"] as? [[String: Any]] != nil)
+    check("a disabled account reaches no projects",
+          (disabledProfile["projectAccess"] as? [[String: Any]])?.isEmpty == true)
 }
 
 /// Getting a deleted lyric line back, and stepping an edit backwards.

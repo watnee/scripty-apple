@@ -30,12 +30,17 @@ struct User: Decodable, Identifiable, Hashable, HALResource {
     var viewCasting: Bool?
     var developer: Bool?
     var enabled: Bool?
+    /// Which projects this account can reach, and why. Present only on the
+    /// single-user resource the `self` link returns (the profile), not on the
+    /// list items — so it is nil until a profile is fetched. Admin-diagnostic,
+    /// mirroring the web profile page's access breakdown.
+    var projectAccess: [UserProjectAccess]?
     let links: HALLinks?
 
     private enum CodingKeys: String, CodingKey {
         case id, username, firstName, lastName, team, admin, producer, director,
              writer, actor, crew, directorOfPhotography, castingDirector,
-             viewCasting, developer, enabled
+             viewCasting, developer, enabled, projectAccess
         case links = "_links"
     }
 
@@ -64,6 +69,20 @@ struct User: Decodable, Identifiable, Hashable, HALResource {
     /// Delete is offered as a link only when the server allows it — an admin
     /// cannot remove their own account, so that row simply carries no `delete`.
     var canDelete: Bool { hasLink(.delete) }
+}
+
+/// One project an account can reach, and why — a row of the profile's access
+/// breakdown. The server computes every field (whether it is view-only or
+/// editable, and the reason: a privileged role, a team, or an open project),
+/// so the client only displays them. Present only on a fetched profile.
+struct UserProjectAccess: Decodable, Identifiable, Hashable {
+    let projectId: Int
+    var projectName: String?
+    var canEdit: Bool?
+    var permissionLabel: String?
+    var accessReason: String?
+
+    var id: Int { projectId }
 }
 
 /// A new account. The server hashes `password`; the role flags default to false

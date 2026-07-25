@@ -49,6 +49,23 @@ final class UsersModel {
         }
     }
 
+    /// The full profile for one account, fetched from its `self` link. The list
+    /// items carry identity and roles but not the per-project access breakdown —
+    /// the server computes that only on the single-user resource — so the
+    /// profile screen loads it on demand. Returns nil (and reports) on failure;
+    /// the caller falls back to the list item it already has.
+    func detail(for user: User) async -> User? {
+        guard let link = user.link(.selfRel) else { return nil }
+        do {
+            let full: User = try await app.client.fetch(from: link)
+            errorMessage = nil
+            return full
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
     @discardableResult
     func create(_ command: CreateUserCommand) async -> Bool {
         await perform {
