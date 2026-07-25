@@ -775,6 +775,12 @@ struct ScriptView: View {
             actions.versions = { showingVersions = true }
         }
 
+        // Same gate as the toolbar's Editions button — offered once there is
+        // more than one edition or the writer can make one.
+        if editions.hasChoice || editions.canCreate {
+            actions.editions = { showingEditions = true }
+        }
+
         return actions
     }
 
