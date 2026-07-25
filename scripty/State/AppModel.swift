@@ -33,6 +33,16 @@ final class AppModel {
     /// demo mode — used by scripts/demo.sh and never persisted.
     static let demoLaunchKey = "scripty.demo"
 
+    /// Whose unsaved drafts the disk store holds: server + account, so drafts
+    /// can never leak between accounts or servers. Nil while signed out and in
+    /// demo — the demo's blocks don't survive a relaunch, so a persisted draft
+    /// would point at ids that no longer exist.
+    var draftScope: String? {
+        guard !isDemo, let username = client.credentials?.username else { return nil }
+        let host = client.baseURL.host ?? client.baseURL.absoluteString
+        return host + "|" + username.lowercased()
+    }
+
     /// Bumped whenever the session is replaced. An in-flight bootstrap that
     /// resumes against a stale token must not overwrite the newer session —
     /// otherwise `scripty://demo` on a cold launch loses a race with the

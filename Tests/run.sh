@@ -126,6 +126,7 @@ swiftc -o "$BUILD/unsaved" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
     "$SRC/Models/"*.swift \

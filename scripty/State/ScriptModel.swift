@@ -91,9 +91,17 @@ final class ScriptModel {
     /// affordance an untouched project advertises.
     var canSeedScript: Bool { blocksLinks.contains(.createInitial) }
 
-    init(app: AppModel, project: Project) {
+    /// Where unsaved text is kept across a relaunch. Ignored by observation:
+    /// nothing draws from it — `liveText`/`unsavedBlockIds` stay the
+    /// presentation truth, the store just makes them durable. Injectable so
+    /// the tests can point it at a scratch directory; nil (signed out, demo)
+    /// means unsaved work is held in memory only, as before.
+    @ObservationIgnored private let draftStore: UnsavedDraftStore?
+
+    init(app: AppModel, project: Project, draftStore: UnsavedDraftStore? = nil) {
         self.app = app
         self.project = project
+        self.draftStore = draftStore ?? app.draftScope.map { UnsavedDraftStore(scope: $0) }
     }
 
     // MARK: - Loading
@@ -122,6 +130,7 @@ final class ScriptModel {
         do {
             let collection: HALCollection<Block> = try await app.client.fetch(from: link)
             adopt(collection)
+            adoptPersistedDrafts()
             errorMessage = nil
         } catch {
             report(error)
@@ -392,6 +401,7 @@ final class ScriptModel {
         retryTasks[id]?.cancel()
         retryTasks[id] = nil
         retryAttempts[id] = nil
+        draftStore?.remove(blockId: id, projectId: project.id)
     }
 
     /// A write failed. Flag the block so its live text is held, and — when the
@@ -399,6 +409,7 @@ final class ScriptModel {
     /// backoff rather than making the writer notice and retype.
     private func markUnsaved(_ id: Int, after error: Error) {
         unsavedBlockIds.insert(id)
+        persistDraft(id)
         guard error.isRetryableAPIError else { return }
         let attempt = retryAttempts[id] ?? 0
         guard attempt < Self.retryDelays.count else { return }
@@ -410,6 +421,59 @@ final class ScriptModel {
             guard !Task.isCancelled else { return }
             await self?.commit(id)
         }
+    }
+
+    /// Snapshot a block's live text to disk, with the server's current content
+    /// as the base — the restore path's evidence of whether the draft is still
+    /// the newest thing anyone wrote.
+    private func persistDraft(_ id: Int) {
+        guard let store = draftStore, let text = liveText[id] else { return }
+        store.save(UnsavedDraft(blockId: id, text: text,
+                                baseText: blocks.first { $0.id == id }?.content,
+                                savedAt: .now),
+                   projectId: project.id)
+    }
+
+    /// Pick up whatever drafts a previous run left behind: re-adopt each as
+    /// live text and arm the ordinary debounced commit, so the existing
+    /// retry machinery and the unsaved-work banner take over. Idempotent —
+    /// a block already being edited (or already restored) is left alone.
+    ///
+    /// A draft whose base no longer matches the server is *dropped*: someone
+    /// edited that element elsewhere since the save failed, and the server is
+    /// last-write-wins, so pushing the old draft would clobber newer words.
+    func adoptPersistedDrafts() {
+        guard let store = draftStore else { return }
+        for (id, draft) in store.drafts(projectId: project.id) {
+            guard liveText[id] == nil, !unsavedBlockIds.contains(id) else { continue }
+            guard let block = blocks.first(where: { $0.id == id }) else {
+                // Not in this collection — possibly another edition's element.
+                // Left on disk for the load that can see it.
+                continue
+            }
+            let server = block.content ?? ""
+            if draft.text == server {
+                store.remove(blockId: id, projectId: project.id)
+                continue
+            }
+            guard draft.baseText == nil || draft.baseText == server else {
+                store.remove(blockId: id, projectId: project.id)
+                continue
+            }
+            liveText[id] = draft.text
+            unsavedBlockIds.insert(id)
+            scheduleCommit(id)
+        }
+    }
+
+    /// Flush every pending debounced commit right now — the app is heading to
+    /// the background, and the debounce window may outlive its execution time.
+    /// Each block's text is snapshotted to disk first, so even a commit that
+    /// never gets to run is covered by the restore path on next launch.
+    func flushPendingCommits() async {
+        let pending = Array(commitTasks.keys)
+        for id in pending { persistDraft(id) }
+        for id in pending { await commit(id) }
     }
 
     /// Give up on a speculative write (a merge that couldn't be persisted) and

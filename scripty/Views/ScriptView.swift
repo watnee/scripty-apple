@@ -73,6 +73,11 @@ struct ScriptView: View {
     @State private var toastText: String?
     @State private var toastHideTask: Task<Void, Never>?
 
+    /// Watched so pending typing is flushed (and snapshotted to disk) the
+    /// moment the app heads to the background — the debounce window may
+    /// outlive the app's execution time, and this is the writer's only copy.
+    @Environment(\.scenePhase) private var scenePhase
+
     init(app: AppModel, project: Project) {
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
@@ -135,6 +140,19 @@ struct ScriptView: View {
             await reopenRememberedEdition()
         }
         .onDisappear { model.stopSyncPolling() }
+        // Backgrounding flushes the debounced commit immediately — and stops
+        // the 5s sync poll from hitting the network while nobody is looking.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background, .inactive:
+                model.stopSyncPolling()
+                Task { await model.flushPendingCommits() }
+            case .active:
+                model.startSyncPolling()
+            @unknown default:
+                break
+            }
+        }
         // Where the writer is, kept as they go rather than only on the way out:
         // a script left open and then killed should still reopen in the right
         // place.
