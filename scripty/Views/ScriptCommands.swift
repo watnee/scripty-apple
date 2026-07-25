@@ -125,7 +125,11 @@ struct ScriptCommands: Commands {
 
         CommandGroup(after: .newItem) {
             Divider()
+            // ⌘⇧T matches the web (`toolbar-shortcuts.js`). The chord is free
+            // here — a native app has no browser "reopen closed tab" on it — so
+            // the client and web agree, as they do on the other File-menu chords.
             Button("Title Page…") { actions?.titlePage?() }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(actions?.titlePage == nil)
             // ⌘⌥P, not ⌘⇧P: the toolbar's Page View toggle already claims that
             // chord, as the browser does, and two views binding one chord means
@@ -381,7 +385,9 @@ struct ScriptCommands: Commands {
             .keyboardShortcut("q", modifiers: [.command, .shift])
         }
 
+        // ⌘⇧H matches the web's "Snapshot history" chord; free in the client.
         Button("Version History") { actions?.versions?() }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
             .disabled(actions?.versions == nil)
 
         Divider()
