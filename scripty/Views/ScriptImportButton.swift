@@ -6,61 +6,67 @@
 //  every block with the parsed result, so — like the web app's import
 //  button — this asks before uploading anything.
 //
+//  The picker, confirmation and status live in a view modifier rather than in
+//  the toolbar button, so a File-menu command (⌘⇧I) can open the importer even
+//  when the toolbar has cleared out: focus mode removes the import button, but
+//  the menu route still works, matching the web's always-available ⌘⇧I.
+//
 
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct ScriptImportButton: View {
+extension View {
+    /// Attach the screenplay importer, opened by flipping `isPresented`. The
+    /// same flag is set by the toolbar's Import button and the File menu's
+    /// "Import Script…" command, so both drive one picker and one model.
+    func scriptImporter(app: AppModel, project: Project,
+                        isPresented: Binding<Bool>,
+                        onImported: @escaping (Project) async -> Void) -> some View {
+        modifier(ScriptImporter(app: app, project: project,
+                                isPresented: isPresented, onImported: onImported))
+    }
+}
+
+private struct ScriptImporter: ViewModifier {
     @State private var model: ScriptImportModel
+    @Binding var isPresented: Bool
     /// Run after a successful import. The caller MUST reload the script here:
     /// every block in the project has just been replaced.
     private let onImported: (Project) async -> Void
 
-    @State private var showingImporter = false
     @State private var pending: PendingScriptFile?
     @State private var statusMessage: String?
 
-    init(app: AppModel, project: Project, onImported: @escaping (Project) async -> Void) {
+    init(app: AppModel, project: Project, isPresented: Binding<Bool>,
+         onImported: @escaping (Project) async -> Void) {
         _model = State(initialValue: ScriptImportModel(app: app, project: project))
+        _isPresented = isPresented
         self.onImported = onImported
     }
 
-    var body: some View {
-        Group {
-            if model.canImport {
-                Button {
-                    showingImporter = true
-                } label: {
-                    if model.isImporting {
-                        ProgressView()
-                    } else {
-                        Label("Import Script", systemImage: "square.and.arrow.down.on.square")
-                    }
-                }
-                .disabled(model.isImporting)
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(isPresented: $isPresented,
+                          allowedContentTypes: Self.importTypes,
+                          allowsMultipleSelection: false) { result in
+                handlePick(result)
             }
-        }
-        .fileImporter(isPresented: $showingImporter,
-                      allowedContentTypes: Self.importTypes,
-                      allowsMultipleSelection: false) { result in
-            handlePick(result)
-        }
-        .confirmationDialog("Replace this screenplay?",
-                            isPresented: confirmBinding,
-                            titleVisibility: .visible,
-                            presenting: pending) { file in
-            Button("Replace Script", role: .destructive) { upload(file) }
-            Button("Cancel", role: .cancel) { pending = nil }
-        } message: { file in
-            Text("Importing \"\(file.name)\" replaces every element in this script. This cannot be undone.")
-        }
-        .alert("Import Script",
-               isPresented: Binding(get: { statusMessage != nil },
-                                    set: { if !$0 { statusMessage = nil } })) {
-            Button("OK", role: .cancel) { statusMessage = nil }
-        } message: {
-            Text(statusMessage ?? "")
-        }
+            .confirmationDialog("Replace this screenplay?",
+                                isPresented: confirmBinding,
+                                titleVisibility: .visible,
+                                presenting: pending) { file in
+                Button("Replace Script", role: .destructive) { upload(file) }
+                Button("Cancel", role: .cancel) { pending = nil }
+            } message: { file in
+                Text("Importing \"\(file.name)\" replaces every element in this script. This cannot be undone.")
+            }
+            .alert("Import Script",
+                   isPresented: Binding(get: { statusMessage != nil },
+                                        set: { if !$0 { statusMessage = nil } })) {
+                Button("OK", role: .cancel) { statusMessage = nil }
+            } message: {
+                Text(statusMessage ?? "")
+            }
     }
 
     // MARK: - Actions

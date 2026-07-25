@@ -85,6 +85,11 @@ struct ScriptActions {
     var readScript: (() -> Void)?
     var versions: (() -> Void)?
 
+    /// Open the screenplay file picker — the web's ⌘⇧I Import. Nil unless the
+    /// server advertises `importScript` (editors only); the client otherwise
+    /// surfaced import as a toolbar button alone, with no menu or keyboard route.
+    var importScript: (() -> Void)?
+
     var exporter: ScriptExportModel?
 }
 
@@ -140,6 +145,13 @@ struct ScriptCommands: Commands {
         }
 
         CommandGroup(replacing: .importExport) {
+            // ⌘⇧I matches the web (`toolbar-shortcuts.js`); free in the client
+            // (⌘I alone is Italic). The action opens the same picker the toolbar
+            // Import button does, so the menu reaches it in focus mode too.
+            Button("Import Script…") { actions?.importScript?() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(actions?.importScript == nil)
+            Divider()
             exportMenu
         }
 
