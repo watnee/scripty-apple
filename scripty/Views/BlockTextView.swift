@@ -11,13 +11,23 @@
 import SwiftUI
 import UIKit
 
-struct BlockTextView: UIViewRepresentable {
+struct BlockTextView: UIViewRepresentable, Equatable {
     let model: ScriptModel
     let block: Block
     /// The suggestion list, which this view both feeds (every keystroke
     /// recomputes it) and obeys (Return accepts rather than splits while it is
     /// open).
     let autocomplete: ScriptAutocomplete
+    /// This block's slice of the model's editing state, passed in as values
+    /// rather than read off the model here. @Observable tracks whole
+    /// properties, so an `updateUIView` that read `model.liveText[block.id]`
+    /// would be invalidated by *any* block's keystroke — every visible row
+    /// re-running its UIKit styling per character typed. The row reads the
+    /// dictionaries instead (a cheap SwiftUI body), and the Equatable
+    /// conformance below lets the untouched rows skip the UIKit work.
+    let liveText: String?
+    let caretRequest: Int?
+    let isFocused: Bool
     let font: UIFont
     let alignment: NSTextAlignment
     let autocapitalize: UITextAutocapitalizationType
@@ -40,7 +50,7 @@ struct BlockTextView: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.smartDashesType = .no
         view.smartQuotesType = .no
-        view.text = model.currentText(block)
+        view.text = liveText ?? block.content ?? ""
         view.onDeleteBackwardAtStart = { [weak coordinator = context.coordinator] in
             coordinator?.backspaceAtStart()
         }
@@ -93,8 +103,8 @@ struct BlockTextView: UIViewRepresentable {
         // model's value is authoritative again (a split trimmed this block, a
         // merge grew it, a retype rewrote it) and must be pushed back in — even
         // if the block still holds the caret.
-        let desired = model.currentText(block)
-        if model.liveText[block.id] == nil, view.text != desired {
+        let desired = liveText ?? block.content ?? ""
+        if liveText == nil, view.text != desired {
             view.text = desired
         }
 
@@ -107,20 +117,41 @@ struct BlockTextView: UIViewRepresentable {
             view.accessibilityLabel = accessibilityLabel
         }
 
-        if model.focusedBlockId == block.id, !view.isFirstResponder {
+        if isFocused, !view.isFirstResponder {
             // A row just inserted into the LazyVStack isn't in the window during
             // its first update, so becomeFirstResponder() would silently no-op.
             // Defer until the view has joined the hierarchy.
             DispatchQueue.main.async { view.becomeFirstResponder() }
         }
 
-        if let offset = model.caretRequests[block.id] {
+        if let offset = caretRequest {
             let blockId = block.id
             DispatchQueue.main.async {
                 context.coordinator.applyCaret(offset)
                 model.caretRequests[blockId] = nil
             }
         }
+    }
+
+    /// Deterministic update-skipping for the rows a keystroke did not touch.
+    /// Wrapped in `.equatable()` at the call site: when nothing this view
+    /// draws from has changed, `updateUIView` is not called at all, so the
+    /// per-row styling and measurement stay O(1) per keystroke rather than
+    /// O(visible rows). The classes are compared by identity — the model and
+    /// autocomplete are per-script singletons, and fonts come from a cache
+    /// that hands back the same instance for the same key.
+    static func == (lhs: BlockTextView, rhs: BlockTextView) -> Bool {
+        lhs.block == rhs.block
+            && lhs.liveText == rhs.liveText
+            && lhs.caretRequest == rhs.caretRequest
+            && lhs.isFocused == rhs.isFocused
+            && lhs.font === rhs.font
+            && lhs.alignment == rhs.alignment
+            && lhs.autocapitalize == rhs.autocapitalize
+            && lhs.spellChecks == rhs.spellChecks
+            && lhs.accessibilityLabel == rhs.accessibilityLabel
+            && lhs.model === rhs.model
+            && lhs.autocomplete === rhs.autocomplete
     }
 
     private func apply(font: UIFont, alignment: NSTextAlignment,
