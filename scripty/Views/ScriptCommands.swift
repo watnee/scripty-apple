@@ -84,6 +84,10 @@ struct ScriptActions {
     var pageSetup: (() -> Void)?
     var readScript: (() -> Void)?
     var versions: (() -> Void)?
+    /// Open the editions browser — the web's ⌘⇧J "new version". Nil unless the
+    /// script has more than one edition or the writer may create one; the
+    /// client otherwise surfaced editions as a toolbar button alone.
+    var editions: (() -> Void)?
 
     /// Open the screenplay file picker — the web's ⌘⇧I Import. Nil unless the
     /// server advertises `importScript` (editors only); the client otherwise
@@ -401,6 +405,12 @@ struct ScriptCommands: Commands {
         Button("Version History") { actions?.versions?() }
             .keyboardShortcut("h", modifiers: [.command, .shift])
             .disabled(actions?.versions == nil)
+
+        // ⌘⇧J matches the web's edition/version chord; free in the client. Sits
+        // by Version History — both open other versions of the same script.
+        Button("Editions…") { actions?.editions?() }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+            .disabled(actions?.editions == nil)
 
         Divider()
         Button("Bigger Text") { settings.increaseTextSize() }
