@@ -406,6 +406,10 @@ struct ProjectsSidebarView: View {
         .fileImporter(isPresented: $showingImporter,
                       allowedContentTypes: [.json],
                       allowsMultipleSelection: false) { result in
+            if case let .failure(error) = result {
+                model.errorMessage = error.localizedDescription
+                return
+            }
             guard case let .success(urls) = result, let url = urls.first else { return }
             Task {
                 // Imported files live outside the sandbox; read them under a

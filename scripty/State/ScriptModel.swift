@@ -125,14 +125,24 @@ final class ScriptModel {
         }
     }
 
+    /// Bumped per load so a slow response can be recognised as superseded.
+    /// Switching editions fires an unmanaged load per switch; without this,
+    /// edition A's blocks can land after edition B's and the writer types
+    /// into the wrong draft.
+    private var blockLoadGeneration = 0
+
     func loadBlocks() async {
         guard let link = editionBlocksLink ?? project.link(.blocks) else { return }
+        blockLoadGeneration += 1
+        let generation = blockLoadGeneration
         do {
             let collection: HALCollection<Block> = try await app.client.fetch(from: link)
+            guard generation == blockLoadGeneration else { return }
             adopt(collection)
             adoptPersistedDrafts()
             errorMessage = nil
         } catch {
+            guard generation == blockLoadGeneration else { return }
             report(error)
         }
         await loadCommentCounts()

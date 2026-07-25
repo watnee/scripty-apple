@@ -74,6 +74,10 @@ private struct ScriptImporter: ViewModifier {
     /// Reads the picked file up front — the security scope is only valid
     /// inside this callback, so the bytes are held until the user confirms.
     private func handlePick(_ result: Result<[URL], Error>) {
+        if case let .failure(error) = result {
+            statusMessage = error.localizedDescription
+            return
+        }
         guard case let .success(urls) = result, let url = urls.first else { return }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
