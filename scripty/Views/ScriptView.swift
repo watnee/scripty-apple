@@ -728,6 +728,12 @@ struct ScriptView: View {
                     Task { await model.setAlign(focused, to: align) }
                 }
             }
+            // Commenting sits outside the edit guard, like the context menu's
+            // "Comments" entry: leaving a note needs only read access, so it is
+            // offered on any focused element, locked or not.
+            if focused.hasLink(.comments) {
+                actions.commentOnFocused = { commentTarget = focused }
+            }
             actions.copyElement = { model.copyBlocks([focused]) }
             if model.canCut(focused) && !options.isEditingLocked {
                 actions.cutElement = { Task { await model.cutBlocks([focused]) } }
