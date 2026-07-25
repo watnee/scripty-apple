@@ -405,6 +405,28 @@ struct ScriptView: View {
         .environment(\.scriptRowChrome, rowChrome)
     }
 
+    /// Word-splitting every element on every body evaluation is real work on a
+    /// feature-length script, and the bar redraws with the rest of the view —
+    /// every toast, every commit. Cached against the inputs that can change
+    /// the answer; comparing `[Block]` hits the identity fast-path between
+    /// reloads, so the check is O(1) per redraw. A static rather than @State
+    /// because body may not write view state, and the cache is presentation-
+    /// independent anyway (the fontCache precedent in EditableBlockRow).
+    @MainActor private static var wordCountMemo:
+        (blocks: [Block], showsNotes: Bool, outlineMode: Bool, words: Int)?
+
+    private var memoizedWordCount: Int {
+        if let memo = Self.wordCountMemo,
+           memo.blocks == model.blocks,
+           memo.showsNotes == options.showsNotes,
+           memo.outlineMode == settings.isOutlineMode {
+            return memo.words
+        }
+        let words = ScriptWordCount.total(in: visibleBlocks)
+        Self.wordCountMemo = (model.blocks, options.showsNotes, settings.isOutlineMode, words)
+        return words
+    }
+
     /// The elements the writer has asked to see.
     ///
     /// Two independent narrowings. Notes can be hidden because they are
@@ -476,7 +498,7 @@ struct ScriptView: View {
     @ViewBuilder
     private var wordCountBar: some View {
         if settings.showsWordCount {
-            let words = ScriptWordCount.total(in: visibleBlocks)
+            let words = memoizedWordCount
             HStack(spacing: 6) {
                 Text("\(ScriptWordCount.formatted(words)) words")
                 Text("·").foregroundStyle(.tertiary)
