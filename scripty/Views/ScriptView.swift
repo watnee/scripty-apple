@@ -73,6 +73,11 @@ struct ScriptView: View {
     @State private var toastText: String?
     @State private var toastHideTask: Task<Void, Never>?
 
+    /// Watched so pending typing is flushed (and snapshotted to disk) the
+    /// moment the app heads to the background — the debounce window may
+    /// outlive the app's execution time, and this is the writer's only copy.
+    @Environment(\.scenePhase) private var scenePhase
+
     init(app: AppModel, project: Project) {
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
@@ -135,6 +140,19 @@ struct ScriptView: View {
             await reopenRememberedEdition()
         }
         .onDisappear { model.stopSyncPolling() }
+        // Backgrounding flushes the debounced commit immediately — and stops
+        // the 5s sync poll from hitting the network while nobody is looking.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background, .inactive:
+                model.stopSyncPolling()
+                Task { await model.flushPendingCommits() }
+            case .active:
+                model.startSyncPolling()
+            @unknown default:
+                break
+            }
+        }
         // Where the writer is, kept as they go rather than only on the way out:
         // a script left open and then killed should still reopen in the right
         // place.
@@ -387,6 +405,28 @@ struct ScriptView: View {
         .environment(\.scriptRowChrome, rowChrome)
     }
 
+    /// Word-splitting every element on every body evaluation is real work on a
+    /// feature-length script, and the bar redraws with the rest of the view —
+    /// every toast, every commit. Cached against the inputs that can change
+    /// the answer; comparing `[Block]` hits the identity fast-path between
+    /// reloads, so the check is O(1) per redraw. A static rather than @State
+    /// because body may not write view state, and the cache is presentation-
+    /// independent anyway (the fontCache precedent in EditableBlockRow).
+    @MainActor private static var wordCountMemo:
+        (blocks: [Block], showsNotes: Bool, outlineMode: Bool, words: Int)?
+
+    private var memoizedWordCount: Int {
+        if let memo = Self.wordCountMemo,
+           memo.blocks == model.blocks,
+           memo.showsNotes == options.showsNotes,
+           memo.outlineMode == settings.isOutlineMode {
+            return memo.words
+        }
+        let words = ScriptWordCount.total(in: visibleBlocks)
+        Self.wordCountMemo = (model.blocks, options.showsNotes, settings.isOutlineMode, words)
+        return words
+    }
+
     /// The elements the writer has asked to see.
     ///
     /// Two independent narrowings. Notes can be hidden because they are
@@ -458,7 +498,7 @@ struct ScriptView: View {
     @ViewBuilder
     private var wordCountBar: some View {
         if settings.showsWordCount {
-            let words = ScriptWordCount.total(in: visibleBlocks)
+            let words = memoizedWordCount
             HStack(spacing: 6) {
                 Text("\(ScriptWordCount.formatted(words)) words")
                 Text("·").foregroundStyle(.tertiary)

@@ -171,11 +171,140 @@ func run() async {
     }
 
     print()
+    await checkDraftStore()
+    print()
+    await checkDraftPersistence()
+    print()
+    await checkDraftRestore()
+
+    print()
     if failures == 0 {
         print("ALL CHECKS PASSED")
     } else {
         print("\(failures) CHECK(S) FAILED")
     }
+}
+
+/// A scratch directory a store can be pointed at, wiped per case.
+func scratchDirectory(_ name: String) -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("scripty-draft-tests-\(name)-\(ProcessInfo.processInfo.processIdentifier)")
+    try? FileManager.default.removeItem(at: url)
+    return url
+}
+
+@MainActor
+func checkDraftStore() async {
+    print("== Drafts survive the store being reopened ==")
+    do {
+        let directory = scratchDirectory("roundtrip")
+        let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        store.save(UnsavedDraft(blockId: 10, text: "Kept words.", baseText: "Old.", savedAt: .now),
+                   projectId: 1)
+        store.save(UnsavedDraft(blockId: 11, text: "More words.", baseText: nil, savedAt: .now),
+                   projectId: 1)
+
+        let reopened = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        let drafts = reopened.drafts(projectId: 1)
+        checkEqual("both drafts come back", drafts.count, 2)
+        checkEqual("the text survives", drafts[10]?.text, "Kept words.")
+        checkEqual("the base survives", drafts[10]?.baseText, "Old.")
+
+        reopened.remove(blockId: 10, projectId: 1)
+        let afterRemove = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        checkEqual("a removed draft stays removed", afterRemove.drafts(projectId: 1).count, 1)
+
+        afterRemove.removeAll(projectId: 1)
+        let afterClear = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        check("removeAll empties the project", afterClear.drafts(projectId: 1).isEmpty)
+    }
+
+    print()
+    print("== One account's drafts are invisible to another ==")
+    do {
+        let directory = scratchDirectory("scopes")
+        let alice = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        let bob = UnsavedDraftStore(scope: "server|bob", directory: directory)
+        alice.save(UnsavedDraft(blockId: 10, text: "Alice's words.", baseText: nil, savedAt: .now),
+                   projectId: 1)
+        check("the other scope sees nothing", bob.drafts(projectId: 1).isEmpty)
+        checkEqual("the owner still sees the draft",
+                   UnsavedDraftStore(scope: "server|alice", directory: directory)
+                       .drafts(projectId: 1)[10]?.text,
+                   "Alice's words.")
+    }
+
+    print()
+    print("== The draft scope names the account, and only a real one ==")
+    do {
+        let signedOut = AppModel()
+        check("signed out means no scope", signedOut.draftScope == nil)
+
+        let signedIn = AppModel()
+        signedIn.client.credentials = Credentials(username: "Writer@Example.com", password: "pw")
+        check("a signed-in scope carries the account",
+              signedIn.draftScope?.hasSuffix("|writer@example.com") == true)
+    }
+}
+
+@MainActor
+func checkDraftPersistence() async {
+    print("== A failed save writes the words to disk; a landed one clears them ==")
+    let directory = scratchDirectory("persist")
+    let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
+    let model = ScriptModel(app: AppModel(), project: project, draftStore: store)
+    model.adopt(twoBlockCollection())
+    let (first, _) = blocks(model)
+
+    model.liveEdit(first, text: "First line, rewritten.")
+    await model.blur(first)
+
+    let onDisk = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        .drafts(projectId: project.id)[first.id]
+    checkEqual("the draft is on disk", onDisk?.text, "First line, rewritten.")
+    checkEqual("with the server's content as its base", onDisk?.baseText, "First line.")
+
+    // The save lands (a retry got through): the block comes back rewritten.
+    let saved = decode(Block.self, #"{"id": 10, "order": 1, "type": "ACTION", "content": "First line, rewritten."}"#)
+    model.adoptRewritten(saved)
+    check("a landed save removes the draft",
+          UnsavedDraftStore(scope: "server|alice", directory: directory)
+              .drafts(projectId: project.id)[first.id] == nil)
+}
+
+@MainActor
+func checkDraftRestore() async {
+    print("== A relaunch takes the drafts back up — but never over newer words ==")
+    let directory = scratchDirectory("restore")
+    let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
+    store.save(UnsavedDraft(blockId: 10, text: "Rewritten offline.",
+                            baseText: "First line.", savedAt: .now),
+               projectId: project.id)
+    // Stale: the server no longer matches this draft's base — someone edited
+    // that element elsewhere, so the draft must be dropped, not pushed.
+    store.save(UnsavedDraft(blockId: 11, text: "Old offline words.",
+                            baseText: "What the server used to say.", savedAt: .now),
+               projectId: project.id)
+
+    let model = ScriptModel(app: AppModel(), project: project, draftStore: store)
+    model.adopt(twoBlockCollection())
+    model.adoptPersistedDrafts()
+
+    checkEqual("the fresh draft is live again",
+               model.currentText(model.blocks[0]), "Rewritten offline.")
+    check("and flagged unsaved", model.unsavedBlockIds.contains(10))
+    checkEqual("the stale draft leaves the server's words alone",
+               model.currentText(model.blocks[1]), "Second line.")
+    check("and is gone from disk",
+          store.drafts(projectId: project.id)[11] == nil)
+
+    // A draft whose text the server already has is finished business.
+    store.save(UnsavedDraft(blockId: 11, text: "Second line.",
+                            baseText: "Second line.", savedAt: .now),
+               projectId: project.id)
+    model.adoptPersistedDrafts()
+    check("an already-saved draft is not re-adopted", !model.unsavedBlockIds.contains(11))
+    check("and is cleared from disk", store.drafts(projectId: project.id)[11] == nil)
 }
 
 await run()

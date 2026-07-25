@@ -120,8 +120,18 @@ struct PageNavigatorBar: View {
                             .fill(Color.accentColor.opacity(0.18))
                     }
                 }
+                // A 28×24 glyph is well under the 44pt touch minimum. The
+                // padding grows the tappable area and the negative outer
+                // padding gives it back, so the bar draws exactly as before —
+                // 40pt wide rather than the full 44 so 6pt-spaced neighbours
+                // only meet instead of overlapping.
+                .padding(.vertical, 10)
+                .padding(.horizontal, 6)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.vertical, -10)
+        .padding(.horizontal, -6)
         .disabled(disabled)
         .foregroundStyle(foreground(disabled: disabled, isOn: isOn))
         .accessibilityLabel(label)

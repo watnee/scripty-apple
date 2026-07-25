@@ -41,9 +41,17 @@ struct EditableBlockRow: View {
 
     var body: some View {
         BlockTextView(model: model, block: block, autocomplete: autocomplete,
+                      // Read here, not inside the representable: the row body
+                      // is cheap to re-evaluate on another block's keystroke,
+                      // the representable's UIKit work is not — and Equatable
+                      // lets untouched rows skip it entirely.
+                      liveText: model.liveText[block.id],
+                      caretRequest: model.caretRequests[block.id],
+                      isFocused: model.focusedBlockId == block.id,
                       font: uiFont, alignment: nsAlignment, autocapitalize: capitalization,
                       spellChecks: spellChecks,
                       accessibilityLabel: accessibilityDescription)
+            .equatable()
             .blockHighlight(block)
             .frame(maxWidth: columnWidth, alignment: .leading)
             // Speech is centred inside the page column rather than inside the

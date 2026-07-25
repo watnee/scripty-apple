@@ -46,6 +46,9 @@ struct ElementTypeBar: View {
                         Capsule().fill(type == block.blockType
                                        ? Color.accentColor
                                        : Color.secondary.opacity(0.15)))
+                    // The highlight is colour-only; VoiceOver needs the state
+                    // said out loud, as FormatBar's chips already do.
+                    .accessibilityAddTraits(type == block.blockType ? [.isSelected] : [])
                 }
             }
             .padding(.horizontal, 16)

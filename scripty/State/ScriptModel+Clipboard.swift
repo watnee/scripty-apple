@@ -94,6 +94,7 @@ extension ScriptModel {
         // made, which is what carries the link for the next one.
         var anchor = block
         var created = 0
+        var failure: Error?
         for item in payload {
             guard let link = anchor.link(.createBelow) else { break }
             do {
@@ -107,14 +108,25 @@ extension ScriptModel {
             } catch {
                 // Stop at the first failure rather than pressing on: the rest
                 // of the passage would arrive out of order under a gap.
-                report(error)
+                failure = error
                 break
             }
         }
 
+        // Refresh first — a successful load clears errorMessage — and only
+        // then surface the failure, so a paste that landed partway doesn't
+        // wipe its own alert and read as a silently truncated passage.
         if created > 0 {
             await loadBlocks()
             await refreshUndoRedo()
+        }
+        if let failure {
+            report(failure)
+            if created > 0 {
+                errorMessage = "Pasted \(created) of \(payload.count) elements. "
+                    + failure.localizedDescription
+            }
+        } else if created > 0 {
             errorMessage = nil
         }
         return created

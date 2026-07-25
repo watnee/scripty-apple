@@ -26,6 +26,18 @@ final class ScriptAutocomplete {
     /// by the very next keystroke, or by nothing at all.
     private var dismissedFor: String?
 
+    /// The harvested source lists, cached across keystrokes. Building them
+    /// walks the whole script with locale-aware compares — real work on a
+    /// feature-length draft — and their inputs only change when the script
+    /// reloads or the cast does. Comparing `[Block]`/`[Person]` hits the
+    /// identity fast-path, so the staleness check is O(1) per keystroke.
+    /// Ignored by observation: a cache refresh is not a redraw.
+    @ObservationIgnored private var memoBlocks: [Block] = []
+    @ObservationIgnored private var memoCharacters: [Person] = []
+    @ObservationIgnored private var memoCueNames: [(name: String, personId: Int?)] = []
+    @ObservationIgnored private var memoHeadings: [String] = []
+    @ObservationIgnored private var hasMemo = false
+
     var isOpen: Bool { blockId != nil && !suggestions.isEmpty }
 
     var selected: ScriptSuggestion? {
@@ -45,8 +57,16 @@ final class ScriptAutocomplete {
         }
         dismissedFor = nil
 
+        if !hasMemo || blocks != memoBlocks || characters != memoCharacters {
+            memoBlocks = blocks
+            memoCharacters = characters
+            memoCueNames = ScriptSuggestions.cueNames(blocks: blocks, characters: characters)
+            memoHeadings = ScriptSuggestions.sceneHeadings(in: blocks)
+            hasMemo = true
+        }
         let fresh = ScriptSuggestions.suggestions(forText: text, type: type,
-                                                  blocks: blocks, characters: characters)
+                                                  cueNames: memoCueNames,
+                                                  headings: memoHeadings)
         // Keep the writer's place when the list is unchanged — a keystroke that
         // narrows nothing shouldn't move the highlight off what they were
         // about to accept.

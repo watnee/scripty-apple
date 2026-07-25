@@ -14,9 +14,10 @@ struct ScriptStatsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    private var stats: ScriptStats { model.stats }
-
     var body: some View {
+        // Computed once per evaluation: building ScriptStats walks the whole
+        // script, and the sections below read it dozens of times.
+        let stats = model.stats
         NavigationStack {
             Group {
                 if stats.hasNothingToMeasure {
@@ -25,7 +26,7 @@ struct ScriptStatsView: View {
                         systemImage: "chart.bar",
                         description: Text("Start writing and your stats will show up here."))
                 } else {
-                    statsList
+                    statsList(stats)
                 }
             }
             .navigationTitle("Script Stats")
@@ -38,15 +39,15 @@ struct ScriptStatsView: View {
         }
     }
 
-    private var statsList: some View {
+    private func statsList(_ stats: ScriptStats) -> some View {
         List {
             Section {
-                tiles
+                tiles(stats)
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
             }
 
             if stats.dialogueWords > 0 || stats.actionWords > 0 {
-                Section("Dialogue vs. Action") { balance }
+                Section("Dialogue vs. Action") { balance(stats) }
             }
 
             if !stats.characters.isEmpty {
@@ -84,7 +85,7 @@ struct ScriptStatsView: View {
 
     /// Adaptive so the row reads as one wide strip on iPad and wraps to two
     /// columns at phone width.
-    private var tiles: some View {
+    private func tiles(_ stats: ScriptStats) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
             tile(value: stats.pageEstimate.formatted(), label: "Estimated pages",
                  hint: "~\(stats.pageEstimate) min screen time")
@@ -124,7 +125,7 @@ struct ScriptStatsView: View {
 
     // MARK: - Balance
 
-    private var balance: some View {
+    private func balance(_ stats: ScriptStats) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             GeometryReader { geometry in
                 HStack(spacing: 0) {

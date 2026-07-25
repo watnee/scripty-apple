@@ -113,6 +113,45 @@ do {
 }
 
 print("")
+print("The harvested lists, and the fast path through them")
+do {
+    // The dedupe: a cast name and a script cue differing in case are one
+    // entry, spelled the way it was seen first, and a cue harvested before
+    // the cast record still learns its id from it.
+    let mixed = [
+        block(1, "CHARACTER", "maya"),
+        block(2, "CHARACTER", "Maya"),
+        block(3, "CHARACTER", "THE STRANGER")
+    ]
+    let names = ScriptSuggestions.cueNames(blocks: mixed, characters: cast)
+    check("case-differing cues collapse to one entry, cast spelling first",
+          names.map(\.name), ["MARCUS", "MAYA", "THE STRANGER"])
+
+    // A cue harvested before anyone linked it keeps its first-seen spelling
+    // and learns its id from the later, linked occurrence.
+    let learned = ScriptSuggestions.cueNames(
+        blocks: [block(1, "CHARACTER", "maya"), block(2, "CHARACTER", "Maya", personId: 7)],
+        characters: [])
+    check("an unlinked cue keeps its spelling", learned.map(\.name), ["maya"])
+    check("and learns its id from a later linked cue",
+          learned.first?.personId, Optional(7))
+
+    // The precomputed-list overload is the same function by another door.
+    for (text, type) in [("", BlockType.character), ("MA", .character), ("MA", .action),
+                         ("", .scene), ("INT. ", .scene), ("INT. BAR - NI", .scene),
+                         ("@M", .action), ("You di", .dialogue)] {
+        let direct = ScriptSuggestions.suggestions(forText: text, type: type,
+                                                   blocks: script, characters: cast)
+        let precomputed = ScriptSuggestions.suggestions(
+            forText: text, type: type,
+            cueNames: ScriptSuggestions.cueNames(blocks: script, characters: cast),
+            headings: ScriptSuggestions.sceneHeadings(in: script))
+        check("precomputed lists answer identically for \"\(text)\" as \(type)",
+              precomputed, direct)
+    }
+}
+
+print("")
 if failures == 0 {
     print("Autocomplete checks passed.")
     exit(0)

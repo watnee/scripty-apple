@@ -68,9 +68,10 @@ struct ScriptOutlineView: View {
         }
     }
 
-    private var outline: ScriptOutline { model.outline }
-
     var body: some View {
+        // Computed once per evaluation: building the outline walks the whole
+        // script, and the tabs below read it several times.
+        let outline = model.outline
         NavigationStack {
             VStack(spacing: 0) {
                 Picker("View", selection: $tab) {
@@ -88,7 +89,7 @@ struct ScriptOutlineView: View {
                     options?.rememberOutlineTab(newTab.rawValue)
                 }
 
-                list
+                list(outline)
             }
             .navigationTitle(tab.label)
             .navigationBarTitleDisplayMode(.inline)
@@ -101,7 +102,7 @@ struct ScriptOutlineView: View {
     }
 
     @ViewBuilder
-    private var list: some View {
+    private func list(_ outline: ScriptOutline) -> some View {
         switch tab {
         case .outline:
             rows(outline.entries, empty: tab.emptyMessage) { entry in
