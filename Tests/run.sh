@@ -20,10 +20,21 @@ SHARED=(
     "$SRC/HAL/Rel.swift"
 )
 
+# Match the app's build settings (SWIFT_VERSION = 5.0, SWIFT_DEFAULT_ACTOR_ISOLATION
+# = MainActor, SWIFT_APPROACHABLE_CONCURRENCY = YES): without these, the same
+# sources compile under a *different* actor-isolation default here than in the
+# product, so the checks could pass against semantics the app doesn't have.
+FLAGS=(
+    -swift-version 5
+    -default-isolation MainActor
+    -enable-upcoming-feature NonisolatedNonsendingByDefault
+    -enable-upcoming-feature InferIsolatedConformances
+)
+
 status=0
 
 echo "== ScriptStats / ScriptOutline =="
-swiftc -o "$BUILD/stats" \
+swiftc "${FLAGS[@]}" -o "$BUILD/stats" \
     "$SRC/Models/Block.swift" \
     "$SRC/Models/ScriptStats.swift" \
     "$SRC/Models/ScriptOutline.swift" \
@@ -33,7 +44,7 @@ swiftc -o "$BUILD/stats" \
 
 echo
 echo "== Screenplay pagination =="
-swiftc -o "$BUILD/pagination" \
+swiftc "${FLAGS[@]}" -o "$BUILD/pagination" \
     "$SRC/Models/Block.swift" \
     "$SRC/Models/ScreenplayLayout.swift" \
     "$SRC/Models/PageSetup.swift" \
@@ -44,7 +55,7 @@ swiftc -o "$BUILD/pagination" \
 
 echo
 echo "== Element clipboard =="
-swiftc -o "$BUILD/clipboard" \
+swiftc "${FLAGS[@]}" -o "$BUILD/clipboard" \
     "$SRC/Models/Block.swift" \
     "$SRC/Models/ScriptClipboard.swift" \
     "$SRC/Models/FountainDetect.swift" \
@@ -54,7 +65,7 @@ swiftc -o "$BUILD/clipboard" \
 
 echo
 echo "== Fountain detection =="
-swiftc -o "$BUILD/fountain" \
+swiftc "${FLAGS[@]}" -o "$BUILD/fountain" \
     "$SRC/Models/Block.swift" \
     "$SRC/Models/ScriptClipboard.swift" \
     "$SRC/Models/FountainDetect.swift" \
@@ -64,14 +75,14 @@ swiftc -o "$BUILD/fountain" \
 
 echo
 echo "== Note formatting =="
-swiftc -o "$BUILD/notes" \
+swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
     "$SRC/Models/NoteFormatting.swift" \
     "$ROOT/Tests/NoteFormatting/main.swift"
 "$BUILD/notes" || status=1
 
 echo
 echo "== Autocomplete =="
-swiftc -o "$BUILD/suggestions" \
+swiftc "${FLAGS[@]}" -o "$BUILD/suggestions" \
     "$SRC/Models/Block.swift" \
     "$SRC/Models/Person.swift" \
     "$SRC/Models/ScriptSuggestions.swift" \
@@ -81,7 +92,7 @@ swiftc -o "$BUILD/suggestions" \
 
 echo
 echo "== Script view options =="
-swiftc -o "$BUILD/viewoptions" \
+swiftc "${FLAGS[@]}" -o "$BUILD/viewoptions" \
     "$SRC/State/ScriptViewOptions.swift" \
     "$SRC/State/SongWorkspaceOpenState.swift" \
     "$ROOT/Tests/ViewOptions/main.swift"
@@ -89,7 +100,7 @@ swiftc -o "$BUILD/viewoptions" \
 
 echo
 echo "== Presentation / appearance settings =="
-swiftc -o "$BUILD/viewsettings" \
+swiftc "${FLAGS[@]}" -o "$BUILD/viewsettings" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/AppearanceSettings.swift" \
     "$SRC/State/SpellcheckDictionary.swift" \
@@ -101,8 +112,18 @@ swiftc -o "$BUILD/viewsettings" \
 "$BUILD/viewsettings" || status=1
 
 echo
+echo "== Search and selection =="
+swiftc "${FLAGS[@]}" -o "$BUILD/statelogic" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/State/ScriptSearchModel.swift" \
+    "$SRC/State/BlockSelectionModel.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/StateLogic/main.swift"
+"$BUILD/statelogic" || status=1
+
+echo
 echo "== Demo backend API contract =="
-swiftc -o "$BUILD/api" \
+swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/API/APIClient.swift" \
@@ -116,7 +137,7 @@ swiftc -o "$BUILD/api" \
 
 echo
 echo "== Unsaved work survives a failed save =="
-swiftc -o "$BUILD/unsaved" \
+swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/API/APIClient.swift" \
     "$SRC/API/APIError.swift" \
     "$SRC/API/AppConfig.swift" \
