@@ -71,21 +71,33 @@ enum ScriptSuggestions {
                             type: BlockType,
                             blocks: [Block],
                             characters: [Person]) -> [ScriptSuggestion] {
+        suggestions(forText: text, type: type,
+                    cueNames: cueNames(blocks: blocks, characters: characters),
+                    headings: sceneHeadings(in: blocks))
+    }
+
+    /// The same answer from precomputed source lists. Harvesting the cast and
+    /// the headings walks the whole script, and the walk's inputs only change
+    /// when the script reloads — the caller (`ScriptAutocomplete`) caches them
+    /// across keystrokes rather than re-walking per character typed.
+    static func suggestions(forText text: String,
+                            type: BlockType,
+                            cueNames: [(name: String, personId: Int?)],
+                            headings: [String]) -> [ScriptSuggestion] {
         // Only ever completes a single line: once a line has been broken, the
         // writer is composing rather than naming something.
         guard !text.contains("\n") else { return [] }
 
         let forcedCue = text.trimmingCharacters(in: .whitespaces).hasPrefix("@")
         if type == .scene || (!forcedCue && looksLikeSceneTyping(text, type: type)) {
-            let scene = sceneSuggestions(forText: text, type: type, blocks: blocks)
+            let scene = sceneSuggestions(forText: text, type: type, headings: headings)
             if !scene.isEmpty { return scene }
             // A scene element with nothing to offer stops here rather than
             // falling through: an empty heading is not a character cue.
             if type == .scene { return [] }
         }
         if type.isCharacterCue || type == .action {
-            return cueSuggestions(forText: text, type: type,
-                                  blocks: blocks, characters: characters)
+            return cueSuggestions(forText: text, type: type, entries: cueNames)
         }
         return []
     }
@@ -97,17 +109,21 @@ enum ScriptSuggestions {
     /// before anyone creates them.
     static func cueNames(blocks: [Block], characters: [Person]) -> [(name: String, personId: Int?)] {
         var entries: [(name: String, personId: Int?)] = []
+        // Dedupe by index rather than a linear scan per cue: a long script
+        // repeats its cues hundreds of times, and scanning the growing list
+        // for each made this quadratic in locale-aware compares.
+        var position: [String: Int] = [:]
 
         func upsert(_ name: String, _ personId: Int?) {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            if let index = entries.firstIndex(where: {
-                $0.name.caseInsensitiveCompare(trimmed) == .orderedSame
-            }) {
+            let key = trimmed.lowercased()
+            if let index = position[key] {
                 // A name harvested from the script first learns its id later.
                 if entries[index].personId == nil { entries[index].personId = personId }
                 return
             }
+            position[key] = entries.count
             entries.append((trimmed, personId))
         }
 
@@ -124,8 +140,7 @@ enum ScriptSuggestions {
 
     private static func cueSuggestions(forText text: String,
                                        type: BlockType,
-                                       blocks: [Block],
-                                       characters: [Person]) -> [ScriptSuggestion] {
+                                       entries: [(name: String, personId: Int?)]) -> [ScriptSuggestion] {
         let forced = text.trimmingCharacters(in: .whitespaces).hasPrefix("@")
         var query = text
         if forced { query = String(query.drop(while: { $0 == " " }).dropFirst()) }
@@ -135,7 +150,6 @@ enum ScriptSuggestions {
         // marker or enough letters to be a deliberate name.
         if type == .action && !forced && query.count < 2 { return [] }
 
-        let entries = cueNames(blocks: blocks, characters: characters)
         let matches = rank(query, in: entries.map(\.name))
         // The one thing already typed in full is not a suggestion.
         if matches.count == 1,
@@ -165,7 +179,7 @@ enum ScriptSuggestions {
 
     private static func sceneSuggestions(forText text: String,
                                          type: BlockType,
-                                         blocks: [Block]) -> [ScriptSuggestion] {
+                                         headings: [String]) -> [ScriptSuggestion] {
         guard looksLikeSceneTyping(text, type: type) else { return [] }
 
         var query = text.replacingOccurrences(of: "\u{00a0}", with: " ")
@@ -173,7 +187,6 @@ enum ScriptSuggestions {
             query = String(query.dropFirst().drop(while: { $0 == " " }))
         }
 
-        let headings = sceneHeadings(in: blocks)
         var names: [String] = []
 
         // Each stage owns the line once the writer reaches it: a query with
@@ -207,7 +220,8 @@ enum ScriptSuggestions {
         }
     }
 
-    private static func sceneHeadings(in blocks: [Block]) -> [String] {
+    /// Internal so the caching layer can precompute it alongside `cueNames`.
+    static func sceneHeadings(in blocks: [Block]) -> [String] {
         var seen = Set<String>()
         return blocks
             .filter { $0.blockType == .scene }
