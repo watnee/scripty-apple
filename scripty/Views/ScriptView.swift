@@ -22,6 +22,11 @@ struct ScriptView: View {
     @State private var showingRead = false
     @State private var showingPageSetup = false
     @State private var showingVersions = false
+    /// Drives the screenplay file picker. Set by the toolbar's Import button
+    /// and the File menu's "Import Script…" command (⌘⇧I); the importer's
+    /// machinery hangs off the always-present `.scriptImporter` modifier, so
+    /// the menu route works even in focus mode, where the toolbar button is gone.
+    @State private var showingScriptImporter = false
     /// Presented from the link the block collection advertised.
     @State private var trashLink: HALLink?
     @State private var showingEditions = false
@@ -237,6 +242,15 @@ struct ScriptView: View {
         }
         .sheet(isPresented: $showingIgnoredWords) {
             SpellcheckWordsView()
+        }
+        // Importing replaces every element, so the picker, its destructive
+        // confirmation and the result all live here rather than on the toolbar
+        // button — the File menu's ⌘⇧I opens the same picker, focus mode or not.
+        .scriptImporter(app: model.app, project: model.project,
+                        isPresented: $showingScriptImporter) { updated in
+            model.adopt(updated)
+            await model.loadBlocks()
+            await model.refreshUndoRedo()
         }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {}
@@ -690,6 +704,11 @@ struct ScriptView: View {
             actions.addElement = { Task { await model.appendBlock() } }
         }
         actions.titlePage = { showingTitlePage = true }
+        // Import is offered wherever the server advertises it (editors only),
+        // matching the toolbar button; the menu reaches it even in focus mode.
+        if model.project.hasLink(.importScript) {
+            actions.importScript = { showingScriptImporter = true }
+        }
         actions.ignoredWords = { showingIgnoredWords = true }
         actions.pageSetup = { showingPageSetup = true }
         actions.exporter = model.exportOptions.isEmpty ? nil : exporter
@@ -885,10 +904,12 @@ struct ScriptView: View {
                     }
                 }
 
-                ScriptImportButton(app: model.app, project: model.project) { updated in
-                    model.adopt(updated)
-                    await model.loadBlocks()
-                    await model.refreshUndoRedo()
+                if model.project.hasLink(.importScript) {
+                    Button {
+                        showingScriptImporter = true
+                    } label: {
+                        Label("Import Script", systemImage: "square.and.arrow.down.on.square")
+                    }
                 }
             }
         }
