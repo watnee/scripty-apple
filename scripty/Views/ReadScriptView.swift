@@ -77,6 +77,13 @@ struct ReadScriptView: View {
         }
     }
 
+    /// Display case for a rendered element, honouring the auto-caps preference
+    /// the way the editor does — the reader transforms on display instead of
+    /// forcing caps, so a toggled-off scene/cue/transition reads in typed case.
+    private func cased(_ text: String, _ block: Block) -> String {
+        CapitalizationSettings.shared.displayCased(text, forBlockType: block.blockType)
+    }
+
     @ViewBuilder
     private func row(_ block: Block, isFirst: Bool) -> some View {
         let text = displayText(for: block)
@@ -87,7 +94,7 @@ struct ReadScriptView: View {
                 if !isFirst {
                     Divider().padding(.bottom, 16)
                 }
-                Text(text.uppercased())
+                Text(cased(text, block))
                     .font(.system(size: 17 * scale, weight: .bold, design: .serif))
                     .tracking(0.7)
                     // Read back in its written case: VoiceOver spells out
@@ -107,7 +114,7 @@ struct ReadScriptView: View {
                 .padding(.bottom, 12)
 
         case .character, .dualDialogue:
-            Text(text.uppercased())
+            Text(cased(text, block))
                 .font(.system(size: 16 * scale, weight: .bold, design: .serif))
                 .tracking(0.9)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -127,7 +134,7 @@ struct ReadScriptView: View {
                 .padding(.bottom, 14)
 
         case .transition:
-            prose(text.uppercased(), block: block)
+            prose(cased(text, block), block: block)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.vertical, 10)
 
