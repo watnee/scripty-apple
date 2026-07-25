@@ -53,6 +53,18 @@ final class CapitalizationSettings {
         return isOn(element)
     }
 
+    /// The case a rendered element should show: the per-type uppercase the
+    /// web performs with a CSS `text-transform`, applied only where the
+    /// preference is on. The read-only surfaces (Page View, the reader, locked
+    /// rows) call this instead of forcing `.uppercased()`, so a toggled-off
+    /// element reads in its typed case there the way it already does in the
+    /// editor — the editor bakes the case as you type, these views cannot, so
+    /// they transform on display instead. Read from a SwiftUI `body` so
+    /// flipping a toggle redraws every visible line.
+    func displayCased(_ content: String, forBlockType type: BlockType) -> String {
+        isOn(forBlockType: type) ? content.uppercased() : content
+    }
+
     static func element(for type: BlockType) -> CapitalizedElement? {
         switch type {
         case .scene: return .scene

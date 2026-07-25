@@ -243,17 +243,25 @@ struct BlockRowView: View {
         }
     }
 
+    /// The read-only case for this block's text: the web's per-element caps as
+    /// a display transform, honouring the same auto-caps preference the editor
+    /// obeys while typing. A bare `.uppercased()` would force a toggled-off
+    /// element to caps here even though the editor leaves it in typed case.
+    private func cased(_ content: String) -> String {
+        CapitalizationSettings.shared.displayCased(content, forBlockType: block.blockType)
+    }
+
     @ViewBuilder
     private var elementView: some View {
         switch block.blockType {
         case .scene:
-            styledText(displayContent.uppercased())
+            styledText(cased(displayContent))
                 .fontWeight(.bold)
                 .frame(maxWidth: .infinity, alignment: alignment)
                 .padding(.top, 18)
 
         case .character, .dualDialogue:
-            styledText(displayContent.uppercased())
+            styledText(cased(displayContent))
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, 10)
 
@@ -269,12 +277,12 @@ struct BlockRowView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
         case .transition:
-            styledText(displayContent.uppercased())
+            styledText(cased(displayContent))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, 10)
 
         case .shot:
-            styledText(displayContent.uppercased())
+            styledText(cased(displayContent))
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: alignment)
                 .padding(.top, 10)

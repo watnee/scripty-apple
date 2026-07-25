@@ -391,7 +391,7 @@ struct ScreenplaySheetRow: View {
         }
         switch type {
         case .scene, .character, .dualDialogue, .transition, .shot:
-            return content.uppercased()
+            return CapitalizationSettings.shared.displayCased(content, forBlockType: type)
         case .parenthetical:
             return content.hasPrefix("(") ? content : "(\(content))"
         default:
