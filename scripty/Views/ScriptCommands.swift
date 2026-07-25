@@ -53,6 +53,14 @@ struct ScriptActions {
     var cutElement: (() -> Void)?
     var pasteElements: (() -> Void)?
 
+    /// Open the comment thread on the focused element — the web's ⌘⌥M
+    /// ("comments on the block you are editing"), deliberately reachable while
+    /// typing rather than on the ⌘⇧ family, because commenting on the line you
+    /// are writing is the main use case. Nil unless a block is focused;
+    /// commenting needs only read access, so this is offered for any focused
+    /// element (every block advertises `comments`), locked or not.
+    var commentOnFocused: (() -> Void)?
+
     /// The View menu's per-project display toggles — Pins, Bookmarks, Element
     /// Labels and the editing lock, which the web binds to ⌘⇧N / ⌘⇧B / ⌘⇧U /
     /// ⌘⇧Q (`toolbar-shortcuts.js`) and the client otherwise offered only as
@@ -155,6 +163,13 @@ struct ScriptCommands: Commands {
             Button("Paste Elements Below") { actions?.pasteElements?() }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(actions?.pasteElements == nil)
+            Divider()
+            // ⌘⌥M, not a ⌘⇧ chord: the web deliberately puts comments there so
+            // it fires while the caret is still in the block ("comments on the
+            // block you are editing"). Opens the thread on the focused element.
+            Button("Comment on Element…") { actions?.commentOnFocused?() }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+                .disabled(actions?.commentOnFocused == nil)
         }
 
         CommandGroup(after: .undoRedo) {
