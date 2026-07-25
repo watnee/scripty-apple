@@ -36,6 +36,19 @@ struct NoteTextView: UIViewRepresentable {
     /// Whether misspellings are underlined, following the same device-wide
     /// preference the script editor honours.
     var spellChecks = true
+    /// The writer's chosen type size, the same `scripty-text-size` preference
+    /// the script and lyric surfaces honour. Passed in rather than read from
+    /// an environment: the editor lives in a sheet the script view's
+    /// environment does not reach.
+    var textScale: Double = 1.0
+
+    /// Sized by the preference, then scaled again by the system's Dynamic
+    /// Type setting — prose notes have no Courier-fidelity excuse to ignore
+    /// either.
+    private var scaledFont: UIFont {
+        UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: .monospacedSystemFont(ofSize: 16 * textScale, weight: .regular))
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -45,7 +58,8 @@ struct NoteTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        view.font = .monospacedSystemFont(ofSize: 16, weight: .regular)
+        view.font = scaledFont
+        view.adjustsFontForContentSizeCategory = true
         view.autocapitalizationType = .sentences
         view.text = text
         view.onKey = { [weak coordinator = context.coordinator] key in
@@ -67,6 +81,11 @@ struct NoteTextView: UIViewRepresentable {
         // to the end, which mid-sentence would be maddening.
         if view.text != text { view.text = text }
         if view.isEditable != isEditable { view.isEditable = isEditable }
+
+        // Only when the size preference really moved — reassigning the font
+        // re-lays-out the whole text.
+        let font = scaledFont
+        if view.font?.pointSize != font.pointSize { view.font = font }
 
         let checking: UITextSpellCheckingType = spellChecks ? .yes : .no
         if view.spellCheckingType != checking {

@@ -64,7 +64,8 @@ struct SongEditorView: View {
                     NoteTextView(text: $content,
                                  controller: formatting,
                                  isEditable: canEdit,
-                                 spellChecks: settings.isSpellcheckEnabled)
+                                 spellChecks: settings.isSpellcheckEnabled,
+                                 textScale: settings.textScale)
                         .frame(minHeight: 260)
                         .overlay(alignment: .topLeading) {
                             if content.isEmpty {
