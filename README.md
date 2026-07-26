@@ -193,6 +193,29 @@ id, and a build number it has not seen — hence the timestamp default.
 but it only installs on devices whose UDIDs are already registered at
 developer.apple.com > Devices.
 
+## The Home Screen menu
+
+Press and hold the app icon and four entries come up:
+
+| Entry              | Where it lands                                          |
+| ------------------ | ------------------------------------------------------- |
+| **Songs**          | The songs list of your default screenplay               |
+| **Notes**          | The notes list of the same one                          |
+| The last two screenplays you edited | That screenplay, open                   |
+
+"Your default screenplay" is the one starred in the projects list; with none
+starred it is whichever you edited last. The two named screenplays are
+republished every time the list loads, so they follow your writing rather than
+whatever was there on the day you installed it.
+
+Four is the most iOS will show, which is why two screenplays are named and not
+three. Songs and Notes are declared in
+[Info.plist](scripty/Info.plist) so they are there on a fresh install; the rest
+of the wiring is in [QuickAction.swift](scripty/Models/QuickAction.swift) and
+[QuickActions.swift](scripty/State/QuickActions.swift). The demo names no
+screenplays — its projects only exist while it is running, so an entry for one
+could only ever fail — and signing out takes them back off.
+
 ## Which server it talks to
 
 By default the app uses the hosted backend in

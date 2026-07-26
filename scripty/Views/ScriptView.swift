@@ -11,9 +11,18 @@
 import SwiftUI
 
 struct ScriptView: View {
+    /// A list the Home Screen menu asked for, waiting to be opened. Written
+    /// back to nil once it has been, so the sheet does not reopen every time
+    /// this view is rebuilt.
+    @Binding var openingDocuments: DocumentType?
+
     @State private var model: ScriptModel
     @State private var showingCharacters = false
     @State private var showingSongs = false
+    /// Which of the two lists the Songs & Notes sheet opens on. The toolbar
+    /// button leaves it at songs, as the sheet has always opened; a Notes quick
+    /// action is the only thing that says otherwise.
+    @State private var songsListType: DocumentType = .song
     @State private var showingTitlePage = false
     @State private var showingOutline = false
     @State private var showingStats = false
@@ -78,7 +87,8 @@ struct ScriptView: View {
     /// outlive the app's execution time, and this is the writer's only copy.
     @Environment(\.scenePhase) private var scenePhase
 
-    init(app: AppModel, project: Project) {
+    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentType?>) {
+        _openingDocuments = openingDocuments
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
         _editions = State(initialValue: EditionsModel(app: app, project: project))
@@ -252,7 +262,22 @@ struct ScriptView: View {
             CharactersView(model: model)
         }
         .sheet(isPresented: $showingSongs) {
-            SongsView(model: model)
+            SongsView(model: model, listType: songsListType)
+        }
+        // A Songs or Notes quick action, now that the screenplay it settled on
+        // is the one on screen. `initial` is what catches the tap that opened
+        // this project — that was decided before this view existed — while the
+        // change itself catches a tap for the screenplay already open.
+        //
+        // A project whose links offer no documents drops the request rather
+        // than opening an empty sheet; the toolbar hides the button on the
+        // same test.
+        .onChange(of: openingDocuments, initial: true) { _, requested in
+            guard let requested else { return }
+            openingDocuments = nil
+            guard model.canViewDocuments else { return }
+            songsListType = requested
+            showingSongs = true
         }
         .sheet(isPresented: $showingTitlePage) {
             TitlePageView(app: model.app, project: model.project) { updated in
@@ -923,6 +948,9 @@ struct ScriptView: View {
 
             if model.canViewDocuments && !settings.isFocusMode {
                 Button {
+                    // Songs, whatever a quick action last asked for — this
+                    // button has always opened the sheet on that list.
+                    songsListType = .song
                     showingSongs = true
                 } label: {
                     Label("Songs & Notes", systemImage: "music.note.list")

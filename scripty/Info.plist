@@ -21,6 +21,38 @@
 		<string>CourierPrime-BoldItalic.ttf</string>
 	</array>
 
+	<!-- The fixed half of the Home Screen's long-press menu. Songs and Notes are
+	     declared here rather than published at runtime so they are offered on a
+	     fresh install, before the app has ever launched and had the chance to
+	     say anything about itself. The recent projects join them from
+	     QuickActions.publishRecents, and iOS lists the static pair first.
+
+	     The type strings have to match QuickAction.ItemType. A disagreement
+	     builds cleanly and shows up only as a menu entry that does nothing. -->
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>scripty.songs</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Songs</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>In your default screenplay</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>music.note.list</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>scripty.notes</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Notes</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>In your default screenplay</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>note.text</string>
+		</dict>
+	</array>
+
 	<!-- scripty://demo launches the offline demo (e.g. from a Shortcut). -->
 	<key>CFBundleURLTypes</key>
 	<array>
