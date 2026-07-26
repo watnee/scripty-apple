@@ -362,6 +362,12 @@ struct ProjectsSidebarView: View {
         .navigationSubtitle(countSubtitle)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
         .refreshable { await model.refresh() }
+        .safeAreaInset(edge: .bottom, spacing: 0) { offlineFooter }
+        // The connection is back — trade the offline copy for the real list.
+        .onChange(of: app.connectivity.isOnline) { _, online in
+            guard online else { return }
+            Task { await model.refresh() }
+        }
         .toolbar { toolbar }
         .toolbar { selectionToolbar }
         .sheet(isPresented: $showingPreferences) {
@@ -434,6 +440,34 @@ struct ProjectsSidebarView: View {
         Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } })
+    }
+
+    /// Says the list on screen is the copy saved on this device, and how old
+    /// it is — an out-of-date list should not look current. Only shown when
+    /// the fallback actually happened, not merely because the radio is off.
+    @ViewBuilder
+    private var offlineFooter: some View {
+        if let savedAt = model.offlineCopySavedAt {
+            HStack(spacing: 6) {
+                Image(systemName: "wifi.slash")
+                    .font(.caption)
+                Text("Offline — projects saved "
+                     + savedAt.formatted(.relative(presentation: .named)))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+            .overlay(alignment: .top) { Divider() }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Offline. Showing the projects saved on this device "
+                                + savedAt.formatted(.relative(presentation: .named)) + ".")
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     /// The archive narrowed to the ticked screenplays. A single one comes back

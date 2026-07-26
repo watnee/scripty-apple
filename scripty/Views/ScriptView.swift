@@ -140,6 +140,13 @@ struct ScriptView: View {
             await reopenRememberedEdition()
         }
         .onDisappear { model.stopSyncPolling() }
+        // The connection came back: push the words held on this device right
+        // away rather than waiting out each block's retry backoff, then pull
+        // whatever changed elsewhere. Mirrors the web's sync-on-reconnect.
+        .onChange(of: model.app.connectivity.isOnline) { _, online in
+            guard online else { return }
+            Task { await model.connectionRestored() }
+        }
         // Backgrounding flushes the debounced commit immediately — and stops
         // the 5s sync poll from hitting the network while nobody is looking.
         .onChange(of: scenePhase) { _, phase in
@@ -282,36 +289,68 @@ struct ScriptView: View {
     /// up on every keystroke: the writing is safe and a retry is already in
     /// flight, so the honest thing to do is say so quietly and keep out of the
     /// way rather than demand a tap before the next word can be typed.
+    /// Whether the device has no route to the network. The demo works with no
+    /// connection at all, so it never wears the offline label.
+    private var isOffline: Bool {
+        !model.app.connectivity.isOnline && !model.app.isDemo
+    }
+
     @ViewBuilder
     private var unsavedBanner: some View {
-        if model.hasUnsavedChanges {
-            let count = model.unsavedBlockIds.count
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
-                    .font(.caption)
-                Text("Not saved yet")
-                    .fontWeight(.medium)
-                Text("· \(count) " + (count == 1 ? "element" : "elements")
-                     + " kept on this device")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .font(.footnote)
-            .foregroundStyle(.orange)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity)
-            .background(.orange.opacity(0.12))
-            .overlay(alignment: .bottom) { Divider() }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(
-                "\(count) " + (count == 1 ? "element is" : "elements are")
-                + " not saved to the server yet. Your work is kept on this device "
-                + "and will be saved when the connection returns.")
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .animation(.snappy(duration: 0.2), value: count)
+        let count = model.unsavedBlockIds.count
+        if isOffline {
+            heldWorkBanner(
+                icon: "wifi.slash",
+                title: "You're offline",
+                detail: count > 0
+                    ? "· \(count) " + (count == 1 ? "element" : "elements")
+                      + " kept on this device"
+                    : "— edits are kept on this device and sync when you're back online",
+                count: count,
+                accessibility: count > 0
+                    ? "You're offline. \(count) " + (count == 1 ? "element is" : "elements are")
+                      + " kept on this device and will sync when you're back online."
+                    : "You're offline. Edits are kept on this device and sync when "
+                      + "you're back online.")
+        } else if model.hasUnsavedChanges {
+            heldWorkBanner(
+                icon: "arrow.trianglehead.2.clockwise.rotate.90",
+                title: "Not saved yet",
+                detail: "· \(count) " + (count == 1 ? "element" : "elements")
+                    + " kept on this device",
+                count: count,
+                accessibility:
+                    "\(count) " + (count == 1 ? "element is" : "elements are")
+                    + " not saved to the server yet. Your work is kept on this device "
+                    + "and will be saved when the connection returns.")
         }
+    }
+
+    /// The one look both banner states share: a quiet amber strip under the
+    /// toolbar. Which state is on it is just words and an icon.
+    private func heldWorkBanner(icon: String, title: String, detail: String,
+                                count: Int, accessibility: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+            Text(title)
+                .fontWeight(.medium)
+            Text(detail)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .font(.footnote)
+        .foregroundStyle(.orange)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity)
+        .background(.orange.opacity(0.12))
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibility)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .animation(.snappy(duration: 0.2), value: count)
     }
 
     /// Says which edition is open, but only when it is not the default one.

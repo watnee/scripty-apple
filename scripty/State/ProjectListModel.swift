@@ -15,6 +15,12 @@ final class ProjectListModel {
     private(set) var isLoading = false
     var errorMessage: String?
 
+    /// Set when the list on screen is the offline copy rather than the
+    /// server's answer, with when that copy was saved — the sidebar's footer
+    /// says so, since an out-of-date list should not look current.
+    private(set) var offlineCopySavedAt: Date?
+    var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
+
     init(app: AppModel) {
         self.app = app
     }
@@ -24,15 +30,33 @@ final class ProjectListModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            let collection: HALCollection<Project> = try await app.client.fetch(from: link)
-            projects = collection.items.sorted {
-                ($0.lastEdited ?? .distantPast) > ($1.lastEdited ?? .distantPast)
-            }
-            collectionLinks = collection.links
+            let data = try await app.client.data(for: link)
+            let collection: HALCollection<Project> = try app.client.decode(from: data)
+            adopt(collection)
+            offlineCopySavedAt = nil
             errorMessage = nil
+            app.offlineStore?.save(data, .projects)
         } catch {
-            report(error)
+            // A list the network failed to fetch falls back to the copy saved
+            // last time it loaded — an old list of the writer's own projects
+            // beats an empty sidebar and an alert.
+            if error.isRetryableAPIError,
+               let snapshot = app.offlineStore?.load(.projects),
+               let collection: HALCollection<Project> = try? app.client.decode(from: snapshot.data) {
+                adopt(collection)
+                offlineCopySavedAt = snapshot.savedAt
+                errorMessage = nil
+            } else {
+                report(error)
+            }
         }
+    }
+
+    private func adopt(_ collection: HALCollection<Project>) {
+        projects = collection.items.sorted {
+            ($0.lastEdited ?? .distantPast) > ($1.lastEdited ?? .distantPast)
+        }
+        collectionLinks = collection.links
     }
 
     /// POST to the projects collection (its self link, falling back to the

@@ -98,10 +98,22 @@ final class ScriptModel {
     /// means unsaved work is held in memory only, as before.
     @ObservationIgnored private let draftStore: UnsavedDraftStore?
 
-    init(app: AppModel, project: Project, draftStore: UnsavedDraftStore? = nil) {
+    /// The offline copies of this account's documents, refreshed on every
+    /// successful load and read back when a load fails for want of a
+    /// connection. Nil exactly when the draft store is (signed out, demo).
+    @ObservationIgnored private let offlineStore: OfflineStore?
+
+    /// Set when the script on screen is the offline copy rather than the
+    /// server's answer, with when that copy was saved.
+    private(set) var offlineCopySavedAt: Date?
+    var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
+
+    init(app: AppModel, project: Project, draftStore: UnsavedDraftStore? = nil,
+         offlineStore: OfflineStore? = nil) {
         self.app = app
         self.project = project
         self.draftStore = draftStore ?? app.draftScope.map { UnsavedDraftStore(scope: $0) }
+        self.offlineStore = offlineStore ?? app.offlineStore
     }
 
     // MARK: - Loading
@@ -135,15 +147,39 @@ final class ScriptModel {
         guard let link = editionBlocksLink ?? project.link(.blocks) else { return }
         blockLoadGeneration += 1
         let generation = blockLoadGeneration
+        // Only the default edition is cached (and only it falls back): a
+        // chosen edition travels as a link that means nothing offline, and
+        // showing edition A's copy under edition B's banner would be worse
+        // than saying the switch needs a connection.
+        let isDefaultEdition = editionBlocksLink == nil
         do {
-            let collection: HALCollection<Block> = try await app.client.fetch(from: link)
+            let data = try await app.client.data(for: link)
+            let collection: HALCollection<Block> = try app.client.decode(from: data)
             guard generation == blockLoadGeneration else { return }
             adopt(collection)
             adoptPersistedDrafts()
+            offlineCopySavedAt = nil
             errorMessage = nil
+            if isDefaultEdition, let store = offlineStore {
+                store.save(data, .blocks(projectId: project.id))
+                store.prune(keeping: project.id)
+            }
         } catch {
             guard generation == blockLoadGeneration else { return }
-            report(error)
+            // The network failed — fall back to the copy saved last time the
+            // script loaded. Persisted drafts are adopted on top exactly as
+            // they are on a live load, so words typed offline stay the newest
+            // thing on screen and the retry machinery keeps holding them.
+            if isDefaultEdition, error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(.blocks(projectId: project.id)),
+               let collection: HALCollection<Block> = try? app.client.decode(from: snapshot.data) {
+                adopt(collection)
+                adoptPersistedDrafts()
+                offlineCopySavedAt = snapshot.savedAt
+                errorMessage = nil
+            } else {
+                report(error)
+            }
         }
         await loadCommentCounts()
     }
@@ -182,15 +218,33 @@ final class ScriptModel {
     func loadCharacters() async {
         guard let link = project.link(.characters) else { return }
         do {
-            let collection: HALCollection<Person> = try await app.client.fetch(from: link)
-            characters = collection.items.sorted { $0.displayName < $1.displayName }
-            charactersLinks = collection.links
+            let data = try await app.client.data(for: link)
+            let collection: HALCollection<Person> = try app.client.decode(from: data)
+            adoptCharacters(collection)
             canViewCharacters = true
+            offlineStore?.save(data, .characters(projectId: project.id))
         } catch APIError.forbidden {
             canViewCharacters = false
         } catch {
-            report(error)
+            // Secondary to the script itself: fall back to the offline copy,
+            // and failing that degrade quietly when the device is offline —
+            // the offline banner explains everything; an alert over the
+            // cached script the writer *can* read would not.
+            if error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(.characters(projectId: project.id)),
+               let collection: HALCollection<Person> = try? app.client.decode(from: snapshot.data) {
+                adoptCharacters(collection)
+            } else if error.isRetryableAPIError, !app.connectivity.isOnline {
+                // Leave whatever was on screen.
+            } else {
+                report(error)
+            }
         }
+    }
+
+    private func adoptCharacters(_ collection: HALCollection<Person>) {
+        characters = collection.items.sorted { $0.displayName < $1.displayName }
+        charactersLinks = collection.links
     }
 
     // MARK: - Block mutations (all gated by link presence)
@@ -486,6 +540,27 @@ final class ScriptModel {
         for id in pending { await commit(id) }
     }
 
+    /// The connection is back: push every element still holding unsaved words
+    /// right now rather than waiting out whatever backoff each is on — in
+    /// session the live copy is authoritative, exactly as the retry loop
+    /// treats it — then pull whatever changed elsewhere while we were away.
+    /// Mirrors the web client's sync-on-reconnect, including its confirmation
+    /// once everything lands.
+    func connectionRestored() async {
+        let pending = unsavedBlockIds.sorted()
+        for id in pending { await commit(id) }
+        // Not over active typing — the sync poll reloads after the writer
+        // blurs (the commits above bumped the revision), clearing the
+        // offline-copy flag with it.
+        if !hasActiveEdit {
+            await loadBlocks()
+            await refreshUndoRedo()
+        }
+        if !pending.isEmpty, unsavedBlockIds.isEmpty {
+            presentToast("All offline changes synced")
+        }
+    }
+
     /// Give up on a speculative write (a merge that couldn't be persisted) and
     /// put the block's live text back the way it was.
     private func rollback(_ id: Int, to previous: String?) {
@@ -778,12 +853,16 @@ final class ScriptModel {
     /// worth naming; anything else gets the generic confirmation. "Element" is
     /// the client's word for a block throughout its menus.
     private func presentHistoryToast(rel: Rel, delta: Int) {
-        let text: String
         if delta > 0 {
-            text = "Restored \(delta) element\(delta == 1 ? "" : "s")"
+            presentToast("Restored \(delta) element\(delta == 1 ? "" : "s")")
         } else {
-            text = rel == .undo ? "Change undone" : "Change redone"
+            presentToast(rel == .undo ? "Change undone" : "Change redone")
         }
+    }
+
+    /// The transient confirmation capsule the view floats over the script —
+    /// undo/redo acknowledgements and the offline sync's all-clear share it.
+    private func presentToast(_ text: String) {
         historyToastToken += 1
         historyToast = HistoryToast(token: historyToastToken, text: text)
     }
@@ -894,13 +973,30 @@ final class ScriptModel {
     func loadDocuments() async {
         guard let link = documentsLinks[.selfRel] ?? project.link(.documents) else { return }
         do {
-            let collection: HALCollection<TextDocument> = try await app.client.fetch(from: link)
-            documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
-            documentsLinks = collection.links
+            let data = try await app.client.data(for: link)
+            let collection: HALCollection<TextDocument> = try app.client.decode(from: data)
+            adoptDocuments(collection)
             errorMessage = nil
+            offlineStore?.save(data, .documents(projectId: project.id))
         } catch {
-            report(error)
+            // Same shape as loadCharacters: the offline copy, else quiet
+            // degradation while offline, else the writer hears about it.
+            if error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(.documents(projectId: project.id)),
+               let collection: HALCollection<TextDocument> = try? app.client.decode(from: snapshot.data) {
+                adoptDocuments(collection)
+                errorMessage = nil
+            } else if error.isRetryableAPIError, !app.connectivity.isOnline {
+                // Leave whatever was on screen.
+            } else {
+                report(error)
+            }
         }
+    }
+
+    private func adoptDocuments(_ collection: HALCollection<TextDocument>) {
+        documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+        documentsLinks = collection.links
     }
 
     /// Fetches the full document (list items carry only a preview).

@@ -148,12 +148,36 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/AppModel.swift" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
     "$SRC/Models/"*.swift \
     "${SHARED[@]}" \
     "$ROOT/Tests/UnsavedWork/main.swift"
 "$BUILD/unsaved" || status=1
+
+echo
+echo "== Offline: cached copies, fast failure, reconnect =="
+swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Offline/main.swift"
+"$BUILD/offline" || status=1
 
 echo
 if [ "$status" -eq 0 ]; then
