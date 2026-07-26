@@ -340,7 +340,6 @@ struct ProjectsSidebarView: View {
                 }
             }
         }
-        .environment(\.editMode, $editMode)
         .onChange(of: editMode) { _, mode in
             if !mode.isEditing { exportSelection.removeAll() }
         }
@@ -370,6 +369,11 @@ struct ProjectsSidebarView: View {
         }
         .toolbar { toolbar }
         .toolbar { selectionToolbar }
+        // Outside the toolbars, not inside: an environment value only reaches
+        // the subtree below the modifier that sets it, so a binding installed
+        // under the toolbar leaves `EditButton` toggling an edit mode this
+        // view never reads.
+        .environment(\.editMode, $editMode)
         .sheet(isPresented: $showingPreferences) {
             CapitalizationSettingsView(app: app)
         }
