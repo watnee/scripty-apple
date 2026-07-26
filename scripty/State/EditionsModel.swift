@@ -91,6 +91,11 @@ final class EditionsModel {
             // same as a project that has only one.
             editions = []
         } catch {
+            // Loaded quietly on every project open, so a device with no
+            // connection degrades to "no editions" without an alert over the
+            // offline copy of the script — the offline banner already says
+            // what is going on.
+            if error.isRetryableAPIError, !app.connectivity.isOnline { return }
             report(error)
         }
     }

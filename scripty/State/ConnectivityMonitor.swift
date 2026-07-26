@@ -1,0 +1,80 @@
+//
+//  ConnectivityMonitor.swift
+//  scripty
+//
+//  Answers one question — does this device currently have a route to the
+//  network? — so the rest of the app can fail fast while offline instead of
+//  hanging in `waitsForConnectivity`, and can push held work the moment the
+//  route returns. The web client probes a /health endpoint on a timer for the
+//  same answer; a native app gets it straight from the system.
+//
+//  A satisfied path is not a reachable server — the API can be down while the
+//  Wi-Fi is fine. That case still travels the existing slow route (a request
+//  fails, the backoff retries); this monitor only covers the common one, no
+//  route at all, where waiting on the network is guaranteed lost time.
+//
+
+import Foundation
+import Network
+import Observation
+
+@Observable @MainActor
+final class ConnectivityMonitor {
+    /// Assumed online until the system says otherwise: a request racing the
+    /// first path update should try the network, not fail on a guess.
+    private(set) var isOnline = true
+
+    /// Fired on the offline → online transition — the moment held work can be
+    /// pushed. Set once by AppModel; views watch `isOnline` themselves.
+    @ObservationIgnored var onOnline: (() -> Void)?
+
+    @ObservationIgnored private let monitor = NWPathMonitor()
+    @ObservationIgnored private var waiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var hasFirstVerdict = false
+
+    /// `startMonitoring: false` leaves the system monitor off so tests can
+    /// drive transitions by hand through `adopt(_:)`.
+    init(startMonitoring: Bool = true) {
+        guard startMonitoring else {
+            hasFirstVerdict = true
+            return
+        }
+        monitor.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            Task { @MainActor [weak self] in self?.adopt(online) }
+        }
+        monitor.start(queue: DispatchQueue(label: "scripty.connectivity"))
+    }
+
+    /// Adopt a connectivity verdict. Internal rather than private so tests
+    /// can stand in for the system monitor.
+    func adopt(_ online: Bool) {
+        settleFirstVerdict()
+        guard online != isOnline else { return }
+        isOnline = online
+        if online { onOnline?() }
+    }
+
+    /// Wait until the system has reported the path once, so an offline cold
+    /// launch doesn't fire its first request into a connection wait it is
+    /// guaranteed to lose. The timeout keeps an odd interface from stalling
+    /// launch: past it, "assume online" stands and the request just takes the
+    /// slow failure it would always have taken.
+    func waitForFirstVerdict(timeout: Duration = .milliseconds(500)) async {
+        guard !hasFirstVerdict else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiters.append(continuation)
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: timeout)
+                self?.settleFirstVerdict()
+            }
+        }
+    }
+
+    private func settleFirstVerdict() {
+        guard !hasFirstVerdict else { return }
+        hasFirstVerdict = true
+        waiters.forEach { $0.resume() }
+        waiters = []
+    }
+}

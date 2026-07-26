@@ -29,6 +29,43 @@ final class AppModel {
 
     private(set) var client = APIClient()
 
+    /// Whether this device currently has a route to the network. Injectable
+    /// so tests can drive transitions by hand.
+    let connectivity: ConnectivityMonitor
+
+    /// True when this session was signed in from the offline copy of the API
+    /// root rather than the server — the connection was down at launch. The
+    /// next reconnect replaces the copy with the real thing.
+    private(set) var isOfflineSession = false
+
+    /// Nil means the real system monitor; tests pass a hand-driven one.
+    /// (Constructed in the body: a default argument is evaluated outside the
+    /// actor, where the monitor's initializer may not run.)
+    init(connectivity: ConnectivityMonitor? = nil) {
+        self.connectivity = connectivity ?? ConnectivityMonitor()
+        wireOfflineCheck()
+        self.connectivity.onOnline = { [weak self] in
+            guard let self else { return }
+            Task { await self.refreshAfterReconnect() }
+        }
+    }
+
+    /// Point the client's fail-fast gate at the monitor. Applied to every
+    /// real client this model creates; the demo client is left unwired, since
+    /// the demo answers in-process and works with no connection at all.
+    private func wireOfflineCheck() {
+        client.offlineCheck = { [weak connectivity] in
+            !(connectivity?.isOnline ?? true)
+        }
+    }
+
+    /// Where the offline copies of this account's documents live. Nil exactly
+    /// when `draftScope` is nil (signed out, demo), and scoped the same way,
+    /// so cached scripts can never leak between accounts or servers.
+    var offlineStore: OfflineStore? {
+        draftScope.map { OfflineStore(scope: $0) }
+    }
+
     /// Set via launch arguments (`-scripty.demo YES`) to boot straight into
     /// demo mode — used by scripts/demo.sh and never persisted.
     static let demoLaunchKey = "scripty.demo"
@@ -61,11 +98,18 @@ final class AppModel {
         }
         let token = session
         client.credentials = stored
+        // Let the system report the path once before the first request, so an
+        // offline cold launch goes straight to the cached copy instead of
+        // sitting in the connectivity wait it is guaranteed to lose.
+        await connectivity.waitForFirstVerdict()
         do {
-            let root = try await client.fetch(APIRoot.self, from: client.rootLink)
+            let data = try await client.data(for: client.rootLink)
+            let root = try client.decode(APIRoot.self, from: data)
             guard token == session else { return }
             apiRoot = root
+            isOfflineSession = false
             phase = .signedIn
+            offlineStore?.save(data, .root)
             loadEditorPreferences()
         } catch APIError.unauthorized {
             guard token == session else { return }
@@ -74,9 +118,40 @@ final class AppModel {
             phase = .signedOut
         } catch {
             guard token == session else { return }
+            // A launch the network failed — not one the server refused — can
+            // still open from the copy of the API root saved last session, so
+            // the writer's cached scripts stay readable on a plane. The
+            // credentials stay set: the reconnect path re-fetches with them.
+            if error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(.root),
+               let root = try? client.decode(APIRoot.self, from: snapshot.data) {
+                apiRoot = root
+                isOfflineSession = true
+                phase = .signedIn
+                return
+            }
             client.credentials = nil
             signInError = error.localizedDescription
             phase = .signedOut
+        }
+    }
+
+    /// The connection is back. A session that opened from the offline copy
+    /// trades it for the real root — quietly, keeping the cached one if the
+    /// fetch fails again (the monitor can be ahead of an actual route).
+    private func refreshAfterReconnect() async {
+        guard isOfflineSession else { return }
+        let token = session
+        do {
+            let data = try await client.data(for: client.rootLink)
+            let root = try client.decode(APIRoot.self, from: data)
+            guard token == session, isOfflineSession else { return }
+            apiRoot = root
+            isOfflineSession = false
+            offlineStore?.save(data, .root)
+            loadEditorPreferences()
+        } catch {
+            // Still unreachable; the next transition tries again.
         }
     }
 
@@ -84,7 +159,10 @@ final class AppModel {
         let credentials = Credentials(username: username, password: password)
         client.credentials = credentials
         do {
-            apiRoot = try await client.fetch(APIRoot.self, from: client.rootLink)
+            let data = try await client.data(for: client.rootLink)
+            apiRoot = try client.decode(APIRoot.self, from: data)
+            isOfflineSession = false
+            offlineStore?.save(data, .root)
             // A keychain that won't hold the credentials doesn't stop this
             // session, but it does mean the next cold launch lands back on
             // this screen — better to say so now than to look like a bug then.
@@ -133,12 +211,14 @@ final class AppModel {
         if isDemo {
             isDemo = false
             client = APIClient()
+            wireOfflineCheck()
         } else {
             KeychainStore.delete()
             client.credentials = nil
         }
         apiRoot = nil
         signInError = nil
+        isOfflineSession = false
         phase = .signedOut
         CapitalizationSettings.shared.reset()
     }

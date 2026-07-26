@@ -13,6 +13,12 @@ final class APIClient {
     let baseURL: URL
     var credentials: Credentials?
 
+    /// Asked before every network request; answering true fails the request
+    /// immediately with `APIError.offline` instead of letting it sit in the
+    /// session's connectivity wait. Wired by AppModel to the connectivity
+    /// monitor on real clients only — the demo backend never goes offline.
+    var offlineCheck: (() -> Bool)?
+
     /// When set, requests are answered by the in-process demo backend
     /// instead of the network (see `DemoBackend`).
     private let demo: DemoBackend?
@@ -133,6 +139,12 @@ final class APIClient {
     /// transport failures into `APIError` so no caller ever has to surface a
     /// raw `NSURLErrorDomain` string to the writer.
     private func perform(_ request: URLRequest) async throws -> (Int, Data) {
+        // No route to the network means the connectivity wait is guaranteed
+        // lost time: fail now, so a save is held (and a load falls back to
+        // the offline copy) in milliseconds rather than minutes.
+        if offlineCheck?() == true {
+            throw APIError.offline
+        }
         let received: Data
         let response: URLResponse
         do {
@@ -152,6 +164,13 @@ final class APIClient {
                              body: (any Encodable)? = nil) async throws -> T {
         let data = try await data(for: link, method: method, body: body)
         return try decoder.decode(T.self, from: data)
+    }
+
+    /// Decode a payload with the same decoder the network path uses — for
+    /// reading back a response the offline store saved byte for byte, so a
+    /// cached document and a live one decode identically.
+    func decode<T: Decodable>(_ type: T.Type = T.self, from data: Data) throws -> T {
+        try decoder.decode(T.self, from: data)
     }
 
     // MARK: - Multipart upload
