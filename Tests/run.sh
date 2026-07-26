@@ -122,6 +122,19 @@ swiftc "${FLAGS[@]}" -o "$BUILD/statelogic" \
 "$BUILD/statelogic" || status=1
 
 echo
+echo "== Home Screen quick actions =="
+# QuickAction itself, not QuickActions.swift next door: the routing is pure
+# Swift and belongs here, while the half that talks to UIApplication does not
+# compile outside an app.
+swiftc "${FLAGS[@]}" -o "$BUILD/quickactions" \
+    "$SRC/Models/Project.swift" \
+    "$SRC/Models/TextDocument.swift" \
+    "$SRC/Models/QuickAction.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/QuickActions/main.swift"
+"$BUILD/quickactions" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \

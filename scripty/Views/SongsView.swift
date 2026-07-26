@@ -68,7 +68,15 @@ struct SongsView: View {
     let model: ScriptModel
 
     @Environment(\.dismiss) private var dismiss
-    @State private var listType: DocumentType = .song
+    /// Which list the picker starts on. Songs unless asked otherwise, which
+    /// only the Home Screen's Notes quick action does.
+    @State private var listType: DocumentType
+
+    init(model: ScriptModel, listType: DocumentType = .song) {
+        self.model = model
+        _listType = State(initialValue: listType)
+    }
+
     @State private var editingDocument: TextDocument?
     @State private var creatingType: DocumentType?
     @State private var renamingDocument: TextDocument?

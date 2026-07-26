@@ -11,6 +11,11 @@ import SwiftUI
 struct scriptyApp: App {
     @State private var appModel = AppModel()
 
+    /// Only reason for an app delegate: a Home Screen quick action is delivered
+    /// through the scene delegate this one names, and SwiftUI gives no other
+    /// way to get one in front of the scene it builds.
+    @UIApplicationDelegateAdaptor(QuickActionAppDelegate.self) private var appDelegate
+
     /// Light, dark or the device's own — the whole app, so it is applied here
     /// rather than anywhere a script happens to be.
     private let appearance = AppearanceSettings.shared
@@ -55,6 +60,15 @@ struct RootView: View {
         phase
             .sheet(item: helpBinding) { screen in
                 HelpSheet(screen: screen)
+            }
+            // A quick action can only be carried out by a signed-in session, and
+            // a cold launch is `.loading` while it finds out whether there is
+            // one — so the drop waits for the answer rather than firing on the
+            // way past. The named projects come off the menu at the same time.
+            .onChange(of: app.phase) { _, phase in
+                guard case .signedOut = phase else { return }
+                QuickActions.shared.pending = nil
+                QuickActions.shared.clearRecents()
             }
     }
 
