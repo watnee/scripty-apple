@@ -74,6 +74,15 @@ swiftc "${FLAGS[@]}" -o "$BUILD/fountain" \
 "$BUILD/fountain" || status=1
 
 echo
+echo "== Read-aloud narration =="
+swiftc "${FLAGS[@]}" -o "$BUILD/narration" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/ScriptNarration.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Narration/main.swift"
+"$BUILD/narration" || status=1
+
+echo
 echo "== Note formatting =="
 swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
     "$SRC/Models/NoteFormatting.swift" \

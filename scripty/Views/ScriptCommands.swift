@@ -83,6 +83,9 @@ struct ScriptActions {
     var stats: (() -> Void)?
     var pageSetup: (() -> Void)?
     var readScript: (() -> Void)?
+    /// The reader, opened already speaking. Same sheet as `readScript` — the
+    /// distinction is only whether the voice starts with it.
+    var readAloud: (() -> Void)?
     var versions: (() -> Void)?
     /// Open the editions browser — the web's ⌘⇧J "new version". Nil unless the
     /// script has more than one edition or the writer may create one; the
@@ -413,6 +416,13 @@ struct ScriptCommands: Commands {
         Button("Read Script") { actions?.readScript?() }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(actions?.readScript == nil)
+
+        // The reader, arriving out loud. ⌘⇧A rather than anything nearer ⌘⇧R:
+        // R is taken by the reader itself, and every other letter in "aloud"
+        // is spoken for.
+        Button("Read Aloud") { actions?.readAloud?() }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+            .disabled(actions?.readAloud == nil)
 
         Button("Script Stats") { actions?.stats?() }
             .disabled(actions?.stats == nil)
