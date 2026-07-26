@@ -8,6 +8,19 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
+	<!-- Courier Prime, the screenplay face the web editor names and the one
+	     every block falls back to. iOS ships Courier New but not this, so the
+	     four faces travel with the app; registering them here is what makes
+	     "CourierPrime" resolvable by name. SIL Open Font License 1.1 — the
+	     text is in Resources/Fonts/OFL.txt and in the fonts themselves. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>CourierPrime-Regular.ttf</string>
+		<string>CourierPrime-Bold.ttf</string>
+		<string>CourierPrime-Italic.ttf</string>
+		<string>CourierPrime-BoldItalic.ttf</string>
+	</array>
+
 	<!-- scripty://demo launches the offline demo (e.g. from a Shortcut). -->
 	<key>CFBundleURLTypes</key>
 	<array>

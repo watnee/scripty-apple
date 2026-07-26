@@ -144,7 +144,7 @@ struct ScreenplayPageView: View {
         let width = sheetWidth(containerWidth: containerWidth)
         let unit = width / setup.paper.widthIn
         let height = width / setup.paper.aspectRatio
-        let font = Font.custom("Courier New", size: coverFontSize(unit: unit))
+        let font = ScreenplayFont.sheet(.default, lineHeight: bodyLineHeight(unit: unit))
 
         VStack(spacing: 0) {
             Spacer(minLength: 0)
@@ -190,10 +190,11 @@ struct ScreenplayPageView: View {
         .accessibilityLabel("Title page")
     }
 
-    /// The 12pt screenplay body size, worked out exactly as a sheet row is so
-    /// the cover matches the pages behind it.
-    private func coverFontSize(unit: CGFloat) -> CGFloat {
-        ScreenplayLayout.lineHeightPt * unit / ScreenplayLayout.pointsPerInch / 1.15
+    /// One 12pt line of paper, in screen points — worked out exactly as a sheet
+    /// row does, so the cover and the page numbers are set in the same type as
+    /// the pages between them.
+    private func bodyLineHeight(unit: CGFloat) -> CGFloat {
+        ScreenplayLayout.lineHeightPt * unit / ScreenplayLayout.pointsPerInch
     }
 
     /// Page one is unnumbered by screenplay convention, as in the web app.
@@ -201,9 +202,8 @@ struct ScreenplayPageView: View {
     private func pageNumber(_ page: ScriptPage, unit: CGFloat) -> some View {
         if setup.pageNumbers != .none && page.number > 1 {
             Text("\(page.number).")
-                .font(.custom("Courier New",
-                              size: ScreenplayLayout.lineHeightPt * unit
-                                  / ScreenplayLayout.pointsPerInch / 1.15))
+                .font(ScreenplayFont.sheet(.default,
+                                           lineHeight: bodyLineHeight(unit: unit)))
                 .foregroundStyle(inkColor.opacity(0.85))
                 .padding(.top, setup.margins.topIn * unit * 0.5)
                 .padding(.horizontal, setup.margins.rightIn * unit)
@@ -360,28 +360,15 @@ struct ScreenplaySheetRow: View {
         ScreenplayLayout.lineHeightPt * unit / ScreenplayLayout.pointsPerInch
     }
 
-    /// A screenplay line is set solid — leading equal to the type size — but a
-    /// font renders at its own natural leading, which for Courier is about
-    /// 1.15×. Sizing the type down by that ratio makes a rendered line occupy
-    /// one page line, so the text lands where the paginator put it. The
-    /// slightly narrower glyphs also mean text wraps no later than the
-    /// paginator assumed, so nothing is clipped out of its budget.
-    private var fontSize: CGFloat {
-        lineHeight / 1.15
-    }
-
-    /// Courier proper, not the system monospace: its advance is exactly 0.6em,
-    /// which is what makes ten characters to the inch true.
+    /// The page's own face, which is what a sheet is set in unless a block
+    /// says otherwise — and what the markers and page furniture always use.
     private var baseFont: Font {
-        .custom("Courier New", size: fontSize)
+        ScreenplayFont.sheet(.default, lineHeight: lineHeight)
     }
 
     private func font(for block: Block) -> Font {
-        switch ScriptFont(serverValue: block.font) {
-        case .arial: return .custom("Helvetica", size: fontSize)
-        case .timesNewRoman: return .custom("Times New Roman", size: fontSize)
-        case .courierPrime, .none: return baseFont
-        }
+        ScreenplayFont.sheet(ScriptFont(serverValue: block.font) ?? .default,
+                             lineHeight: lineHeight)
     }
 
     private func text(for block: Block, type: BlockType) -> String {

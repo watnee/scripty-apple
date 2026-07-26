@@ -121,7 +121,8 @@ struct TitlePageView: View {
 private struct TitlePagePreview: View {
     let model: TitlePageModel
 
-    private static let bodyFont = Font.system(size: 14, design: .monospaced)
+    private static let bodyFont = Font.custom(ScriptFont.default.postScriptName,
+                                              fixedSize: 14)
 
     var body: some View {
         VStack(spacing: 0) {
