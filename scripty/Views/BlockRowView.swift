@@ -422,15 +422,9 @@ struct BlockRowView: View {
     }
 
     private var baseFont: Font {
-        let size = 16 * textScale
-        switch ScriptFont(serverValue: block.font) {
-        case .arial:
-            return .custom("Helvetica", size: size)
-        case .timesNewRoman:
-            return .custom("Times New Roman", size: size)
-        case .courierPrime, .none:
-            // Screenplay convention: Courier-style monospace.
-            return .system(size: size, design: .monospaced)
-        }
+        let family = ScriptFont(serverValue: block.font) ?? .default
+        // Fixed size: the script's own type-size control is the scale here,
+        // and letting Dynamic Type multiply it again would compound the two.
+        return .custom(family.postScriptName, fixedSize: 16 * textScale)
     }
 }
