@@ -11,5 +11,13 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- Passkeys are bound to the server's domain: iOS only offers them to
+	     this app after validating the domain's apple-app-site-association
+	     (which the server serves at /.well-known/). A different base URL
+	     (localhost override, demo) simply can't run the ceremony. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:web-production-ce5bc3.up.railway.app</string>
+	</array>
 </dict>
 </plist>

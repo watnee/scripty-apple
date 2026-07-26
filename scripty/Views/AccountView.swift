@@ -10,9 +10,11 @@
 //  passkey section appears only when the account resource carried a `passkeys`
 //  link, so a deployment without passkeys shows the password form alone.
 //
-//  Adding a passkey is not offered: registration is a WebAuthn ceremony run
-//  between the browser and the server's filters, so the API exposes listing and
-//  revoking only, and the screen says as much rather than showing a dead button.
+//  Adding a passkey runs the platform WebAuthn ceremony (Face ID / Touch ID)
+//  against the API's ceremony endpoints — offered only when the collection
+//  advertised `registerPasskey`, which the demo backend deliberately never
+//  does: the ceremony can only succeed against a domain this app is
+//  associated with.
 //
 
 import SwiftUI
@@ -25,8 +27,14 @@ struct AccountView: View {
     @State private var newPassword = ""
     @State private var confirmPassword = ""
     @State private var pendingDelete: Passkey?
+    @State private var isNamingPasskey = false
+    @State private var passkeyLabel = ""
+    @State private var isAddingPasskey = false
+
+    private let app: AppModel
 
     init(app: AppModel, source: HALLink) {
+        self.app = app
         _model = State(initialValue: AccountModel(app: app, source: source))
     }
 
@@ -82,6 +90,13 @@ struct AccountView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(model.errorMessage ?? "")
+            }
+            .alert("Name This Passkey", isPresented: $isNamingPasskey) {
+                TextField("Label", text: $passkeyLabel)
+                Button("Cancel", role: .cancel) {}
+                Button("Add") { addPasskey() }
+            } message: {
+                Text("A label tells your passkeys apart — this device's name is usually right.")
             }
         }
     }
@@ -159,12 +174,28 @@ struct AccountView: View {
                     }
                 }
             }
+            if model.canAddPasskey {
+                if isAddingPasskey {
+                    ProgressView()
+                } else {
+                    Button {
+                        passkeyLabel = UIDevice.current.name
+                        isNamingPasskey = true
+                    } label: {
+                        Label("Add Passkey", systemImage: "person.badge.key")
+                    }
+                    .disabled(model.isWorking)
+                }
+            }
         } header: {
             Text("Passkeys")
         } footer: {
-            // Registration is a browser ceremony, so saying where to do it beats
-            // offering a button that cannot work here.
-            Text("Passkeys are added in the web app. You can revoke them here.")
+            if model.canAddPasskey {
+                Text("A passkey signs you in with Face ID or Touch ID — no password typed, nothing to phish. Swipe to revoke one.")
+            } else {
+                // The demo, or a server without the ceremony endpoints.
+                Text("Passkeys are added in the web app. You can revoke them here.")
+            }
         }
     }
 
@@ -179,6 +210,23 @@ struct AccountView: View {
             parts.append("never used")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private func addPasskey() {
+        guard let link = model.registerPasskeyLink else { return }
+        let label = passkeyLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return }
+        isAddingPasskey = true
+        Task {
+            let flow = PasskeyRegistrationFlow(account: model, client: app.client)
+            switch await flow.register(using: link, label: label) {
+            case .registered, .canceled:
+                break
+            case .failed(let message):
+                model.errorMessage = message
+            }
+            isAddingPasskey = false
+        }
     }
 
     private func changePassword() {

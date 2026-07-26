@@ -2,9 +2,10 @@
 //  APIClient.swift
 //  scripty
 //
-//  Executes HAL links against the Scripty API with HTTP Basic authentication.
-//  The only path the client knows on its own is the API entry point; every
-//  other URL comes from `_links` in server responses.
+//  Executes HAL links against the Scripty API, authenticating each request
+//  with HTTP Basic or, after a passkey sign-in, a bearer token (Credentials
+//  decides which). The only path the client knows on its own is the API entry
+//  point; every other URL comes from `_links` in server responses.
 //
 
 import Foundation
@@ -72,7 +73,7 @@ final class APIClient {
         request.httpMethod = method
         request.setValue("application/hal+json", forHTTPHeaderField: "Accept")
         if let credentials {
-            request.setValue(credentials.basicAuthorizationHeader, forHTTPHeaderField: "Authorization")
+            request.setValue(credentials.authorizationHeader, forHTTPHeaderField: "Authorization")
         }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -213,7 +214,7 @@ final class APIClient {
             request.setValue("application/hal+json", forHTTPHeaderField: "Accept")
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             if let credentials {
-                request.setValue(credentials.basicAuthorizationHeader, forHTTPHeaderField: "Authorization")
+                request.setValue(credentials.authorizationHeader, forHTTPHeaderField: "Authorization")
             }
             request.httpBody = body
             (statusCode, data) = try await perform(request)

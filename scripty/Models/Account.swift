@@ -6,9 +6,9 @@
 //  Advertised on the API root to anyone signed in, which is what separates it
 //  from the admin-only `users` collection.
 //
-//  Registering a new passkey is deliberately absent: that is a WebAuthn ceremony
-//  the browser and the server's filters run between them, so the API (and this
-//  client) offer listing and revoking only.
+//  The passkeys collection carries a `registerPasskey` link where the server
+//  offers the native WebAuthn ceremony; the ceremony's own types live in
+//  PasskeyCeremony.swift.
 //
 
 import Foundation

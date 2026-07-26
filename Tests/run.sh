@@ -122,6 +122,15 @@ swiftc "${FLAGS[@]}" -o "$BUILD/statelogic" \
 "$BUILD/statelogic" || status=1
 
 echo
+echo "== Passkey ceremony wire formats =="
+swiftc "${FLAGS[@]}" -o "$BUILD/passkeys" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/Models/PasskeyCeremony.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Passkeys/main.swift"
+"$BUILD/passkeys" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \

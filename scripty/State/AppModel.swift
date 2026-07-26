@@ -184,6 +184,39 @@ final class AppModel {
         }
     }
 
+    /// Completes a passkey sign-in: adopt the bearer token the server minted
+    /// (a passkey leaves this client with no password for Basic), fetch the
+    /// root with it, and persist like any other session.
+    ///
+    /// The ceremony itself lives in PasskeySignInFlow — AuthenticationServices
+    /// must not leak into this file, which Tests/run.sh compiles bare.
+    @discardableResult
+    func adoptPasskeySession(username: String, token: String, revokeHref: String?) async -> Bool {
+        session += 1
+        let credentials = Credentials(username: username, token: token, revokeHref: revokeHref)
+        client.credentials = credentials
+        do {
+            let data = try await client.data(for: client.rootLink)
+            apiRoot = try client.decode(APIRoot.self, from: data)
+            isOfflineSession = false
+            offlineStore?.save(data, .root)
+            do {
+                try KeychainStore.save(credentials)
+                isSessionPersisted = true
+            } catch {
+                isSessionPersisted = false
+            }
+            signInError = nil
+            phase = .signedIn
+            loadEditorPreferences()
+            return true
+        } catch {
+            client.credentials = nil
+            signInError = error.localizedDescription
+            return false
+        }
+    }
+
     /// Enters the offline demo: a fresh in-memory backend seeded with a
     /// sample screenplay. Stored real credentials are left untouched.
     ///
@@ -213,6 +246,7 @@ final class AppModel {
             client = APIClient()
             wireOfflineCheck()
         } else {
+            revokeTokenIfAny()
             KeychainStore.delete()
             client.credentials = nil
         }
@@ -233,6 +267,19 @@ final class AppModel {
         }
         let loadClient = client
         Task { await CapitalizationSettings.shared.load(using: loadClient, from: link) }
+    }
+
+    /// A passkey session's bearer token should not outlive the sign-out.
+    /// Fire-and-forget on a client of its own: sign-out is synchronous and
+    /// must not wait on the network, and the main client's credentials are
+    /// about to be cleared out from under any shared request.
+    private func revokeTokenIfAny() {
+        guard let credentials = client.credentials, credentials.token != nil,
+              let href = credentials.revokeHref else { return }
+        let revokeClient = APIClient(baseURL: client.baseURL, credentials: credentials)
+        Task {
+            try? await revokeClient.data(for: HALLink(href: href), method: "DELETE")
+        }
     }
 
     /// Global error routing: revoked credentials end the session.
