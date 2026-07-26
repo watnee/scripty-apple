@@ -16,6 +16,9 @@ struct LoginView: View {
     /// can read, so it is the only place the link could come from.
     @State private var recoveryLink: HALLink?
     @State private var presentedRecovery: HALLink?
+    /// Where passkey sign-in begins, if this server offers it — learned from
+    /// the same challenge, for the same reason.
+    @State private var passkeyLink: HALLink?
     @FocusState private var focusedField: Field?
 
     private enum Field {
@@ -86,6 +89,18 @@ struct LoginView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canSubmit)
 
+            if let passkeyLink {
+                Button {
+                    signInWithPasskey(using: passkeyLink)
+                } label: {
+                    Label("Sign in with Passkey", systemImage: "person.badge.key")
+                        .frame(maxWidth: 360)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSigningIn)
+            }
+
             if let recoveryLink {
                 Button("Forgot password?") {
                     focusedField = nil
@@ -116,8 +131,12 @@ struct LoginView: View {
         }
         .padding()
         // Asked for once, on the way in. A server that offers nothing simply
-        // leaves the button out.
-        .task { recoveryLink = await app.client.signedOutLinks()[.forgotPassword] }
+        // leaves the buttons out.
+        .task {
+            let links = await app.client.signedOutLinks()
+            recoveryLink = links[.forgotPassword]
+            passkeyLink = links[.passkeyLogin]
+        }
         .sheet(item: $presentedRecovery) { link in
             PasswordRecoveryView(client: app.client, request: link)
         }
@@ -139,6 +158,20 @@ struct LoginView: View {
             await app.signIn(
                 username: username.trimmingCharacters(in: .whitespaces),
                 password: password)
+            isSigningIn = false
+        }
+    }
+
+    private func signInWithPasskey(using link: HALLink) {
+        focusedField = nil
+        isSigningIn = true
+        Task {
+            switch await PasskeySignInFlow(app: app).signIn(using: link) {
+            case .signedIn, .canceled:
+                break
+            case .failed(let message):
+                app.signInError = message
+            }
             isSigningIn = false
         }
     }
