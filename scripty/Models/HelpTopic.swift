@@ -376,10 +376,16 @@ extension HelpTopic {
                     + "nests them on Tab, and sets headings; the prefixes stay plain "
                     + "text, so what reaches the script is what you typed. Songs can be "
                     + "opened one at a time, or all together on the workspace screen for "
-                    + "a change that runs through several of them."
+                    + "a change that runs through several of them.",
+                    "A song being worked on is rarely far away. Holding the Songs & "
+                    + "Notes button in the script opens the last few you edited, each "
+                    + "going straight to its lyrics, and the songs list repeats those "
+                    + "same few at the top so a long list needs no scrolling to reach "
+                    + "them. An element's own menu inserts a song below it."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
-                           "workspace", "list", "bullets", "heading"]),
+                           "workspace", "list", "bullets", "heading",
+                           "recent", "quick", "shortcut"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

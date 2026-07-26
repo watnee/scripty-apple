@@ -89,6 +89,25 @@ struct ScriptActions {
     /// client otherwise surfaced editions as a toolbar button alone.
     var editions: (() -> Void)?
 
+    /// Songs & Notes, and the songs themselves.
+    ///
+    /// `songsAndNotes` opens the screen; `recentSongs` are the few last edited,
+    /// which `openDocument` opens directly — the toolbar menu's contents, so a
+    /// writer at a keyboard reaches a song without the screen in between. The
+    /// list is a snapshot rather than a closure because the menu has to draw
+    /// the titles, not only act on them. Empty when the server never advertised
+    /// the project's documents, or when no script is frontmost.
+    var songsAndNotes: (() -> Void)?
+    var recentSongs: [TextDocument] = []
+    var openDocument: ((TextDocument) -> Void)?
+
+    /// Insert a song's lyrics below the focused element — the block menu's
+    /// "Insert Song". Empty and nil unless an element is focused, the script is
+    /// unlocked, and the server advertised an `insert` link on at least one
+    /// song, which it does only for a writer who may edit.
+    var insertableSongs: [TextDocument] = []
+    var insertSong: ((TextDocument) -> Void)?
+
     /// Open the screenplay file picker — the web's ⌘⇧I Import. Nil unless the
     /// server advertises `importScript` (editors only); the client otherwise
     /// surfaced import as a toolbar button alone, with no menu or keyboard route.
@@ -146,6 +165,8 @@ struct ScriptCommands: Commands {
             Button("Page Setup…") { actions?.pageSetup?() }
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(actions?.pageSetup == nil)
+            Divider()
+            songItems
         }
 
         CommandGroup(replacing: .importExport) {
@@ -183,6 +204,7 @@ struct ScriptCommands: Commands {
             Button("Paste Elements Below") { actions?.pasteElements?() }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(actions?.pasteElements == nil)
+            insertSongItem
             Divider()
             // ⌘⌥M, not a ⌘⇧ chord: the web deliberately puts comments there so
             // it fires while the caret is still in the block ("comments on the
@@ -215,6 +237,44 @@ struct ScriptCommands: Commands {
             Button("Keyboard Shortcuts") { help.screen = .shortcuts }
                 .keyboardShortcut("/", modifiers: .command)
         }
+    }
+
+    /// Songs & Notes, and the songs under it.
+    ///
+    /// ⌘⇧S is free in the client — nothing here is a saveable document, so the
+    /// stock Save chords never appear. The submenu is named for what it holds:
+    /// "Songs" would claim to list every one of them, when it lists the few
+    /// last edited and leaves the rest to the screen above it.
+    @ViewBuilder
+    private var songItems: some View {
+        Button("Songs & Notes…") { actions?.songsAndNotes?() }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+            .disabled(actions?.songsAndNotes == nil)
+
+        let recent = actions?.recentSongs ?? []
+        Menu("Recent Songs") {
+            ForEach(recent) { song in
+                Button(song.displayTitle) { actions?.openDocument?(song) }
+            }
+        }
+        .disabled(recent.isEmpty || actions?.openDocument == nil)
+    }
+
+    /// The block menu's "Insert Song", where the keyboard can reach it.
+    ///
+    /// Acts on the focused element, so it is unavailable with nothing focused —
+    /// which is also the only way it could know where to put the lyrics. A
+    /// submenu with no songs in it is left to the platform to grey out or drop,
+    /// as it does the element clipboard items it sits with.
+    @ViewBuilder
+    private var insertSongItem: some View {
+        let songs = actions?.insertableSongs ?? []
+        Menu("Insert Song Below") {
+            ForEach(songs) { song in
+                Button(song.displayTitle) { actions?.insertSong?(song) }
+            }
+        }
+        .disabled(songs.isEmpty || actions?.insertSong == nil)
     }
 
     @ViewBuilder

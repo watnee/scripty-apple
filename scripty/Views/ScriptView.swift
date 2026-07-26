@@ -14,6 +14,9 @@ struct ScriptView: View {
     @State private var model: ScriptModel
     @State private var showingCharacters = false
     @State private var showingSongs = false
+    /// The song or note opened straight from the script's Songs menu, without
+    /// going through the Songs & Notes screen first.
+    @State private var openingDocument: TextDocument?
     @State private var showingTitlePage = false
     @State private var showingOutline = false
     @State private var showingStats = false
@@ -253,6 +256,20 @@ struct ScriptView: View {
         }
         .sheet(isPresented: $showingSongs) {
             SongsView(model: model)
+        }
+        // A song reached from the toolbar menu opens the same editor the songs
+        // list would have opened it in — the list is only skipped, not replaced.
+        .sheet(item: $openingDocument, onDismiss: {
+            // Saving a song re-syncs every place it was already inserted, so
+            // the script may have changed while the editor was up; the menu
+            // re-orders on the dates the same reload brings back.
+            Task {
+                await model.loadDocuments()
+                await model.loadBlocks()
+                repaginate()
+            }
+        }) { document in
+            documentEditor(for: document)
         }
         .sheet(isPresented: $showingTitlePage) {
             TitlePageView(app: model.app, project: model.project) { updated in
@@ -797,6 +814,14 @@ struct ScriptView: View {
         }
         actions.ignoredWords = { showingIgnoredWords = true }
         actions.pageSetup = { showingPageSetup = true }
+        // The songs the menu bar can reach: the screen itself, and the handful
+        // last edited, which open without going through it — the toolbar menu's
+        // contents, for a writer whose hands are on a keyboard.
+        if model.canViewDocuments {
+            actions.songsAndNotes = { showingSongs = true }
+            actions.recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickSongCount)
+            actions.openDocument = { document in openingDocument = document }
+        }
         actions.exporter = model.exportOptions.isEmpty ? nil : exporter
 
         // The View menu's per-project display toggles, so the keyboard reaches
@@ -846,6 +871,16 @@ struct ScriptView: View {
             if model.canPaste(below: focused) && !options.isEditingLocked {
                 actions.pasteElements = { Task { await model.pasteBlocks(below: focused) } }
             }
+            // Drop a song's lyrics in at the element the writer is in — the
+            // block menu's "Insert Song", which until now could only be reached
+            // by opening that element's menu. Held to the same lock the
+            // clipboard items are, since it writes elements into the script.
+            if !options.isEditingLocked && !model.insertableSongs.isEmpty {
+                actions.insertableSongs = model.insertableSongs
+                actions.insertSong = { document in
+                    Task { await model.insertDocument(document, afterBlockId: focused.id) }
+                }
+            }
         }
 
         if model.hasScriptContent {
@@ -868,6 +903,67 @@ struct ScriptView: View {
         }
 
         return actions
+    }
+
+    /// How many songs the shortcuts offer. Enough that the one being worked on
+    /// this week is nearly always among them, short enough that the menu is
+    /// still read at a glance rather than scrolled — past that, the songs list
+    /// with its search is the better tool and is one item away.
+    private static let quickSongCount = 5
+
+    /// Songs & Notes, with the songs themselves hanging off it.
+    ///
+    /// Tapping still opens the full screen, as the plain button always did.
+    /// Holding (or the arrow, on a Mac) drops the handful of songs last edited,
+    /// which go straight to the lyric editor — the screen, the search and the
+    /// row-tap in between were three steps to reach a song the writer already
+    /// knew the name of. It stays a plain button until there is a dated song to
+    /// list, so a project that has none shows no empty menu.
+    @ViewBuilder
+    private var songsButton: some View {
+        let recent = model.songs.mostRecentlyEdited(limit: Self.quickSongCount)
+        if recent.isEmpty {
+            Button {
+                showingSongs = true
+            } label: {
+                Label("Songs & Notes", systemImage: "music.note.list")
+            }
+        } else {
+            Menu {
+                Button {
+                    showingSongs = true
+                } label: {
+                    Label("All Songs & Notes…", systemImage: "music.note.list")
+                }
+                Section("Recently Edited") {
+                    ForEach(recent) { song in
+                        Button {
+                            openingDocument = song
+                        } label: {
+                            Label(song.displayTitle, systemImage: "music.note")
+                        }
+                    }
+                }
+            } label: {
+                Label("Songs & Notes", systemImage: "music.note.list")
+            } primaryAction: {
+                showingSongs = true
+            }
+        }
+    }
+
+    /// The editor a document opens in, by what the server says it is: a song
+    /// kept as lyric lines gets the line editor, where tinting, reordering and
+    /// editions mean something, and everything else keeps the plain one. The
+    /// same rule the songs list follows, so a song opens the same way whichever
+    /// route reached it.
+    @ViewBuilder
+    private func documentEditor(for document: TextDocument) -> some View {
+        if document.kind == .song, document.hasLink(.songBlocks) {
+            SongBlockEditorView(app: model.app, document: document)
+        } else {
+            SongEditorView(model: model, document: document, type: document.kind)
+        }
     }
 
     @ToolbarContentBuilder
@@ -922,11 +1018,7 @@ struct ScriptView: View {
             }
 
             if model.canViewDocuments && !settings.isFocusMode {
-                Button {
-                    showingSongs = true
-                } label: {
-                    Label("Songs & Notes", systemImage: "music.note.list")
-                }
+                songsButton
             }
 
             if !model.exportOptions.isEmpty && !settings.isFocusMode {
