@@ -212,11 +212,22 @@ struct Rel: RawRepresentable, Hashable, Sendable {
 
     // The signed-in user's own account — advertised on the API root to anyone
     // signed in, unlike the admin-only `users`. `passkeys` appears only where
-    // the deployment has passkeys configured; registering a new one stays a
-    // browser ceremony, so the API offers listing and revoking only.
+    // the deployment has passkeys configured.
     static let account = Rel("account")
     static let changePassword = Rel("changePassword")
     static let passkeys = Rel("passkeys")
+
+    // The WebAuthn ceremonies, opened to this client by the API. Each rel
+    // points at an options endpoint whose response carries a `verify` link for
+    // the ceremony's second half. `registerPasskey` rides on the passkeys
+    // collection; `passkeyLogin` rides on the signed-out 401 challenge (the one
+    // document an anonymous caller sees, like `forgotPassword`); a verified
+    // sign-in answers with a bearer token whose `revokeToken` link is the
+    // API's sign-out.
+    static let registerPasskey = Rel("registerPasskey")
+    static let passkeyLogin = Rel("passkeyLogin")
+    static let verify = Rel("verify")
+    static let revokeToken = Rel("revokeToken")
 
     // Editor preferences the server keeps because exports bake them in.
     // Advertised on the API root; `update` (declared above) posts a change.
