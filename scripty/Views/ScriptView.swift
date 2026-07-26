@@ -19,7 +19,15 @@ struct ScriptView: View {
     @State private var showingStats = false
     @State private var showingIgnoredWords = false
     @State private var isSearching = false
-    @State private var showingRead = false
+    /// Which way the reader was opened, and whether it is open at all.
+    ///
+    /// Read Script and Read Aloud are the same sheet — one of them arrives
+    /// with the voice already running — but the difference cannot be a second
+    /// flag beside an `isPresented`: a sheet presented that way reads the rest
+    /// of the view as it stood *before* the button ran, so a flag set in the
+    /// same tap arrives stale and the reader opens silent. Carrying the mode
+    /// as the sheet's item is what makes it arrive at all.
+    @State private var reader: ReaderMode?
     @State private var showingPageSetup = false
     @State private var showingVersions = false
     /// Drives the screenplay file picker. Set by the toolbar's Import button
@@ -180,11 +188,12 @@ struct ScriptView: View {
         // which happens to repaginate — but that is incidental, and the sheets
         // would come up empty if the Group were ever restructured.
         .onChange(of: settings.isPageView) { _, _ in repaginate() }
-        .sheet(isPresented: $showingRead) {
+        .sheet(item: $reader) { mode in
             ReadScriptView(
                 title: model.project.displayTitle,
                 blocks: model.blocks,
-                textScale: settings.textScale)
+                textScale: settings.textScale,
+                startsSpeaking: mode == .aloud)
         }
         .sheet(isPresented: $showingPageSetup) {
             PageSetupSheet(settings: settings)
@@ -854,7 +863,8 @@ struct ScriptView: View {
             }
             actions.outline = { showingOutline = true }
             actions.stats = { showingStats = true }
-            actions.readScript = { showingRead = true }
+            actions.readScript = { reader = .silent }
+            actions.readAloud = { reader = .aloud }
         }
 
         if model.project.hasLink(.versions) {
@@ -1046,10 +1056,18 @@ struct ScriptView: View {
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
                 Button {
-                    showingRead = true
+                    reader = .silent
                 } label: {
                     Label("Read Script", systemImage: "book")
                 }
+                .disabled(!model.hasScriptContent)
+
+                Button {
+                    reader = .aloud
+                } label: {
+                    Label("Read Aloud", systemImage: "speaker.wave.2")
+                }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(!model.hasScriptContent)
             }
 

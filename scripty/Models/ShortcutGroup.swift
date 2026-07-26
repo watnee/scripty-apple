@@ -148,6 +148,7 @@ extension ShortcutGroup {
                 ShortcutEntry("Outline mode", "⌘⇧O"),
                 ShortcutEntry("Outline panel", "⌘⌥O"),
                 ShortcutEntry("Read script", "⌘⇧R"),
+                ShortcutEntry("Read aloud", "⌘⇧A"),
                 ShortcutEntry("Check spelling", "⌘⇧;"),
                 ShortcutEntry("Bigger text", "⌘+"),
                 ShortcutEntry("Smaller text", "⌘−"),

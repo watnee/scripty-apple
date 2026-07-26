@@ -304,9 +304,22 @@ extension HelpTopic {
                     "Read Script sets the screenplay as prose in a serif face, with the "
                     + "editing controls and the working annotations — synopses and notes "
                     + "— left out. It is for reading on a screen; page view is the one "
-                    + "for reading it as paper."
+                    + "for reading it as paper.",
+                    "Read Aloud (⌘⇧A) opens the same reader with the script being "
+                    + "spoken. The element being read is highlighted and scrolls itself "
+                    + "into view, and the controls at the foot of the sheet step back "
+                    + "and forward an element at a time; hold an element for “Read Aloud "
+                    + "From Here”.",
+                    "The speaker menu sets the speed and the voice, and what gets read: "
+                    + "character names, action and headings, and parentheticals can each "
+                    + "be left out — dialogue alone is how you run lines. “A Voice Each” "
+                    + "hands the speaking parts different voices, as far as the voices "
+                    + "installed on the device stretch; add more in the Settings app "
+                    + "under Accessibility."
                 ],
-                keywords: ["reader", "reading", "prose", "review", "distraction free"]),
+                keywords: ["reader", "reading", "prose", "review", "distraction free",
+                           "aloud", "speech", "speak", "voice", "listen", "audio",
+                           "table read", "run lines", "text to speech"]),
             HelpTopic(
                 id: "outline",
                 title: "Outline and Outline Mode",

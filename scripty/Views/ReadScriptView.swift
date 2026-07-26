@@ -10,15 +10,31 @@
 //  Deliberately not a page-accurate view; that is what page view is for. This
 //  one optimises for reading on a screen.
 //
+//  It is also where the script is read *aloud*, which is the same job done by
+//  ear: the narrator (`ScriptNarrator`) speaks the run and this view follows
+//  it, highlighting the element being read and scrolling it into view, so the
+//  page and the voice stay together.
+//
 
+// The voice picker names the installed voices, which is an AVFoundation type
+// even though the speaking itself is all behind the narrator.
+import AVFoundation
 import SwiftUI
 
 struct ReadScriptView: View {
     let title: String
     let blocks: [Block]
     let textScale: Double
+    /// Set when the reader was opened by "Read Aloud" rather than by "Read
+    /// Script" — the same view either way, already speaking.
+    var startsSpeaking = false
 
     @Environment(\.dismiss) private var dismiss
+
+    /// One narrator per visit: a reading is of the script in front of you, and
+    /// closing the reader ends it. The preferences it carries are stored, so
+    /// the voice and speed survive even though the narrator does not.
+    @State private var narrator = ScriptNarrator()
 
     /// The reader's measure: roughly the 40rem column the web app uses.
     private let measure: CGFloat = 640
@@ -37,33 +53,204 @@ struct ReadScriptView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(title.isEmpty ? "Untitled Project" : title)
-                        .font(.system(size: 28 * scale, weight: .bold, design: .serif))
-                        .padding(.bottom, 24)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(title.isEmpty ? "Untitled Project" : title)
+                            .font(.system(size: 28 * scale, weight: .bold, design: .serif))
+                            .padding(.bottom, 24)
 
-                    ForEach(Array(readableBlocks.enumerated()), id: \.element.id) { index, block in
-                        row(block, isFirst: index == 0)
+                        ForEach(Array(readableBlocks.enumerated()),
+                                id: \.element.id) { index, block in
+                            row(block, isFirst: index == 0)
+                                .background(alignment: .center) { spotlight(block) }
+                                .id(block.id)
+                                .contextMenu {
+                                    Button("Read Aloud From Here", systemImage: "play") {
+                                        narrator.play(from: block.id)
+                                    }
+                                }
+                        }
+                    }
+                    .frame(maxWidth: measure, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 24)
+                    .textSelection(.enabled)
+                }
+                // Follow the voice. Centred rather than at the top, because a
+                // line read at the very top of the screen has no context above
+                // it and the next one is always a jump.
+                .onChange(of: narrator.currentBlockId) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(id, anchor: .center)
                     }
                 }
-                .frame(maxWidth: measure, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 24)
-                .textSelection(.enabled)
             }
             .overlay { emptyState }
-            .navigationTitle("Read Script")
+            .safeAreaInset(edge: .bottom) { transportBar }
+            .navigationTitle(startsSpeaking ? "Read Aloud" : "Read Script")
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
+                ToolbarItemGroup(placement: .navigation) {
+                    Button {
+                        narrator.togglePlayPause()
+                    } label: {
+                        Label(narrator.isSpeaking ? "Pause" : "Read Aloud",
+                              systemImage: narrator.isSpeaking ? "pause.fill" : "play.fill")
+                    }
+                    .disabled(!narrator.hasSomethingToRead)
+
+                    readingOptions
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
+            .task {
+                narrator.prepare(blocks)
+                if startsSpeaking { narrator.play() }
+            }
+            .onChange(of: blocks) { _, updated in narrator.prepare(updated) }
+            // The reading is of this script, in this sheet: closing it stops
+            // the voice rather than leaving it talking to an empty screen.
+            .onDisappear { narrator.stop() }
         }
+    }
+
+    // MARK: - Reading aloud
+
+    /// The element being read, marked without moving anything: the background
+    /// is inset outwards so switching it on cannot reflow the page.
+    @ViewBuilder
+    private func spotlight(_ block: Block) -> some View {
+        if narrator.currentBlockId == block.id {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.16))
+                .padding(.horizontal, -10)
+                .padding(.vertical, -2)
+        }
+    }
+
+    /// The transport, shown only while a reading is loaded — nothing to
+    /// control otherwise, and the reader is for reading.
+    @ViewBuilder
+    private var transportBar: some View {
+        if narrator.isActive {
+            HStack(spacing: 20) {
+                Button {
+                    narrator.skipBackward()
+                } label: {
+                    Label("Previous Element", systemImage: "backward.fill")
+                }
+
+                Button {
+                    narrator.togglePlayPause()
+                } label: {
+                    Label(narrator.isSpeaking ? "Pause" : "Play",
+                          systemImage: narrator.isSpeaking ? "pause.fill" : "play.fill")
+                        .font(.title3)
+                }
+
+                Button {
+                    narrator.skipForward()
+                } label: {
+                    Label("Next Element", systemImage: "forward.fill")
+                }
+
+                Text(nowReading)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("Now reading: \(nowReading)")
+
+                Button {
+                    narrator.stop()
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+            }
+            .labelStyle(.iconOnly)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(.bar)
+        }
+    }
+
+    /// Whose line is being read, which is the one thing the transport can say
+    /// that the highlight does not.
+    private var nowReading: String {
+        guard let cue = narrator.currentCue else { return "Paused" }
+        if let speaker = cue.speaker, cue.kind.isSpoken { return speaker }
+        return "Narration"
+    }
+
+    private var readingOptions: some View {
+        Menu {
+            // What to read comes first, and the voices go in a submenu of
+            // their own: a device can have forty installed, and listed inline
+            // they push everything else off the end of the menu.
+            Section("Read") {
+                Toggle(isOn: $narrator.options.announcesSpeakers) {
+                    Label("Character Names", systemImage: "person.wave.2")
+                }
+                Toggle(isOn: $narrator.options.includesDescription) {
+                    Label("Action and Headings", systemImage: "text.alignleft")
+                }
+                Toggle(isOn: $narrator.options.includesDirections) {
+                    Label("Parentheticals", systemImage: "parentheses")
+                }
+                // What it can actually manage is worth saying: a device with
+                // one installed voice cannot tell a cast apart, and silently
+                // reading everything in the same voice looks like a bug.
+                Toggle(isOn: $narrator.options.usesDistinctVoices) {
+                    Label(narrator.options.usesDistinctVoices && narrator.castSize > 0
+                          ? "A Voice Each (\(narrator.castSize))"
+                          : "A Voice Each",
+                          systemImage: "person.2.wave.2")
+                }
+            }
+
+            Section("Speed") {
+                Picker("Speed", selection: $narrator.speed) {
+                    ForEach(ScriptNarrator.speedChoices, id: \.self) { speed in
+                        Text(speedLabel(speed)).tag(speed)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+            Menu {
+                Picker("Voice", selection: $narrator.voiceIdentifier) {
+                    Text("Default").tag(String?.none)
+                    ForEach(narrator.availableVoices, id: \.identifier) { voice in
+                        Text(voice.name).tag(String?.some(voice.identifier))
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label(narratorVoiceName, systemImage: "waveform")
+            }
+        } label: {
+            Label("Reading Options", systemImage: "speaker.wave.2")
+        }
+        .disabled(!narrator.hasSomethingToRead)
+    }
+
+    /// The submenu names the voice in use, so the choice is readable without
+    /// opening it.
+    private var narratorVoiceName: String {
+        guard narrator.voiceIdentifier != nil,
+              let name = narrator.narratorVoice?.name else { return "Voice" }
+        return "Voice: \(name)"
+    }
+
+    private func speedLabel(_ speed: Double) -> String {
+        speed == 1 ? "Normal" : String(format: "%g×", speed)
     }
 
     /// Notes, synopses and page breaks are working marks that the reader view
@@ -188,4 +375,17 @@ struct ReadScriptView: View {
                 description: Text("This script has no elements yet."))
         }
     }
+}
+
+/// Which of the two ways into the reader was taken.
+///
+/// It is the *item* the sheet is presented with rather than a flag beside an
+/// `isPresented` — SwiftUI builds an `isPresented` sheet's content from the
+/// view as it stood before the button's action ran, so a flag set in the same
+/// tap is not there yet and Read Aloud opens silent.
+enum ReaderMode: Int, Identifiable {
+    case silent
+    case aloud
+
+    var id: Int { rawValue }
 }
