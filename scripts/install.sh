@@ -271,16 +271,22 @@ DESTINATION="platform=iOS,id=$DEVICE_UDID"
 # hardcoding them, so renaming the target can't silently break the shortcut.
 # Both move when the bundle id does, so this is read again after that changes.
 settle() {
-    OVERRIDES=(-allowProvisioningUpdates "DEVELOPMENT_TEAM=$TEAM")
+    # The device-registration flag covers a phone this Apple ID has never seen:
+    # without it the build stops at "isn't registered in your developer account"
+    # even though -allowProvisioningUpdates sounds like it should cover that.
+    OVERRIDES=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration
+        "DEVELOPMENT_TEAM=$TEAM")
     [ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_OVERRIDE")
     local settings
     settings=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
         -destination "$DESTINATION" -configuration Debug "${OVERRIDES[@]}" \
         -showBuildSettings 2>/dev/null |
         awk -F' = ' '
-            !id  && /PRODUCT_BUNDLE_IDENTIFIER/ { id = $2 }
-            !dir && /TARGET_BUILD_DIR/          { dir = $2 }
-            !app && /WRAPPER_NAME/              { app = $2 }
+            # Whole-name matches only: DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER
+            # sorts before PRODUCT_BUNDLE_IDENTIFIER and its value is "NO".
+            !id  && $1 ~ /^ *PRODUCT_BUNDLE_IDENTIFIER$/ { id = $2 }
+            !dir && $1 ~ /^ *TARGET_BUILD_DIR$/          { dir = $2 }
+            !app && $1 ~ /^ *WRAPPER_NAME$/              { app = $2 }
             END { print id; print dir "/" app }')
     BUNDLE_ID=$(sed -n 1p <<<"$settings")
     APP_PATH=$(sed -n 2p <<<"$settings")
