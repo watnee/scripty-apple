@@ -32,12 +32,8 @@ struct EditableBlockRow: View {
     @State private var tagDraft = ""
 
     private var pageWidth: CGFloat { chrome.columnWidth }
-    private var dialogueWidth: CGFloat {
-        pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
-    }
-    private var parentheticalWidth: CGFloat {
-        pageWidth * CGFloat(ScreenplayLayout.parentheticalBox.widthFraction)
-    }
+    private var dialogueWidth: CGFloat { chrome.dialogueWidth }
+    private var parentheticalWidth: CGFloat { chrome.parentheticalWidth }
 
     var body: some View {
         BlockTextView(model: model, block: block, autocomplete: autocomplete,

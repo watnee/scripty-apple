@@ -493,6 +493,13 @@ struct ScriptView: View {
         // never the column's to use.
         let usable = availableWidth - 48
 
+        // A window narrower than the printed measure — a phone, a split-view
+        // slice — gives the column what room it has. Without this the 640pt
+        // column overhangs the screen, and the speech boxes measured against it
+        // come out wider than the window itself: dialogue then renders full
+        // bleed, indistinguishable from action.
+        chrome.columnWidth = min(chrome.columnWidth, max(280, usable))
+
         // The badges sit in the margin beyond the column, so full width leaves
         // them room rather than running the text underneath them.
         if settings.isFullWidth {
