@@ -193,6 +193,17 @@ enum ScriptFont: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var label: String { rawValue }
+
+    /// The name trimmed to its distinguishing word, for the format bar, where
+    /// a full "Times New Roman" pushes the row off the side of a phone. Menus
+    /// and VoiceOver keep the whole name.
+    var shortLabel: String {
+        switch self {
+        case .courierPrime: return "Courier"
+        case .arial: return "Arial"
+        case .timesNewRoman: return "Times"
+        }
+    }
 }
 
 /// Insert a new element directly beneath an existing block (rel `createBelow`).
