@@ -28,16 +28,45 @@ extension EnvironmentValues {
 /// only the script page has the project's view options to hand. Somewhere
 /// without them gets the defaults, which is how the rows have always looked.
 struct ScriptRowChrome: Equatable {
+    /// The printed six-inch measure in points — the column at its full size.
+    static let printedMeasure: CGFloat = 640
+
     var showsPins = true
     var showsBookmarks = true
     var showsElementLabels = false
-    /// The text column, in points: the printed six-inch measure by default, or
+    /// The text column, in points: the printed six-inch measure by default,
+    /// the window's width when the window is narrower than the measure, or
     /// the width of whatever contains the row when full width is on.
-    var columnWidth: CGFloat = 640
+    var columnWidth: CGFloat = ScriptRowChrome.printedMeasure
     /// Whether that width was measured against the window rather than being the
     /// fixed measure. The editable row grows its column with the type size, and
     /// a measured width must not be grown a second time.
     var isFullWidth = false
+
+    /// The dialogue column, in points. On the full measure this is the printed
+    /// 3.5in-of-6in proportion, and a widened column keeps that proportion so a
+    /// full-width script is still recognisably a script. A *narrowed* column
+    /// does not: 58% of a phone is too little to write in, so the box holds its
+    /// printed size while it fits and then follows the web's phone stylesheet —
+    /// `max-width: min(78%, 3.5in)` — down.
+    var dialogueWidth: CGFloat {
+        speechWidth(ScreenplayLayout.dialogueBox, phoneFraction: 0.78)
+    }
+
+    /// The parenthetical column, the same way: 2in of 6in on the measure, 55%
+    /// of the column on a phone (the web's `min(55%, …)` rule).
+    var parentheticalWidth: CGFloat {
+        speechWidth(ScreenplayLayout.parentheticalBox, phoneFraction: 0.55)
+    }
+
+    private func speechWidth(_ box: ScreenplayLayout.ElementBox,
+                             phoneFraction: Double) -> CGFloat {
+        if columnWidth >= Self.printedMeasure {
+            return columnWidth * CGFloat(box.widthFraction)
+        }
+        return min(columnWidth * CGFloat(phoneFraction),
+                   Self.printedMeasure * CGFloat(box.widthFraction))
+    }
 }
 
 private struct ScriptRowChromeKey: EnvironmentKey {
@@ -169,16 +198,11 @@ struct BlockRowView: View {
 
     /// The continuous column stands in for the printed six-inch text block, so
     /// the speech widths are the real screenplay proportions rather than
-    /// hand-picked numbers: dialogue is 3.5in of 6in, parentheticals 2in. They
-    /// stay proportional when the column is widened, so a full-width script is
-    /// still recognisably a script.
+    /// hand-picked numbers — see `ScriptRowChrome`, which resolves them against
+    /// the room the column actually has.
     private var pageWidth: CGFloat { chrome.columnWidth }
-    private var dialogueWidth: CGFloat {
-        pageWidth * CGFloat(ScreenplayLayout.dialogueBox.widthFraction)
-    }
-    private var parentheticalWidth: CGFloat {
-        pageWidth * CGFloat(ScreenplayLayout.parentheticalBox.widthFraction)
-    }
+    private var dialogueWidth: CGFloat { chrome.dialogueWidth }
+    private var parentheticalWidth: CGFloat { chrome.parentheticalWidth }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
