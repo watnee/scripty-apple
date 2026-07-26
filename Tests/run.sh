@@ -144,6 +144,14 @@ swiftc "${FLAGS[@]}" -o "$BUILD/quickactions" \
 "$BUILD/quickactions" || status=1
 
 echo
+echo "== Song shortcut ordering =="
+swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
+    "$SRC/Models/TextDocument.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/SongShortcuts/main.swift"
+"$BUILD/songshortcuts" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \

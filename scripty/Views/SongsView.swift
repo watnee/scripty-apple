@@ -163,19 +163,94 @@ struct SongsView: View {
     /// reasonable time" — nothing about lists or about search).
     private var list: some View {
         List(selection: $selection) {
-            ForEach(shown) { document in
-                row(for: document)
-            }
-            .onMove { source, destination in
-                // Guarded rather than conditionally attached — a plain
-                // closure keeps the list's content type unambiguous, and
-                // edit mode is reachable for selecting even when the list
-                // is sorted or searched down and so cannot be rearranged.
-                guard canReorder else { return }
-                moveDocuments(from: source, to: destination)
+            recentSection
+            Section {
+                ForEach(shown) { document in
+                    row(for: document)
+                }
+                .onMove { source, destination in
+                    // Guarded rather than conditionally attached — a plain
+                    // closure keeps the list's content type unambiguous, and
+                    // edit mode is reachable for selecting even when the list
+                    // is sorted or searched down and so cannot be rearranged.
+                    guard canReorder else { return }
+                    moveDocuments(from: source, to: destination)
+                }
+            } header: {
+                // Named only when there is a shortcut strip above it to be
+                // told apart from. The section itself is always there, so the
+                // rows keep their identity as the strip comes and goes.
+                if showsRecent {
+                    Text(listType == .song ? "All Songs" : "All Notes")
+                }
             }
         }
     }
+
+    /// The handful edited most recently, repeated at the top.
+    ///
+    /// The list is the writer's own arrangement, and the song being worked on
+    /// this week is as likely to sit at the bottom of it as the top. These are
+    /// shortcuts to the same rows below, not a reordering of them: the
+    /// arrangement is left exactly as it was dragged.
+    @ViewBuilder
+    private var recentSection: some View {
+        if showsRecent {
+            Section("Recently Edited") {
+                ForEach(recentDocuments) { recent in
+                    Button {
+                        editingDocument = recent.document
+                    } label: {
+                        recentRow(recent.document)
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+        }
+    }
+
+    private func recentRow(_ document: TextDocument) -> some View {
+        HStack(spacing: 8) {
+            Text(document.displayTitle)
+                .font(.headline)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if let updated = document.updatedAt {
+                Text(updated.formatted(.relative(presentation: .named)))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    /// Whether the strip earns the room it takes.
+    ///
+    /// Not while searching, which is already the shortcut. Not in edit mode: a
+    /// second copy of a row that cannot be ticked or dragged would be a trap
+    /// laid in the one mode that is about ticking and dragging. Not under "Last
+    /// edited", where it would repeat the first rows of the list word for word.
+    /// And not for a list short enough that nothing in it is far away.
+    private var showsRecent: Bool {
+        searchText.trimmingCharacters(in: .whitespaces).isEmpty
+            && !editMode.isEditing
+            && sortMode != .lastEdited
+            && shown.count > Self.recentCount * 2
+            && !recentDocuments.isEmpty
+    }
+
+    /// The same handful, by the same rule, that the script's Songs menu offers —
+    /// of whichever list is on screen, since a writer with thirty notes is in
+    /// the same position as one with thirty songs.
+    private var recentDocuments: [RecentDocument] {
+        (listType == .song ? model.songs : model.notes)
+            .mostRecentlyEdited(limit: Self.recentCount)
+            .map(RecentDocument.init)
+    }
+
+    /// Short: the strip is a glance, not a second list. Three rows is about
+    /// what a writer holds in mind as "what I have been working on".
+    private static let recentCount = 3
 
     var body: some View {
         NavigationStack {
@@ -701,6 +776,17 @@ struct SongsView: View {
 /// `sheet(item:)` needs an Identifiable selection for the create flow.
 extension DocumentType: Identifiable {
     var id: String { rawValue }
+}
+
+/// One row of the shortcut strip.
+///
+/// Its own identity, and a String where the list's selection is a `Set<Int>`,
+/// because the song it points at appears again in the list below: two rows of
+/// one List may not share an id, and a shortcut is not a thing to tick for a
+/// bulk delete — that is what its row in the list proper is for.
+private struct RecentDocument: Identifiable {
+    let document: TextDocument
+    var id: String { "recent-\(document.id)" }
 }
 
 /// A downloaded song file, presented to the share sheet by identity so the

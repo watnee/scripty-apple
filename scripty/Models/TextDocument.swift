@@ -63,6 +63,29 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
     }
 }
 
+extension Array where Element == TextDocument {
+    /// The most recently edited first, at most `limit` of them.
+    ///
+    /// One definition of "recent" for the two places that offer a shortcut
+    /// straight to a song — the script's Songs menu and the head of the songs
+    /// list — so the same handful appears in both, in the same order.
+    ///
+    /// A document the server never dated is left out rather than sorted as
+    /// ancient: it has nothing to be recent about, and a `distantPast` stand-in
+    /// would fill a shortcut slot with the row least likely to be wanted.
+    func mostRecentlyEdited(limit: Int) -> [TextDocument] {
+        guard limit > 0 else { return [] }
+        return compactMap { document in document.updatedAt.map { (document, $0) } }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                return lhs.0.displayTitle
+                    .localizedCaseInsensitiveCompare(rhs.0.displayTitle) == .orderedAscending
+            }
+            .prefix(limit)
+            .map(\.0)
+    }
+}
+
 /// New song/note. `documentType` is the raw server value ("SONG" / "NOTES").
 struct CreateDocumentCommand: Encodable {
     var projectId: Int
