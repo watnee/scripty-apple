@@ -3,9 +3,15 @@
 //  scripty
 //
 //  Character formatting for the focused element — bold / italic / underline,
-//  alignment and typeface — in the same capsule-chip language as
-//  ElementTypeBar, which it sits directly above. Every chip reflects the
-//  block's current server state, so the bar doubles as an indicator.
+//  alignment and typeface — sitting directly above ElementTypeBar. Every
+//  control reflects the block's current server state, so the bar doubles as
+//  an indicator.
+//
+//  The three styles and the three alignments are each packed into one
+//  segmented capsule, and the typeface shows its short name, so the whole bar
+//  fits a phone without scrolling — two rows of chips above the keyboard is
+//  already as much of the screen as formatting deserves. Segment height
+//  matches ElementTypeBar's chips, so the two rows still read as one language.
 //
 //  Shown only when the block advertises an `update` link.
 //
@@ -24,10 +30,8 @@ struct FormatBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                styleChips
-                divider
-                alignChips
-                divider
+                segmented { styleSegments }
+                segmented { alignSegments }
                 fontMenu
             }
             .padding(.horizontal, 16)
@@ -39,14 +43,14 @@ struct FormatBar: View {
     // MARK: - Bold / italic / underline
 
     @ViewBuilder
-    private var styleChips: some View {
-        chip("bold", isOn: block.textBold ?? false, label: "Bold") {
+    private var styleSegments: some View {
+        segment("bold", isOn: block.textBold ?? false, label: "Bold") {
             Task { await model.toggleBold(block) }
         }
-        chip("italic", isOn: block.textItalic ?? false, label: "Italic") {
+        segment("italic", isOn: block.textItalic ?? false, label: "Italic") {
             Task { await model.toggleItalic(block) }
         }
-        chip("underline", isOn: block.textUnderline ?? false, label: "Underline") {
+        segment("underline", isOn: block.textUnderline ?? false, label: "Underline") {
             Task { await model.toggleUnderline(block) }
         }
     }
@@ -54,9 +58,9 @@ struct FormatBar: View {
     // MARK: - Alignment
 
     @ViewBuilder
-    private var alignChips: some View {
+    private var alignSegments: some View {
         ForEach(TextAlign.allCases) { option in
-            chip(option.systemImage, isOn: option == align, label: option.label) {
+            segment(option.systemImage, isOn: option == align, label: option.label) {
                 Task { await model.setAlign(block, to: option) }
             }
         }
@@ -75,12 +79,12 @@ struct FormatBar: View {
                 fontOption(option, label: option.label)
             }
         } label: {
-            HStack(spacing: 5) {
-                Text(font?.label ?? "Default")
+            HStack(spacing: 4) {
+                Text(font?.shortLabel ?? "Default")
                 Image(systemName: "chevron.up.chevron.down").font(.caption2)
             }
             .font(.footnote.weight(.medium))
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 7)
         }
         .menuStyle(.button)
@@ -88,6 +92,8 @@ struct FormatBar: View {
         .foregroundStyle(Color.primary)
         .background(Capsule().fill(Color.secondary.opacity(0.15)))
         .accessibilityLabel("Font")
+        // The chip shows the name shortened; VoiceOver reads it whole.
+        .accessibilityValue(font?.label ?? "Default")
     }
 
     @ViewBuilder
@@ -109,28 +115,36 @@ struct FormatBar: View {
         }
     }
 
-    // MARK: - Chip
+    // MARK: - Segmented group
 
-    private func chip(_ systemImage: String, isOn: Bool, label: String,
-                      action: @escaping () -> Void) -> some View {
+    /// One control's segments inside a shared capsule. Grouping does the job
+    /// the dividers used to, in less room: the eye reads three alignments as
+    /// one control without a rule drawn beside them.
+    private func segmented<Content: View>(
+        @ViewBuilder _ content: () -> Content
+    ) -> some View {
+        HStack(spacing: 2) {
+            content()
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+    }
+
+    /// Padding rather than a fixed frame, so the segments still grow with the
+    /// text size a writer chose.
+    private func segment(_ systemImage: String, isOn: Bool, label: String,
+                         action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.footnote.weight(.medium))
-                .frame(minWidth: 18)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(minWidth: 22)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 5)
         }
         .buttonStyle(.plain)
         .foregroundStyle(isOn ? Color.white : Color.primary)
-        .background(Capsule().fill(isOn ? Color.accentColor : Color.secondary.opacity(0.15)))
+        .background(Capsule().fill(isOn ? Color.accentColor : Color.clear))
         .accessibilityLabel(label)
         .accessibilityAddTraits(isOn ? [.isSelected] : [])
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.25))
-            .frame(width: 1, height: 20)
-            .padding(.horizontal, 2)
     }
 }
