@@ -37,7 +37,12 @@ struct ReadScriptView: View {
     @State private var narrator = ScriptNarrator()
 
     /// The reader's measure: roughly the 40rem column the web app uses.
-    private let measure: CGFloat = 640
+    ///
+    /// Scaled with the type, because a measure is a count of characters before
+    /// it is a width. Held at a fixed 640 points it was the right line length
+    /// at the default size and a narrower and narrower ribbon above it — worst
+    /// exactly where the extra room the bigger sheet brings should be going.
+    private var measure: CGFloat { 640 * scale }
 
     /// The OS text-size setting, as a multiplier.
     ///
@@ -119,6 +124,15 @@ struct ReadScriptView: View {
             // the voice rather than leaving it talking to an empty screen.
             .onDisappear { narrator.stop() }
         }
+        // Reading wants the screen. A sheet defaults to the small centred form
+        // size on iPad and the Mac, which left the reader showing half a dozen
+        // elements at a time — little enough that following the voice was most
+        // of a page of scrolling per scene, and the surrounding script it was
+        // covering had more of the window than the reading did. The page size
+        // is the largest a sheet offers, and still a sheet: swipe-down and the
+        // dimmed script behind it both survive. On iPhone this changes
+        // nothing, the sheet being full height there already.
+        .presentationSizing(.page)
     }
 
     // MARK: - Reading aloud
