@@ -137,6 +137,9 @@ struct LoginView: View {
             recoveryLink = links[.forgotPassword]
             passkeyLink = links[.passkeyLogin]
         }
+        // Only the "Forgot password?" route is presented here. A token arriving
+        // from the link in an email is RootView's, because that one can land in
+        // any phase — including one where this screen doesn't exist.
         .sheet(item: $presentedRecovery) { link in
             PasswordRecoveryView(client: app.client, request: link)
         }

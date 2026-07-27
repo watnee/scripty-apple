@@ -232,6 +232,21 @@ The offline demo bypasses the network entirely. `demo.sh` always starts there
 and `install.sh --demo` does too; on an installed copy the `scripty://demo` URL
 does the same, so a Home Screen shortcut can jump straight into it.
 
+### Deploy the server before you install
+
+Two features are claims on the server's domain rather than settings in the app:
+passkeys, and the password reset link that opens the app instead of a browser.
+iOS believes a claim only after fetching
+`/.well-known/apple-app-site-association` from that domain, and it does that
+when the app is installed — so **the server has to be serving the claim before
+the install, not after**.
+
+Get the order wrong and nothing reports an error. Passkeys are simply never
+offered, and a reset link opens the web page instead of the app; both look like
+the feature was never built. The fix is to deploy the server, then reinstall the
+app — a relaunch is not enough. A build pointed at a `baseURLOverride` has
+neither, since the claim names the hosted domain.
+
 ## Tests
 
 ```sh

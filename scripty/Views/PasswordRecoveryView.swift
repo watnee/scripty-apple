@@ -4,10 +4,14 @@
 //
 //  Getting back in when the password is gone.
 //
-//  Two steps rather than one screen, because they are separated by a trip
-//  through an email client: ask for the email, then come back with the token
-//  from it. Presenting both at once would show a writer a token field before
-//  they have anything to put in it.
+//  Steps rather than one screen, because they are separated by a trip through
+//  an email client: ask for the email, then come back through the link in it.
+//  Presenting the password field first would show a writer a form they have no
+//  way to submit yet.
+//
+//  Coming back is usually not a step at all — the link opens this app straight
+//  at the password field. What is left on the waiting screen is the fallback
+//  for a writer whose mail is somewhere this app isn't.
 //
 
 import SwiftUI
@@ -17,11 +21,25 @@ struct PasswordRecoveryView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var email = ""
-    @State private var token = ""
+    @State private var pastedLink = ""
     @State private var password = ""
 
-    init(client: APIClient, request: HALLink) {
+    /// Called once the password has actually changed — not on a cancel, and not
+    /// on a failed attempt. A session opened with the old password uses this to
+    /// end itself.
+    private let onReset: (() -> Void)?
+
+    /// From the "Forgot password?" button.
+    init(client: APIClient, request: HALLink, onReset: (() -> Void)? = nil) {
         _model = State(initialValue: PasswordRecoveryModel(client: client, request: request))
+        self.onReset = onReset
+    }
+
+    /// From the link in a recovery email, which carries the token.
+    init(client: APIClient, reset: HALLink, token: String, onReset: (() -> Void)? = nil) {
+        _model = State(initialValue:
+            PasswordRecoveryModel(client: client, reset: reset, token: token))
+        self.onReset = onReset
     }
 
     var body: some View {
@@ -29,7 +47,8 @@ struct PasswordRecoveryView: View {
             Form {
                 switch model.step {
                 case .askForEmail: askForEmail
-                case .enterToken: enterToken
+                case .waitForLink: waitForLink
+                case .setPassword: setPassword
                 case .finished: finished
                 }
 
@@ -45,6 +64,15 @@ struct PasswordRecoveryView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(model.step == .finished ? "Done" : "Cancel") { dismiss() }
                 }
+            }
+            // Arriving by link means the token has never been checked. Doing it
+            // here says "that link has expired" while their hands are still
+            // empty, rather than after they have thought of a password.
+            .task {
+                if model.step == .setPassword { await model.checkToken() }
+            }
+            .onChange(of: model.step) { _, step in
+                if step == .finished { onReset?() }
             }
         }
     }
@@ -74,18 +102,38 @@ struct PasswordRecoveryView: View {
     }
 
     @ViewBuilder
-    private var enterToken: some View {
+    private var waitForLink: some View {
         Section {
             // The server's own wording, which says nothing about whether the
             // address is registered — and neither should this screen.
-            Text(model.message ?? "Check your email for a reset link.")
+            Text(model.message ?? "If that address is registered, a reset link is on its way.")
                 .font(.callout)
+        } footer: {
+            Text("Open the email and tap Reset Password. It opens right back here.")
         }
         Section {
-            TextField("Code from the email", text: $token)
+            TextField("Paste the link from the email", text: $pastedLink)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .onSubmit { Task { await model.check(token) } }
+                .onSubmit(usePastedLink)
+            Button(action: usePastedLink) {
+                if model.isWorking {
+                    ProgressView()
+                } else {
+                    Text("Continue")
+                }
+            }
+            .disabled(pastedLink.trimmingCharacters(in: .whitespaces).isEmpty || model.isWorking)
+        } header: {
+            Text("Reading your email somewhere else?")
+        } footer: {
+            Text("Copy the link out of the email and paste it here instead.")
+        }
+    }
+
+    @ViewBuilder
+    private var setPassword: some View {
+        Section {
             SecureField("New password", text: $password)
                 .textContentType(.newPassword)
         } header: {
@@ -95,6 +143,8 @@ struct PasswordRecoveryView: View {
             // with two of them should see which one is about to change.
             if let account = model.tokenEmail {
                 Text("This will change the password for \(account).")
+            } else if model.tokenRejected {
+                Text("Ask for a new reset link and try again.")
             }
         }
         Section {
@@ -105,8 +155,7 @@ struct PasswordRecoveryView: View {
                     Text("Reset Password")
                 }
             }
-            .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty
-                      || password.isEmpty || model.isWorking)
+            .disabled(password.isEmpty || model.isWorking || model.tokenRejected)
         }
     }
 
@@ -126,7 +175,11 @@ struct PasswordRecoveryView: View {
         Task { await model.sendEmail(to: email) }
     }
 
+    private func usePastedLink() {
+        Task { await model.accept(pasted: pastedLink) }
+    }
+
     private func reset() {
-        Task { await model.resetPassword(token: token, to: password) }
+        Task { await model.resetPassword(to: password) }
     }
 }

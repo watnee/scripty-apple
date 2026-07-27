@@ -11,13 +11,21 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- Passkeys are bound to the server's domain: iOS only offers them to
-	     this app after validating the domain's apple-app-site-association
-	     (which the server serves at /.well-known/). A different base URL
-	     (localhost override, demo) simply can't run the ceremony. -->
+	<!-- Both claims are on the server's domain, validated by iOS against the
+	     apple-app-site-association the server serves at /.well-known/. A
+	     different base URL (localhost override, demo) matches neither.
+
+	     webcredentials: passkeys are bound to the domain, and iOS only offers
+	     them to this app once the file names it.
+
+	     applinks: the password reset link in a recovery email opens this app
+	     rather than a browser, which is what spares anyone typing a code out of
+	     the mail. The file claims only /forgot-password/reset?token=…, so every
+	     other page on the domain still opens in the browser. -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>webcredentials:web-production-ce5bc3.up.railway.app</string>
+		<string>applinks:web-production-ce5bc3.up.railway.app</string>
 	</array>
 </dict>
 </plist>
