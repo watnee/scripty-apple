@@ -402,7 +402,15 @@ struct ProjectsSidebarView: View {
         }
         .sheet(isPresented: $showingCreate) {
             ProjectTitleSheet(title: "", heading: "New Project") { title in
-                await model.createProject(title: title) != nil
+                guard let created = await model.createProject(title: title) else { return false }
+                // Naming a screenplay is the writer asking to start writing it,
+                // so open it rather than leaving them to find the new row.
+                // Prefer the copy from the list `createProject` reloaded: the
+                // sidebar's selection matches on the whole value, so the
+                // POST's answer — with its own idea of `lastEdited` — would
+                // highlight nothing.
+                selection = model.projects.first { $0.id == created.id } ?? created
+                return true
             }
         }
         .sheet(item: $renamingProject) { project in
