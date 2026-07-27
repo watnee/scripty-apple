@@ -11,10 +11,10 @@
 import SwiftUI
 
 struct ScriptView: View {
-    /// A list the Home Screen menu asked for, waiting to be opened. Written
-    /// back to nil once it has been, so the sheet does not reopen every time
-    /// this view is rebuilt.
-    @Binding var openingDocuments: DocumentType?
+    /// A list the Home Screen menu or a widget row asked for, waiting to be
+    /// opened. Written back to nil once it has been, so the sheet does not
+    /// reopen every time this view is rebuilt.
+    @Binding var openingDocuments: DocumentsRequest?
 
     @State private var model: ScriptModel
     @State private var showingCharacters = false
@@ -23,6 +23,10 @@ struct ScriptView: View {
     /// button leaves it at songs, as the sheet has always opened; a Notes quick
     /// action is the only thing that says otherwise.
     @State private var songsListType: DocumentType = .song
+    /// A song or note for the Songs & Notes sheet to open straight into, which
+    /// only a tapped widget row ever names. Cleared with the sheet's own state
+    /// so the toolbar button never inherits it.
+    @State private var songsOpeningId: Int?
     /// The song or note opened straight from the script's Songs menu, without
     /// going through the Songs & Notes screen first.
     @State private var openingDocument: TextDocument?
@@ -98,7 +102,7 @@ struct ScriptView: View {
     /// outlive the app's execution time, and this is the writer's only copy.
     @Environment(\.scenePhase) private var scenePhase
 
-    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentType?>) {
+    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentsRequest?>) {
         _openingDocuments = openingDocuments
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
@@ -181,6 +185,11 @@ struct ScriptView: View {
                 break
             }
         }
+        // What the Home Screen widget draws is whatever this project's list
+        // last held. Watched here rather than published from the load itself so
+        // that every path which changes the documents — creating, renaming,
+        // deleting, importing, restoring from the trash — is covered once.
+        .publishingSongsAndNotes(from: model)
         // Where the writer is, kept as they go rather than only on the way out:
         // a script left open and then killed should still reopen in the right
         // place.
@@ -274,7 +283,7 @@ struct ScriptView: View {
             CharactersView(model: model)
         }
         .sheet(isPresented: $showingSongs) {
-            SongsView(model: model, listType: songsListType)
+            SongsView(model: model, listType: songsListType, openingId: songsOpeningId)
         }
         // A Songs or Notes quick action, now that the screenplay it settled on
         // is the one on screen. `initial` is what catches the tap that opened
@@ -288,7 +297,8 @@ struct ScriptView: View {
             guard let requested else { return }
             openingDocuments = nil
             guard model.canViewDocuments else { return }
-            songsListType = requested
+            songsListType = requested.type
+            songsOpeningId = requested.documentId
             showingSongs = true
         }
         // A song reached from the toolbar menu opens the same editor the songs
@@ -993,6 +1003,7 @@ struct ScriptView: View {
     /// recent songs beside them skip it for the editor itself.
     private func openSongsScreen() {
         songsListType = .song
+        songsOpeningId = nil
         showingSongs = true
     }
 

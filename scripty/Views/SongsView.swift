@@ -72,8 +72,14 @@ struct SongsView: View {
     /// only the Home Screen's Notes quick action does.
     @State private var listType: DocumentType
 
-    init(model: ScriptModel, listType: DocumentType = .song) {
+    /// A document to open as soon as the list has loaded, which only a tapped
+    /// Home Screen widget row ever names. Not `@State`: it is answered once, on
+    /// the load this screen opens with, and nothing on screen can set it.
+    private let openingId: Int?
+
+    init(model: ScriptModel, listType: DocumentType = .song, openingId: Int? = nil) {
         self.model = model
+        self.openingId = openingId
         _listType = State(initialValue: listType)
     }
 
@@ -260,7 +266,10 @@ struct SongsView: View {
             .navigationTitle("Songs & Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .task { await reload() }
+            .task {
+                await reload()
+                openRequestedDocument()
+            }
             .refreshable { await reload() }
             .searchable(text: $searchText,
                         placement: .navigationBarDrawer(displayMode: .always),
@@ -601,6 +610,21 @@ struct SongsView: View {
         isLoading = true
         await model.loadDocuments()
         isLoading = false
+    }
+
+    /// Opens the document a widget row was tapped for, once the list holding
+    /// it is in hand.
+    ///
+    /// A row naming a song since deleted — or one the account has lost access
+    /// to — leaves the list open on the right half rather than reporting
+    /// anything. The widget draws a snapshot of what the app last saw, so it
+    /// going stale is ordinary, and the list is where its writer was heading.
+    private func openRequestedDocument() {
+        guard let openingId,
+              let document = model.documents.first(where: { $0.id == openingId })
+        else { return }
+        listType = document.kind == .song ? .song : .notes
+        editingDocument = document
     }
 
     private func insert(_ document: TextDocument) {

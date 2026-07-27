@@ -216,6 +216,52 @@ of the wiring is in [QuickAction.swift](scripty/Models/QuickAction.swift) and
 screenplays — its projects only exist while it is running, so an entry for one
 could only ever fail — and signing out takes them back off.
 
+## The Songs & Notes widget
+
+Add it from the widget gallery — it comes with the app rather than being
+installed separately. It lists the songs and notes you have been working on,
+newest first, across every screenplay, and tapping one opens it.
+
+| Size            | What it shows                                    |
+| --------------- | ------------------------------------------------ |
+| Small           | The one most recently edited                     |
+| Medium          | Three                                            |
+| Large           | Six                                              |
+| Lock Screen     | The one most recently edited, in a rectangle     |
+
+A widget cannot sign in, and this one does not try: the app writes the handful
+of rows into an App Group container whenever a screenplay's songs and notes
+load, and the extension only ever reads them. So a song appears on the widget
+once the app has seen it, the rows are there whether or not the phone has a
+connection, and there is no second copy of the API client to keep honest. The
+shared half is [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift),
+compiled into both; the app's half is
+[WidgetPublisher.swift](scripty/Widgets/WidgetPublisher.swift) and the drawing
+is [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift).
+
+The demo publishes nothing, for the same reason it names no screenplays in the
+Home Screen menu, and signing out empties the widget — the Home Screen keeps
+showing whatever it was last given until this app takes it back, and nobody
+else can.
+
+The App Group is `group.scripty.scripty`, named in `SongsNotesWidgetStore` and
+spelled out in four entitlements files — one iOS and one Catalyst for each of
+the two targets. They all have to agree; a mismatch builds cleanly and shows up
+only as a widget that is permanently empty.
+
+The two platforms spell the same group differently, which is why there are four
+files rather than two: iOS grants it plain, macOS grants it with the team
+prefix, as `TEAMID.group.scripty.scripty`, and a container opens only under the
+exact string its entitlement granted. `CODE_SIGN_ENTITLEMENTS[sdk=macosx*]`
+picks the Catalyst pair, both targets carry `TeamIdentifierPrefix` in their
+Info.plist so the prefix can be read back at runtime, and
+`SongsNotesWidgetStore.containerURL` asks for the plain spelling first and the
+prefixed one only if that fails. Nothing has to know which platform it is on.
+
+One thing to know about signing it: Xcode's automatic signing registers the
+group against your App ID the first time it signs the app for a device, so the
+first device build after pulling this needs a signing team selected.
+
 ## Which server it talks to
 
 By default the app uses the hosted backend in

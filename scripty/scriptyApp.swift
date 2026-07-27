@@ -33,6 +33,14 @@ struct scriptyApp: App {
                         appModel.passwordResetToken = token
                         return
                     }
+                    // scripty://document?project=…&id=…&kind=… — a row tapped
+                    // on the Songs & Notes widget. Held rather than acted on:
+                    // the tap may be what launched the app, so at this moment
+                    // there is no project list to open anything against.
+                    if let destination = WidgetLink.destination(in: url) {
+                        appModel.pendingWidgetDestination = destination
+                        return
+                    }
                     // scripty://demo — e.g. from a home-screen Shortcut —
                     // jumps straight into the offline demo.
                     guard url.scheme == "scripty",
@@ -105,6 +113,11 @@ struct RootView: View {
                 guard case .signedOut = phase else { return }
                 QuickActions.shared.pending = nil
                 QuickActions.shared.clearRecents()
+                // Same reasoning one line up, and the widget needs it more:
+                // the Home Screen keeps drawing whatever it was last given
+                // until this app takes it back, and nobody else can.
+                app.pendingWidgetDestination = nil
+                WidgetPublisher.clear()
             }
     }
 

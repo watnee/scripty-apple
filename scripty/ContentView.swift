@@ -17,11 +17,12 @@ struct ContentView: View {
 
     @State private var projectList: ProjectListModel
     @State private var selectedProject: Project?
-    /// Set by a Songs or Notes quick action, and cleared by the script view
-    /// once it has opened that list. Held here rather than passed at creation
-    /// because tapping Songs for the screenplay already on screen changes no
-    /// project, so there is no rebuild to carry an initial value in on.
-    @State private var openingDocuments: DocumentType?
+    /// Set by a Songs or Notes quick action, or by a tapped widget row, and
+    /// cleared by the script view once it has opened that list. Held here
+    /// rather than passed at creation because tapping Songs for the screenplay
+    /// already on screen changes no project, so there is no rebuild to carry an
+    /// initial value in on.
+    @State private var openingDocuments: DocumentsRequest?
 
     private let quickActions = QuickActions.shared
 
@@ -53,8 +54,10 @@ struct ContentView: View {
             }
             // A cold launch from the Home Screen menu lands here: the action was
             // taken before this view existed, so nothing has changed since to
-            // announce it.
+            // announce it. A widget row tapped on a cold launch is in exactly
+            // the same position.
             performQuickAction()
+            openWidgetDestination()
         }
         // What the menu offers is whatever the list last held.
         .onChange(of: projectList.projects) { _, projects in
@@ -63,8 +66,14 @@ struct ContentView: View {
         // A load landing is the other moment an action can become answerable:
         // one taken while the list was still in flight has been sitting here
         // waiting for exactly this.
-        .onChange(of: projectList.isLoading) { _, _ in performQuickAction() }
+        .onChange(of: projectList.isLoading) { _, _ in
+            performQuickAction()
+            openWidgetDestination()
+        }
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
+        // The app was already running when the widget row was tapped, so the
+        // list is in hand and the only thing that changed is the request.
+        .onChange(of: app.pendingWidgetDestination) { _, _ in openWidgetDestination() }
     }
 
     /// Opens what the Home Screen menu asked for, if anything.
@@ -81,6 +90,25 @@ struct ContentView: View {
         quickActions.pending = nil
         guard let project = action.project(in: projectList.projects) else { return }
         selectedProject = project
-        openingDocuments = action.documentType
+        openingDocuments = action.documentType.map { DocumentsRequest(type: $0) }
+    }
+
+    /// Opens the song or note a widget row was tapped for.
+    ///
+    /// Named projects only, unlike a Songs quick action: the row said which
+    /// screenplay it drew, so falling back to the starred one would open a
+    /// stranger's list rather than the song that was tapped. A row naming a
+    /// project since deleted is dropped, on the same reasoning as a stale
+    /// Home Screen entry — and for the same reason it is dropped whether or
+    /// not it found anything, so it cannot fire again later against whatever
+    /// the list happens to hold by then.
+    private func openWidgetDestination() {
+        guard !projectList.isLoading, let destination = app.pendingWidgetDestination else { return }
+        app.pendingWidgetDestination = nil
+        guard let project = projectList.projects.first(where: { $0.id == destination.projectId })
+        else { return }
+        selectedProject = project
+        openingDocuments = DocumentsRequest(type: destination.isSong ? .song : .notes,
+                                            documentId: destination.documentId)
     }
 }

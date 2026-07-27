@@ -8,6 +8,16 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
+	<!-- The signing team, with its trailing dot, substituted at build time.
+	     macOS spells an App Group `TEAMID.group.…` where iOS spells it plain
+	     `group.…`, and the container can only be opened by the exact string the
+	     entitlement granted — so SongsNotesWidgetStore has to be able to build
+	     the prefixed form, and this is where it reads the prefix from. Empty on
+	     a simulator build, which has no profile and wants the plain form
+	     anyway. -->
+	<key>TeamIdentifierPrefix</key>
+	<string>$(TeamIdentifierPrefix)</string>
+
 	<!-- Courier Prime, the screenplay face the web editor names and the one
 	     every block falls back to. iOS ships Courier New but not this, so the
 	     four faces travel with the app; registering them here is what makes
