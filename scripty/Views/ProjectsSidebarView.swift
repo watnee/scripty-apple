@@ -6,26 +6,32 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Mirrors the web project list's sort control ("Last edited" / "Name A–Z").
-/// Raw values back an @AppStorage so the choice sticks, like the web app's
-/// sessionStorage-persisted `<select>`.
+/// Mirrors the web project list's sort control ("Last edited" / "Name A–Z"),
+/// plus the reverse the users list already offers. Raw values back an
+/// @AppStorage so the choice sticks, like the web app's sessionStorage-persisted
+/// `<select>` — and the two original raw values are unchanged, so a writer who
+/// picked one before this case existed keeps it.
 enum ProjectSort: String, CaseIterable, Identifiable {
     case lastEdited
+    case oldestEdited
     case title
+    case titleDescending
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .lastEdited: "Last edited"
+        case .oldestEdited: "Least recently edited"
         case .title: "Name A–Z"
+        case .titleDescending: "Name Z–A"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .lastEdited: "clock"
-        case .title: "textformat"
+        case .lastEdited, .oldestEdited: "clock"
+        case .title, .titleDescending: "textformat"
         }
     }
 }
@@ -86,79 +92,132 @@ struct ProjectsSidebarView: View {
         .pickerStyle(.menu)
     }
 
-    /// Client-side search + sort, matching the web list which filters by title
-    /// and orders by the chosen mode (with a title tie-break on last-edited).
+    /// Client-side search + sort. The search scans the whole row (title, project
+    /// name, writers, version, teams — see `Project.searchHaystackLowercased`)
+    /// rather than the web's title-only filter, and every term has to match, so
+    /// "jane draft" narrows instead of widening.
     private var displayedProjects: [Project] {
-        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        let filtered = query.isEmpty
+        let terms = searchText.lowercased().split(separator: " ").map(String.init)
+        let filtered = terms.isEmpty
             ? model.projects
-            : model.projects.filter { $0.displayTitle.lowercased().contains(query) }
+            : model.projects.filter { project in
+                let haystack = project.searchHaystackLowercased
+                return terms.allSatisfy { haystack.contains($0) }
+            }
         return filtered.sorted { lhs, rhs in
             switch sortMode {
-            case .lastEdited:
+            case .lastEdited, .oldestEdited:
                 let l = lhs.lastEdited ?? .distantPast
                 let r = rhs.lastEdited ?? .distantPast
-                if l != r { return l > r }
+                if l != r { return sortMode == .lastEdited ? l > r : l < r }
                 return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
             case .title:
                 return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            case .titleDescending:
+                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedDescending
             }
         }
     }
 
-    /// Web header subtitle: a screenplay count, or a tagline when empty.
+    /// Web header subtitle: a screenplay count, or a tagline when empty. While a
+    /// search is narrowing the list it says so — a bare "12 screenplays" over
+    /// three visible rows reads as a list that has lost something.
     private var countSubtitle: String {
-        switch model.projects.count {
-        case 0: "Your screenplays live here."
-        case 1: "1 screenplay"
-        case let n: "\(n) screenplays"
-        }
+        let total = model.projects.count
+        guard total > 0 else { return "Your screenplays live here." }
+        let shown = displayedProjects.count
+        guard shown == total else { return "\(shown) of \(total) screenplays" }
+        return total == 1 ? "1 screenplay" : "\(total) screenplays"
     }
 
-    /// Its own property rather than inline on the list: the toolbar has
-    /// grown enough entries that leaving it in `body` puts the whole view
-    /// past what the type checker will attempt.
+    /// Two menus rather than one overflow pile. Every entry used to be a
+    /// `.secondaryAction`, which iOS collapses into a single "…" holding
+    /// everything from Import to Sign Out — one undifferentiated list mixing
+    /// what you do to this list with what you do to your account. Sorting them
+    /// into a list menu and an account menu also lifts the ceiling that shaped
+    /// the old code: `ToolbarContentBuilder` takes ten items and fails the
+    /// eleventh as a baffling "extra argument in call", whereas each menu here
+    /// is one item holding as many entries as it likes.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                showingCreate = true
-            } label: {
-                Label("New Project", systemImage: "plus")
+        if editMode.isEditing {
+            // Nothing but leaving: the list under it is answering a different
+            // question, and New/Import/Account all belong to the other one.
+            ToolbarItem(placement: .primaryAction) {
+                Button("Done") { editMode = .inactive }
+            }
+        } else {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingCreate = true
+                } label: {
+                    Label("New Project", systemImage: "plus")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    listMenu
+                } label: {
+                    Label("Project List Options", systemImage: "ellipsis.circle")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    accountMenu
+                } label: {
+                    Label("Account", systemImage: "person.crop.circle")
+                }
             }
         }
-        if model.canImport {
-            ToolbarItem(placement: .secondaryAction) {
+        // Shown once something is ticked — an empty bar under a list nobody is
+        // selecting from is noise.
+        if editMode.isEditing && !exportSelection.isEmpty {
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    exportSelected()
+                } label: {
+                    Label("Export \(exportSelection.count)", systemImage: "square.and.arrow.up")
+                }
+                .disabled(isExportingProjects)
+            }
+        }
+    }
+
+    /// What you can do to the list itself: bring screenplays in, take them out,
+    /// order them, and reach the ones you deleted.
+    @ViewBuilder
+    private var listMenu: some View {
+        Section {
+            if model.canImport {
                 Button {
                     showingImporter = true
                 } label: {
                     Label("Import Project", systemImage: "square.and.arrow.down")
                 }
             }
-        }
-        // The whole list as one re-importable archive — what the web list's
-        // Download button sends. Exporting is a read, so it needs no more
-        // than the projects the server already showed us.
-        if model.canExportAll {
-            ToolbarItem(placement: .secondaryAction) {
+            // The whole list as one re-importable archive — what the web list's
+            // Download button sends. Exporting is a read, so it needs no more
+            // than the projects the server already showed us.
+            if model.canExportAll {
                 Button {
                     download()
                 } label: {
                     Label("Export All Projects", systemImage: "square.and.arrow.up.on.square")
                 }
                 .disabled(isExportingProjects)
-            }
-        }
-        ToolbarItem(placement: .secondaryAction) {
-            Picker("Sort", selection: $sortMode) {
-                ForEach(ProjectSort.allCases) { mode in
-                    Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                // Worth entering only where there is an archive to narrow, and
+                // only with more than one screenplay to choose between.
+                if model.projects.count > 1 {
+                    Button {
+                        editMode = .active
+                    } label: {
+                        Label("Select Projects…", systemImage: "checkmark.circle")
+                    }
                 }
             }
-            .pickerStyle(.menu)
         }
         if let trash = model.collectionLinks[.trash] {
-            ToolbarItem(placement: .secondaryAction) {
+            Section {
                 Button {
                     trashLink = trash
                 } label: {
@@ -166,43 +225,33 @@ struct ProjectsSidebarView: View {
                 }
             }
         }
-        // Only for a user the server lets manage teams — the root advertises
-        // the rel to no one else.
-        if let teams = app.apiRoot?.link(.teams) {
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    teamsLink = teams
-                } label: {
-                    Label("Teams", systemImage: "person.3")
+        Section("Sort By") {
+            Picker("Sort", selection: $sortMode) {
+                ForEach(ProjectSort.allCases) { mode in
+                    Label(mode.label, systemImage: mode.systemImage).tag(mode)
                 }
             }
+            .pickerStyle(.inline)
         }
-        // Admin-only, same gate as teams: the root advertises `users` to no
-        // one else.
-        if let users = app.apiRoot?.link(.users) {
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    usersLink = users
-                } label: {
-                    Label("Users", systemImage: "person.crop.circle")
-                }
-            }
-        }
-        // Your own account: password and passkeys. Advertised to anyone
-        // signed in, unlike the admin-only entries above.
-        if let account = app.apiRoot?.link(.account) {
-            ToolbarItem(placement: .secondaryAction) {
+    }
+
+    /// Who you are and how the app looks — the web app's user dropdown, which
+    /// is where all of these live there too.
+    @ViewBuilder
+    private var accountMenu: some View {
+        Section {
+            // Your own account: password and passkeys. Advertised to anyone
+            // signed in, unlike the admin-only entries below.
+            if let account = app.apiRoot?.link(.account) {
                 Button {
                     accountLink = account
                 } label: {
                     Label("Account", systemImage: "person.badge.key")
                 }
             }
-        }
-        // Editor preferences (auto-capitalization) — advertised on the root
-        // only for a signed-in account, since they are stored per user.
-        if app.apiRoot?.hasLink(.capitalizationPreferences) == true {
-            ToolbarItem(placement: .secondaryAction) {
+            // Editor preferences (auto-capitalization) — advertised on the root
+            // only for a signed-in account, since they are stored per user.
+            if app.apiRoot?.hasLink(.capitalizationPreferences) == true {
                 Button {
                     showingPreferences = true
                 } label: {
@@ -210,17 +259,31 @@ struct ProjectsSidebarView: View {
                 }
             }
         }
-        // Appearance keeps the account entries company, as it does in the web
-        // app's user dropdown. Nothing gates it: it is a choice about this
-        // device, so there is no link to ask about. Help sits alongside it for
-        // the same reason, and because that is where the web app's account menu
-        // keeps its two help entries.
-        //
-        // Grouped with signing out rather than added as an eleventh item —
-        // `ToolbarContentBuilder` takes ten, and the eleventh fails as a
-        // baffling "extra argument in call" rather than as anything about
-        // toolbars.
-        ToolbarItemGroup(placement: .secondaryAction) {
+        Section {
+            // Only for a user the server lets manage teams — the root advertises
+            // the rel to no one else.
+            if let teams = app.apiRoot?.link(.teams) {
+                Button {
+                    teamsLink = teams
+                } label: {
+                    Label("Teams", systemImage: "person.3")
+                }
+            }
+            // Admin-only, same gate as teams: the root advertises `users` to no
+            // one else.
+            if let users = app.apiRoot?.link(.users) {
+                Button {
+                    usersLink = users
+                } label: {
+                    Label("Users", systemImage: "person.crop.circle")
+                }
+            }
+        }
+        Section {
+            // Nothing gates appearance: it is a choice about this device, so
+            // there is no link to ask about. Help sits alongside it for the same
+            // reason, and because that is where the web app's account menu keeps
+            // its two help entries.
             appearancePicker
 
             Button {
@@ -234,7 +297,8 @@ struct ProjectsSidebarView: View {
             } label: {
                 Label("Keyboard Shortcuts", systemImage: "keyboard")
             }
-
+        }
+        Section {
             Button(role: .destructive) {
                 app.signOut()
             } label: {
@@ -251,6 +315,11 @@ struct ProjectsSidebarView: View {
         ProjectRow(project: project) {
             Task { await model.toggleDefault(project) }
         }
+        // The same actions as the swipe, plus the ones that have no swipe slot.
+        // A swipe is invisible until you try it and has no equivalent under a
+        // pointer at all, so on iPad and Mac the row's actions were effectively
+        // unreachable; a long press or right-click reaches them everywhere.
+        .contextMenu { projectMenu(for: project) }
         .swipeActions(edge: .trailing) {
             // Affordances are driven by the links the server returned.
             if project.hasLink(.delete) {
@@ -284,36 +353,66 @@ struct ProjectsSidebarView: View {
         }
     }
 
-    /// The selection in list order, so a bundle of several reads in the order
-    /// the list was showing rather than the order rows happened to be tapped.
-    private var selectedProjects: [Project] {
-        displayedProjects.filter { exportSelection.contains($0.id) }
-    }
-
-    /// Its own `.toolbar`, not another branch of `toolbar` above: that builder
-    /// is already at the ten items `ToolbarContentBuilder` accepts, and the
-    /// eleventh fails as a baffling "extra argument in call".
-    @ToolbarContentBuilder
-    private var selectionToolbar: some ToolbarContent {
-        // Worth entering only where there is an archive to narrow, and only
-        // with more than one screenplay to choose between.
-        if model.canExportAll && model.projects.count > 1 {
-            ToolbarItem(placement: .primaryAction) {
-                EditButton()
+    /// Every action a single row offers, gated exactly as the swipe actions are
+    /// — on the links the server returned for that project.
+    @ViewBuilder
+    private func projectMenu(for project: Project) -> some View {
+        Section {
+            if project.hasLink(.update) {
+                Button {
+                    renamingProject = project
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
+            if project.hasLink(.toggleDefault) {
+                Button {
+                    Task { await model.toggleDefault(project) }
+                } label: {
+                    Label(project.isDefault ?? false ? "Remove as Default" : "Set as Default",
+                          systemImage: project.isDefault ?? false ? "star.slash" : "star")
+                }
+            }
+            // Only an editor is offered the picker — the server advertises
+            // `projectTeams` on that gate, so a reader's row shows nothing here.
+            if project.hasLink(.projectTeams) {
+                Button {
+                    assigningTeamsProject = project
+                } label: {
+                    Label("Teams…", systemImage: "person.2")
+                }
             }
         }
-        // Shown once something is ticked — an empty bar under a list nobody is
-        // selecting from is noise.
-        if editMode.isEditing && !exportSelection.isEmpty {
-            ToolbarItem(placement: .bottomBar) {
+        // One screenplay's own archive, without the detour through edit mode and
+        // a single tick — the ids query the bundle export already accepts.
+        if model.canExportAll {
+            Section {
                 Button {
-                    exportSelected()
+                    download(ids: [project.id], named: project.displayTitle)
                 } label: {
-                    Label("Export \(exportSelection.count)", systemImage: "square.and.arrow.up")
+                    Label("Export Screenplay", systemImage: "square.and.arrow.up")
                 }
                 .disabled(isExportingProjects)
             }
         }
+        if project.hasLink(.delete) {
+            Section {
+                Button(role: .destructive) {
+                    Task {
+                        if selection?.id == project.id { selection = nil }
+                        await model.delete(project)
+                    }
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    /// The selection in list order, so a bundle of several reads in the order
+    /// the list was showing rather than the order rows happened to be tapped.
+    private var selectedProjects: [Project] {
+        displayedProjects.filter { exportSelection.contains($0.id) }
     }
 
     var body: some View {
@@ -348,10 +447,21 @@ struct ProjectsSidebarView: View {
                 if model.isLoading {
                     ProgressView()
                 } else {
-                    ContentUnavailableView(
-                        "No projects yet",
-                        systemImage: "film",
-                        description: Text("Create your first screenplay to get started."))
+                    // The one thing to do from here is the one thing the empty
+                    // state should offer, rather than leaving the writer to find
+                    // the "+" that the sentence is describing.
+                    ContentUnavailableView {
+                        Label("No projects yet", systemImage: "film")
+                    } description: {
+                        Text("Create your first screenplay to get started.")
+                    } actions: {
+                        Button {
+                            showingCreate = true
+                        } label: {
+                            Label("New Project", systemImage: "plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
             } else if displayedProjects.isEmpty {
                 ContentUnavailableView.search(text: searchText)
@@ -368,11 +478,10 @@ struct ProjectsSidebarView: View {
             Task { await model.refresh() }
         }
         .toolbar { toolbar }
-        .toolbar { selectionToolbar }
-        // Outside the toolbars, not inside: an environment value only reaches
+        // Outside the toolbar, not inside: an environment value only reaches
         // the subtree below the modifier that sets it, so a binding installed
-        // under the toolbar leaves `EditButton` toggling an edit mode this
-        // view never reads.
+        // under the toolbar would leave the rows reading an edit mode nobody
+        // is setting.
         .environment(\.editMode, $editMode)
         .sheet(isPresented: $showingPreferences) {
             CapitalizationSettingsView(app: app)
@@ -545,6 +654,18 @@ private struct ProjectRow: View {
 
     private var isDefault: Bool { project.isDefault ?? false }
 
+    /// Blank-safe reads of the title-page fields: the server omits nulls but
+    /// happily stores an empty string, and a row must not sprout a line for one.
+    private func present(_ field: String?) -> String? {
+        guard let value = field?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    private var writers: String? { present(project.writers) }
+    private var version: String? { present(project.screenplayVersion) }
+    private var teams: [String] { (project.teams ?? []).compactMap(present) }
+
     var body: some View {
         HStack(spacing: 10) {
             // The star mirrors the web list's default-project toggle; the
@@ -558,6 +679,10 @@ private struct ProjectRow: View {
                 .accessibilityLabel(isDefault ? "Remove as default project" : "Set as default project")
             }
             content
+                // One VoiceOver stop for the whole description rather than four
+                // — but only over the text, so the star stays its own control.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityDescription)
         }
         .padding(.vertical, 2)
     }
@@ -569,13 +694,16 @@ private struct ProjectRow: View {
                     .font(.headline)
                     .lineLimit(1)
                 if isDefault {
-                    Text("Default")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tint)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.tint.opacity(0.15), in: Capsule())
+                    badge("Default")
                 }
+            }
+            // Who wrote it — the title page's own second line, and the one
+            // field that tells two drafts of a shared premise apart.
+            if let writers {
+                Text(writers)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             HStack(spacing: 6) {
                 if let lastEdited = project.lastEdited {
@@ -586,17 +714,65 @@ private struct ProjectRow: View {
                     }
                     .labelStyle(.titleAndIcon)
                 }
-                if let teams = project.teams, !teams.isEmpty {
+                if let version {
                     if project.lastEdited != nil {
                         Text("·")
                     }
-                    Text(teams.joined(separator: ", "))
+                    Text(version)
                         .lineLimit(1)
                 }
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            // Teams were a comma list sharing the date's line, which read as
+            // more dates. As capsules they read as what they are — labels the
+            // project carries — and they stay on one line: a project on five
+            // teams should not make a row three times the height of its
+            // neighbours.
+            if !teams.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(teams.prefix(2), id: \.self) { team in
+                        badge(team, tinted: false)
+                    }
+                    if teams.count > 2 {
+                        badge("+\(teams.count - 2)", tinted: false)
+                    }
+                }
+                .lineLimit(1)
+            }
         }
+    }
+
+    /// The Default pill and the team pills, which differ only in colour: the
+    /// tinted one is a state the writer set, the grey ones are facts about
+    /// who the project is shared with.
+    private func badge(_ text: String, tinted: Bool = true) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(tinted ? AnyShapeStyle(.tint.opacity(0.15))
+                               : AnyShapeStyle(.quaternary),
+                        in: Capsule())
+            .lineLimit(1)
+    }
+
+    /// Spelled out rather than combined from the labels above, because the
+    /// visible row leans on layout ("·", capsules) that reads as nothing aloud,
+    /// and because the truncated "+3" would be announced as literally that.
+    private var accessibilityDescription: String {
+        var parts = [project.displayTitle]
+        if isDefault { parts.append("Default project") }
+        if let writers { parts.append("Written by \(writers)") }
+        if let version { parts.append(version) }
+        if let lastEdited = project.lastEdited {
+            parts.append("Edited " + lastEdited.formatted(.relative(presentation: .named)))
+        }
+        if !teams.isEmpty {
+            parts.append((teams.count == 1 ? "Team: " : "Teams: ") + teams.joined(separator: ", "))
+        }
+        return parts.joined(separator: ". ")
     }
 }
 
