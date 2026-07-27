@@ -596,21 +596,7 @@ struct ScriptView: View {
     private var wordCountBar: some View {
         if settings.showsWordCount {
             let words = memoizedWordCount
-            HStack(spacing: 6) {
-                Text("\(ScriptWordCount.formatted(words)) words")
-                Text("·").foregroundStyle(.tertiary)
-                Text(pageReadout(words: words))
-            }
-            .font(.caption)
-            .monospacedDigit()
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity)
-            .background(.bar)
-            .overlay(alignment: .top) {
-                Rectangle().fill(.separator).frame(height: 0.5)
-            }
-            .accessibilityElement(children: .combine)
+            WordCountBar(words: words, detail: pageReadout(words: words))
         }
     }
 

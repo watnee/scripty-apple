@@ -30,6 +30,10 @@ struct SongLineRow: View {
     /// this points at it and reports back when the writer taps it directly, so
     /// the shared value stays the single source of truth across both hosts.
     @FocusState.Binding var focusedLine: Int?
+    /// True while the list this row is in is being rearranged. The line stops
+    /// taking text for as long as that lasts: a tap meant for a drag handle
+    /// that opens the keyboard instead is the whole mode undone.
+    var isRearranging = false
 
     @Environment(\.colorScheme) private var colorScheme
     /// The writer's chosen type size, shared with the screenplay through the
@@ -51,22 +55,25 @@ struct SongLineRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Menu {
-                lineMenu
-            } label: {
-                Text("\(block.order ?? 0)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 22, alignment: .trailing)
-                    .contentShape(Rectangle())
+            if isRearranging {
+                // No menu while rearranging: Move Up and Move Down are what the
+                // drag handle is now for, and the rest would be a menu opened
+                // by a tap aimed at a row that is about to be dragged.
+                lineNumber
+            } else {
+                Menu {
+                    lineMenu
+                } label: {
+                    lineNumber
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityLabel("Line \(block.order ?? 0) actions")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityLabel("Line \(block.order ?? 0) actions")
 
             SongLineField(text: text,
-                          isFocused: focusedLine == block.id,
-                          isEditable: block.isEditable,
+                          isFocused: focusedLine == block.id && !isRearranging,
+                          isEditable: block.isEditable && !isRearranging,
                           fontSize: Self.baseLineSize * textScale,
                           spellChecks: spellChecks,
                           accessibilityLabel: "Lyric line \(block.order ?? 0)",
@@ -106,6 +113,26 @@ struct SongLineRow: View {
                 set: { model.edit(block, text: $0) })
     }
 
+    /// The line's tint, as something a Picker can drive. Reads the block, and
+    /// writes through the server — there is no local copy to keep in step.
+    private var highlight: Binding<BlockHighlight?> {
+        Binding(get: { block.tint },
+                set: { colour in
+                    guard colour != block.tint else { return }
+                    Task { await model.setHighlight(block, to: colour) }
+                })
+    }
+
+    /// The number in the margin. Worth having on its own account — lyrics get
+    /// discussed by line — and it doubles as the target for the row's menu.
+    private var lineNumber: some View {
+        Text("\(block.order ?? 0)")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.tertiary)
+            .frame(width: 22, alignment: .trailing)
+            .contentShape(Rectangle())
+    }
+
     @ViewBuilder
     private var rowBackground: some View {
         if let tint = block.tint {
@@ -138,18 +165,22 @@ struct SongLineRow: View {
             }
         }
         if block.hasLink(.setHighlight) {
-            Menu {
+            // A Picker rather than a list of buttons, so the colour already on
+            // the line is ticked. The tint is behind the row, which says the
+            // line is highlighted but not which of two neighbouring yellows it
+            // is wearing — and the writer who set it is the one most likely to
+            // want it changed.
+            Picker(selection: highlight) {
+                Text("None").tag(BlockHighlight?.none)
                 ForEach(BlockHighlight.allCases) { colour in
-                    Button(colour.label) {
-                        Task { await model.setHighlight(block, to: colour) }
-                    }
-                }
-                Button("None") {
-                    Task { await model.setHighlight(block, to: nil) }
+                    Text(colour.label).tag(BlockHighlight?.some(colour))
                 }
             } label: {
                 Label("Highlight", systemImage: "highlighter")
             }
+            // Explicit, or the picker flattens into the row's menu and the six
+            // colour names sit there unlabelled among Move and Delete.
+            .pickerStyle(.menu)
         }
         if block.hasLink(.delete) {
             Button(role: .destructive) {

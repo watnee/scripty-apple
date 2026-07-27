@@ -21,9 +21,16 @@ import UIKit
 @MainActor
 final class NoteEditorController {
     fileprivate var perform: ((NoteTextView.Command) -> Void)?
+    fileprivate var beginEditing: (() -> Void)?
 
     func callAsFunction(_ command: NoteTextView.Command) {
         perform?(command)
+    }
+
+    /// Puts the caret in the note. The title field submits into this, so a new
+    /// note is named and then written without reaching for the screen.
+    func focus() {
+        beginEditing?()
     }
 }
 
@@ -41,6 +48,14 @@ struct NoteTextView: UIViewRepresentable {
     /// an environment: the editor lives in a sheet the script view's
     /// environment does not reach.
     var textScale: Double = 1.0
+    /// What an empty note says. Drawn inside the text view rather than laid
+    /// over it from SwiftUI, which is the only way it lands on the first line
+    /// exactly: the prompt has to share the editor's font, its metrics and its
+    /// container insets, and a SwiftUI overlay can only approximate all three.
+    var placeholder = ""
+    /// Reports whether the caret is in here, so the host can show the
+    /// formatting bar only while there is something for it to format.
+    var onFocusChange: ((Bool) -> Void)?
 
     /// Sized by the preference, then scaled again by the system's Dynamic
     /// Type setting — prose notes have no Courier-fidelity excuse to ignore
@@ -53,7 +68,10 @@ struct NoteTextView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> NoteUITextView {
-        let view = NoteUITextView()
+        // Spelled out rather than `NoteUITextView()`: the subclass overrides the
+        // designated initialiser, so the argument-less one is no longer
+        // inherited.
+        let view = NoteUITextView(frame: .zero, textContainer: nil)
         view.delegate = context.coordinator
         view.backgroundColor = .clear
         view.textContainerInset = .zero
@@ -72,6 +90,10 @@ struct NoteTextView: UIViewRepresentable {
         controller?.perform = { [weak coordinator = context.coordinator] command in
             coordinator?.perform(command)
         }
+        controller?.beginEditing = { [weak view] in
+            view?.becomeFirstResponder()
+        }
+        view.placeholder = placeholder
         return view
     }
 
@@ -81,6 +103,7 @@ struct NoteTextView: UIViewRepresentable {
         // to the end, which mid-sentence would be maddening.
         if view.text != text { view.text = text }
         if view.isEditable != isEditable { view.isEditable = isEditable }
+        if view.placeholder != placeholder { view.placeholder = placeholder }
 
         // Only when the size preference really moved — reassigning the font
         // re-lays-out the whole text.
@@ -111,6 +134,15 @@ struct NoteTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
+            (textView as? NoteUITextView)?.updatePlaceholder()
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            parent.onFocusChange?(true)
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            parent.onFocusChange?(false)
         }
 
         /// Return and Tab, before the text view sees them.
@@ -183,6 +215,65 @@ final class NoteUITextView: UITextView {
     var onKey: ((Key) -> Bool)?
     var onCommand: ((NoteTextView.Command) -> Void)?
 
+    // MARK: - Placeholder
+
+    /// What an empty note says, drawn where its first character would go.
+    private let placeholderLabel = UILabel()
+
+    var placeholder: String {
+        get { placeholderLabel.text ?? "" }
+        set {
+            placeholderLabel.text = newValue
+            setNeedsLayout()
+        }
+    }
+
+    override var text: String! {
+        didSet { updatePlaceholder() }
+    }
+
+    override var font: UIFont? {
+        didSet {
+            placeholderLabel.font = font
+            setNeedsLayout()
+        }
+    }
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        placeholderLabel.numberOfLines = 0
+        placeholderLabel.textColor = .tertiaryLabel
+        placeholderLabel.isAccessibilityElement = false
+        addSubview(placeholderLabel)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Positioned by frame rather than by constraints: the label lives inside a
+    /// scroll view whose own layout is UIKit's business, and pinning to it with
+    /// Auto Layout fights that. The maths is just "where the first glyph would
+    /// be" — the container's insets plus its line padding.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let padding = textContainer.lineFragmentPadding
+        let left = textContainerInset.left + padding
+        let width = max(0, bounds.width - left - textContainerInset.right - padding)
+        let height = placeholderLabel.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        placeholderLabel.frame = CGRect(x: left, y: textContainerInset.top,
+                                        width: width, height: height)
+    }
+
+    /// Called by the coordinator on every keystroke, and by `text`'s observer
+    /// when the value is written from outside — between them that covers every
+    /// way a note stops or starts being empty.
+    func updatePlaceholder() {
+        placeholderLabel.isHidden = !(text ?? "").isEmpty
+    }
+
     override var keyCommands: [UIKeyCommand]? {
         // ⌘⌥1/2/3 for the three heading levels, the same keys the browser uses.
         var commands = [
@@ -219,6 +310,10 @@ final class NoteUITextView: UITextView {
 /// Bullet, number and heading controls — the counterpart of the web editor's
 /// note formatting row, and the only route to these on a device with no
 /// hardware keyboard.
+///
+/// Carries its own bar chrome because of where it sits: pinned to the bottom of
+/// the editor, riding above the keyboard, where it has to read as a strip of
+/// tools rather than as the first line of the note.
 struct NoteFormatBar: View {
     let controller: NoteEditorController
 
@@ -237,6 +332,13 @@ struct NoteFormatBar: View {
             Spacer(minLength: 0)
         }
         .font(.footnote)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .overlay(alignment: .top) {
+            Rectangle().fill(.separator).frame(height: 0.5)
+        }
     }
 
     private func button(_ label: String,
