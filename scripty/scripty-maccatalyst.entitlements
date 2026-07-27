@@ -4,11 +4,11 @@
 	The Mac Catalyst build's entitlements, selected by
 	CODE_SIGN_ENTITLEMENTS[sdk=macosx*].
 
-	Identical to scripty.entitlements but for the App Group, which macOS spells
-	with the team prefix: `TEAMID.group.…` rather than plain `group.…`. The two
-	forms cannot live in one file — the prefixed one is not a valid iOS group
-	and fails provisioning there — so this is a copy that differs by one line.
-	Anything added to scripty.entitlements belongs here too.
+	This file exists for one line. macOS spells an App Group `TEAMID.group.…`
+	and rejects the plain form; iOS spells it `group.…` and rejects the prefixed
+	one. Nothing in an entitlements file is conditional, so the only way to say
+	both is to have two files — and having two means every *other* change has to
+	be made twice. Keep this in step with scripty.entitlements next door.
 -->
 <plist version="1.0">
 <dict>
@@ -21,11 +21,12 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- The widget's shared container. `$(TeamIdentifierPrefix)` is expanded at
-	     build time and already carries its trailing dot, so this resolves to
-	     e.g. WA6FZ2S8R3.group.scripty.scripty — which is what
+	<!-- Both widgets' shared container — the macOS spelling of the group in
+	     scripty.entitlements. `$(TeamIdentifierPrefix)` is expanded at build
+	     time and already carries its trailing dot, so this resolves to e.g.
+	     WA6FZ2S8R3.group.scripty.scripty, which is what
 	     `containerURL(forSecurityApplicationGroupIdentifier:)` must be handed on
-	     macOS. SongsNotesWidgetStore tries both spellings for that reason. -->
+	     macOS. Both widget stores try each spelling in turn for that reason. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>$(TeamIdentifierPrefix)group.scripty.scripty</string>

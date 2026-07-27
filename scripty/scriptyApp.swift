@@ -33,12 +33,28 @@ struct scriptyApp: App {
                         appModel.passwordResetToken = token
                         return
                     }
-                    // scripty://document?project=…&id=…&kind=… — a row tapped
-                    // on the Songs & Notes widget. Held rather than acted on:
-                    // the tap may be what launched the app, so at this moment
-                    // there is no project list to open anything against.
+                    // A tapped Home Screen widget row. Both widgets park their
+                    // request rather than acting on it, for the reason the
+                    // long-press menu's entries do: the tap can be what launches
+                    // the app, and at that moment there is no signed-in session
+                    // and no project list to open anything against. ContentView
+                    // picks either one up once there is.
+
+                    // scripty://document?project=…&id=…&kind=… — a row on the
+                    // Songs & Notes widget, which names a document as well as a
+                    // screenplay and so needs a request of its own.
                     if let destination = WidgetLink.destination(in: url) {
                         appModel.pendingWidgetDestination = destination
+                        return
+                    }
+                    // scripty://project?id=… — a row on the Screenplays widget.
+                    // Reusing the quick action rather than inventing a second
+                    // kind of pending request: `.project(id:)` already means
+                    // exactly this, and the machinery that waits for a list,
+                    // opens the project and drops the request on sign-out is
+                    // already built around it.
+                    if let projectId = ProjectWidgetLink.projectId(in: url) {
+                        QuickActions.shared.pending = .project(id: projectId)
                         return
                     }
                     // scripty://demo — e.g. from a home-screen Shortcut —
@@ -108,16 +124,19 @@ struct RootView: View {
             // A quick action can only be carried out by a signed-in session, and
             // a cold launch is `.loading` while it finds out whether there is
             // one — so the drop waits for the answer rather than firing on the
-            // way past. The named projects come off the menu at the same time.
+            // way past. The named projects come off the menu at the same time,
+            // and both widgets' rows off the Home Screen: all of it is this
+            // writer's screenplay and song titles, readable by whoever picks
+            // the phone up next. The widgets need it more than the menu does —
+            // the Home Screen keeps drawing whatever it was last given until
+            // this app takes it back, and nobody else can.
             .onChange(of: app.phase) { _, phase in
                 guard case .signedOut = phase else { return }
                 QuickActions.shared.pending = nil
                 QuickActions.shared.clearRecents()
-                // Same reasoning one line up, and the widget needs it more:
-                // the Home Screen keeps drawing whatever it was last given
-                // until this app takes it back, and nobody else can.
                 app.pendingWidgetDestination = nil
                 WidgetPublisher.clear()
+                ProjectsWidgetPublisher.clear()
             }
     }
 

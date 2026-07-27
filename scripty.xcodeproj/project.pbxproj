@@ -10,6 +10,9 @@
 		AA1000000000000000000003 /* SongsNotesWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000002 /* SongsNotesWidgetData.swift */; };
 		AA1000000000000000000004 /* SongsNotesWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000002 /* SongsNotesWidgetData.swift */; };
 		AA1000000000000000000010 /* SongsNotesWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA1000000000000000000006 /* SongsNotesWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BB2000000000000000000003 /* ProjectsWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000002 /* ProjectsWidgetData.swift */; };
+		BB2000000000000000000004 /* ProjectsWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000002 /* ProjectsWidgetData.swift */; };
+		BB2000000000000000000010 /* ProjectsWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000006 /* ProjectsWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -19,6 +22,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = AA1000000000000000000005;
 			remoteInfo = SongsNotesWidget;
+		};
+		BB2000000000000000000012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DDBEC1F23005C5D900BF0514 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB2000000000000000000005;
+			remoteInfo = ProjectsWidget;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -30,6 +40,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				AA1000000000000000000010 /* SongsNotesWidget.appex in Embed Foundation Extensions */,
+				BB2000000000000000000010 /* ProjectsWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -39,6 +50,8 @@
 /* Begin PBXFileReference section */
 		AA1000000000000000000002 /* SongsNotesWidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongsNotesWidgetData.swift; sourceTree = "<group>"; };
 		AA1000000000000000000006 /* SongsNotesWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SongsNotesWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB2000000000000000000002 /* ProjectsWidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsWidgetData.swift; sourceTree = "<group>"; };
+		BB2000000000000000000006 /* ProjectsWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DDBEC1FA3005C5DA00BF0514 /* scripty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = scripty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -49,6 +62,13 @@
 				Info.plist,
 			);
 			target = AA1000000000000000000005 /* SongsNotesWidget */;
+		};
+		BB2000000000000000000008 /* Exceptions for "ProjectsWidget" folder in "ProjectsWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BB2000000000000000000005 /* ProjectsWidget */;
 		};
 		DDBEC2083005C5DB00BF0515 /* Exceptions for "scripty" folder in "scripty" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -66,6 +86,14 @@
 				AA1000000000000000000008 /* Exceptions for "SongsNotesWidget" folder in "SongsNotesWidget" target */,
 			);
 			path = SongsNotesWidget;
+			sourceTree = "<group>";
+		};
+		BB2000000000000000000007 /* ProjectsWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BB2000000000000000000008 /* Exceptions for "ProjectsWidget" folder in "ProjectsWidget" target */,
+			);
+			path = ProjectsWidget;
 			sourceTree = "<group>";
 		};
 		DDBEC1FC3005C5DA00BF0514 /* scripty */ = {
@@ -86,6 +114,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB200000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DDBEC1F73005C5D900BF0514 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -100,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				AA1000000000000000000002 /* SongsNotesWidgetData.swift */,
+				BB2000000000000000000002 /* ProjectsWidgetData.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -109,6 +145,7 @@
 			children = (
 				DDBEC1FC3005C5DA00BF0514 /* scripty */,
 				AA1000000000000000000007 /* SongsNotesWidget */,
+				BB2000000000000000000007 /* ProjectsWidget */,
 				AA1000000000000000000001 /* Shared */,
 				DDBEC1FB3005C5DA00BF0514 /* Products */,
 			);
@@ -119,6 +156,7 @@
 			children = (
 				DDBEC1FA3005C5DA00BF0514 /* scripty.app */,
 				AA1000000000000000000006 /* SongsNotesWidget.appex */,
+				BB2000000000000000000006 /* ProjectsWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -148,6 +186,28 @@
 			productReference = AA1000000000000000000006 /* SongsNotesWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		BB2000000000000000000005 /* ProjectsWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB200000000000000000000C /* Build configuration list for PBXNativeTarget "ProjectsWidget" */;
+			buildPhases = (
+				BB2000000000000000000009 /* Sources */,
+				BB200000000000000000000A /* Frameworks */,
+				BB200000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BB2000000000000000000007 /* ProjectsWidget */,
+			);
+			name = ProjectsWidget;
+			packageProductDependencies = (
+			);
+			productName = ProjectsWidget;
+			productReference = BB2000000000000000000006 /* ProjectsWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		DDBEC1F93005C5D900BF0514 /* scripty */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = DDBEC2053005C5DB00BF0514 /* Build configuration list for PBXNativeTarget "scripty" */;
@@ -161,6 +221,7 @@
 			);
 			dependencies = (
 				AA1000000000000000000011 /* PBXTargetDependency */,
+				BB2000000000000000000011 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				DDBEC1FC3005C5DA00BF0514 /* scripty */,
@@ -185,6 +246,9 @@
 					AA1000000000000000000005 = {
 						CreatedOnToolsVersion = 26.3;
 					};
+					BB2000000000000000000005 = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					DDBEC1F93005C5D900BF0514 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -206,12 +270,20 @@
 			targets = (
 				DDBEC1F93005C5D900BF0514 /* scripty */,
 				AA1000000000000000000005 /* SongsNotesWidget */,
+				BB2000000000000000000005 /* ProjectsWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		AA100000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB200000000000000000000B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -236,11 +308,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB2000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB2000000000000000000004 /* ProjectsWidgetData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DDBEC1F63005C5D900BF0514 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				AA1000000000000000000003 /* SongsNotesWidgetData.swift in Sources */,
+				BB2000000000000000000003 /* ProjectsWidgetData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -251,6 +332,11 @@
 			isa = PBXTargetDependency;
 			target = AA1000000000000000000005 /* SongsNotesWidget */;
 			targetProxy = AA1000000000000000000012 /* PBXContainerItemProxy */;
+		};
+		BB2000000000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB2000000000000000000005 /* ProjectsWidget */;
+			targetProxy = BB2000000000000000000012 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -512,6 +598,72 @@
 			};
 			name = Release;
 		};
+		BB200000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ProjectsWidget/ProjectsWidget.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "ProjectsWidget/ProjectsWidget-maccatalyst.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectsWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Screenplays;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = scripty.scripty.ProjectsWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BB200000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ProjectsWidget/ProjectsWidget.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "ProjectsWidget/ProjectsWidget-maccatalyst.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectsWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Screenplays;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = scripty.scripty.ProjectsWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -538,6 +690,15 @@
 			buildConfigurations = (
 				DDBEC2063005C5DB00BF0514 /* Debug */,
 				DDBEC2073005C5DB00BF0514 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB200000000000000000000C /* Build configuration list for PBXNativeTarget "ProjectsWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB200000000000000000000D /* Debug */,
+				BB200000000000000000000E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

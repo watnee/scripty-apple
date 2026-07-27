@@ -177,6 +177,15 @@ swiftc "${FLAGS[@]}" -o "$BUILD/widget" \
 "$BUILD/widget" || status=1
 
 echo
+echo "== Home Screen projects widget =="
+# The same arrangement for the other widget: pure Foundation on purpose, so
+# what the extension draws can be checked without a simulator to draw it in.
+swiftc "${FLAGS[@]}" -o "$BUILD/projectswidget" \
+    "$ROOT/Shared/ProjectsWidgetData.swift" \
+    "$ROOT/Tests/ProjectsWidget/main.swift"
+"$BUILD/projectswidget" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \

@@ -11,12 +11,14 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- Shared with the SongsNotesWidget extension, which has no other way to
-	     see anything: the app writes the widget's rows into this container and
-	     the extension only reads them. The identifier is spelled out in
-	     SongsNotesWidgetStore.appGroup and in the extension's own entitlements,
-	     and all three have to agree — a mismatch builds cleanly and shows up
-	     only as a widget that is permanently empty.
+	<!-- Shared with both widget extensions, which have no other way to see
+	     anything: the app writes each widget's rows into this container and the
+	     extensions only read them. One group serves both — they keep separate
+	     files inside it. The identifier is spelled out in
+	     SongsNotesWidgetStore.appGroup, in ProjectsWidgetStore.appGroup and in
+	     each extension's own entitlements, and all of them have to agree — a
+	     mismatch builds cleanly and shows up only as a widget that is
+	     permanently empty.
 
 	     This is the iOS spelling. Mac Catalyst wants the team-prefixed form and
 	     is served by scripty-maccatalyst.entitlements next door; the two files

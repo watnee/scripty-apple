@@ -1,0 +1,56 @@
+//
+//  ProjectsWidgetPublisher.swift
+//  scripty
+//
+//  Where the app meets its Home Screen widget: it turns the project list into
+//  the handful of rows the widget draws, and tells WidgetKit when they have
+//  changed.
+//
+//  The shape of this file is QuickActions.swift's, for the same reasons. The
+//  pure half — ordering, the URLs — lives next door in
+//  Shared/ProjectsWidgetData.swift, which the extension compiles too and
+//  Tests/ProjectsWidget checks without a simulator. Only the part that talks to
+//  WidgetKit is here.
+//
+
+import Foundation
+import WidgetKit
+
+enum ProjectsWidgetPublisher {
+    /// Republishes the widget from the list the sidebar is showing.
+    ///
+    /// Called from the one place watching `ProjectListModel.projects` rather
+    /// than from the load itself, so that every path that changes the list —
+    /// creating, renaming, starring, importing, deleting, restoring from the
+    /// trash — is covered without each having to remember to.
+    ///
+    /// The demo publishes nothing, exactly as the Home Screen menu's recents do
+    /// not. Its projects live in memory for as long as the app is running, so a
+    /// row naming one is a row that could only ever fail to open — and it would
+    /// sit on the Home Screen long after the demo was over, since nothing but
+    /// this app can take it back down.
+    ///
+    /// An empty list still publishes when it is genuinely empty and not merely
+    /// unloaded; see the caller, which does not fire on the initial value.
+    static func publish(_ projects: [Project], isDemo: Bool) {
+        guard !isDemo else { return }
+        let rows = projects.map { project in
+            WidgetProject(id: project.id,
+                          title: project.displayTitle,
+                          writers: project.writers,
+                          version: project.screenplayVersion,
+                          lastEdited: project.lastEdited,
+                          isDefault: project.isDefault == true)
+        }
+        guard ProjectsWidgetStore.publish(rows) else { return }
+        WidgetCenter.shared.reloadTimelines(ofKind: ProjectsWidgetStore.widgetKind)
+    }
+
+    /// Empties the widget. Signing out goes through here: the next person to
+    /// pick up the phone should not be able to read the last writer's
+    /// screenplay titles off the Home Screen.
+    static func clear() {
+        ProjectsWidgetStore.clear()
+        WidgetCenter.shared.reloadTimelines(ofKind: ProjectsWidgetStore.widgetKind)
+    }
+}
