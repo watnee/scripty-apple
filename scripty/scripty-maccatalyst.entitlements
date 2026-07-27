@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The Mac Catalyst build's entitlements, selected by
+	CODE_SIGN_ENTITLEMENTS[sdk=macosx*].
+
+	This file exists for one line. macOS spells an App Group `TEAMID.group.…`
+	and rejects the plain form; iOS spells it `group.…` and rejects the prefixed
+	one. Nothing in an entitlements file is conditional, so the only way to say
+	both is to have two files — and having two means every *other* change has to
+	be made twice. Keep this in step with scripty.entitlements next door.
+-->
 <plist version="1.0">
 <dict>
 	<!-- App Sandbox is required of a Mac app; ignored on iOS. -->
@@ -11,28 +21,22 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- Shared with both widget extensions, which have no other way to see
-	     anything: the app writes each widget's rows into this container and the
-	     extensions only read them. One group serves both — they keep separate
-	     files inside it. The identifier is spelled out in
-	     SongsNotesWidgetStore.appGroup, in ProjectsWidgetStore.appGroup and in
-	     each extension's own entitlements, and all of them have to agree — a
-	     mismatch builds cleanly and shows up only as a widget that is
-	     permanently empty.
-
-	     This is the iOS spelling. Mac Catalyst wants the team-prefixed form and
-	     is served by scripty-maccatalyst.entitlements next door; the two files
-	     exist only because that one difference cannot be expressed in one. -->
+	<!-- Both widgets' shared container — the macOS spelling of the group in
+	     scripty.entitlements. `$(TeamIdentifierPrefix)` is expanded at build
+	     time and already carries its trailing dot, so this resolves to e.g.
+	     WA6FZ2S8R3.group.scripty.scripty, which is what
+	     `containerURL(forSecurityApplicationGroupIdentifier:)` must be handed on
+	     macOS. Both widget stores try each spelling in turn for that reason. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.scripty.scripty</string>
+		<string>$(TeamIdentifierPrefix)group.scripty.scripty</string>
 	</array>
-	<!-- Both claims are on the server's domain, validated by iOS against the
+	<!-- Both claims are on the server's domain, validated against the
 	     apple-app-site-association the server serves at /.well-known/. A
 	     different base URL (localhost override, demo) matches neither.
 
-	     webcredentials: passkeys are bound to the domain, and iOS only offers
-	     them to this app once the file names it.
+	     webcredentials: passkeys are bound to the domain, and the system only
+	     offers them to this app once the file names it.
 
 	     applinks: the password reset link in a recovery email opens this app
 	     rather than a browser, which is what spares anyone typing a code out of

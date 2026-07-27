@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- What makes this bundle a widget rather than any other kind of app
+	     extension. WidgetKit finds the `@main` WidgetBundle from here; without
+	     it the extension builds, embeds, and never appears in the gallery. -->
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
+
+	<!-- Same as the app's, and for the same reason: on macOS the App Group is
+	     spelled with the team prefix, and this extension resolves the container
+	     for itself. See the note in scripty/Info.plist. -->
+	<key>TeamIdentifierPrefix</key>
+	<string>$(TeamIdentifierPrefix)</string>
+</dict>
+</plist>

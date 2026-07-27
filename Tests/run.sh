@@ -168,6 +168,24 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
 "$BUILD/songshortcuts" || status=1
 
 echo
+echo "== Songs & Notes widget =="
+# The half of the widget the extension and the app share. WidgetPublisher next
+# door is not here: it imports WidgetKit and only exists to call these.
+swiftc "${FLAGS[@]}" -o "$BUILD/widget" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Tests/SongsNotesWidget/main.swift"
+"$BUILD/widget" || status=1
+
+echo
+echo "== Home Screen projects widget =="
+# The same arrangement for the other widget: pure Foundation on purpose, so
+# what the extension draws can be checked without a simulator to draw it in.
+swiftc "${FLAGS[@]}" -o "$BUILD/projectswidget" \
+    "$ROOT/Shared/ProjectsWidgetData.swift" \
+    "$ROOT/Tests/ProjectsWidget/main.swift"
+"$BUILD/projectswidget" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \
@@ -192,6 +210,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/OfflineStore.swift" \
@@ -214,6 +233,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/OfflineStore.swift" \

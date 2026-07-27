@@ -216,6 +216,82 @@ of the wiring is in [QuickAction.swift](scripty/Models/QuickAction.swift) and
 screenplays — its projects only exist while it is running, so an entry for one
 could only ever fail — and signing out takes them back off.
 
+## The Home Screen widgets
+
+Two of them, both shipped with the app rather than installed separately. Add
+either the usual way: press and hold the Home Screen, **Edit → Add Widget**,
+then search for **Scripty**. The gallery searches the *app's* name, not the
+widget's, so searching "Screenplays" or "Songs & Notes" finds nothing.
+
+**Screenplays** lists what you have been working on, most recent first, and
+tapping a row opens that screenplay. The starred one is marked with a star
+wherever it happens to land — the widget answers "what have I been working on"
+rather than "which is mine", so a draft you spent the week in comes first even
+when another is starred.
+
+**Songs & Notes** does the same for the songs and notes inside those
+screenplays, newest first across all of them, and tapping one opens that
+document on the right list.
+
+| Size        | Screenplays              | Songs & Notes                |
+| ----------- | ------------------------ | ---------------------------- |
+| Small       | The most recent          | The one most recently edited |
+| Medium      | Three                    | Three                        |
+| Large       | Six                      | Six                          |
+| Lock Screen | The most recent          | The one most recently edited |
+
+A widget cannot sign in, and neither of these tries. The app writes the handful
+of rows each one draws into a shared App Group container — the projects list as
+it loads, a screenplay's songs and notes as they settle — and the extensions
+only ever read them. So a row appears once the app has seen it, the rows are
+there whether or not the phone has a connection, and there is no second copy of
+the API client to keep honest. The demo publishes nothing, for the same reason
+it names no screenplays in the Home Screen menu, and signing out empties both —
+the Home Screen keeps showing whatever it was last given until this app takes it
+back, and nobody else can.
+
+The pieces, in matching pairs: [Shared/](Shared) holds the one file per widget
+that both its targets compile, and it is pure Foundation on purpose, so
+`Tests/SongsNotesWidget` and `Tests/ProjectsWidget` can check the ordering, the
+merge and the deep-link URLs without a simulator.
+
+| | Screenplays | Songs & Notes |
+| --- | --- | --- |
+| Shared | [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) | [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift) |
+| Extension | [ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) | [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift) |
+| App's half | [ProjectsWidgetPublisher.swift](scripty/Widgets/ProjectsWidgetPublisher.swift) | [WidgetPublisher.swift](scripty/Widgets/WidgetPublisher.swift) |
+| Tapped row | `scripty://project?id=…` | `scripty://document?project=…&id=…&kind=…` |
+
+Both URLs are read in [scriptyApp.swift](scripty/scriptyApp.swift). A tapped
+screenplay becomes the same pending request a long-press menu entry makes; a
+tapped song carries a document as well, so it gets a request of its own.
+
+The App Group is `group.scripty.scripty`, named once in each widget's store and
+spelled out in **six** entitlements files — one iOS and one Catalyst for each of
+the three targets. They all have to agree; a mismatch builds cleanly and shows
+up only as a widget that is permanently empty.
+
+The two platforms spell the same group differently, which is why there are two
+files per target rather than one: iOS grants it plain, macOS grants it with the
+team prefix, as `TEAMID.group.scripty.scripty`, and a container opens only under
+the exact string its entitlement granted. `CODE_SIGN_ENTITLEMENTS[sdk=macosx*]`
+picks the Catalyst set, every target carries `TeamIdentifierPrefix` in its
+Info.plist so the prefix can be read back at runtime, and each store asks for
+the plain spelling first and the prefixed one only if that fails. Nothing has to
+know which platform it is on.
+
+**Mac Catalyst is untried.** The code is there and the entitlements are there,
+but it has not been run on a Mac. If it is wrong, the app publishes into a
+container the widgets cannot open and they show their empty state — nothing else
+breaks.
+
+Two things worth knowing if you are changing any of this. Xcode's automatic
+signing registers the group against your App ID the first time it signs the app
+for a device, so the first device build after pulling this needs a signing team
+selected. And an extension built with `CODE_SIGNING_ALLOWED=NO` embeds fine,
+runs fine, and never appears in the gallery at all — so a quick unsigned
+simulator build is not a test of anything.
+
 ## Which server it talks to
 
 By default the app uses the hosted backend in
@@ -269,3 +345,7 @@ Anything that needs a running app is out of scope here — use `demo.sh` for tha
 | `scripty/Demo`  | The in-memory backend behind the offline demo           |
 | `scripty/Models`| Screenplay blocks, pagination, stats                    |
 | `scripty/Views` | The editor and everything around it                     |
+| `scripty/Widgets`| The app's half of both Home Screen widgets             |
+| `Shared`        | The files the app and each widget extension share       |
+| `ProjectsWidget`| The Screenplays widget extension                        |
+| `SongsNotesWidget`| The Songs & Notes widget extension                     |
