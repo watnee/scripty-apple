@@ -207,7 +207,15 @@ func checkBlocksFallback() async {
                              baseText: "First line.", savedAt: .now),
                 projectId: 1)
 
-    let model = ScriptModel(app: AppModel(), project: project,
+    // Hand-driven and offline, like every other case here. Left to the system
+    // monitor this would depend on the machine having a route to the network:
+    // `waitsForConnectivity` holds a request until the system reports a path,
+    // so somewhere without one (a sandbox, a CI box) the closed port below is
+    // never even tried and each request sits out the full 120s resource
+    // timeout instead of being refused in milliseconds.
+    let offline = ConnectivityMonitor(startMonitoring: false)
+    offline.adopt(false)
+    let model = ScriptModel(app: AppModel(connectivity: offline), project: project,
                             draftStore: drafts, offlineStore: store)
     await model.loadBlocks()
 
@@ -220,7 +228,7 @@ func checkBlocksFallback() async {
 
     print()
     print("== A project never cached still reports the failure ==")
-    let bare = ScriptModel(app: AppModel(), project: project,
+    let bare = ScriptModel(app: AppModel(connectivity: offline), project: project,
                            draftStore: nil,
                            offlineStore: OfflineStore(scope: "server|alice",
                                                       directory: scratchDirectory("empty")))
@@ -236,7 +244,11 @@ func checkReconnectHoldsWork() async {
     let store = OfflineStore(scope: "server|alice", directory: directory)
     store.save(Data(blocksJSON.utf8), .blocks(projectId: 1))
 
-    let model = ScriptModel(app: AppModel(), project: project,
+    // Offline for the reading and the typing, so neither waits on a route this
+    // machine may not have — see the note in checkBlocksFallback.
+    let monitor = ConnectivityMonitor(startMonitoring: false)
+    monitor.adopt(false)
+    let model = ScriptModel(app: AppModel(connectivity: monitor), project: project,
                             draftStore: nil, offlineStore: store)
     await model.loadBlocks()
     model.liveEdit(model.blocks[0], text: "Typed while offline.")
@@ -244,7 +256,10 @@ func checkReconnectHoldsWork() async {
     check("the edit is held before the reconnect", model.unsavedBlockIds.contains(10))
 
     // The route came back but the server is still refusing (the closed port):
-    // the push fails, and the words must survive exactly as before.
+    // the push fails, and the words must survive exactly as before. This is the
+    // one request in the file that really goes out — the case is about a
+    // failure the monitor cannot see, so it has to be a real one.
+    monitor.adopt(true)
     await model.connectionRestored()
     checkEqual("the words are still on screen",
                model.currentText(model.blocks[0]), "Typed while offline.")

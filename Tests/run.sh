@@ -90,6 +90,13 @@ swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
 "$BUILD/notes" || status=1
 
 echo
+echo "== Password reset links =="
+swiftc "${FLAGS[@]}" -o "$BUILD/passwordreset" \
+    "$SRC/API/PasswordResetLink.swift" \
+    "$ROOT/Tests/PasswordReset/main.swift"
+"$BUILD/passwordreset" || status=1
+
+echo
 echo "== Autocomplete =="
 swiftc "${FLAGS[@]}" -o "$BUILD/suggestions" \
     "$SRC/Models/Block.swift" \

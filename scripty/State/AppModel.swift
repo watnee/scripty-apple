@@ -23,6 +23,15 @@ final class AppModel {
     private(set) var isDemo = false
     var signInError: String?
 
+    /// The token from a recovery email's link, when one has opened the app.
+    ///
+    /// Held here rather than passed down because of when it arrives: tapping
+    /// the link may well be what launched the app, so it lands before there is
+    /// anything on screen to hand it to — and it can land on a device that is
+    /// still signed in. `RootView` picks it up in any phase and clears it once
+    /// the sheet is done with it.
+    var passwordResetToken: String?
+
     /// False when the keychain refused to hold this session's credentials, so
     /// signing in again will be needed after the app is quit.
     private(set) var isSessionPersisted = true
