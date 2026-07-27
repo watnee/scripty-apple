@@ -30,6 +30,21 @@ struct Project: Decodable, Identifiable, Hashable, HALResource {
         let name = screenplayTitle ?? title ?? ""
         return name.isEmpty ? "Untitled Project" : name
     }
+
+    /// Everything the sidebar's search box matches against. The web list filters
+    /// on the title alone, but its row shows only the title; this row also shows
+    /// the writers, the draft version and the teams, so a search that ignored
+    /// them would skip past text the writer can see — the same whole-row scan
+    /// the users list does.
+    var searchHaystackLowercased: String {
+        var parts = [displayTitle]
+        // `title` is the project name, which `displayTitle` hides whenever a
+        // screenplay title is set — so a writer searching for the name they
+        // filed it under still finds it.
+        parts.append(contentsOf: [title, writers, screenplayVersion].compactMap { $0 })
+        parts.append(contentsOf: teams ?? [])
+        return parts.joined(separator: " ").lowercased()
+    }
 }
 
 struct CreateProjectCommand: Encodable {
