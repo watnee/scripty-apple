@@ -126,8 +126,10 @@ struct ScriptView: View {
             }
         }
         // Outside the mode switch, so the readout is in the same place whether
-        // the script is a column or a stack of pages.
-        .safeAreaInset(edge: .bottom, spacing: 0) { wordCountBar }
+        // the script is a column or a stack of pages. `.safeAreaBar` rather
+        // than `.safeAreaInset`: the readout is a bar, so it takes the system's
+        // Liquid Glass and the script passes under it.
+        .safeAreaBar(edge: .bottom, spacing: 0) { wordCountBar }
         // Floated after the word-count inset, so it settles just above the bar
         // (or the bottom safe area when the bar is off) rather than over it.
         .overlay(alignment: .bottom) { historyToastOverlay }
@@ -496,11 +498,17 @@ struct ScriptView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        // A soft edge lets the writing dissolve into the navigation bar rather
+        // than sliding under a hard line — the right treatment for a column of
+        // text, where a hard edge cuts a sentence in half mid-scroll.
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .overlay { emptyState }
-        .safeAreaInset(edge: .bottom) { editingBars }
-        .safeAreaInset(edge: .bottom) { searchBar }
-        .safeAreaInset(edge: .bottom) { bulkBar }
+        // Each writing bar is mounted with `.safeAreaBar`, so the three stack
+        // as Liquid Glass strips over the script instead of opaque slabs.
+        .safeAreaBar(edge: .bottom) { editingBars }
+        .safeAreaBar(edge: .bottom) { searchBar }
+        .safeAreaBar(edge: .bottom) { bulkBar }
         .environment(\.scriptTextScale, settings.textScale)
         .environment(\.scriptRowChrome, rowChrome)
     }
@@ -581,15 +589,18 @@ struct ScriptView: View {
 
     /// The transient confirmation after an undo/redo, as the web editor shows.
     /// Non-interactive so it never swallows a tap on the writing underneath.
+    ///
+    /// Liquid Glass rather than the web's flat dark capsule: it floats over the
+    /// writing, which is exactly what the material is for, and it stays legible
+    /// against a light page or a dark one without a hardcoded pair of colours.
     @ViewBuilder
     private var historyToastOverlay: some View {
         if let text = toastText {
             Text(text)
                 .font(.callout.weight(.medium))
-                .foregroundStyle(.white)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(.black.opacity(0.82), in: Capsule())
+                .glassEffect(.regular, in: .capsule)
                 .padding(.bottom, 12)
                 .allowsHitTesting(false)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -766,7 +777,7 @@ struct ScriptView: View {
                     Button("Start Writing") {
                         Task { await model.seedInitialBlock() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                 }
             } else {
                 ContentUnavailableView(
@@ -784,7 +795,7 @@ struct ScriptView: View {
                      + "This script has none of them.")
             } actions: {
                 Button("Show Whole Script") { settings.isOutlineMode = false }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
             }
         }
     }
@@ -1009,10 +1020,19 @@ struct ScriptView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // The View menu stays put in focus mode — it is the way back out.
+        //
+        // It sits in a group of its own, divided from the rest by a
+        // `ToolbarSpacer`, so Liquid Glass draws it as a separate control: it
+        // changes how the script is *presented*, where everything after it acts
+        // on the script itself. Pooling them in one capsule read as one set.
         ToolbarItemGroup(placement: .primaryAction) {
-            // The View menu stays put in focus mode — it is the way back out.
             viewMenu
+        }
 
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItemGroup(placement: .primaryAction) {
             if !settings.isPageView && !options.isEditingLocked {
                 Button {
                     Task { await model.appendBlock() }

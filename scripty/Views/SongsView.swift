@@ -258,11 +258,21 @@ struct SongsView: View {
     /// what a writer holds in mind as "what I have been working on".
     private static let recentCount = 3
 
+    /// The list under its Songs/Notes picker.
+    ///
+    /// Its own property because this body was already at the type checker's
+    /// limit: folding the `.safeAreaBar` into the chain below tipped it over
+    /// ("unable to type-check this expression in reasonable time"), the same
+    /// ceiling `sortPicker` was pulled out to stay under.
+    private var listWithPicker: some View {
+        list
+            .overlay { emptyState }
+            .safeAreaBar(edge: .top) { picker }
+    }
+
     var body: some View {
         NavigationStack {
-            list
-            .overlay { emptyState }
-            .safeAreaInset(edge: .top) { picker }
+            listWithPicker
             .navigationTitle("Songs & Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -484,7 +494,7 @@ struct SongsView: View {
         .pickerStyle(.segmented)
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .background(.bar)
+        // No background: mounted with `.safeAreaBar`, which supplies the glass.
     }
 
     /// Its own property rather than inline in the toolbar: a Picker in a

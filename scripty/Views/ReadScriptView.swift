@@ -94,7 +94,10 @@ struct ReadScriptView: View {
                 }
             }
             .overlay { emptyState }
-            .safeAreaInset(edge: .bottom) { transportBar }
+            // `.safeAreaBar` rather than `.safeAreaInset`: the transport is a
+            // bar, so it takes the system's Liquid Glass and the script scrolls
+            // under it instead of stopping at a slab.
+            .safeAreaBar(edge: .bottom) { transportBar }
             .navigationTitle(startsSpeaking ? "Read Aloud" : "Read Script")
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -193,7 +196,6 @@ struct ReadScriptView: View {
             .labelStyle(.iconOnly)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(.bar)
         }
     }
 

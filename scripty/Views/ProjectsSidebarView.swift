@@ -471,7 +471,7 @@ struct ProjectsSidebarView: View {
         .navigationSubtitle(countSubtitle)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
         .refreshable { await model.refresh() }
-        .safeAreaInset(edge: .bottom, spacing: 0) { offlineFooter }
+        .safeAreaBar(edge: .bottom, spacing: 0) { offlineFooter }
         // The connection is back — trade the offline copy for the real list.
         .onChange(of: app.connectivity.isOnline) { _, online in
             guard online else { return }
@@ -582,8 +582,6 @@ struct ProjectsSidebarView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
-            .background(.bar)
-            .overlay(alignment: .top) { Divider() }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Offline. Showing the projects saved on this device "
                                 + savedAt.formatted(.relative(presentation: .named)) + ".")
