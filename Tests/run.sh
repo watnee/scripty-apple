@@ -168,6 +168,32 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
 "$BUILD/songshortcuts" || status=1
 
 echo
+echo "== Folding a lyric line into the one above =="
+# Driven against the in-process demo backend rather than a stub, so the PUT,
+# the DELETE and the reload that follows them all really happen.
+swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/SongBlockModel.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/SongLines/main.swift"
+"$BUILD/songlines" || status=1
+
+echo
 echo "== Songs & Notes widget =="
 # The half of the widget the extension and the app share. WidgetPublisher next
 # door is not here: it imports WidgetKit and only exists to call these.

@@ -18,10 +18,19 @@ import UIKit
 /// The bar is a sibling of the editor, not a child, so it has no way to reach
 /// the coordinator that owns the caret. This is that way — set once when the
 /// view is made, cleared with it.
+@Observable
 @MainActor
 final class NoteEditorController {
-    fileprivate var perform: ((NoteTextView.Command) -> Void)?
-    fileprivate var beginEditing: (() -> Void)?
+    @ObservationIgnored fileprivate var perform: ((NoteTextView.Command) -> Void)?
+    @ObservationIgnored fileprivate var beginEditing: (() -> Void)?
+    @ObservationIgnored fileprivate var history: (() -> UndoManager?)?
+
+    /// Whether there is anything to step back to, mirrored from the text view's
+    /// undo manager rather than read through it: a stored value is what makes
+    /// the two buttons dim and undim as the note is typed. Refreshed by the
+    /// coordinator on every change, which is the only thing that moves either.
+    private(set) var canUndo = false
+    private(set) var canRedo = false
 
     func callAsFunction(_ command: NoteTextView.Command) {
         perform?(command)
@@ -31,6 +40,27 @@ final class NoteEditorController {
     /// note is named and then written without reaching for the screen.
     func focus() {
         beginEditing?()
+    }
+
+    /// Undo and redo the note's own text. The keyboard already offers ⌘Z, and
+    /// a device without one has only the shake gesture — so the bar carries
+    /// them too, as the browser's note toolbar does.
+    func undo() {
+        guard let manager = history?(), manager.canUndo else { return }
+        manager.undo()
+        refresh()
+    }
+
+    func redo() {
+        guard let manager = history?(), manager.canRedo else { return }
+        manager.redo()
+        refresh()
+    }
+
+    fileprivate func refresh() {
+        let manager = history?()
+        canUndo = manager?.canUndo ?? false
+        canRedo = manager?.canRedo ?? false
     }
 }
 
@@ -93,6 +123,10 @@ struct NoteTextView: UIViewRepresentable {
         controller?.beginEditing = { [weak view] in
             view?.becomeFirstResponder()
         }
+        // Resolved on each ask rather than captured: a text view has no undo
+        // manager of its own until it is in a window and editing, since the one
+        // it uses comes up the responder chain.
+        controller?.history = { [weak view] in view?.undoManager }
         view.placeholder = placeholder
         return view
     }
@@ -135,10 +169,17 @@ struct NoteTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
             (textView as? NoteUITextView)?.updatePlaceholder()
+            // Every route to a changed note passes through here — typing, the
+            // formatting bar, ⌘Z, the shake gesture — so this one call is
+            // enough to keep the bar's two buttons honest.
+            parent.controller?.refresh()
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             parent.onFocusChange?(true)
+            // The undo manager only exists once the note is editing, so the
+            // first honest reading of it is here.
+            parent.controller?.refresh()
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
@@ -177,12 +218,40 @@ struct NoteTextView: UIViewRepresentable {
             }
         }
 
+        /// Puts a rewritten note back into the text view.
+        ///
+        /// Through `replace(_:withText:)` rather than by assigning `text`: an
+        /// assignment is invisible to UIKit's undo manager, so a bullet added
+        /// by the bar could not be taken off again by ⌘Z, and the next undo
+        /// would step back past it to whatever the writer typed before —
+        /// silently discarding everything the rules had done since. The web
+        /// editor avoids the same trap by going through `execCommand`.
         private func apply(_ edit: NoteEdit) {
             guard let textView else { return }
-            textView.text = edit.text
+            let old = textView.text ?? ""
+            if let change = NoteFormatting.change(from: old, to: edit.text),
+               let range = textRange(of: change, in: textView, oldText: old) {
+                textView.replace(range, withText: change.replacement)
+            }
+            // Belt and braces: `replace` reports back through the delegate, but
+            // a text view that refused the range has still to leave the model
+            // holding what the rules produced.
+            if textView.text != edit.text { textView.text = edit.text }
             parent.text = edit.text
             let location = utf16Offset(edit.caret, in: edit.text)
             textView.selectedRange = NSRange(location: location, length: 0)
+        }
+
+        /// A changed span, as the pair of positions the text view wants.
+        private func textRange(of change: NoteChange,
+                               in textView: UITextView,
+                               oldText: String) -> UITextRange? {
+            let start = utf16Offset(change.start, in: oldText)
+            let end = utf16Offset(change.end, in: oldText)
+            guard let from = textView.position(from: textView.beginningOfDocument, offset: start),
+                  let to = textView.position(from: textView.beginningOfDocument, offset: end)
+            else { return nil }
+            return textView.textRange(from: from, to: to)
         }
 
         /// UITextView counts in UTF-16 and the formatting rules count in
@@ -307,9 +376,10 @@ final class NoteUITextView: UITextView {
     }
 }
 
-/// Bullet, number and heading controls — the counterpart of the web editor's
-/// note formatting row, and the only route to these on a device with no
-/// hardware keyboard.
+/// Undo, redo, bullet, number and heading controls — the counterpart of the web
+/// editor's note formatting row, and the only route to any of them on a device
+/// with no hardware keyboard. (Undo has the shake gesture, which is a gesture
+/// nobody discovers and half the writers who do have turned off.)
 ///
 /// Carries its own bar chrome because of where it sits: pinned to the bottom of
 /// the editor, riding above the keyboard, where it has to read as a strip of
@@ -321,6 +391,29 @@ struct NoteFormatBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // Leading, where the browser's note toolbar puts them, and where
+            // the screenplay and lyric editors put their own pair.
+            Button {
+                controller.undo()
+            } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward")
+            }
+            .buttonStyle(.bordered)
+            .labelStyle(.iconOnly)
+            .disabled(!controller.canUndo)
+            .accessibilityLabel("Undo")
+
+            Button {
+                controller.redo()
+            } label: {
+                Label("Redo", systemImage: "arrow.uturn.forward")
+            }
+            .buttonStyle(.bordered)
+            .labelStyle(.iconOnly)
+            .disabled(!controller.canRedo)
+            .accessibilityLabel("Redo")
+
+            Divider().frame(height: 18)
             button("List", systemImage: "list.bullet", .bulletList)
             button("Numbered List", systemImage: "list.number", .numberedList)
             Divider().frame(height: 18)
