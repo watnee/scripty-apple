@@ -40,10 +40,17 @@ final class ScriptNarrator {
     // MARK: - What is being read
 
     private(set) var cues: [NarrationCue] = []
-    private(set) var playback: Playback = .idle
+    private(set) var playback: Playback = .idle {
+        didSet { publishNowPlaying() }
+    }
     /// Where in the run we are, kept even while paused so resuming and the
     /// highlight agree.
-    private(set) var currentIndex: Int?
+    private(set) var currentIndex: Int? {
+        didSet { publishNowPlaying() }
+    }
+    /// The script being read, for the Lock Screen to name. The reader knows it
+    /// and the blocks do not, so it arrives with them.
+    private(set) var scriptTitle = ""
 
     var isActive: Bool { playback != .idle }
     var isSpeaking: Bool { playback == .speaking }
@@ -59,6 +66,14 @@ final class ScriptNarrator {
     /// True once there is something worth pressing play on — the reader
     /// disables its controls otherwise rather than starting a silent run.
     var hasSomethingToRead: Bool { !cues.isEmpty }
+
+    /// Whose line is being read: the one thing a transport — or a locked
+    /// screen — can say that the highlight cannot.
+    var nowReading: String {
+        guard let cue = currentCue else { return "Paused" }
+        if let speaker = cue.speaker, cue.kind.isSpoken { return speaker }
+        return "Narration"
+    }
 
     // MARK: - Preferences
 
@@ -141,6 +156,12 @@ final class ScriptNarrator {
 
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
     @ObservationIgnored private var relay: NarrationRelay?
+    /// The Lock Screen, the headphones and the interruptions.
+    @ObservationIgnored private var remote: NarrationRemote?
+    /// Set when the system took the audio away mid-line, so that being handed
+    /// it back resumes a reading that was actually running — rather than
+    /// starting one the writer had already paused themselves.
+    @ObservationIgnored private var pausedByInterruption = false
     /// The blocks the current run was built from, kept so the run can be
     /// rebuilt when an option changes without the reader handing them back.
     @ObservationIgnored private var blocks: [Block] = []
@@ -174,13 +195,21 @@ final class ScriptNarrator {
         }
         self.relay = relay
         synthesizer.delegate = relay
+
+        remote = NarrationRemote { [weak self] command in
+            self?.perform(command)
+        }
     }
 
     // MARK: - Loading
 
     /// Points the narrator at a script. Safe to call again when the script
     /// changes underneath it — a run in progress keeps its place if it can.
-    func prepare(_ blocks: [Block]) {
+    func prepare(_ blocks: [Block], title: String = "") {
+        if title != scriptTitle {
+            scriptTitle = title
+            publishNowPlaying()
+        }
         guard blocks != self.blocks else { return }
         self.blocks = blocks
         reload(keepingPlace: true)
@@ -240,6 +269,7 @@ final class ScriptNarrator {
 
     func pause() {
         guard playback == .speaking else { return }
+        pausedByInterruption = false
         // At a word rather than immediately: stopping mid-word and picking the
         // word up again from its middle is the thing that sounds broken.
         synthesizer.pauseSpeaking(at: .word)
@@ -249,12 +279,18 @@ final class ScriptNarrator {
 
     func resume() {
         guard playback == .paused else { return }
+        pausedByInterruption = false
+        // An interruption leaves the session deactivated behind it, so the
+        // session is claimed again rather than assumed. Claiming one already
+        // held costs nothing.
+        activateAudioSession()
         synthesizer.continueSpeaking()
         playback = .speaking
         keepScreenAwake(true)
     }
 
     func stop() {
+        pausedByInterruption = false
         utteranceIndex.removeAll()
         synthesizer.stopSpeaking(at: .immediate)
         playback = .idle
@@ -302,6 +338,7 @@ final class ScriptNarrator {
 
     private func speak(from index: Int) {
         guard cues.indices.contains(index) else { return }
+        pausedByInterruption = false
 
         // Clearing the map before cancelling is what makes the cancelled
         // queue's callbacks no-ops: they arrive holding an utterance nothing
@@ -310,8 +347,11 @@ final class ScriptNarrator {
         synthesizer.stopSpeaking(at: .immediate)
 
         activateAudioSession()
-        currentIndex = index
+        // Playing first, then the place: both publish to the Lock Screen, and
+        // in this order a skip never takes the card down and puts it back —
+        // the reading stays active across the pair.
         playback = .speaking
+        currentIndex = index
         keepScreenAwake(true)
 
         for cue in cues[index...] {
@@ -383,6 +423,7 @@ final class ScriptNarrator {
     }
 
     private func finish() {
+        pausedByInterruption = false
         utteranceIndex.removeAll()
         playback = .idle
         currentIndex = nil
@@ -390,13 +431,57 @@ final class ScriptNarrator {
         deactivateAudioSession()
     }
 
+    // MARK: - Everything outside the reader
+
+    /// A button pressed somewhere this app is not: the Lock Screen, an AirPod,
+    /// a steering wheel — or the system taking the audio and giving it back.
+    private func perform(_ command: NarrationRemoteEvent) {
+        switch command {
+        case .play: play()
+        case .pause: pause()
+        case .toggle: togglePlayPause()
+        case .next: skipForward()
+        case .previous: skipBackward()
+        case .stop: stop()
+        case .interrupted:
+            let wasSpeaking = playback == .speaking
+            pause()
+            pausedByInterruption = wasSpeaking
+        case .interruptionEnded:
+            guard pausedByInterruption else { return }
+            resume()
+        case .outputLost:
+            // Headphones out: stop talking to the room. Deliberately not a
+            // resume when they go back in — that is the writer's call.
+            pause()
+        }
+    }
+
+    /// Tells the Lock Screen what is being read, or takes the reading down
+    /// when there is nothing to control.
+    private func publishNowPlaying() {
+        guard isActive else {
+            remote?.update(nil)
+            return
+        }
+        remote?.update(NarrationNowPlaying(
+            title: scriptTitle.isEmpty ? "Untitled Project" : scriptTitle,
+            speaker: nowReading,
+            isPlaying: isSpeaking
+        ))
+    }
+
     // MARK: - The device while it reads
 
     private func activateAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        // Spoken audio, ducking rather than stopping whatever else is playing:
-        // a read-through is something you listen *to*, not a notification.
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        // Spoken audio, and it takes the output rather than mixing into it: a
+        // read-through runs for minutes with the screen off, holds the Lock
+        // Screen's transport, and is the thing being listened to. Ducking the
+        // music under it — which is what this did while the reader was only
+        // ever on screen — would leave two players sharing one pair of
+        // headphones and one set of buttons.
+        try? session.setCategory(.playback, mode: .spokenAudio)
         try? session.setActive(true)
     }
 

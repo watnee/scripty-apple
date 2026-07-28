@@ -116,10 +116,12 @@ struct ReadScriptView: View {
                 }
             }
             .task {
-                narrator.prepare(blocks)
+                narrator.prepare(blocks, title: title)
                 if startsSpeaking { narrator.play() }
             }
-            .onChange(of: blocks) { _, updated in narrator.prepare(updated) }
+            .onChange(of: blocks) { _, updated in
+                narrator.prepare(updated, title: title)
+            }
             // The reading is of this script, in this sheet: closing it stops
             // the voice rather than leaving it talking to an empty screen.
             .onDisappear { narrator.stop() }
@@ -175,12 +177,12 @@ struct ReadScriptView: View {
                     Label("Next Element", systemImage: "forward.fill")
                 }
 
-                Text(nowReading)
+                Text(narrator.nowReading)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Now reading: \(nowReading)")
+                    .accessibilityLabel("Now reading: \(narrator.nowReading)")
 
                 Button {
                     narrator.stop()
@@ -193,14 +195,6 @@ struct ReadScriptView: View {
             .padding(.vertical, 12)
             .background(.bar)
         }
-    }
-
-    /// Whose line is being read, which is the one thing the transport can say
-    /// that the highlight does not.
-    private var nowReading: String {
-        guard let cue = narrator.currentCue else { return "Paused" }
-        if let speaker = cue.speaker, cue.kind.isSpoken { return speaker }
-        return "Narration"
     }
 
     private var readingOptions: some View {

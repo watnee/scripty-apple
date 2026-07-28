@@ -19,6 +19,17 @@
 	<key>TeamIdentifierPrefix</key>
 	<string>$(TeamIdentifierPrefix)</string>
 
+	<!-- Read Aloud carries on with the screen off. A read-through is minutes
+	     long and listened to rather than watched — a writer walking with it, or
+	     hearing the scene back with the phone in a pocket, is the point of it
+	     — and without this the voice stops the instant the device locks or the
+	     app is put down. The Lock Screen transport and the interruption
+	     handling that go with it are in ScriptNarrator/NarrationRemote. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+
 	<!-- Courier Prime, the screenplay face the web editor names and the one
 	     every block falls back to. iOS ships Courier New but not this, so the
 	     four faces travel with the app; registering them here is what makes
