@@ -92,7 +92,7 @@ struct SongEditorView: View {
             .overlay {
                 if isLoading { ProgressView() }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+            .safeAreaBar(edge: .bottom, spacing: 0) { footer }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -163,7 +163,6 @@ struct SongEditorView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
-                    .background(.bar)
             }
             if settings.showsWordCount {
                 WordCountBar(words: ScriptStats.countWords(content))

@@ -54,6 +54,8 @@ struct ElementTypeBar: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(.bar)
+        // No background: `ScriptView` mounts the editing bars with
+        // `.safeAreaBar`, so the strip is already floating on Liquid Glass.
+        .scrollEdgeEffectHidden()
     }
 }

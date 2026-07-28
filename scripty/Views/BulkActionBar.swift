@@ -55,7 +55,6 @@ struct BulkActionBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Divider()
             HStack(spacing: 12) {
                 Text(countLabel)
                     .font(.subheadline.weight(.medium))
@@ -80,7 +79,8 @@ struct BulkActionBar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .background(.bar)
+        // No background of its own: the host mounts it with `.safeAreaBar`,
+        // which supplies the Liquid Glass and the separation from the script.
         .alert("Add Tags", isPresented: $isTagging) {
             TextField("Tags, separated by commas", text: $tagText)
                 .autocorrectionDisabled()

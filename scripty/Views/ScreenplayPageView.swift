@@ -53,6 +53,11 @@ struct ScreenplayPageView: View {
                 .frame(maxWidth: .infinity)
             }
             .coordinateSpace(name: "pages")
+            // Hard rather than soft: these are discrete sheets on a desk, so
+            // the top edge should cut cleanly under the navigation bar. A soft
+            // fade would dissolve the top of the paper itself, which reads as
+            // a printing fault rather than as scrolling.
+            .scrollEdgeEffectStyle(.hard, for: .top)
             // Every sheet reports its offset, and the winner is picked once
             // from the whole set — the last page to have crossed the reading
             // line. Deciding per-sheet would let whichever probe fired last

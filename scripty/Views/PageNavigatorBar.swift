@@ -91,9 +91,11 @@ struct PageNavigatorBar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.primary.opacity(0.08)))
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        // Liquid Glass in place of a material capsule with a drawn border and
+        // shadow: the pager floats over the paper, so it gets the material
+        // meant for floating controls — which brings its own edge and shadow,
+        // and refracts the sheet moving beneath it rather than greying it out.
+        .glassEffect(.regular, in: .capsule)
         .padding(.bottom, 12)
         // Keep the field in step with scrolling, but never yank the text out
         // from under someone who is mid-edit.

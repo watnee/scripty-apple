@@ -14,6 +14,11 @@
 //  Whether it shows at all stays with the caller: `showsWordCount` is a device
 //  preference each editor already reads.
 //
+//  It draws no background of its own. Every host mounts it with `.safeAreaBar`,
+//  which gives the strip the system's Liquid Glass and separates it from the
+//  writing above — a hand-rolled `.bar` fill and hairline on top of that would
+//  flatten the glass back into a slab.
+//
 
 import SwiftUI
 
@@ -36,10 +41,6 @@ struct WordCountBar: View {
         .foregroundStyle(.secondary)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity)
-        .background(.bar)
-        .overlay(alignment: .top) {
-            Rectangle().fill(.separator).frame(height: 0.5)
-        }
         .accessibilityElement(children: .combine)
     }
 }

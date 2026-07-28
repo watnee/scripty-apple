@@ -22,7 +22,6 @@ struct ScriptSearchBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Divider()
             if search.isReplacing {
                 replaceRow
                 Divider()
@@ -76,7 +75,8 @@ struct ScriptSearchBar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .background(.bar)
+        // No background of its own: the host mounts it with `.safeAreaBar`,
+        // which supplies the Liquid Glass and the separation from the script.
         .alert("Replace All", isPresented: $confirmReplaceAll) {
             Button("Cancel", role: .cancel) {}
             Button("Replace", role: .destructive) {

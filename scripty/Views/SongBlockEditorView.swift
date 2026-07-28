@@ -116,12 +116,16 @@ struct SongBlockEditorView: View {
             }
             .overlay { emptyState }
             .safeAreaInset(edge: .top, spacing: 0) { editionBanner }
-            .safeAreaInset(edge: .bottom, spacing: 0) { wordCountBar }
+            .safeAreaBar(edge: .bottom, spacing: 0) { wordCountBar }
             .navigationTitle(model.document.displayTitle)
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            // `.searchToolbarBehavior(.minimize)` does nothing here and is
+            // deliberately absent: it collapses a field that lives *in* the
+            // toolbar, and this one is pinned to the navigation bar drawer.
+            // Minimising it would mean giving up the explicit placement.
             .searchable(text: $searchText,
                         placement: .navigationBarDrawer(displayMode: .automatic),
                         prompt: "Search lyrics")

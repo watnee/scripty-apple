@@ -28,9 +28,13 @@ struct ScriptSuggestionList: View {
             }
         }
         .frame(maxWidth: 320, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
-        .shadow(radius: 8, y: 2)
+        // Clipped before the material goes on, so the highlight behind the
+        // selected row follows the rounded corner instead of squaring it off.
+        .clipShape(.rect(cornerRadius: 12))
+        // Liquid Glass: the list hangs over the line being typed, so the words
+        // underneath stay readable through it rather than being covered by an
+        // opaque panel. The material draws its own edge and shadow.
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
         .padding(.top, 2)
         // One list, read as one thing: VoiceOver users reach the same names
         // from the cast list, so this is a shortcut rather than the only route.
