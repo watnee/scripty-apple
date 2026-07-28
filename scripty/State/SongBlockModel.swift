@@ -200,14 +200,24 @@ final class SongBlockModel {
     }
 
     func move(_ block: SongBlock, by offset: Int) async {
-        guard let link = block.link(.move), let index = index(of: block) else { return }
-        let target = index + offset
-        guard blocks.indices.contains(target) else { return }
+        guard let index = index(of: block) else { return }
+        await move(block, to: index + offset)
+    }
+
+    /// Puts a line at an absolute index in the lyric — what a drag lands on,
+    /// where the menu's Move Up and Move Down are the same journey a step at a
+    /// time. Out-of-range targets are dropped rather than clamped: a drop past
+    /// the end of the list is the list refusing it, not a request to move to
+    /// the end.
+    func move(_ block: SongBlock, to index: Int) async {
+        guard let link = block.link(.move),
+              blocks.indices.contains(index),
+              index != self.index(of: block) else { return }
         await commitAll()
         do {
             // Positions are absolute and 1-based, as the collection reports.
             let _: HALCollection<SongBlock> = try await app.client.fetch(
-                from: link, method: "POST", body: MoveSongBlockCommand(position: target + 1))
+                from: link, method: "POST", body: MoveSongBlockCommand(position: index + 1))
             await load()
             errorMessage = nil
         } catch {
