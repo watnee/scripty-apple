@@ -57,7 +57,9 @@ struct ContentView: View {
             ProjectsSidebarView(app: app, model: projectList, selection: $selectedProjectId)
         } detail: {
             if let project = selectedProject {
-                ScriptView(app: app, project: project, openingDocuments: $openingDocuments)
+                ScriptView(app: app, project: project,
+                           openingDocuments: $openingDocuments,
+                           onProjectChanged: adoptRenamedProject)
                     .id(project.id)
             } else {
                 ContentUnavailableView(
@@ -134,6 +136,17 @@ struct ContentView: View {
         guard selectedProjectId == nil, quickActions.pending == nil else { return }
         selectedProjectId = LaunchProject.opened(in: projectList.projects,
                                                  isDemo: app.isDemo)?.id
+    }
+
+    /// Takes on a project the screenplay screen renamed or re-imported.
+    ///
+    /// The sidebar holds its own copy of the resource, so a name changed from
+    /// the title page leaves the row behind it reading the old one. Reloading
+    /// the list is the whole job — the selection is an id, so it survives the
+    /// swap — and it is also what brings back the row's other facts (last
+    /// edited, teams) that the save's own answer does not carry.
+    private func adoptRenamedProject(_ updated: Project) async {
+        await projectList.refresh()
     }
 
     /// Opens what the Home Screen menu asked for, if anything.
