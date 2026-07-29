@@ -170,16 +170,25 @@ def say(status, *rest):
     raise SystemExit
 
 devices = [d for d in devices
-           if d["hardwareProperties"]["platform"] in ("iOS", "iPadOS")
-           and d["connectionProperties"]["pairingState"] == "paired"]
+           if d["hardwareProperties"]["platform"] in ("iOS", "iPadOS")]
 if wanted:
     named = [d for d in devices
              if wanted in (name(d), d["identifier"], d["hardwareProperties"]["udid"])]
     if not named:
         say("unnamed", wanted)
     devices = named
-if not devices:
+paired = [d for d in devices if d["connectionProperties"]["pairingState"] == "paired"]
+if not paired:
+    # A phone on the cable that has not tapped "Trust This Computer" is right
+    # there in the list, just unpaired — and "plug one in" about a device
+    # already on the desk reads as the script being broken. Wired is the tell:
+    # an unpaired device only shows up at all while it is physically attached.
+    plugged = [d for d in devices
+               if d["connectionProperties"].get("transportType") == "wired"]
+    if plugged:
+        say("untrusted", name(plugged[0]))
     say("none")
+devices = paired
 
 # A paired device that is not reachable right now would fail deep inside
 # xcodebuild with an unhelpful message. A phone left at home is paired too.
@@ -246,6 +255,13 @@ while :; do
         none)
             nudge none "No iPhone or iPad is paired with this Mac. Plug one in over USB," \
                 "unlock it, and tap Trust$THEN" ;;
+        untrusted)
+            # The prompt only appears on an unlocked screen, and a device that
+            # was plugged in while locked may not show it until it is unlocked
+            # or replugged — worth a word, or this stage looks stuck.
+            nudge untrusted "${FOUND[1]} is plugged in but hasn't trusted this Mac yet." \
+                "Unlock it and tap Trust when it asks — if nothing asks, unplug it and" \
+                "plug it back in while unlocked$THEN" ;;
         asleep)
             # Paired already, so the cable is optional: a device set up for
             # "Connect via network" in Xcode comes back over Wi-Fi on its own.
@@ -322,6 +338,18 @@ if [ "$TEAM" != "$(remembered TEAM)" ]; then
     remember TEAM "$TEAM"
 fi
 
+# Every build out of this project calls itself version 1.0 (1), so installing
+# over the top hands iOS a copy it cannot tell from the one already there. The
+# app survives that — its binary is replaced and relaunched — but the widget
+# extensions do not: their plug-ins are registered once, keyed by that version,
+# and a reinstall that looks unchanged never re-registers them. A widget added
+# since the last install is then simply absent from the widget gallery, with
+# nothing wrong in the build to find. Stamp each run with the time instead, to
+# the second because two installs a minute apart is what debugging a widget
+# looks like. It reaches all four targets: a build setting given on the command
+# line applies project-wide, and CFBundleVersion is generated from this one.
+BUILD_NUMBER=$(date -u +%Y%m%d%H%M%S)
+
 # Ask the build system for the bundle id and the .app path rather than
 # hardcoding them, so renaming the target can't silently break the shortcut.
 # Both move when the bundle id does, so this is read again after that changes.
@@ -333,8 +361,13 @@ settle() {
     # without it the build stops at "isn't registered in your developer account"
     # even though -allowProvisioningUpdates sounds like it should cover that.
     OVERRIDES=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration
-        "DEVELOPMENT_TEAM=$TEAM")
-    [ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_OVERRIDE")
+        "DEVELOPMENT_TEAM=$TEAM" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
+    # APP_BUNDLE_ID rather than PRODUCT_BUNDLE_IDENTIFIER: a setting given on
+    # the command line lands on every target, and the widget extensions have
+    # ids of their own that iOS requires to stay prefixed by the app's. The
+    # project derives all four from APP_BUNDLE_ID, so overriding that renames
+    # them together.
+    [ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("APP_BUNDLE_ID=$BUNDLE_OVERRIDE")
     local settings status=0
     # Keep the stderr instead of dropping it, in the same file the build writes:
     # a device Xcode can't reach and a scheme that is genuinely broken both end
@@ -404,6 +437,29 @@ locked_out() {
     grep -qE 'may need to be unlocked|Timed out waiting for all destinations|developer disk image could not be mounted' "$BUILD_LOG"
 }
 
+# Two ways signing dies that have nothing to do with the device in hand, worded
+# by xcodebuild at such length that the sentence naming the problem never gets
+# read. Both are account-level, so the next device would only fail the same way
+# — recognising them is the difference between a fix and giving up.
+signing_help() {
+    if grep -qE 'session has expired|[Ss]ession.*expired.*[Ll]og in|No account for team' "$BUILD_LOG"; then
+        echo >&2
+        echo "Signing failed because this Mac's Apple ID session has lapsed — Xcode keeps" >&2
+        echo "you signed in behind the scenes, and that sign-in expires on its own every" >&2
+        echo "few weeks. Open Xcode > Settings > Accounts, click your Apple ID, and sign" >&2
+        echo "in again. Then rerun this — the device can stay plugged in." >&2
+        return 0
+    fi
+    if grep -q 'App ID limit' "$BUILD_LOG"; then
+        echo >&2
+        echo "Apple turned the build away: a free Apple ID may register only ten app ids" >&2
+        echo "a week, and this one has used them up. Wait a few days, or rerun with an id" >&2
+        echo "it already registered:  ./scripts/install.sh --bundle-id com.you.scripty" >&2
+        return 0
+    fi
+    return 1
+}
+
 # The build needs one device to aim at, and every device the profile covers can
 # receive what comes out — so a locked screen is a reason to aim somewhere else
 # rather than a reason to stop. Reading the settings hits that screen before the
@@ -435,6 +491,12 @@ for INDEX in $(seq 0 "$LAST"); do
             echo >&2
             say_unreadable
         fi
+    fi
+
+    # Account trouble first: it reads like any other failed build, but waiting
+    # for an unlock or moving to the next device cannot fix an account.
+    if ! locked_out && signing_help; then
+        exit 1
     fi
 
     if locked_out; then
@@ -572,7 +634,7 @@ for RECORD in "${DEVICES[@]}"; do
             fi
             FAILED=1; continue
         fi
-        build || { FAILED=1; continue; }
+        build || { signing_help || true; FAILED=1; continue; }
     fi
     install_app || { FAILED=1; continue; }
     INSTALLED_ON+=("$DEVICE_NAME")

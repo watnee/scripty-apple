@@ -40,6 +40,10 @@ struct ScriptView: View {
     @State private var showingOutline = false
     @State private var showingStats = false
     @State private var showingIgnoredWords = false
+    /// Whether the format bar is unfolded above the element-type bar. Off by
+    /// default and deliberately not persisted: formatting is an occasional
+    /// errand, and each session should start with the screen it saves.
+    @State private var showingFormatBar = false
     @State private var isSearching = false
     /// Which way the reader was opened, and whether it is open at all.
     ///
@@ -105,6 +109,16 @@ struct ScriptView: View {
     /// Zero until the first layout, which reads as "use the printed measure".
     @State private var availableWidth: CGFloat = 0
 
+    /// Whether the toolbar and the reading bars are folded away because the
+    /// writer is scrolling down through the script — the reading posture
+    /// Word's iOS app takes. Scrolling back up, or reaching the top, brings
+    /// them straight back. Never persisted: every visit starts dressed.
+    @State private var isChromeHidden = false
+    /// How far the current run of scrolling has travelled in one direction.
+    /// A change of direction resets it, so folding the bars away — or bringing
+    /// them back — takes deliberate travel rather than a jitter of the finger.
+    @State private var scrollRun: CGFloat = 0
+
     /// Pagination is recomputed when the script or the paper changes rather
     /// than on every redraw — it walks the whole script.
     @State private var pages: [ScriptPage] = []
@@ -130,11 +144,22 @@ struct ScriptView: View {
     /// showing the old name until somebody says otherwise.
     private let onProjectChanged: (Project) async -> Void
 
+    /// Whether the split view is showing one column or two, which here decides
+    /// where the songs and notes are offered — see `documentsBar`.
+    ///
+    /// Passed in rather than read from the environment, for the reason
+    /// `ContentView` gives where it reads it: inside a `NavigationSplitView`
+    /// column the size class is `.compact` even on an iPad showing both, so a
+    /// detail view asking for itself gets the iPhone answer everywhere.
+    private let isCompact: Bool
+
     init(app: AppModel, project: Project, openingDocuments: Binding<DocumentsRequest?>,
          openingBookmark: Binding<Int?> = .constant(nil),
+         isCompact: Bool = false,
          onProjectChanged: @escaping (Project) async -> Void = { _ in }) {
         _openingDocuments = openingDocuments
         _openingBookmark = openingBookmark
+        self.isCompact = isCompact
         self.onProjectChanged = onProjectChanged
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
@@ -144,6 +169,14 @@ struct ScriptView: View {
     }
 
     var body: some View {
+        presentations(over: scriptSurface)
+    }
+
+    /// The script with its chrome, banners and lifecycle hooks — everything
+    /// short of the sheets, which `presentations` carries. Split because one
+    /// expression carrying every modifier is more than the type-checker will
+    /// finish in reasonable time.
+    private var scriptSurface: some View {
         Group {
             if settings.isPageView {
                 pageView
@@ -162,6 +195,9 @@ struct ScriptView: View {
         // than `.safeAreaInset`: the readout is a bar, so it takes the system's
         // Liquid Glass and the script passes under it.
         .safeAreaBar(edge: .bottom, spacing: 0) { wordCountBar }
+        // Mounted after the readout, so it settles below it — the buttons are
+        // the thing being reached for, and the count is a thing being read.
+        .safeAreaBar(edge: .bottom) { documentsBar }
         // Floated after the word-count inset, so it settles just above the bar
         // (or the bottom safe area when the bar is off) rather than over it.
         .overlay(alignment: .bottom) { historyToastOverlay }
@@ -180,6 +216,20 @@ struct ScriptView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .toolbarTitleMenu { projectButtons }
+        // Scrolling down through the script folds the bar away for reading
+        // room; `respondToScroll` is what sets the flag. The reading bars at
+        // the bottom fold on the same flag, each at its own declaration.
+        .toolbarVisibility(isChromeHidden ? .hidden : .visible, for: .navigationBar)
+        // Search and selection are toolbar errands with bars of their own —
+        // the chrome comes back for them rather than leaving the writer to
+        // work them in a bare room. Search matters in particular: ⌘F can start
+        // it while the toolbar is folded away.
+        .onChange(of: isSearching) { _, searching in
+            if searching { setChrome(hidden: false) }
+        }
+        .onChange(of: selection.isSelecting) { _, selecting in
+            if selecting { setChrome(hidden: false) }
+        }
         .exportPresentation(exporter)
         .focusedSceneValue(\.scriptActions, menuActions)
         .refreshable {
@@ -187,16 +237,16 @@ struct ScriptView: View {
             await model.refreshUndoRedo()
         }
         .task {
-            await model.loadEverything()
-            // The block menu can drop a song or note into the script, so the
-            // list has to be in hand before a menu opens. Quiet, like editions:
-            // an empty project just shows no insert section.
-            await model.loadDocuments()
+            // The script, the cast, the history, the songs and notes and the
+            // sync poll — all of it owned by the model rather than by this
+            // task, which SwiftUI cancels as soon as it takes this build of the
+            // view down. Opening a screenplay does exactly that, and a load
+            // abandoned there is silent: see `ScriptModel.open`.
+            await model.open()
             // Straight after the documents land, since a remembered song editor
             // needs the song itself, and before the edition restore below, whose
             // round trip a reopening sheet should not be made to wait out.
             reopenRememberedEditor()
-            model.startSyncPolling()
             repaginate()
             // Loaded quietly: most projects have a single edition and should
             // show no sign of the feature at all.
@@ -273,6 +323,13 @@ struct ScriptView: View {
                 scroll(toRemembered: id)
             }
         }
+    }
+
+    /// Every sheet this screen can present, with the importer and the error
+    /// alert — `body`'s other half; see `scriptSurface` for why the split
+    /// exists.
+    private func presentations(over content: some View) -> some View {
+        content
         .sheet(item: $reader) { mode in
             ReadScriptView(
                 title: model.project.displayTitle,
@@ -613,6 +670,10 @@ struct ScriptView: View {
                 guard hasRestoredPosition, let top = visible.first else { return }
                 options.rememberBlock(top)
             }
+            // Only gestures reach this — the spy drops programmatic jumps, so
+            // the outline and the position restore cannot fold the bars away
+            // under a writer who never scrolled.
+            .onUserScroll(respondToScroll)
         }
         .scrollDismissesKeyboard(.interactively)
         // A soft edge lets the writing dissolve into the navigation bar rather
@@ -755,6 +816,39 @@ struct ScriptView: View {
         }
     }
 
+    /// Songs and Notes, where a phone can actually reach them.
+    ///
+    /// The toolbar is where these belong and where the iPad and the Mac keep
+    /// them, but a phone's bar has no room: it draws three trailing controls,
+    /// the "…" takes one of the three, and the View menu and Add Element take
+    /// the other two. Every arrangement tried put Songs and Notes back in the
+    /// overflow — which is the very thing wrong with them today, and no number
+    /// of demotions elsewhere fixes it, because the bar's budget is the title's
+    /// leftovers rather than a count of items.
+    ///
+    /// So they come down here, under the thumb instead of in the corner
+    /// furthest from it. Icon-only, matching the toolbar the iPad and Mac
+    /// keep them in — the titles stay on the `Label`s, where VoiceOver still
+    /// reads them. Buttons in a `.safeAreaBar` rather than `.bottomBar`
+    /// toolbar items for the reason `ProjectsSidebarView.newProjectBar`
+    /// records: a bar item built from a `Label` shows the glyph and drops
+    /// the title, even under `.titleAndIcon`.
+    ///
+    /// It draws no background of its own — the `.safeAreaBar` already floats it
+    /// on Liquid Glass, and a fill under that flattens the glass into a slab.
+    @ViewBuilder
+    private var documentsBar: some View {
+        if isCompact && !isChromeHidden && model.canViewDocuments && !settings.isFocusMode {
+            HStack(spacing: 8) {
+                songsButton
+                notesButton
+            }
+            .buttonStyle(.bordered)
+            .labelStyle(.iconOnly)
+            .padding(.vertical, 4)
+        }
+    }
+
     /// How long the script is, while it is being written.
     ///
     /// Off until asked for, as in the web app — a word count in the corner is
@@ -762,7 +856,10 @@ struct ScriptView: View {
     /// want to be looking at.
     @ViewBuilder
     private var wordCountBar: some View {
-        if settings.showsWordCount {
+        // Folded away with the rest of the chrome while the script is being
+        // scrolled through: the count is a readout, not a control, and reading
+        // room is the whole point of the fold.
+        if settings.showsWordCount && !isChromeHidden {
             let words = memoizedWordCount
             WordCountBar(words: words, detail: pageReadout(words: words))
         }
@@ -776,6 +873,41 @@ struct ScriptView: View {
             return pages.count == 1 ? "1 page" : "\(pages.count) pages"
         }
         return "~\(ScriptWordCount.pageEstimate(words: words)) pages"
+    }
+
+    /// Folds the chrome away while the script is scrolled down through, and
+    /// brings it back the moment the direction turns — how Word's iOS app
+    /// treats its ribbon, and for the same reason: on a phone the bars are a
+    /// real share of the page, and someone scrolling is reading, not reaching
+    /// for a control.
+    ///
+    /// Compact widths only. A full-size iPad has room to keep its toolbar —
+    /// Word keeps its ribbon there too — and the toolbar is where that layout
+    /// keeps Songs and Notes, which have no bottom bar to fall back to.
+    private func respondToScroll(delta: CGFloat, fromTop: CGFloat) {
+        guard isCompact else { return }
+        // The top of the script is home: the bars are always dressed there,
+        // whichever direction the last gesture moved.
+        if fromTop < 32 {
+            scrollRun = 0
+            setChrome(hidden: false)
+            return
+        }
+        guard delta != 0 else { return }
+        if (delta > 0) != (scrollRun > 0) { scrollRun = 0 }
+        scrollRun += delta
+        // Asymmetric on purpose: folding away takes a real pull down, coming
+        // back should cost barely more than the thought.
+        if scrollRun > 60 {
+            setChrome(hidden: true)
+        } else if scrollRun < -20 {
+            setChrome(hidden: false)
+        }
+    }
+
+    private func setChrome(hidden: Bool) {
+        guard isChromeHidden != hidden else { return }
+        withAnimation(.easeInOut(duration: 0.22)) { isChromeHidden = hidden }
     }
 
     @ViewBuilder
@@ -818,7 +950,8 @@ struct ScriptView: View {
                     currentPage = page
                     rememberPagePosition(page)
                 },
-                onFitZoomChanged: { settings.fitZoom = $0 })
+                onFitZoomChanged: { settings.fitZoom = $0 },
+                onUserScroll: respondToScroll)
             .onChange(of: pendingPageTarget, initial: true) { _, page in
                 guard let page else { return }
                 proxy.scrollTo(page, anchor: .top)
@@ -950,7 +1083,7 @@ struct ScriptView: View {
     /// `editionId`.
     ///
     /// Only ever loads a *non-default* edition: the default's elements are
-    /// already on screen from `loadEverything`, so restoring it would be a
+    /// already on screen from the opening load, so restoring it would be a
     /// second round trip for the same script. An edition the server has since
     /// dropped is not found and the default simply stays.
     private func reopenRememberedEdition() async {
@@ -1095,8 +1228,9 @@ struct ScriptView: View {
         }
     }
 
-    /// Formatting sits above the element-type bar, both only while a block is
-    /// focused and only for the affordances the server actually advertised.
+    /// Formatting folds out above the element-type bar behind a toggle button,
+    /// both only while a block is focused and only for the affordances the
+    /// server actually advertised.
     @ViewBuilder
     private var editingBars: some View {
         // Selection mode has its own bar, and nothing is focused for typing.
@@ -1106,15 +1240,48 @@ struct ScriptView: View {
            let id = model.focusedBlockId,
            let block = model.blocks.first(where: { $0.id == id }) {
             VStack(spacing: 0) {
-                if block.hasLink(.update) {
+                if showingFormatBar, block.hasLink(.update) {
                     FormatBar(model: model, block: block)
                     Divider()
                 }
-                if block.hasLink(.setType) {
-                    ElementTypeBar(model: model, block: block)
+                HStack(spacing: 0) {
+                    if block.hasLink(.update) {
+                        formatBarToggle
+                    }
+                    if block.hasLink(.setType) {
+                        ElementTypeBar(model: model, block: block)
+                    }
                 }
             }
         }
+    }
+
+    /// The button the format bar folded into: one chip's worth of row instead
+    /// of a second row of chips, showing the bar only while formatting is the
+    /// errand at hand. Styled as a chip so the row still reads as one language.
+    private var formatBarToggle: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.15)) { showingFormatBar.toggle() }
+        } label: {
+            Image(systemName: "textformat")
+                .font(.footnote.weight(.medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(showingFormatBar ? Color.white : Color.primary)
+        .background(Capsule().fill(showingFormatBar
+                                   ? Color.accentColor
+                                   : Color.secondary.opacity(0.15)))
+        // Matches the 12/5 the type bar's chips inset by inside their own
+        // scroll view, so the row keeps one margin all round; the same 12
+        // then falls between the toggle and the first chip, a slightly wider
+        // gap than the chips' own 6 — right for a control that isn't one of
+        // them.
+        .padding(.leading, 12)
+        .padding(.vertical, 5)
+        .accessibilityLabel("Formatting")
+        .accessibilityAddTraits(showingFormatBar ? [.isSelected] : [])
     }
 
     @ViewBuilder
@@ -1150,12 +1317,12 @@ struct ScriptView: View {
         }
         actions.ignoredWords = { showingIgnoredWords = true }
         actions.pageSetup = { showingPageSetup = true }
-        // The songs and notes the menu bar can reach: the screen itself, and the
-        // handful last edited of each, which open without going through it —
-        // the toolbar menu's contents, for a writer whose hands are on a
-        // keyboard.
+        // The songs and notes the menu bar can reach: each list, and the handful
+        // last edited of each, which open without going through it — what the
+        // two toolbar buttons hold, for a writer whose hands are on a keyboard.
         if model.canViewDocuments {
-            actions.songsAndNotes = { openDocumentsScreen() }
+            actions.songs = { openDocumentsScreen(.song) }
+            actions.notes = { openDocumentsScreen(.notes) }
             actions.recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickDocumentCount)
             actions.recentNotes = model.notes.mostRecentlyEdited(limit: Self.quickDocumentCount)
             actions.openDocument = { document in openingDocument = document }
@@ -1254,54 +1421,58 @@ struct ScriptView: View {
     /// songs cannot crowd its notes out of their own section.
     private static let quickDocumentCount = 5
 
-    /// Songs & Notes, with the documents themselves hanging off it.
-    ///
-    /// Tapping still opens the full screen, as the plain button always did.
-    /// Holding (or the arrow, on a Mac) drops the handful last edited of each
-    /// kind, which go straight to their editor — the screen, the picker, the
-    /// search and the row-tap in between were four steps to reach something the
-    /// writer already knew the name of. Notes were the worse off of the two:
-    /// the screen opens on songs, so reaching a note meant a segment tap on top
-    /// of all that. It stays a plain button until there is a dated document to
-    /// list, so a project that has none shows no empty menu.
-    @ViewBuilder
+    /// The songs, and the songs themselves hanging off them.
     private var songsButton: some View {
-        let recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickDocumentCount)
-        let recentNotes = model.notes.mostRecentlyEdited(limit: Self.quickDocumentCount)
-        if recentSongs.isEmpty && recentNotes.isEmpty {
+        documentButton("Songs", type: .song, icon: "music.note.list",
+                       rowIcon: "music.note", recentsTitle: "Recent Songs",
+                       recents: model.songs)
+    }
+
+    /// The notes, on the same terms.
+    private var notesButton: some View {
+        documentButton("Notes", type: .notes, icon: "note.text",
+                       rowIcon: "note.text", recentsTitle: "Recent Notes",
+                       recents: model.notes)
+    }
+
+    /// One kind's door, with the handful last edited hanging off it.
+    ///
+    /// Songs and notes each get their own button rather than sharing one. The
+    /// shared button could not say which list it opened, so it opened on songs
+    /// and a note cost a segment tap on top of finding it — and its label,
+    /// naming both kinds, was the widest thing in a bar that had no room to
+    /// spare. Two narrow buttons that each name one list are cheaper to draw
+    /// and cheaper to read, and neither one lies about where it goes.
+    ///
+    /// Tapping opens that list. Holding (or the arrow, on a Mac) drops the few
+    /// last edited, which go straight to their editor — the screen, the picker,
+    /// the search and the row-tap in between were four steps to reach something
+    /// the writer already knew the name of. It stays a plain button until there
+    /// is a dated document to list, so a kind with none shows no empty menu.
+    ///
+    /// Whether the button is offered at all is the project's `documents` link,
+    /// never the count: the lists arrive a moment after the script does, and a
+    /// button that appears late is a button that relays out the bar under a
+    /// finger already reaching for it. A kind with nothing in it opens on its
+    /// own empty state, which is where making the first one starts anyway.
+    @ViewBuilder
+    private func documentButton(_ title: String, type: DocumentType, icon: String,
+                                rowIcon: String, recentsTitle: String,
+                                recents: [TextDocument]) -> some View {
+        let recent = recents.mostRecentlyEdited(limit: Self.quickDocumentCount)
+        if recent.isEmpty {
             Button {
-                openDocumentsScreen()
+                openDocumentsScreen(type)
             } label: {
-                Label("Songs & Notes", systemImage: "music.note.list")
+                Label(title, systemImage: icon)
             }
         } else {
             Menu {
-                // Named for the list each one lands on, so the screen opens
-                // where it was asked for rather than on songs and a segment tap
-                // away. A project with only one kind gets the one entry, which
-                // is also the only one that would go anywhere.
-                Section {
-                    if !model.songs.isEmpty {
-                        Button {
-                            openDocumentsScreen(.song)
-                        } label: {
-                            Label("All Songs…", systemImage: "music.note.list")
-                        }
-                    }
-                    if !model.notes.isEmpty {
-                        Button {
-                            openDocumentsScreen(.notes)
-                        } label: {
-                            Label("All Notes…", systemImage: "note.text")
-                        }
-                    }
-                }
-                documentSection("Recent Songs", recentSongs, icon: "music.note")
-                documentSection("Recent Notes", recentNotes, icon: "note.text")
+                documentSection(recentsTitle, recent, icon: rowIcon)
             } label: {
-                Label("Songs & Notes", systemImage: "music.note.list")
+                Label(title, systemImage: icon)
             } primaryAction: {
-                openDocumentsScreen()
+                openDocumentsScreen(type)
             }
         }
     }
@@ -1329,16 +1500,13 @@ struct ScriptView: View {
     /// reaches the whole screen goes through here; the shortcuts beside them
     /// skip it for the editor itself.
     ///
-    /// Unasked, it opens on the list this project was last left on, so a writer
-    /// working out of the notes reaches them with the same one tap as before.
-    /// Failing that it opens on songs, where this button has always opened it —
-    /// unless the project has notes and no songs at all, in which case songs is
-    /// an empty list with the thing being looked for one segment away.
-    private func openDocumentsScreen(_ type: DocumentType? = nil) {
-        let remembered = options.rememberedDocumentList.flatMap(DocumentType.init(rawValue:))
-        let list = type ?? remembered
-            ?? (model.songs.isEmpty && !model.notes.isEmpty ? .notes : .song)
-        documentsSheet = DocumentsRequest(type: list)
+    /// The list is named rather than guessed. It used to be optional, and an
+    /// unasked call fell back to whichever list the project was last left on
+    /// and then to songs — the shape of a single button that had to pick one.
+    /// Now every caller is a button, a menu item or a request that already
+    /// knows its kind, so there is nothing left to guess at.
+    private func openDocumentsScreen(_ type: DocumentType) {
+        documentsSheet = DocumentsRequest(type: type)
     }
 
     /// The editor a document opens in, by what the server says it is: a song
@@ -1382,13 +1550,44 @@ struct ScriptView: View {
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
+        // No "add element" button here. An empty script offers "Start Writing",
+        // and in a script with anything in it a return at the end of the last
+        // element does the same thing without a trip to the toolbar — so the
+        // button only crowded the bar. The menu bar keeps ⌘N for the keyboard.
         ToolbarItemGroup(placement: .primaryAction) {
-            if !settings.isPageView && !options.isEditingLocked {
+            // Undo, up where it can be seen. The overflow was the wrong place
+            // for it twice over: undoing is the one thing a writer reaches for
+            // *while* mistyping, so a menu to open first is a menu in the way,
+            // and the "…" gave no sign of whether there was anything to undo —
+            // the greyed state that says "nothing yet" only showed after a tap.
+            //
+            // It leads this capsule rather than opening one of its own, and it
+            // comes up without redo. Both are the phone's bar talking: it is
+            // budgeted in capsules rather than buttons, so a capsule of its own
+            // took the whole allowance and dropped Search *and* the View menu
+            // into the "…" to pay for it, while the pair on the leading edge
+            // truncated an iPad's title to "The…" and pushed Notes back into
+            // the overflow a previous change had just got it out of. In here,
+            // alone, it costs one glyph — Search, on a phone, which keeps ⌘F
+            // and its place in the "…". Undo is the half worth that: it is
+            // reached for constantly and redo hardly at all, the same reason a
+            // keyboard keeps ⌘Z under a finger and hides redo behind a second
+            // modifier. Redo is in the overflow below.
+            //
+            // Ungated by focus mode, unlike everything else in this group: the
+            // mode is for writing without chrome, which is exactly when a
+            // mistyped line needs taking back.
+            //
+            // No keyboard shortcut here: ⌘Z belongs to the menu bar's replaced
+            // undo group, and a second claim on the same keys would be settled
+            // by responder order with one of the two silently dead.
+            if let undoRedo = model.undoRedo, !settings.isPageView {
                 Button {
-                    Task { await model.appendBlock() }
+                    Task { await model.undo() }
                 } label: {
-                    Label("Add Element", systemImage: "plus")
+                    Label("Undo", systemImage: "arrow.uturn.backward")
                 }
+                .disabled(!(undoRedo.canUndo ?? false))
             }
 
             if model.hasScriptContent && !settings.isFocusMode {
@@ -1428,12 +1627,33 @@ struct ScriptView: View {
                 }
             }
 
-            if model.canViewDocuments && !settings.isFocusMode {
-                songsButton
-            }
-
             if !model.exportOptions.isEmpty && !settings.isFocusMode {
                 ExportButton(exporter: exporter)
+            }
+        }
+
+        // Songs and notes take a capsule of their own, on the same reasoning as
+        // the View menu's: they do neither of those things, they open other
+        // documents kept beside the script. A pill of exactly two also reads as
+        // a pair, which is what says they are two doors onto one screen rather
+        // than two unrelated errands.
+        //
+        // Only where the bar has the room, which on a phone it has not: measured
+        // on a 402pt iPhone, the trailing side draws three controls and the "…"
+        // always claims one of them, so two buttons are all that is ever visible
+        // and the View menu and Search are already those two. Adding Songs and
+        // Notes here would put them straight back in the overflow this change
+        // exists to get them out of. `documentsBar` carries them instead.
+        //
+        // Gated as a unit, spacer and all: gating the buttons inside a group
+        // that is always present would leave a divider with nothing after it,
+        // and a stranded gap at the end of the bar.
+        if !isCompact && model.canViewDocuments && !settings.isFocusMode {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                songsButton
+                notesButton
             }
         }
 
@@ -1443,7 +1663,9 @@ struct ScriptView: View {
         // whether the bar has the room to draw a title at all is iOS's
         // decision, and an affordance that exists only inside a menu that may
         // not appear is an affordance that may not be reachable.
-        // Focus mode clears the overflow out but for the history pair.
+        // Focus mode clears the overflow out but for redo, which the group
+        // below keeps: undo is up in the bar in every mode, and a redo with no
+        // way to reach it would strand a writer mid-correction.
         if !settings.isFocusMode {
             ToolbarItemGroup(placement: .secondaryAction) {
                 projectButtons
@@ -1468,88 +1690,17 @@ struct ScriptView: View {
             }
         }
 
+        // Redo, the half of the pair the bar had no room to draw. It stays in
+        // the overflow in focus mode too, where undo is still up in the bar —
+        // the two are useless apart.
         if let undoRedo = model.undoRedo, !settings.isPageView {
-            ToolbarItemGroup(placement: .secondaryAction) {
-                Button {
-                    Task { await model.undo() }
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(!(undoRedo.canUndo ?? false))
-
+            ToolbarItem(placement: .secondaryAction) {
                 Button {
                     Task { await model.redo() }
                 } label: {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
                 .disabled(!(undoRedo.canRedo ?? false))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var addElementButton: some View {
-        if !settings.isPageView && !options.isEditingLocked {
-            Button {
-                Task { await model.appendBlock() }
-            } label: {
-                Label("Add Element", systemImage: "plus")
-            }
-        }
-    }
-
-    /// Finding your way around the script in front of you.
-    @ViewBuilder
-    private var scriptToolButtons: some View {
-        if model.hasScriptContent && !settings.isFocusMode {
-            Button {
-                isSearching.toggle()
-                if !isSearching { search.clear() }
-            } label: {
-                Label("Search", systemImage: "magnifyingglass")
-            }
-            .keyboardShortcut("f", modifiers: .command)
-
-            Button {
-                showingOutline = true
-            } label: {
-                Label("Outline", systemImage: "list.bullet.indent")
-            }
-            // ⌘⇧O is outline *mode*, in the View menu below and in the Mac
-            // menu bar. The panel took the same keys until now, which meant
-            // one of the two won by responder order and the other silently
-            // did nothing.
-            .keyboardShortcut("o", modifiers: [.command, .option])
-
-            if model.canSelectBlocks && !settings.isPageView {
-                Button {
-                    selection.isSelecting.toggle()
-                } label: {
-                    Label("Select Elements", systemImage: "checklist")
-                }
-            }
-        }
-    }
-
-    /// The screens kept alongside the script: its people, its songs, and the
-    /// copies of it that leave the app.
-    @ViewBuilder
-    private var referenceButtons: some View {
-        if !settings.isFocusMode {
-            if model.canViewCharacters {
-                Button {
-                    showingCharacters = true
-                } label: {
-                    Label("Characters", systemImage: "person.2")
-                }
-            }
-
-            if model.canViewDocuments {
-                songsButton
-            }
-
-            if !model.exportOptions.isEmpty {
-                ExportButton(exporter: exporter)
             }
         }
     }

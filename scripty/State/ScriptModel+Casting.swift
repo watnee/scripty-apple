@@ -48,6 +48,8 @@ extension ScriptModel {
 
     /// The base model's `report` is private; this is the same routing.
     private func reportCasting(_ error: Error) {
+        // Nothing cancelled is ever shown — see `isCancelledRequest`.
+        guard !error.isCancelledRequest else { return }
         app.handle(error)
         errorMessage = error.localizedDescription
     }

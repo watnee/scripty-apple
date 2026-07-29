@@ -108,7 +108,8 @@ func runNameable() {
     // different documents, and only one of them could be right.
     check("one ordering, shared with the widget",
           titles(IntentTargets.documents(in: documents)),
-          titles(SongsNotesWidgetStore.ordered(documents.documents)))
+          titles(SongsNotesWidgetStore.ordered(documents.documents,
+                                               limit: documents.documents.count)))
 }
 
 // MARK: - Matching a name

@@ -207,10 +207,10 @@ extension HelpTopic {
                 title: "Bold, Italic and Alignment",
                 systemImage: "bold.italic.underline",
                 paragraphs: [
-                    "The format bar above the keyboard sets bold, italic and underline "
-                    + "for the element you are in, along with its alignment and "
-                    + "typeface. Each chip shows what the element is already set to, so "
-                    + "the bar doubles as a readout."
+                    "The format button at the left of the bar above the keyboard "
+                    + "unfolds bold, italic and underline for the element you are in, "
+                    + "along with its alignment and typeface. Each chip shows what the "
+                    + "element is already set to, so the bar doubles as a readout."
                 ],
                 keywords: ["bold", "italic", "underline", "align", "centre", "font",
                            "typeface", "style"]),
@@ -399,11 +399,12 @@ extension HelpTopic {
                     + "text, so what reaches the script is what you typed. Songs can be "
                     + "opened one at a time, or all together on the workspace screen for "
                     + "a change that runs through several of them.",
-                    "A song being worked on is rarely far away. Holding the Songs & "
-                    + "Notes button in the script opens the last few you edited, each "
-                    + "going straight to its lyrics, and the songs list repeats those "
-                    + "same few at the top so a long list needs no scrolling to reach "
-                    + "them. An element's own menu inserts a song below it."
+                    "A song being worked on is rarely far away. The script has a Songs "
+                    + "button and a Notes button, each opening its own list; holding "
+                    + "one opens the last few of that kind you edited, each going "
+                    + "straight to its lyrics or its text. The lists repeat those same "
+                    + "few at the top, so a long one needs no scrolling to reach them. "
+                    + "An element's own menu inserts a song below it."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",

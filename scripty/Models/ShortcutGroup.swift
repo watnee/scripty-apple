@@ -84,7 +84,7 @@ extension ShortcutGroup {
                 ShortcutEntry("Undo", "⌘Z"),
                 ShortcutEntry("Redo", "⌘⇧Z"),
                 ShortcutEntry("Find in script", "⌘F"),
-                ShortcutEntry("Songs & Notes", "⌘⇧S"),
+                ShortcutEntry("Songs", "⌘⇧S"),
                 ShortcutEntry("Print", "⌘P")
             ]),
         ShortcutGroup(

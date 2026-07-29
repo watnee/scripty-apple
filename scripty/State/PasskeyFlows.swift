@@ -15,10 +15,9 @@ import UIKit
 /// Starts from the `passkeyLogin` link the 401 challenge advertised; a verified
 /// assertion answers a bearer token, which AppModel adopts as the session.
 ///
-/// The system sheet lists the Passwords app's saved passwords for this domain
-/// alongside the passkeys, so this flow also has to handle being handed a plain
-/// username and password — that one skips WebAuthn entirely and signs in the
-/// ordinary way.
+/// The Passwords app's saved passwords for this domain get their own sheet,
+/// through `signInWithSavedPassword` — that one skips WebAuthn entirely, never
+/// touching the server for options, and signs in the ordinary way.
 @MainActor
 struct PasskeySignInFlow {
     let app: AppModel
@@ -31,10 +30,31 @@ struct PasskeySignInFlow {
         case failed(String)
     }
 
-    /// From the button: a sheet listing everything saved for this domain.
+    /// From the passkey button: a sheet listing this domain's passkeys.
     func signIn(using optionsLink: HALLink) async -> Outcome {
         await run(using: optionsLink, coordinator: PasskeyCoordinator()) { coordinator, options in
             try await coordinator.signIn(options: options)
+        }
+    }
+
+    /// From the saved-password button: a sheet listing the passwords the
+    /// Passwords app holds for this domain. No options link — there is no
+    /// challenge to mint — the picked pair takes the same path typing it would.
+    func signInWithSavedPassword() async -> Outcome {
+        do {
+            guard case .password(let username, let password) =
+                    try await PasskeyCoordinator().signInWithSavedPassword() else {
+                return .failed("That saved sign-in could not be used.")
+            }
+            await app.signIn(username: username, password: password)
+            if let error = app.signInError { return .failed(error) }
+            return .signedIn
+        } catch PasskeyCeremonyError.canceled {
+            return .canceled
+        } catch PasskeyCeremonyError.failed(let message) {
+            return .failed(message)
+        } catch {
+            return .failed(error.localizedDescription)
         }
     }
 

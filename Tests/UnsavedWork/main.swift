@@ -322,7 +322,8 @@ extension APIError: Equatable {
     static func == (lhs: APIError, rhs: APIError) -> Bool {
         switch (lhs, rhs) {
         case (.unauthorized, .unauthorized), (.forbidden, .forbidden),
-             (.notFound, .notFound), (.offline, .offline), (.timedOut, .timedOut):
+             (.notFound, .notFound), (.offline, .offline), (.timedOut, .timedOut),
+             (.cancelled, .cancelled):
             return true
         case (.validation(let a), .validation(let b)): return a == b
         case (.server(let a), .server(let b)): return a == b

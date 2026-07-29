@@ -206,7 +206,7 @@ final class APIClient {
             (received, response) = try await session.data(for: request,
                                                           delegate: redirectPolicy)
         } catch {
-            throw APIError.from(transportError: error)
+            throw APIError.from(error)
         }
         guard let http = response as? HTTPURLResponse else {
             throw APIError.server(status: -1)

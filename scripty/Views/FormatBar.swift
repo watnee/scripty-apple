@@ -3,17 +3,18 @@
 //  scripty
 //
 //  Character formatting for the focused element — bold / italic / underline,
-//  alignment and typeface — sitting directly above ElementTypeBar. Every
-//  control reflects the block's current server state, so the bar doubles as
-//  an indicator.
+//  alignment and typeface — folded out directly above ElementTypeBar by the
+//  toggle button at that bar's leading edge. Every control reflects the
+//  block's current server state, so the bar doubles as an indicator.
 //
 //  The three styles and the three alignments are each packed into one
 //  segmented capsule, and the typeface shows its short name, so the whole bar
-//  fits a phone without scrolling — two rows of chips above the keyboard is
-//  already as much of the screen as formatting deserves. Segment height
-//  matches ElementTypeBar's chips, so the two rows still read as one language:
-//  the group's own 2pt inset plus a segment's 3pt comes to the 5pt a chip
-//  pads by, and both rows inset by the same 12/5.
+//  fits a phone without scrolling. It still hides behind the toggle: a second
+//  permanent row of chips above the keyboard is more of the screen than
+//  formatting deserves. Segment height matches ElementTypeBar's chips, so the
+//  two rows still read as one language: the group's own 2pt inset plus a
+//  segment's 3pt comes to the 5pt a chip pads by, and both rows inset by the
+//  same 12/5.
 //
 //  Shown only when the block advertises an `update` link.
 //
