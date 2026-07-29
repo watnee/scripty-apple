@@ -23,6 +23,7 @@ struct SongEditorView: View {
     @State private var errorMessage: String?
     /// The formatting bar's handle on the text view.
     @State private var formatting = NoteEditorController()
+    @State private var showingIgnoredWords = false
 
     private let settings = PresentationSettings.shared
 
@@ -65,6 +66,7 @@ struct SongEditorView: View {
                                  controller: formatting,
                                  isEditable: canEdit,
                                  spellChecks: settings.isSpellcheckEnabled,
+                                 spellcheckRevision: SpellcheckDictionary.shared.revision,
                                  textScale: settings.textScale)
                         .frame(minHeight: 260)
                         .overlay(alignment: .topLeading) {
@@ -99,7 +101,16 @@ struct SongEditorView: View {
                                 .disabled(!canSave)
                         }
                     }
+                    // Only where there is typing to check. Reached from here
+                    // rather than from a screenplay's View menu, which is where
+                    // the only copy of these controls used to live.
+                    ToolbarItem(placement: .secondaryAction) {
+                        SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
+                    }
                 }
+            }
+            .sheet(isPresented: $showingIgnoredWords) {
+                SpellcheckWordsView()
             }
             .task { await loadFullContentIfNeeded() }
         }

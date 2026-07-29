@@ -49,6 +49,13 @@ struct SongLineRow: View {
         PresentationSettings.shared.isSpellcheckEnabled
     }
 
+    /// Which version of the ignored-words list these lines have been checked
+    /// against. Read here for the same reason: a name ignored from one line's
+    /// menu has to stop being underlined in the chorus that repeats it.
+    private var spellcheckRevision: Int {
+        SpellcheckDictionary.shared.revision
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Menu {
@@ -69,6 +76,7 @@ struct SongLineRow: View {
                           isEditable: block.isEditable,
                           fontSize: Self.baseLineSize * textScale,
                           spellChecks: spellChecks,
+                          spellcheckRevision: spellcheckRevision,
                           accessibilityLabel: "Lyric line \(block.order ?? 0)",
                           onBeginEditing: { focusedLine = block.id },
                           onEndEditing: {
@@ -176,6 +184,7 @@ private struct SongLineField: UIViewRepresentable {
     let isEditable: Bool
     let fontSize: CGFloat
     let spellChecks: Bool
+    let spellcheckRevision: Int
     let accessibilityLabel: String
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
@@ -239,14 +248,7 @@ private struct SongLineField: UIViewRepresentable {
         if view.font != font { view.font = font }
         if view.isEditable != isEditable { view.isEditable = isEditable }
 
-        // Explicit rather than `.default`, which would mean "on" and leave the
-        // preference with nothing to say — and a live text view only adopts the
-        // change once its input configuration is asked for again.
-        let checking: UITextSpellCheckingType = spellChecks ? .yes : .no
-        if view.spellCheckingType != checking {
-            view.spellCheckingType = checking
-            if view.isFirstResponder { view.reloadInputViews() }
-        }
+        view.applySpellchecking(spellChecks, revision: spellcheckRevision)
         if view.accessibilityLabel != accessibilityLabel {
             view.accessibilityLabel = accessibilityLabel
         }
@@ -282,9 +284,20 @@ private struct SongLineField: UIViewRepresentable {
             }
             return true
         }
+
+        /// "Ignore Spelling" beside the system's corrections — a lyric is as
+        /// full of invented words as a screenplay is of names.
+        func textView(_ textView: UITextView,
+                      editMenuForTextIn range: NSRange,
+                      suggestedActions: [UIMenuElement]) -> UIMenu? {
+            SpellcheckEditMenu.menu(for: textView, in: range, appending: suggestedActions)
+        }
     }
 }
 
-/// A UITextView the size of one lyric line. Exists only to carry the type; the
-/// line's behaviour lives in the coordinator above.
-final class SongLineUITextView: UITextView {}
+/// A UITextView the size of one lyric line. Carries the type and the revision
+/// of the ignored list it was last checked against; the line's behaviour lives
+/// in the coordinator above.
+final class SongLineUITextView: UITextView, SpellcheckingTextView {
+    var checkedSpellingRevision = 0
+}

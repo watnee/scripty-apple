@@ -33,6 +33,7 @@ struct SongsWorkspaceView: View {
     @State private var lyrics: [Int: SongBlockModel] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
+    @State private var showingIgnoredWords = false
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
@@ -73,6 +74,9 @@ struct SongsWorkspaceView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            .sheet(isPresented: $showingIgnoredWords) {
+                SpellcheckWordsView()
+            }
             // Leaving flushes every song that was opened: a line half-typed in
             // the third song down is no less precious than one in the first.
             .task {
@@ -177,6 +181,11 @@ struct SongsWorkspaceView: View {
                 expanded.subtract(songs.map(\.id))
             }
             .disabled(expanded.isEmpty)
+        }
+        // Every song at once is where a field of red squiggles is hardest to
+        // read past, so the switch belongs here as much as anywhere.
+        ToolbarItem(placement: .secondaryAction) {
+            SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
         }
     }
 
