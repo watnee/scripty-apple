@@ -28,7 +28,21 @@
 	     QuickActions.publishRecents, and iOS lists the static pair first.
 
 	     The type strings have to match QuickAction.ItemType. A disagreement
-	     builds cleanly and shows up only as a menu entry that does nothing. -->
+	     builds cleanly and shows up only as a menu entry that does nothing.
+
+	     The subtitles name both destinations because these entries have two:
+	     the starred project when there is one, and otherwise the screenplay
+	     most recently opened or edited (QuickAction.preferredProject). Saying
+	     only "your default screenplay" would be a promise the app breaks for
+	     every writer who has never starred anything — which is most of them,
+	     since nothing makes you star one. A static entry cannot say more than
+	     this: it is read from here at install time, and unlike the named
+	     projects below there is no moment at which the app could revise it.
+
+	     "Screenplay" is left off the end so the line does not wrap. Wrapped,
+	     these two stood taller than the named projects beneath them, which put
+	     the weight of the menu on its fixed half rather than on the writer's
+	     own work. -->
 	<key>UIApplicationShortcutItems</key>
 	<array>
 		<dict>
@@ -37,7 +51,7 @@
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Songs</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>In your default screenplay</string>
+			<string>Default or latest</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>music.note.list</string>
 		</dict>
@@ -47,7 +61,7 @@
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Notes</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>In your default screenplay</string>
+			<string>Default or latest</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>note.text</string>
 		</dict>

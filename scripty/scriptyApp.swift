@@ -100,11 +100,14 @@ struct RootView: View {
             // A quick action can only be carried out by a signed-in session, and
             // a cold launch is `.loading` while it finds out whether there is
             // one — so the drop waits for the answer rather than firing on the
-            // way past. The named projects come off the menu at the same time.
+            // way past. The named projects come off the menu at the same time,
+            // along with the record of which ones were opened: both describe the
+            // account that just left.
             .onChange(of: app.phase) { _, phase in
                 guard case .signedOut = phase else { return }
                 QuickActions.shared.pending = nil
                 QuickActions.shared.clearRecents()
+                QuickActions.shared.forgetOpens()
             }
     }
 
