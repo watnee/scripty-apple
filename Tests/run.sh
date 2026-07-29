@@ -168,6 +168,14 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
 "$BUILD/songshortcuts" || status=1
 
 echo
+echo "== Songs & notes ordering =="
+swiftc "${FLAGS[@]}" -o "$BUILD/documentorder" \
+    "$SRC/Models/TextDocument.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/DocumentOrder/main.swift"
+"$BUILD/documentorder" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \
