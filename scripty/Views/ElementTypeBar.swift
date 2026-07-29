@@ -6,6 +6,11 @@
 //  row of type chips retypes it in place (rel `setType`). The current type
 //  is highlighted; Tab / Shift-Tab on a hardware keyboard walk the same set.
 //
+//  The chips are packed tight on purpose: this bar and FormatBar both sit
+//  above the keyboard, and every point they spend on padding is a point of
+//  script the writer cannot see. Padding rather than fixed heights, so the
+//  chips still grow with the text size a writer chose.
+//
 
 import SwiftUI
 
@@ -30,15 +35,15 @@ struct ElementTypeBar: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 ForEach(types) { type in
                     Button {
                         Task { await model.changeType(block, to: type) }
                     } label: {
                         Text(type.label)
                             .font(.footnote.weight(.medium))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(type == block.blockType ? Color.white : Color.primary)
@@ -51,8 +56,8 @@ struct ElementTypeBar: View {
                     .accessibilityAddTraits(type == block.blockType ? [.isSelected] : [])
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
         }
         .background(.bar)
     }
