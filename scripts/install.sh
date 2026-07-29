@@ -334,7 +334,12 @@ settle() {
     # even though -allowProvisioningUpdates sounds like it should cover that.
     OVERRIDES=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration
         "DEVELOPMENT_TEAM=$TEAM")
-    [ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_OVERRIDE")
+    # APP_BUNDLE_ID rather than PRODUCT_BUNDLE_IDENTIFIER: a setting given on
+    # the command line lands on every target, and the widget extensions have
+    # ids of their own that iOS requires to stay prefixed by the app's. The
+    # project derives all four from APP_BUNDLE_ID, so overriding that renames
+    # them together.
+    [ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("APP_BUNDLE_ID=$BUNDLE_OVERRIDE")
     local settings status=0
     # Keep the stderr instead of dropping it, in the same file the build writes:
     # a device Xcode can't reach and a scheme that is genuinely broken both end
