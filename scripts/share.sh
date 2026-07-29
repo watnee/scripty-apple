@@ -136,7 +136,12 @@ ARCHIVE="$OUT/$SCHEME.xcarchive"
 
 OVERRIDES=(-allowProvisioningUpdates "DEVELOPMENT_TEAM=$TEAM"
            "CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
-[ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_OVERRIDE")
+# APP_BUNDLE_ID rather than PRODUCT_BUNDLE_IDENTIFIER: a setting given on the
+# command line lands on every target, and the widget extensions have ids of
+# their own that iOS requires to stay prefixed by the app's. The project
+# derives all four from APP_BUNDLE_ID, so overriding that renames them
+# together.
+[ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("APP_BUNDLE_ID=$BUNDLE_OVERRIDE")
 
 echo "Archiving $SCHEME (build $BUILD_NUMBER)…"
 if ! xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
