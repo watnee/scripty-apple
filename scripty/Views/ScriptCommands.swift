@@ -94,14 +94,16 @@ struct ScriptActions {
 
     /// Songs & Notes, and the documents themselves.
     ///
-    /// `songsAndNotes` opens the screen; `recentSongs` and `recentNotes` are the
-    /// few last edited of each kind, which `openDocument` opens directly — the
-    /// toolbar menu's contents, so a writer at a keyboard reaches either without
-    /// the screen in between. The lists are snapshots rather than closures
-    /// because the menu has to draw the titles, not only act on them. Empty when
-    /// the server never advertised the project's documents, or when no script is
-    /// frontmost.
-    var songsAndNotes: (() -> Void)?
+    /// `songs` and `notes` open the screen on their own list — one each, matching
+    /// the two toolbar buttons, so the menu bar can no more open the wrong list
+    /// than the bar can. `recentSongs` and `recentNotes` are the few last edited
+    /// of each kind, which `openDocument` opens directly, so a writer at a
+    /// keyboard reaches either without the screen in between. The lists are
+    /// snapshots rather than closures because the menu has to draw the titles,
+    /// not only act on them. Empty when the server never advertised the
+    /// project's documents, or when no script is frontmost.
+    var songs: (() -> Void)?
+    var notes: (() -> Void)?
     var recentSongs: [TextDocument] = []
     var recentNotes: [TextDocument] = []
     var openDocument: ((TextDocument) -> Void)?
@@ -246,25 +248,34 @@ struct ScriptCommands: Commands {
         }
     }
 
-    /// Songs & Notes, and the documents under it.
+    /// The two lists, and the documents under them.
     ///
-    /// ⌘⇧S is free in the client — nothing here is a saveable document, so the
-    /// stock Save chords never appear. It opens the screen on whichever list the
-    /// project was last left on, so a writer working from the notes reaches them
-    /// with the one chord rather than the chord and a segment tap.
+    /// One item each, matching the toolbar: an item named "Songs & Notes" could
+    /// not say which list it opened, so it opened on whichever the project was
+    /// last left on and a writer after the other one paid a segment tap.
+    ///
+    /// ⌘⇧S stays on the songs, which is where it has always landed and what
+    /// Help has always said it does. It is free in the client — nothing here is
+    /// a saveable document, so the stock Save chords never appear. Notes take no
+    /// chord: ⌘⇧N is Show/Hide Pins, the rest of the ⌘⇧ row is spoken for, and a
+    /// chord with no mnemonic left in it is worse than none. Notes are also the
+    /// half that needs it least here, since a Mac has the width to draw both
+    /// buttons in the bar at all times.
     ///
     /// The submenus are named for what they hold: "Songs" would claim to list
     /// every one of them, when each lists the few last edited and leaves the rest
     /// to the screen above them. Notes get their own rather than sharing one
     /// list with the songs, so a project deep in either kind still shows both.
-    ///
-    /// Neither submenu takes a chord: ⌘⇧N is Show/Hide Pins, and the shortcuts
-    /// here are a list to pick from rather than one action a key could stand for.
+    /// Neither takes a chord either — they are a list to pick from rather than
+    /// one action a key could stand for.
     @ViewBuilder
     private var songItems: some View {
-        Button("Songs & Notes…") { actions?.songsAndNotes?() }
+        Button("Songs…") { actions?.songs?() }
             .keyboardShortcut("s", modifiers: [.command, .shift])
-            .disabled(actions?.songsAndNotes == nil)
+            .disabled(actions?.songs == nil)
+
+        Button("Notes…") { actions?.notes?() }
+            .disabled(actions?.notes == nil)
 
         documentMenu("Recent Songs", actions?.recentSongs ?? [], actions?.openDocument)
         documentMenu("Recent Notes", actions?.recentNotes ?? [], actions?.openDocument)

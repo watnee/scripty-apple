@@ -85,6 +85,7 @@ struct ContentView: View {
                 ScriptView(app: app, project: project,
                            openingDocuments: $openingDocuments,
                            openingBookmark: $openingBookmark,
+                           isCompact: horizontalSizeClass == .compact,
                            onProjectChanged: adoptRenamedProject)
                     .id(project.id)
             } else {
