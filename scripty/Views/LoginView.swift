@@ -30,7 +30,7 @@ struct LoginView: View {
     }
 
     private enum Busy {
-        case password, passkey, demo
+        case password, passkey, savedPassword, demo
     }
 
     private var canSubmit: Bool {
@@ -98,19 +98,29 @@ struct LoginView: View {
                     .disabled(!canSubmit)
 
                     if let passkeyLink {
-                        Button {
-                            signInWithSavedCredential(using: passkeyLink)
-                        } label: {
-                            // The sheet lists this domain's passkeys and the
-                            // passwords the Passwords app has saved for it, so
-                            // the button can't promise only one of them.
-                            busyLabel(if: .passkey) {
-                                Label("Use a Saved Passkey or Password",
-                                      systemImage: "person.badge.key")
+                        VStack(spacing: 10) {
+                            Button {
+                                signInWithPasskey(using: passkeyLink)
+                            } label: {
+                                busyLabel(if: .passkey) {
+                                    Label("Sign in with a Passkey",
+                                          systemImage: "person.badge.key")
+                                }
                             }
+                            .buttonStyle(.glass)
+                            .disabled(busy != nil)
+
+                            Button {
+                                signInWithSavedPassword(returnTo: passkeyLink)
+                            } label: {
+                                busyLabel(if: .savedPassword) {
+                                    Label("Use a Saved Password",
+                                          systemImage: "key.fill")
+                                }
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(busy != nil)
                         }
-                        .buttonStyle(.glass)
-                        .disabled(busy != nil)
                     }
 
                     if let recoveryLink {
@@ -211,15 +221,36 @@ struct LoginView: View {
         }
     }
 
-    /// Opens the system sheet. The keyboard's standing offer has to come down
-    /// first — the platform runs one authorization request at a time — and goes
-    /// back up if this attempt didn't end in a session.
-    private func signInWithSavedCredential(using link: HALLink) {
+    /// Opens the system's passkey sheet. The keyboard's standing offer has to
+    /// come down first — the platform runs one authorization request at a
+    /// time — and goes back up if this attempt didn't end in a session.
+    private func signInWithPasskey(using link: HALLink) {
         focusedField = nil
         busy = .passkey
         autoFill.cancel()
         Task {
             switch await PasskeySignInFlow(app: app).signIn(using: link) {
+            case .signedIn:
+                break
+            case .canceled:
+                startAutoFill(using: link)
+            case .failed(let message):
+                app.signInError = message
+                startAutoFill(using: link)
+            }
+            busy = nil
+        }
+    }
+
+    /// Opens the system's saved-password sheet. Same standing-offer dance as
+    /// the passkey sheet — one authorization request at a time — which is why
+    /// this needs the link despite the ceremony itself never using it.
+    private func signInWithSavedPassword(returnTo link: HALLink) {
+        focusedField = nil
+        busy = .savedPassword
+        autoFill.cancel()
+        Task {
+            switch await PasskeySignInFlow(app: app).signInWithSavedPassword() {
             case .signedIn:
                 break
             case .canceled:

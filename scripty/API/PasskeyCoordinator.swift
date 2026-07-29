@@ -16,9 +16,9 @@
 //  fails with a platform error, which surfaces as an ordinary alert.
 //
 //  That same association is what puts this app and the Passwords app on the
-//  same domain, so a sign-in sheet here lists both the passkeys and the saved
-//  passwords the Passwords app holds for it. Sign-in therefore answers with
-//  either kind of credential, not only a passkey.
+//  same domain, so alongside the passkey ceremony this coordinator can open a
+//  sheet of the saved passwords the Passwords app holds for it. Each kind has
+//  its own request; the login screen offers them as separate buttons.
 //
 
 import AuthenticationServices
@@ -77,17 +77,18 @@ final class PasskeyCoordinator: NSObject {
                             attestationObject: attestation)
     }
 
-    /// Signs in with something already saved on this device. No credential
+    /// Signs in with a passkey already saved on this device. No credential
     /// list is passed: this is the discoverable flow, where the system offers
-    /// the accounts it holds passkeys for — and, because a password request
-    /// rides along, the passwords the Passwords app has saved for the same
-    /// domain. One sheet, both kinds, whichever the writer has.
+    /// the accounts it holds passkeys for.
     func signIn(options: PasskeyCeremonyOptions) async throws -> SavedCredential {
-        let requests: [ASAuthorizationRequest] = [
-            try assertionRequest(from: options),
-            ASAuthorizationPasswordProvider().createRequest(),
-        ]
-        return try credential(from: try await perform(requests))
+        try credential(from: try await perform(try assertionRequest(from: options)))
+    }
+
+    /// Signs in with a password the Passwords app has saved for this domain.
+    /// Nothing WebAuthn about it — no challenge, no options — the sheet hands
+    /// back the same pair the sign-in form asks for.
+    func signInWithSavedPassword() async throws -> SavedCredential {
+        try credential(from: try await perform(ASAuthorizationPasswordProvider().createRequest()))
     }
 
     /// The same sign-in, offered without a button: the system folds this
