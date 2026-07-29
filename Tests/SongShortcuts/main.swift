@@ -1,10 +1,12 @@
 //
-//  Song shortcut ordering checks
+//  Song and note shortcut checks
 //
-//  Two screens offer a shortcut straight to a song — the script's Songs menu
-//  and the strip at the head of the songs list — and both take their handful
-//  from `mostRecentlyEdited`. So the rule is worth pinning: which songs it
-//  picks, in which order, and what it does with one the server never dated.
+//  Two screens offer a shortcut straight to a song or a note — the script's
+//  Songs & Notes menu and the strip at the head of each list — and both take
+//  their handful from `mostRecentlyEdited`. So the rule is worth pinning: which
+//  ones it picks, in which order, and what it does with one the server never
+//  dated. The last group pins what tells one request for the Songs & Notes
+//  screen from another, which is what decides the list it opens on.
 //
 //  The failure this guards against is quiet. A shortcut list that silently
 //  ordered itself by id, or that let an undated row take a slot, still looks
@@ -119,15 +121,37 @@ func run() {
         check("keeps the placeholder name the lists give it",
               titles([untitled].mostRecentlyEdited(limit: 1)), "Untitled Song")
     }
+
+    print("")
+    print("Which list the Songs & Notes screen was asked for")
+    do {
+        // The screen is presented as this request's *item*, and its list is
+        // seeded from the request the first time that item exists. So two
+        // requests for different lists have to be two identities — otherwise
+        // the second opening reuses the first one's state and "All Notes…"
+        // lands on songs, which is exactly the bug this identity exists to fix.
+        check("songs and notes are told apart",
+              DocumentsRequest(type: .song).id == DocumentsRequest(type: .notes).id, false)
+        check("the same list asked for twice is one request",
+              DocumentsRequest(type: .song).id, DocumentsRequest(type: .song).id)
+        // A widget row names the document as well as the list, and opening two
+        // different songs in turn has to re-present rather than reopen the first.
+        check("two songs on one list are told apart",
+              DocumentsRequest(type: .song, documentId: 1).id
+                  == DocumentsRequest(type: .song, documentId: 2).id, false)
+        check("naming a document differs from opening the list",
+              DocumentsRequest(type: .song, documentId: 1).id
+                  == DocumentsRequest(type: .song).id, false)
+    }
 }
 
 MainActor.assumeIsolated { run() }
 
 print("")
 if failures == 0 {
-    print("Song shortcut checks passed.")
+    print("Song and note shortcut checks passed.")
     exit(0)
 } else {
-    print("\(failures) song shortcut check(s) FAILED.")
+    print("\(failures) song and note shortcut check(s) FAILED.")
     exit(1)
 }

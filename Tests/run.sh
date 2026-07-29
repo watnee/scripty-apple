@@ -160,9 +160,10 @@ swiftc "${FLAGS[@]}" -o "$BUILD/quickactions" \
 "$BUILD/quickactions" || status=1
 
 echo
-echo "== Song shortcut ordering =="
+echo "== Song and note shortcuts =="
 swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
     "$SRC/Models/TextDocument.swift" \
+    "$SRC/Models/DocumentsRequest.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/SongShortcuts/main.swift"
 "$BUILD/songshortcuts" || status=1
