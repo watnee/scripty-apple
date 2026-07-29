@@ -122,8 +122,79 @@ func checkSongResourcesReuseScriptModels() {
     }
 }
 
+/// The deployed server templates every href whose endpoint takes an optional
+/// parameter — the demo backend, which fills them in itself, does not. So the
+/// hrefs below are copied verbatim from a running server, and they are the ones
+/// a tapped screenplay follows: block collection, documents, sync, undo/redo,
+/// export. Sent as they arrive, `?projectId=7{&editionId}` asks for the project
+/// "7{" and is refused with a 400 that carries no field map, which reaches the
+/// writer as "The server rejected the request." over the whole script.
+func checkTemplatedLinksExpand() {
+    func expanded(_ href: String, _ values: [String: String] = [:]) -> String {
+        HALLink(href: href, templated: true).expanded(with: values).href
+    }
+    func followed(_ href: String) -> String {
+        HALLink(href: href, templated: true)
+            .url(relativeTo: URL(string: "https://scripty.example")!)?.absoluteString ?? "nil"
+    }
+
+    check("an unfilled continuation drops off the block collection",
+          expanded("https://s/api/block?projectId=7{&editionId}")
+              == "https://s/api/block?projectId=7",
+          "got \(expanded("https://s/api/block?projectId=7{&editionId}"))")
+    check("a filled one rides as a real parameter",
+          expanded("https://s/api/block?projectId=7{&editionId}", ["editionId": "3"])
+              == "https://s/api/block?projectId=7&editionId=3",
+          "got \(expanded("https://s/api/block?projectId=7{&editionId}", ["editionId": "3"]))")
+    check("a multi-variable expression keeps only what it was given",
+          expanded("https://s/project/syncStatus?id=7{&since,editionId}", ["since": "42"])
+              == "https://s/project/syncStatus?id=7&since=42",
+          "got \(expanded("https://s/project/syncStatus?id=7{&since,editionId}", ["since": "42"]))")
+    check("a query that only the template opens starts with a ?",
+          expanded("https://s/api/actor{?projectId}", ["projectId": "7"])
+              == "https://s/api/actor?projectId=7",
+          "got \(expanded("https://s/api/actor{?projectId}", ["projectId": "7"]))")
+    check("and vanishes entirely when nothing fills it",
+          expanded("https://s/api/actor{?projectId}") == "https://s/api/actor",
+          "got \(expanded("https://s/api/actor{?projectId}"))")
+    check("a bare variable inside a query value is filled",
+          expanded("https://s/api/document?projectId={projectId}{&type}",
+                   ["projectId": "7", "type": "SONG"])
+              == "https://s/api/document?projectId=7&type=SONG",
+          "got \(expanded("https://s/api/document?projectId={projectId}{&type}", ["projectId": "7", "type": "SONG"]))")
+    check("a value is percent-encoded on the way in",
+          expanded("https://s/api/project/7/contact-suggestions{?q}", ["q": "a b&c"])
+              == "https://s/api/project/7/contact-suggestions?q=a%20b%26c",
+          "got \(expanded("https://s/api/project/7/contact-suggestions{?q}", ["q": "a b&c"]))")
+
+    // What actually goes on the wire: no braces reach the server, encoded or
+    // otherwise, and a plain href is untouched.
+    check("a followed template carries no braces",
+          !followed("https://s/api/block?projectId=7{&editionId}").contains("%7B"),
+          "got \(followed("https://s/api/block?projectId=7{&editionId}"))")
+    check("a plain href survives unchanged",
+          followed("https://s/api/character?projectId=7")
+              == "https://s/api/character?projectId=7",
+          "got \(followed("https://s/api/character?projectId=7"))")
+
+    // The query the export sheet adds, over a template that declares the same
+    // names: the parameters land once each, with the values the sheet chose.
+    let export = HALLink(href: "https://s/project/export?id=7&format=pdf{&editionId,paper,margins}",
+                         templated: true)
+        .addingQuery(["paper": "A4", "margins": "wide"]).href
+    check("addingQuery fills a template rather than trailing it",
+          export == "https://s/project/export?id=7&format=pdf&margins=wide&paper=A4",
+          "got \(export)")
+    check("a template addingQuery cannot fill is still cleared",
+          HALLink(href: "https://s/api/block?projectId=7{&editionId}", templated: true)
+              .addingQuery(["since": "1"]).href
+              == "https://s/api/block?projectId=7&since=1",
+          "got \(HALLink(href: "https://s/api/block?projectId=7{&editionId}", templated: true).addingQuery(["since": "1"]).href)")
+}
+
 func run() async {
     checkSongResourcesReuseScriptModels()
+    checkTemplatedLinksExpand()
 
     // --- root advertises actors ---
     let root = json(await be.respond(method: "GET", url: url("/api"), body: nil).data)
