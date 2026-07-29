@@ -293,6 +293,15 @@ swiftc "${FLAGS[@]}" -o "$BUILD/documentorder" \
 "$BUILD/documentorder" || status=1
 
 echo
+echo "== Home Screen bookmarks widget =="
+# And again for the third. This one carries rows from several screenplays at
+# once, so the merge matters as much as the ordering does.
+swiftc "${FLAGS[@]}" -o "$BUILD/bookmarkswidget" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "$ROOT/Tests/BookmarksWidget/main.swift"
+"$BUILD/bookmarkswidget" || status=1
+
+echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \
@@ -319,6 +328,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/OfflineStore.swift" \
@@ -343,6 +353,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/OfflineStore.swift" \

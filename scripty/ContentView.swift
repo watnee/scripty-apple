@@ -6,10 +6,10 @@
 //  Collapses to a stack on iPhone automatically.
 //
 //  Also the one place that can answer anything the Home Screen asks for — a
-//  long-press menu entry or a tapped row on either widget — since answering one
-//  means choosing a project, and this is where the list of them lives. The
-//  menu's own recents and the Screenplays widget's rows are republished from
-//  here for the same reason.
+//  long-press menu entry or a tapped row on any of the three widgets — since
+//  answering one means choosing a project, and this is where the list of them
+//  lives. The menu's own recents and the Screenplays widget's rows are
+//  republished from here for the same reason.
 //
 
 import SwiftUI
@@ -34,6 +34,11 @@ struct ContentView: View {
     /// already on screen changes no project, so there is no rebuild to carry an
     /// initial value in on.
     @State private var openingDocuments: DocumentsRequest?
+    /// The element a tapped Bookmarks row asked for, cleared by the script view
+    /// once it has scrolled there. Held here for the reason above: tapping a
+    /// bookmark in the screenplay already on screen changes no project, so
+    /// there is no rebuild to carry an initial value in on.
+    @State private var openingBookmark: Int?
     /// Whether the reopen-what-was-open pass has had its turn. Until it has,
     /// nothing is written back: a selection that is nil only because the list
     /// is still loading must not be mistaken for one the writer cleared.
@@ -70,6 +75,7 @@ struct ContentView: View {
             if let project = selectedProject {
                 ScriptView(app: app, project: project,
                            openingDocuments: $openingDocuments,
+                           openingBookmark: $openingBookmark,
                            onProjectChanged: adoptRenamedProject)
                     .id(project.id)
             } else {
@@ -90,6 +96,7 @@ struct ContentView: View {
 
             performQuickAction()
             openWidgetDestination()
+            openBookmarkDestination()
         }
         // What the menu offers, and what the Screenplays widget draws, is
         // whatever the list last held.
@@ -136,11 +143,13 @@ struct ContentView: View {
         .onChange(of: projectList.isLoading) { _, _ in
             performQuickAction()
             openWidgetDestination()
+            openBookmarkDestination()
         }
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
         // The app was already running when the widget row was tapped, so the
         // list is in hand and the only thing that changed is the request.
         .onChange(of: app.pendingWidgetDestination) { _, _ in openWidgetDestination() }
+        .onChange(of: app.pendingBookmarkDestination) { _, _ in openBookmarkDestination() }
         // Where the app was left, kept as it changes rather than on the way
         // out: a screenplay open when the app is killed should be the one that
         // comes back. The demo is excluded — its sample project is chosen for
@@ -225,5 +234,24 @@ struct ContentView: View {
         selectedProjectId = project.id
         openingDocuments = DocumentsRequest(type: destination.isSong ? .song : .notes,
                                             documentId: destination.documentId)
+    }
+
+    /// Opens the screenplay a tapped Bookmarks row named, and passes the
+    /// element on for the script view to scroll to.
+    ///
+    /// Named projects only, and dropped whether or not it found one, for the
+    /// reasons above. The element is handed on unchecked: this view has the
+    /// project list, not the script, so whether that line still exists is a
+    /// question only the script view can answer — and its answer is to open the
+    /// screenplay at the top, which is where the tap was heading anyway.
+    private func openBookmarkDestination() {
+        guard !projectList.isLoading, let destination = app.pendingBookmarkDestination else {
+            return
+        }
+        app.pendingBookmarkDestination = nil
+        guard let project = projectList.projects.first(where: { $0.id == destination.projectId })
+        else { return }
+        selectedProject = project
+        openingBookmark = destination.blockId
     }
 }

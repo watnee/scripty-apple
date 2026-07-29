@@ -74,11 +74,14 @@ struct SongsView: View {
     /// Which list the picker starts on.
     @State private var listType: DocumentType
 
-<<<<<<< HEAD
     /// A document to open as soon as the list has loaded, which only a tapped
     /// Home Screen widget row ever names. Not `@State`: it is answered once, on
     /// the load this screen opens with, and nothing on screen can set it.
     private let openingId: Int?
+
+    /// The screen that was open above this one when the app was last put down,
+    /// if this launch is restoring it. Empty every other time this list opens.
+    private let reopening: [OpenEditor]
 
     /// Opens on the list named, and otherwise on the one this project was last
     /// left on — Songs the first time. Only a route that means a particular
@@ -93,10 +96,6 @@ struct SongsView: View {
     /// tile exists for. Seeded rather than applied on appear: the sheet is
     /// wanted from the first frame, and a second animation on the way in would
     /// read as the screen changing its mind.
-    /// The screen that was open above this one when the app was last put down,
-    /// if this launch is restoring it. Empty every other time this list opens.
-    private let reopening: [OpenEditor]
-
     init(model: ScriptModel, options: ScriptViewOptions, listType: DocumentType? = nil,
          openingId: Int? = nil, creating: Bool = false, reopening: [OpenEditor] = []) {
         self.model = model
@@ -301,17 +300,13 @@ struct SongsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task {
-<<<<<<< HEAD
                 // A list a quick action named is as much a statement of intent
                 // as one the picker was tapped over to, so it is remembered the
                 // same way — the picker's own change never fires for it.
                 options.rememberDocumentList(listType.rawValue)
                 await reload()
                 openRequestedDocument()
-=======
-                await reload()
                 reopenRememberedScreen()
->>>>>>> claude/editor-state-persistence-b7bfe0
             }
             .refreshable { await reload() }
             .searchable(text: $searchText,

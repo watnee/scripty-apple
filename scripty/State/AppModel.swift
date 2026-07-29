@@ -41,6 +41,15 @@ final class AppModel {
     /// picks it up once there is a list to answer it with, and clears it.
     var pendingWidgetDestination: WidgetDestination?
 
+    /// The flagged element a Bookmarks widget row was tapped for, waiting for a
+    /// project list to open it against.
+    ///
+    /// Separate from `pendingWidgetDestination` rather than folded into it: that
+    /// one names a song or note and ends at a sheet, this one names an element
+    /// and ends at a scroll, and a type that could be either would only push the
+    /// question of which one down to `ContentView`.
+    var pendingBookmarkDestination: BookmarkDestination?
+
     /// False when the keychain refused to hold this session's credentials, so
     /// signing in again will be needed after the app is quit.
     private(set) var isSessionPersisted = true

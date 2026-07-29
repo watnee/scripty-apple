@@ -306,9 +306,9 @@ listed in `Metadata.appintents/extract.actionsdata` inside the built `.app`.
 ## The Home Screen widgets
 
 Three of them, all shipped with the app rather than installed separately. Add
-any the usual way: press and hold the Home Screen, **Edit → Add Widget**, then
-search for **Scripty**. The gallery searches the *app's* name, not the widget's,
-so searching "Screenplays" or "Songs" finds nothing.
+any of them the usual way: press and hold the Home Screen, **Edit → Add
+Widget**, then search for **Scripty**. The gallery searches the *app's* name,
+not the widget's, so searching "Screenplays" or "Bookmarks" finds nothing.
 
 **Screenplays** lists what you have been working on, most recent first, and
 tapping a row opens that screenplay. The starred one is marked with a star
@@ -321,48 +321,61 @@ screenplays, newest first across all of them, and tapping one opens that
 document on the right list. Two widgets rather than one, so a wall of songs
 cannot bury the notes: place either, both, or one of each at different sizes.
 
-| Size        | Screenplays     | Songs                        | Notes                        |
-| ----------- | --------------- | ---------------------------- | ---------------------------- |
-| Small       | The most recent | The one most recently edited | The one most recently edited |
-| Medium      | Three           | Three                        | Three                        |
-| Large       | Six             | Six                          | Six                          |
-| Lock Screen | The most recent | The one most recently edited | The one most recently edited |
+**Bookmarks** shows the lines you flagged while writing, and tapping one opens
+that screenplay scrolled to that element — the same jump the outline sidebar
+makes from inside the app. Its rows are grouped by screenplay rather than
+individually sorted: they are sentences out of a script, and a run of them only
+reads as anything in the order it was written. The most recently marked-up
+screenplay leads, which is when it was *flagged*, not when it was last opened —
+reading an old draft does not push aside the one you annotated this morning.
+The server dates neither the element nor the flag, so that stamp is the app's
+own.
+
+| Size        | Screenplays     | Songs & Notes                | Bookmarks         |
+| ----------- | --------------- | ---------------------------- | ----------------- |
+| Small       | The most recent | The one most recently edited | The most recent   |
+| Medium      | Three           | Three                        | Two               |
+| Large       | Six             | Six                          | Five              |
+| Lock Screen | The most recent | The one most recently edited | The most recent   |
+
+Bookmarks fits fewer per size on purpose: its rows are lines of dialogue and
+action rather than titles, and a clipped sentence is worth less than a whole one.
 
 A widget cannot sign in, and none of these tries. The app writes the handful of
 rows each one draws into a shared App Group container — the projects list as it
-loads, a screenplay's songs and notes as they settle — and the extensions only
-ever read them. So a row appears once the app has seen it, the rows are there
-whether or not the phone has a connection, and there is no second copy of the
-API client to keep honest. The demo publishes nothing, for the same reason it
-names no screenplays in the Home Screen menu, and signing out empties all three
-— the Home Screen keeps showing whatever it was last given until this app takes
-it back, and nobody else can.
+loads, a screenplay's songs and notes as they settle, its flagged elements as
+the script does — and the extensions only ever read them. So a row appears once
+the app has seen it, the rows are there whether or not the phone has a
+connection, and there is no second copy of the API client to keep honest. The
+demo publishes nothing, for the same reason it names no screenplays in the Home
+Screen menu, and signing out empties all three — the Home Screen keeps showing
+whatever it was last given until this app takes it back, and nobody else can.
+That last part matters most for Bookmarks, whose rows are not titles but the
+script itself.
 
-The pieces, in matching pairs: [Shared/](Shared) holds the one file per
-extension that both its targets compile, and it is pure Foundation on purpose,
-so `Tests/SongsNotesWidget` and `Tests/ProjectsWidget` can check the ordering,
-the merge and the deep-link URLs without a simulator.
+The pieces, in matching sets: [Shared/](Shared) holds the one file per widget
+that both its targets compile, and it is pure Foundation on purpose, so
+`Tests/SongsNotesWidget`, `Tests/ProjectsWidget` and `Tests/BookmarksWidget` can
+check the ordering, the merge and the deep-link URLs without a simulator.
 
-Songs and Notes are two widgets out of one extension and one stored list. They
-share every line of their drawing and differ only in which half they read, so
-they are a `WidgetBundle` rather than a fourth target; the list is capped at a
-dozen rows *of each kind*, so neither can crowd the other out of the file, and
-publishing reloads only the one whose rows actually changed.
+| | Screenplays | Songs & Notes | Bookmarks |
+| --- | --- | --- | --- |
+| Shared | [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) | [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift) | [BookmarksWidgetData.swift](Shared/BookmarksWidgetData.swift) |
+| Extension | [ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) | [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift) | [BookmarksWidget.swift](BookmarksWidget/BookmarksWidget.swift) |
+| App's half | [ProjectsWidgetPublisher.swift](scripty/Widgets/ProjectsWidgetPublisher.swift) | [WidgetPublisher.swift](scripty/Widgets/WidgetPublisher.swift) | [BookmarksWidgetPublisher.swift](scripty/Widgets/BookmarksWidgetPublisher.swift) |
+| Tapped row | `scripty://project?id=…` | `scripty://document?project=…&id=…&kind=…` | `scripty://bookmark?project=…&block=…` |
 
-| | Screenplays | Songs and Notes |
-| --- | --- | --- |
-| Shared | [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) | [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift) |
-| Extension | [ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) | [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift) |
-| App's half | [ProjectsWidgetPublisher.swift](scripty/Widgets/ProjectsWidgetPublisher.swift) | [WidgetPublisher.swift](scripty/Widgets/WidgetPublisher.swift) |
-| Tapped row | `scripty://project?id=…` | `scripty://document?project=…&id=…&kind=…` |
-
-Both URLs are read in [scriptyApp.swift](scripty/scriptyApp.swift). A tapped
-screenplay becomes the same pending request a long-press menu entry makes; a
-tapped song carries a document as well, so it gets a request of its own.
+All three URLs are read in [scriptyApp.swift](scripty/scriptyApp.swift). A
+tapped screenplay becomes the same pending request a long-press menu entry
+makes; a tapped song carries a document as well, and a tapped bookmark an
+element, so each of those gets a request of its own. A bookmark's element is
+handed to the script view, which scrolls to it once the script has actually
+arrived — an element deleted since it was flagged is simply never found, and the
+screenplay opens where it otherwise would.
 
 The App Group is `group.scripty.scripty`, named once in each widget's store and
-spelled out in **six** entitlements files — one iOS and one Catalyst for each of
-the three targets. They all have to agree; a mismatch builds cleanly and shows
+spelled out in **eight** entitlements files — one iOS and one Catalyst for each
+of the four targets. They all have to agree; a mismatch builds cleanly and shows
 up only as a widget that is permanently empty.
 
 The two platforms spell the same group differently, which is why there are two
@@ -515,8 +528,8 @@ Anything that needs a running app is out of scope here — use `demo.sh` for tha
 | `scripty/Demo`  | The in-memory backend behind the offline demo           |
 | `scripty/Models`| Screenplay blocks, pagination, stats                    |
 | `scripty/Views` | The editor and everything around it                     |
-| `scripty/Intents`| Siri, Spotlight and Shortcuts: entities, intents, links |
-| `scripty/Widgets`| The app's half of both Home Screen widgets             |
+| `scripty/Widgets`| The app's half of the Home Screen widgets              |
 | `Shared`        | The files the app and each widget extension share       |
 | `ProjectsWidget`| The Screenplays widget extension                        |
-| `SongsNotesWidget`| The extension vending the Songs and Notes widgets      |
+| `SongsNotesWidget`| The Songs & Notes widget extension                     |
+| `BookmarksWidget`| The Bookmarks widget extension                         |

@@ -21,12 +21,12 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- Both widgets' shared container — the macOS spelling of the group in
+	<!-- Every widget's shared container — the macOS spelling of the group in
 	     scripty.entitlements. `$(TeamIdentifierPrefix)` is expanded at build
 	     time and already carries its trailing dot, so this resolves to e.g.
 	     WA6FZ2S8R3.group.scripty.scripty, which is what
 	     `containerURL(forSecurityApplicationGroupIdentifier:)` must be handed on
-	     macOS. Both widget stores try each spelling in turn for that reason. -->
+	     macOS. Every widget store tries each spelling in turn for that reason. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>$(TeamIdentifierPrefix)group.scripty.scripty</string>
