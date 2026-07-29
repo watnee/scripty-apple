@@ -1,11 +1,13 @@
 #!/bin/bash
 #
-# Double-click this in Finder to put Scripty on an iPhone or iPad plugged into
-# this Mac — no terminal, no commands to type. It checks Xcode the way the other
-# launchers do, then waits for the device, builds a signed copy, installs it,
-# and opens it. A free Apple ID is enough to sign; if Developer Mode is off or
-# the device hasn't trusted the certificate yet, it says exactly what to tap and
-# waits while you do it, rather than failing in the build log.
+# Double-click this in Finder to put Scripty on the iPhones and iPads plugged
+# into this Mac — no terminal, no commands to type. It checks Xcode the way the
+# other launchers do, then waits for a device, builds a signed copy, and installs
+# and opens it on every device it finds, so a phone and a tablet on the same desk
+# are one double-click rather than two. A free Apple ID is enough to sign; if
+# Developer Mode is off or a device hasn't trusted the certificate yet, it says
+# exactly what to tap and waits while you do it, rather than failing in the
+# build log.
 #
 # Unlike Install Scripty.command, which opens the offline demo in a simulator
 # when nothing is plugged in, this one insists on a real device and waits for
@@ -29,14 +31,14 @@ fi
 # window handles the rest. Anything else that comes up — Developer Mode, trusting
 # the app — is spelled out by the lines below as it happens.
 cat <<'EOF'
-Putting Scripty on your iPhone or iPad. All you do is:
+Putting Scripty on your iPhone and iPad. All you do is:
 
-  1. Plug it into this Mac with a cable.
-  2. Unlock it, and tap "Trust This Computer" if it asks.
-  3. Leave this window running — it builds Scripty, installs it, and opens
-     it on the device.
+  1. Plug them into this Mac with a cable — one, or both, or however many.
+  2. Unlock each one, and tap "Trust This Computer" if it asks.
+  3. Leave this window running — it builds Scripty, then installs and opens
+     it on every device it finds.
 
-You can start now; it waits for the device to show up.
+You can start now; it waits for the devices to show up.
 
 EOF
-exec scripts/finder-run.sh "The install" ./scripts/get.sh -- --device
+exec scripts/finder-run.sh "The install" ./scripts/get.sh -- --all

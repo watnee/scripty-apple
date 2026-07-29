@@ -9,6 +9,7 @@
 #   ./scripts/run.sh --simulator              # ignore any plugged-in device
 #   ./scripts/run.sh --device                 # insist on the real device
 #   ./scripts/run.sh --device "Clint iPhone"  # pick one by name
+#   ./scripts/run.sh --all                    # every connected device
 #   ./scripts/run.sh -- --reset               # pass the rest to the script it picks
 #
 set -euo pipefail
@@ -16,16 +17,19 @@ cd "$(dirname "$0")/.."
 
 WANT=""          # "", "simulator", or "device"
 DEVICE_NAME=""
+ALL=()
 EXTRA=()
 
 usage() {
-    sed -n '3,12p' "$0" | cut -c3-
+    sed -n '3,13p' "$0" | cut -c3-
     exit "${1:-0}"
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --simulator|--sim) WANT=simulator; shift ;;
+        # Every device means real devices, so it says --device on its own too.
+        --all) WANT=device; ALL=(--all); shift ;;
         --device)
             WANT=device
             # The name is optional here, unlike install.sh: a bare --device
@@ -93,8 +97,8 @@ if [ -n "${SCRIPTY_TEAM_ID:-}" ] ||
 fi
 
 if [ "$WANT" = device ]; then
-    ARGS=()
-    [ -n "$DEVICE_NAME" ] && ARGS=(--device "$DEVICE_NAME")
+    ARGS=(${ALL[@]+"${ALL[@]}"})
+    [ -n "$DEVICE_NAME" ] && ARGS+=(--device "$DEVICE_NAME")
     run ./scripts/install.sh "${ARGS[@]+"${ARGS[@]}"}" ${EXTRA[@]+"${EXTRA[@]}"}
 fi
 
@@ -122,7 +126,8 @@ elif [ "$(wc -l <<<"$CONNECTED")" -gt 1 ]; then
     if [ ! -t 0 ] || [ ! -t 1 ]; then
         echo "Several devices are connected:"
         sed 's/^/  /' <<<"$CONNECTED"
-        echo "Pick one:  ./scripts/run.sh --device \"$(head -1 <<<"$CONNECTED")\"" >&2
+        echo "All of them:  ./scripts/run.sh --all" >&2
+        echo "Just one:     ./scripts/run.sh --device \"$(head -1 <<<"$CONNECTED")\"" >&2
         exit 1
     fi
     run ./scripts/install.sh ${EXTRA[@]+"${EXTRA[@]}"}

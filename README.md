@@ -31,7 +31,7 @@ repository (the green **Code** button > **Download ZIP**, or `git clone`) and
 double-click **Install Scripty.command** inside it. Finder opens it in a
 Terminal window and it does exactly what the one-liner does. Four siblings sit
 next to it for the other things you might want without typing a command —
-**Install on iPhone or iPad.command** (build a signed copy and put it on a
+**Install on iPhone or iPad.command** (build a signed copy and put it on every
 plugged-in device, waiting for one instead of falling back to the demo),
 **Try Scripty (Demo).command** (the offline demo in a simulator),
 **Update Scripty.command**, and **Uninstall Scripty.command**. The first time you
@@ -53,6 +53,7 @@ in a simulator. It says which it chose and why before it starts.
 ./scripts/run.sh --simulator             # ignore any plugged-in device
 ./scripts/run.sh --device                # insist on the real device
 ./scripts/run.sh --device "Clint iPhone" # pick one by name
+./scripts/run.sh --all                   # every connected device
 ./scripts/run.sh -- --reset              # pass the rest to whichever it picks
 ```
 
@@ -95,13 +96,21 @@ installs, and launches. The first pairing needs the cable; after that, if you
 turn on "Connect via network" for the device in Xcode's Devices window, later
 runs find it over Wi-Fi and you can leave the cable out.
 
+A phone and a tablet on the same desk are one run, not two: with several devices
+connected it offers "All 2 of them" as the first answer, and `--all` skips the
+question entirely. It builds once and installs that same copy everywhere, so the
+second device costs seconds — only a device your team has never seen needs a
+build of its own, to get itself registered.
+
 If you would rather not open a terminal, double-click **Install on iPhone or
 iPad.command** at the top of the project instead — it runs this same path (Xcode
-check included) in a Terminal window Finder opens for you.
+check included) in a Terminal window Finder opens for you, and takes every
+connected device without asking.
 
 ```sh
+./scripts/install.sh --all                       # every connected device, no question
 ./scripts/install.sh --list                      # show paired devices
-./scripts/install.sh --device "Clint iPhone"     # skip the question when several
+./scripts/install.sh --device "Clint iPhone"     # just this one
 ./scripts/install.sh --team ABCDE12345           # if you have more than one team
 ./scripts/install.sh --bundle-id com.you.scripty # a name of your choosing
 ./scripts/install.sh --demo                      # start in the offline demo
@@ -110,11 +119,18 @@ check included) in a Terminal window Finder opens for you.
 ```
 
 Unlike the simulator, a real device insists the app be signed. A free Apple ID
-is enough. Four things commonly stand in the way, and the script handles three
+is enough. Six things commonly stand in the way, and the script handles five
 of them while you watch rather than leaving you in the build log:
 
 - **Developer Mode is off.** It says so and waits: Settings > Privacy &
   Security > Developer Mode on the device, then restart it.
+- **The screen is locked.** Installing onto a locked device works, but Xcode
+  will not *build* against one — it waits for a destination that never arrives
+  and reports a timeout. With another device connected the script builds against
+  that one instead and installs on both; with only the locked one it says so and
+  waits for you to unlock it. A locked device that can't open the app afterwards
+  is told apart from the trust problem below, rather than both being reported as
+  a certificate you haven't trusted.
 - **The bundle id is taken.** The default is `scripty.scripty`, which is
   registered to this project's team, so the first build by anyone else fails.
   The script then names the app after your team — `com.<teamid>.scripty` — and
@@ -123,6 +139,10 @@ of them while you watch rather than leaving you in the build log:
   the device does not trust until you say so: Settings > General > VPN & Device
   Management > tap your Apple ID > Trust. The script waits for that tap and
   starts the app once you've made it.
+- **A copy signed by another team is already there.** iOS won't upgrade across
+  teams, and no flag talks it round — the old copy has to go, taking its notes,
+  drafts and sign-in with it. The script recognises that error, explains what
+  will be lost, and asks before removing anything.
 - **No certificate.** This one it cannot do for you: open Xcode > Settings >
   Accounts, add your Apple ID, let it create a development certificate, and
   rerun.
@@ -131,10 +151,12 @@ Your team, and the bundle id if it had to pick one, are remembered in
 `.scripty-install` so later runs need no flags. Waiting and asking need a
 terminal — run from a script or CI and it reports the same problems and stops.
 
-Apps signed with a free Apple ID stop working after seven days — the app is
-still on the Home Screen, it just won't open. Rerun `install.sh` to renew it;
-it remembers when it last installed and, a week on, tells you up front that the
-copy has likely expired and that this run brings it back.
+Every signature expires, and an expired one is invisible: the app is still on
+the Home Screen, it just won't open. How long you get depends on the account — a
+free Apple ID signs for seven days, a paid developer account for a year — so the
+script reads the date out of the profile it just built and tells you, rather than
+guessing. It writes that date down too, and if you come back after it has passed,
+the first thing it says is that this run brings the app back.
 
 ## Remove it
 
