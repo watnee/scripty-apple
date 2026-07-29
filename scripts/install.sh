@@ -26,9 +26,9 @@ BUNDLE_OVERRIDE="${SCRIPTY_BUNDLE_ID:-}"
 LAUNCH=1
 DEMO=0
 
-# The team and the bundle id are true for this Mac rather than for this run,
-# and a free Apple ID expires the app after seven days, so the second run is
-# never far away. Ask once, keep the answer here.
+# The team and the bundle id are true for this Mac rather than for this run, and
+# every signature expires eventually, so the second run always comes. Ask once,
+# keep the answer here — along with when the copy this run installs runs out.
 CONF=".scripty-install"
 
 usage() {
@@ -74,19 +74,30 @@ if ! xcrun -f xcodebuild >/dev/null 2>&1; then
     exit 1
 fi
 
-# A free Apple ID signs for only seven days, so a device copy quietly stops
-# opening a week later — the most confusing thing about this whole path, because
-# nothing changed and the app just won't start. If we installed one before, say
-# how long ago up front, so "it broke on its own" reads as "rerunning renews it"
-# — which is the whole reason to run this again.
+# A signature expires, and the device copy then quietly stops opening — the most
+# confusing thing about this whole path, because nothing changed and the app just
+# won't start. If we installed one before, say up front that this run renews it,
+# which is the whole reason to run it again. How long a signature lasts is not a
+# constant — seven days on a free Apple ID, a year on a paid one — so prefer the
+# expiry date the last run read out of the profile it actually installed.
+LAST_EXPIRY=$(remembered EXPIRES)
 LAST_INSTALL=$(remembered INSTALLED)
-case "$LAST_INSTALL" in
-    ''|*[!0-9]*) ;;
-    *)
+case "$LAST_EXPIRY:$LAST_INSTALL" in
+    [0-9]*:*)
+        if interactive && [ "$(date +%s)" -ge "$LAST_EXPIRY" ]; then
+            echo "The copy installed from here stopped being signed on" \
+                "$(date -r "$LAST_EXPIRY" '+%-d %B %Y') —"
+            echo "so if Scripty had stopped opening, this renews it."
+            echo
+        fi ;;
+    # Installed by a version of this script that recorded no expiry date, so
+    # all we can say is how long ago, and what the two possible lifetimes are.
+    :[0-9]*)
         AGO=$(( ( $(date +%s) - LAST_INSTALL ) / 86400 ))
         if interactive && [ "$AGO" -ge 7 ]; then
-            echo "The last install from here was $AGO days ago, and a free Apple ID's"
-            echo "signature lasts seven — so if Scripty had stopped opening, this renews it."
+            echo "The last install from here was $AGO days ago. A signature lasts seven days"
+            echo "on a free Apple ID and a year on a paid one — so if Scripty had stopped"
+            echo "opening, this renews it."
             echo
         fi ;;
 esac
@@ -334,21 +345,46 @@ xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH" >/dev/null
 # stamp the clock now. The next run reads this to know a copy has likely expired.
 remember INSTALLED "$(date +%s)"
 
+# How long that signature lasts depends on the account behind the team, and this
+# script has no way to ask which kind it is — but the profile Xcode embedded in
+# the app carries the date, so read it there rather than guessing at seven days.
+EXPIRES=""
+if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
+    EXPIRES_ISO=$(security cms -D -i "$APP_PATH/embedded.mobileprovision" 2>/dev/null |
+        plutil -extract ExpirationDate raw -o - - 2>/dev/null) || EXPIRES_ISO=""
+    if [ -n "$EXPIRES_ISO" ]; then
+        EXPIRES=$(TZ=UTC date -j -f '%Y-%m-%dT%H:%M:%SZ' "$EXPIRES_ISO" +%s 2>/dev/null) ||
+            EXPIRES=""
+    fi
+fi
+remember EXPIRES "$EXPIRES"
+
+LAUNCH_LOG=$(mktemp -t scripty-launch)
+trap 'rm -f "$DEVICES_JSON" "$BUILD_LOG" "$LAUNCH_LOG"' EXIT
+
 launch() {
     # `--` keeps devicectl from reading the leading-dash demo flag as its own.
     local args=()
     [ "$DEMO" -eq 1 ] && args=(-- -scripty.demo YES)
     xcrun devicectl device process launch --device "$DEVICE_ID" \
-        --terminate-existing "$BUNDLE_ID" "${args[@]+"${args[@]}"}" >/dev/null 2>&1
+        --terminate-existing "$BUNDLE_ID" "${args[@]+"${args[@]}"}" >"$LAUNCH_LOG" 2>&1
 }
 
 if [ "$LAUNCH" -eq 1 ] && ! launch; then
-    # A free Apple ID signs with a certificate the device does not trust until
-    # someone taps it through — and that tapping happens now, so keep trying.
     echo >&2
-    echo "Installed, but the app will not start until $DEVICE_NAME trusts the" >&2
-    echo "certificate that signed it: Settings > General > VPN & Device Management" >&2
-    echo "> tap your Apple ID > Trust." >&2
+    # A locked device and an untrusted certificate both come back as a failed
+    # launch, and the install itself succeeded either way. Sending someone into
+    # Settings > VPN & Device Management to look for a certificate that is
+    # already trusted, when all they had to do was unlock the thing, is the
+    # worse of the two wrong guesses — so read which one it was.
+    if grep -q 'unlocked' "$LAUNCH_LOG"; then
+        echo "Installed, but $DEVICE_NAME is locked, so it would not open Scripty." >&2
+        echo "Unlock it." >&2
+    else
+        echo "Installed, but the app will not start until $DEVICE_NAME trusts the" >&2
+        echo "certificate that signed it: Settings > General > VPN & Device Management" >&2
+        echo "> tap your Apple ID > Trust." >&2
+    fi
     STARTED=0
     if interactive; then
         echo "Waiting for that…" >&2
@@ -364,4 +400,11 @@ if [ "$LAUNCH" -eq 1 ] && ! launch; then
 fi
 
 echo "Scripty is installed on $DEVICE_NAME."
-echo "A free Apple ID signs it for seven days; rerun this to renew it."
+if [ -n "$EXPIRES" ]; then
+    DAYS=$(( ( EXPIRES - $(date +%s) ) / 86400 ))
+    echo "The signature runs out on $(date -r "$EXPIRES" '+%-d %B %Y'), $DAYS days from now,"
+    echo "and the app stops opening then. Rerun this to renew it."
+else
+    echo "Rerun this to renew the signature when Scripty stops opening: seven days from"
+    echo "now on a free Apple ID, a year on a paid one."
+fi
