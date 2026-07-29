@@ -39,11 +39,21 @@ final class APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        // A writer on a train shouldn't get an instant failure the moment the
-        // signal drops: hold the request until the connection comes back, up
-        // to the resource timeout. The per-request timeout still bounds a
-        // server that has accepted the connection and then gone quiet.
-        configuration.waitsForConnectivity = true
+        // Deliberately *not* `waitsForConnectivity`. It sounds like the kind
+        // thing to do for a writer on a train, but it swallows a refused
+        // connection too: URLSession treats "nothing is listening there" as a
+        // wait-and-see condition and parks the request for the whole resource
+        // timeout, surfacing two minutes later as a timeout rather than
+        // immediately as offline. That is the API-is-down case — the writer's
+        // Wi-Fi is fine — and two minutes of spinner is the worst possible
+        // answer for it.
+        //
+        // The train is already covered, and better: `offlineCheck` fails a
+        // request the moment there is no route at all, the failure holds the
+        // writer's text (flagged unsaved, drafted to disk), the backoff in
+        // ScriptModel re-sends it, and the connectivity monitor pushes held
+        // work the instant the route returns.
+        configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 120
         session = URLSession(configuration: configuration)
