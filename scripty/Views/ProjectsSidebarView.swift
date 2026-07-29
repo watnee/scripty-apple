@@ -150,16 +150,10 @@ struct ProjectsSidebarView: View {
                 Button("Done") { editMode = .inactive }
             }
         } else {
-            // Left plain, and left where it has always been: the prominent copy
-            // of this action is the named one under the list, and two filled
-            // blue buttons for the same thing read as two different things.
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingCreate = true
-                } label: {
-                    Label("New Project", systemImage: "plus")
-                }
-            }
+            // No "+" here: creating a project is already offered, named, by the
+            // bar under the list, which is on screen whenever this toolbar is.
+            // A glyph saying the same thing in the far corner is one control
+            // too many, and reads as a second, different action.
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     listMenu
@@ -454,8 +448,8 @@ struct ProjectsSidebarView: View {
                     ProgressView()
                 } else {
                     // The one thing to do from here is the one thing the empty
-                    // state should offer, rather than leaving the writer to find
-                    // the "+" that the sentence is describing.
+                    // state should offer, so the sentence and the button that
+                    // answers it sit together.
                     ContentUnavailableView {
                         Label("No projects yet", systemImage: "film")
                     } description: {
@@ -570,11 +564,12 @@ struct ProjectsSidebarView: View {
             set: { if !$0 { model.errorMessage = nil } })
     }
 
-    /// The primary action, named and in reach. The toolbar "+" is a glyph whose
-    /// meaning you have to already know, sitting in the corner furthest from the
-    /// thumb; this says what it does, stays put as the list scrolls, and is the
-    /// only place the action is named once the empty state stops being shown —
-    /// which is from the writer's very first screenplay onwards.
+    /// The primary action, and now the only standing one: the toolbar's "+" was
+    /// a glyph whose meaning you have to already know, sitting in the corner
+    /// furthest from the thumb, saying exactly what this says. This names the
+    /// action, stays put as the list scrolls, and is the only place it appears
+    /// once the empty state stops being shown — which is from the writer's very
+    /// first screenplay onwards.
     ///
     /// Drawn here rather than as a `.bottomBar` toolbar item, which is where it
     /// started: a bar item built from a `Label` shows the glyph and drops the
