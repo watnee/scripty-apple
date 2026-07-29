@@ -145,6 +145,11 @@ final class AppModel {
             phase = .signedOut
         } catch {
             guard token == session else { return }
+            // A cancelled launch has not failed, it has been abandoned — by a
+            // sign-out, or by the spinner this runs from going away. Deciding
+            // anything on it would throw away credentials the server never
+            // refused and land the writer on the login screen.
+            guard !error.isCancelledRequest else { return }
             // A launch the network failed — not one the server refused — can
             // still open from the copy of the API root saved last session, so
             // the writer's cached scripts stay readable on a plane. The
@@ -207,6 +212,7 @@ final class AppModel {
             signInError = "Incorrect username or password."
         } catch {
             client.credentials = nil
+            guard !error.isCancelledRequest else { return }
             signInError = error.localizedDescription
         }
     }
@@ -239,6 +245,7 @@ final class AppModel {
             return true
         } catch {
             client.credentials = nil
+            guard !error.isCancelledRequest else { return false }
             signInError = error.localizedDescription
             return false
         }
@@ -287,6 +294,7 @@ final class AppModel {
             phase = .signedIn
             loadEditorPreferences()
         } catch {
+            guard !error.isCancelledRequest else { return }
             signInError = error.localizedDescription
             phase = .signedOut
         }

@@ -96,6 +96,8 @@ final class PasswordRecoveryModel {
             message = answer.message
             step = .waitForLink
         } catch {
+            // Nothing cancelled is ever shown — see `isCancelledRequest`.
+            guard !error.isCancelledRequest else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -156,6 +158,8 @@ final class PasswordRecoveryModel {
             // One field, and its message names the rule that was broken.
             errorMessage = fields.values.first ?? "That could not be used."
         } catch {
+            // Nothing cancelled is ever shown — see `isCancelledRequest`.
+            guard !error.isCancelledRequest else { return }
             errorMessage = error.localizedDescription
         }
     }

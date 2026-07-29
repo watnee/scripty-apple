@@ -369,6 +369,34 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
 run_suite "$BUILD/offline" || status=1
 
 echo
+echo "== Cancelled requests are never the writer's problem =="
+# The one suite here that talks to something listening rather than to a closed
+# port: a request the client cancelled and a request it never sent look
+# identical from the outside, and telling them apart is the whole question.
+swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Cancellation/main.swift"
+run_suite "$BUILD/cancellation" || status=1
+
+echo
 if [ "$status" -eq 0 ]; then
     echo "All logic checks passed."
 else

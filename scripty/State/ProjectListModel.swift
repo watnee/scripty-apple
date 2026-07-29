@@ -218,6 +218,8 @@ final class ProjectListModel {
     }
 
     private func report(_ error: Error) {
+        // Nothing cancelled is ever shown — see `isCancelledRequest`.
+        guard !error.isCancelledRequest else { return }
         app.handle(error)
         errorMessage = error.localizedDescription
     }

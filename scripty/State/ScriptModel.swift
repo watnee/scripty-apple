@@ -409,6 +409,14 @@ final class ScriptModel {
         commitTasks[id] = Task { [weak self] in
             try? await Task.sleep(for: Self.commitDebounce)
             guard !Task.isCancelled else { return }
+            // Give the slot back before committing. `commit` cancels whatever
+            // is parked there to supersede a debounce still counting down —
+            // and what is parked there right now is *this* task, running this
+            // very line. Leaving it would cancel the caller from inside the
+            // call: the PUT below would go out on an already-cancelled task,
+            // fail instantly as cancelled, and every debounced save would
+            // reach the server only on the retry that follows it.
+            self?.commitTasks[id] = nil
             await self?.commit(id)
         }
     }
@@ -1177,6 +1185,8 @@ final class ScriptModel {
 
     /// Internal (not private) so `ScriptModel+Formatting` can reuse it.
     func report(_ error: Error) {
+        // Nothing cancelled is ever shown — see `isCancelledRequest`.
+        guard !error.isCancelledRequest else { return }
         app.handle(error)
         errorMessage = error.localizedDescription
     }

@@ -42,7 +42,8 @@ final class ScriptExportModel {
             do {
                 exportedFile = ExportedFile(url: try await model.export(option))
             } catch {
-                errorMessage = error.localizedDescription
+                // Nothing cancelled is ever shown — see `isCancelledRequest`.
+                if !error.isCancelledRequest { errorMessage = error.localizedDescription }
             }
             isExporting = false
         }
@@ -71,7 +72,7 @@ final class ScriptExportModel {
                     }
                 }
             } catch {
-                errorMessage = error.localizedDescription
+                if !error.isCancelledRequest { errorMessage = error.localizedDescription }
             }
             isExporting = false
         }

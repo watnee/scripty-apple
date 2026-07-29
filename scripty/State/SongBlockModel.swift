@@ -126,6 +126,10 @@ final class SongBlockModel {
         commitTasks[block.id] = Task { [weak self] in
             try? await Task.sleep(for: Self.commitDebounce)
             guard !Task.isCancelled else { return }
+            // The slot goes back before the save, not after: `commit` cancels
+            // whatever is in it to supersede a debounce still counting down,
+            // and that is this task. See `ScriptModel.scheduleCommit`.
+            self?.commitTasks[block.id] = nil
             await self?.commit(block)
         }
     }
@@ -369,6 +373,8 @@ final class SongBlockModel {
     }
 
     private func report(_ error: Error) {
+        // Nothing cancelled is ever shown — see `isCancelledRequest`.
+        guard !error.isCancelledRequest else { return }
         app.handle(error)
         errorMessage = error.localizedDescription
     }
