@@ -37,6 +37,9 @@ struct ContentView: View {
 
     private let quickActions = QuickActions.shared
 
+    /// Watched only to refresh the menu on the way out — see the handler below.
+    @Environment(\.scenePhase) private var scenePhase
+
     init(app: AppModel) {
         self.app = app
         _projectList = State(initialValue: ProjectListModel(app: app))
@@ -86,6 +89,25 @@ struct ContentView: View {
             quickActions.publishRecents(projects, isDemo: app.isDemo)
             ProjectsWidgetPublisher.publish(projects, isDemo: app.isDemo)
         }
+        // Opening a screenplay is the other thing that makes it recent, and the
+        // only one the menu can hear about while the app is running: an edit
+        // moves the server's date, but nothing here would learn that until the
+        // sidebar next reloads. The demo is left out for the same reason its
+        // projects are never named — it has no screenplays to come back to.
+        .onChange(of: selectedProject) { _, project in
+            guard !app.isDemo, let project else { return }
+            quickActions.noteOpened(project)
+            quickActions.publishRecents(projectList.projects, isDemo: app.isDemo)
+        }
+        // Leaving is the moment before the menu is next read, and the entries
+        // say things like "Edited yesterday" that are only true as of when they
+        // were written. Rebuilding here settles them against the clock the
+        // writer is about to long-press under — a session that ran past midnight
+        // otherwise leaves the menu insisting all of it happened today.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .background else { return }
+            quickActions.publishRecents(projectList.projects, isDemo: app.isDemo)
+        }
         // A load landing is the other moment an action can become answerable:
         // one taken while the list was still in flight has been sitting here
         // waiting for exactly this.
@@ -126,7 +148,8 @@ struct ContentView: View {
         // only one of them is worth giving up over.
         guard !projectList.isLoading, let action = quickActions.pending else { return }
         quickActions.pending = nil
-        guard let project = action.project(in: projectList.projects) else { return }
+        guard let project = action.project(in: projectList.projects,
+                                           openedAt: quickActions.openedAt) else { return }
         selectedProjectId = project.id
         openingDocuments = action.documentType.map {
             DocumentsRequest(type: $0, creating: action.isCreating)

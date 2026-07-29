@@ -153,15 +153,17 @@ struct RootView: View {
             // a cold launch is `.loading` while it finds out whether there is
             // one — so the drop waits for the answer rather than firing on the
             // way past. The named projects come off the menu at the same time,
-            // and both widgets' rows off the Home Screen: all of it is this
-            // writer's screenplay and song titles, readable by whoever picks
-            // the phone up next. The widgets need it more than the menu does —
-            // the Home Screen keeps drawing whatever it was last given until
-            // this app takes it back, and nobody else can.
+            // the record of which ones were opened with them, and both widgets'
+            // rows off the Home Screen: all of it is this writer's screenplay
+            // and song titles, readable by whoever picks the phone up next. The
+            // widgets need it more than the menu does — the Home Screen keeps
+            // drawing whatever it was last given until this app takes it back,
+            // and nobody else can.
             .onChange(of: app.phase) { _, phase in
                 guard case .signedOut = phase else { return }
                 QuickActions.shared.pending = nil
                 QuickActions.shared.clearRecents()
+                QuickActions.shared.forgetOpens()
                 app.pendingWidgetDestination = nil
                 WidgetPublisher.clear()
                 ProjectsWidgetPublisher.clear()

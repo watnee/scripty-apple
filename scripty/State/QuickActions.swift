@@ -11,6 +11,11 @@
 //  against — on a cold launch the app has not even signed in yet. ContentView
 //  picks it up once there is something to open.
 //
+//  What the menu offers is decided next door in QuickAction.swift, which knows
+//  nothing of UIKit and can be checked without a simulator. This half is the
+//  part that cannot: the actual shortcut items, and the record of which
+//  projects were opened on this device.
+//
 
 import Observation
 import UIKit
@@ -26,7 +31,25 @@ final class QuickActions {
     /// without an account.
     var pending: QuickAction?
 
-    private init() {}
+    /// When each project was last opened here. See `noteOpened`.
+    private(set) var openedAt: QuickAction.OpenedDates = [:]
+
+    /// What was last handed to the system, so an unchanged menu can be left
+    /// alone. The sidebar reloads on every write it makes — a rename, a star,
+    /// a team change — and all but a few of those leave the two entries
+    /// word for word identical.
+    private var published: [QuickAction.MenuEntry] = []
+
+    private static let openedAtDefaultsKey = "quickActionOpenedAt"
+
+    /// How many opens are remembered. Only two can be shown, but a few spares
+    /// mean deleting or archiving the top screenplay doesn't leave the menu
+    /// falling straight back to whatever the server's dates happen to say.
+    private static let rememberedOpenCount = 8
+
+    private init() {
+        openedAt = Self.loadOpenedAt()
+    }
 
     /// Takes what UIKit handed over and keeps it if it means anything, saying
     /// whether it did.
@@ -51,23 +74,96 @@ final class QuickActions {
             clearRecents()
             return
         }
-        UIApplication.shared.shortcutItems = QuickAction.recentProjects(in: projects)
-            .map { project in
-                UIApplicationShortcutItem(
-                    type: QuickAction.ItemType.project,
-                    localizedTitle: project.displayTitle,
-                    localizedSubtitle: nil,
-                    icon: UIApplicationShortcutIcon(systemImageName: "film"),
-                    userInfo: [QuickAction.projectIdKey: project.id as NSNumber])
-            }
+        // Opens for screenplays the list no longer holds go with them: the
+        // record is only eight deep, and an id that cannot be offered crowds
+        // out one that can. Restoring from the trash costs that project its
+        // place in the order, which is a fair price — it was in the bin.
+        forgetOpens(outside: projects)
+
+        let entries = QuickAction.menuEntries(in: projects, openedAt: openedAt, asOf: Date())
+        // Handing the system an identical menu is not free — it redraws the
+        // Home Screen's list — and there is nothing to gain from it.
+        guard entries != published else { return }
+        published = entries
+        UIApplication.shared.shortcutItems = entries.map { entry in
+            UIApplicationShortcutItem(
+                type: QuickAction.ItemType.project,
+                localizedTitle: entry.title,
+                localizedSubtitle: entry.subtitle,
+                icon: UIApplicationShortcutIcon(systemImageName: entry.systemImage),
+                userInfo: [QuickAction.projectIdKey: entry.projectId as NSNumber])
+        }
+    }
+
+    /// Remembers that a screenplay was opened, which is half of what the menu
+    /// means by "recent".
+    ///
+    /// Kept on the device rather than sent anywhere: opening a screenplay is
+    /// not an edit, and the server has no reason to hear about it. It also
+    /// takes effect at once, where an edit only reaches the menu when the
+    /// sidebar next reloads and notices the date moved.
+    func noteOpened(_ project: Project, at date: Date = Date()) {
+        openedAt[project.id] = date
+        // Newest kept, oldest dropped — the record is a short tail, not a log.
+        if openedAt.count > Self.rememberedOpenCount {
+            let keep = openedAt.sorted { $0.value > $1.value }.prefix(Self.rememberedOpenCount)
+            openedAt = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+        }
+        saveOpenedAt()
     }
 
     /// Takes the named projects back off the menu, leaving the two static
     /// entries. Signing out goes through here: the next person to pick up the
     /// phone should not be able to read the last writer's titles off a long
     /// press.
+    ///
+    /// The record of opens is left alone, because entering the demo comes
+    /// through here too and a look at the sample script is no reason to forget
+    /// where the writer was. `forgetOpens()` is for the case that is.
     func clearRecents() {
+        published = []
         UIApplication.shared.shortcutItems = []
+    }
+
+    /// Forgets which screenplays were opened here. Signing out: the ids belong
+    /// to the account that just left, and applying them to whoever signs in
+    /// next would order their menu by a stranger's reading.
+    func forgetOpens() {
+        openedAt = [:]
+        saveOpenedAt()
+    }
+
+    private func forgetOpens(outside projects: [Project]) {
+        // An empty list is "the load never landed" as often as it is "there are
+        // no screenplays", and only one of those is worth forgetting over. The
+        // ids cost nothing to keep: an open naming a project the list doesn't
+        // hold is ignored when the order is worked out.
+        guard !openedAt.isEmpty, !projects.isEmpty else { return }
+        let live = Set(projects.map(\.id))
+        let kept = openedAt.filter { live.contains($0.key) }
+        guard kept.count != openedAt.count else { return }
+        openedAt = kept
+        saveOpenedAt()
+    }
+
+    // MARK: Where the opens are kept
+
+    /// Plain defaults rather than the offline store: this is a handful of dates
+    /// about the menu, not a cached copy of anything the server said, and it has
+    /// to be readable before the app has signed in or fetched a thing.
+    ///
+    /// Ids travel as strings because a defaults dictionary is keyed by them.
+    private func saveOpenedAt() {
+        let encoded = Dictionary(uniqueKeysWithValues: openedAt.map { (String($0.key), $0.value) })
+        UserDefaults.standard.set(encoded, forKey: Self.openedAtDefaultsKey)
+    }
+
+    private static func loadOpenedAt() -> QuickAction.OpenedDates {
+        let stored = UserDefaults.standard.dictionary(forKey: openedAtDefaultsKey) ?? [:]
+        return stored.reduce(into: QuickAction.OpenedDates()) { result, pair in
+            guard let id = Int(pair.key), let date = pair.value as? Date else { return }
+            result[id] = date
+        }
     }
 }
 
