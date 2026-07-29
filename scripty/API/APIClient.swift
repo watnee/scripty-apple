@@ -10,6 +10,43 @@
 
 import Foundation
 
+/// Keeps a request inside the API.
+///
+/// The server is a web app with an API bolted to the side of it, and some of its
+/// filters answer by redirecting to a page — the change-password lock sends every
+/// request from a flagged account to `/account/password`. `URLSession` would
+/// follow that happily, hand back a page of HTML with a 200 on it, and leave the
+/// decoder to fail somewhere with no idea what happened. Redirects that stay
+/// within the API are followed; the rest are refused, so the caller sees the
+/// redirect and can say what it means.
+private final class APIRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let apiPrefix: String
+    private let host: String?
+
+    init(apiPrefix: String, host: String?) {
+        self.apiPrefix = apiPrefix
+        self.host = host
+    }
+
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let url = request.url, url.host == host, staysInAPI(url.path) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+
+    /// `/api` and `/api/anything`, but not `/apifoo` — a bare prefix test would
+    /// wave through a path that merely starts with the same letters.
+    private func staysInAPI(_ path: String) -> Bool {
+        path == apiPrefix || path.hasPrefix(apiPrefix + "/")
+    }
+}
+
 final class APIClient {
     let baseURL: URL
     var credentials: Credentials?
@@ -27,6 +64,7 @@ final class APIClient {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private let redirectPolicy: APIRedirectPolicy
 
     init(baseURL: URL = AppConfig.baseURL, credentials: Credentials? = nil,
          demo: DemoBackend? = nil) {
@@ -51,6 +89,9 @@ final class APIClient {
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         encoder = JSONEncoder()
+        redirectPolicy = APIRedirectPolicy(
+            apiPrefix: baseURL.appendingPathComponent("api").path,
+            host: baseURL.host)
     }
 
     /// The API entry point (`GET /api`) — the root of all link-following.
@@ -149,12 +190,23 @@ final class APIClient {
         let received: Data
         let response: URLResponse
         do {
-            (received, response) = try await session.data(for: request)
+            (received, response) = try await session.data(for: request,
+                                                          delegate: redirectPolicy)
         } catch {
             throw APIError.from(transportError: error)
         }
         guard let http = response as? HTTPURLResponse else {
             throw APIError.server(status: -1)
+        }
+        // A redirect that survives to here is one the policy refused to follow,
+        // so the response is the redirect itself. Following it would fetch a web
+        // page and fail to decode as JSON several frames later, where nothing
+        // knows enough to say why — name it here instead.
+        if (300..<400).contains(http.statusCode) {
+            let destination = http.value(forHTTPHeaderField: "Location")
+                ?? http.url?.path
+                ?? "elsewhere"
+            throw APIError.redirectedOutOfAPI(destination)
         }
         return (http.statusCode, received)
     }
