@@ -130,11 +130,22 @@ struct ScriptView: View {
     /// showing the old name until somebody says otherwise.
     private let onProjectChanged: (Project) async -> Void
 
+    /// Whether the split view is showing one column or two, which here decides
+    /// where the songs and notes are offered — see `documentsBar`.
+    ///
+    /// Passed in rather than read from the environment, for the reason
+    /// `ContentView` gives where it reads it: inside a `NavigationSplitView`
+    /// column the size class is `.compact` even on an iPad showing both, so a
+    /// detail view asking for itself gets the iPhone answer everywhere.
+    private let isCompact: Bool
+
     init(app: AppModel, project: Project, openingDocuments: Binding<DocumentsRequest?>,
          openingBookmark: Binding<Int?> = .constant(nil),
+         isCompact: Bool = false,
          onProjectChanged: @escaping (Project) async -> Void = { _ in }) {
         _openingDocuments = openingDocuments
         _openingBookmark = openingBookmark
+        self.isCompact = isCompact
         self.onProjectChanged = onProjectChanged
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
@@ -162,6 +173,9 @@ struct ScriptView: View {
         // than `.safeAreaInset`: the readout is a bar, so it takes the system's
         // Liquid Glass and the script passes under it.
         .safeAreaBar(edge: .bottom, spacing: 0) { wordCountBar }
+        // Mounted after the readout, so it settles below it — the buttons are
+        // the thing being reached for, and the count is a thing being read.
+        .safeAreaBar(edge: .bottom) { documentsBar }
         // Floated after the word-count inset, so it settles just above the bar
         // (or the bottom safe area when the bar is off) rather than over it.
         .overlay(alignment: .bottom) { historyToastOverlay }
@@ -743,6 +757,38 @@ struct ScriptView: View {
         }
     }
 
+    /// Songs and Notes, where a phone can actually reach them.
+    ///
+    /// The toolbar is where these belong and where the iPad and the Mac keep
+    /// them, but a phone's bar has no room: it draws three trailing controls,
+    /// the "…" takes one of the three, and the View menu and Add Element take
+    /// the other two. Every arrangement tried put Songs and Notes back in the
+    /// overflow — which is the very thing wrong with them today, and no number
+    /// of demotions elsewhere fixes it, because the bar's budget is the title's
+    /// leftovers rather than a count of items.
+    ///
+    /// So they come down here, where there is width for both to be named rather
+    /// than left as two glyphs to be recognised — and where they are under the
+    /// thumb instead of in the corner furthest from it. Named buttons in a
+    /// `.safeAreaBar` rather than `.bottomBar` toolbar items for the reason
+    /// `ProjectsSidebarView.newProjectBar` records: a bar item built from a
+    /// `Label` shows the glyph and drops the title, even under `.titleAndIcon`.
+    ///
+    /// It draws no background of its own — the `.safeAreaBar` already floats it
+    /// on Liquid Glass, and a fill under that flattens the glass into a slab.
+    @ViewBuilder
+    private var documentsBar: some View {
+        if isCompact && model.canViewDocuments && !settings.isFocusMode {
+            HStack(spacing: 8) {
+                songsButton
+                notesButton
+            }
+            .buttonStyle(.bordered)
+            .labelStyle(.titleAndIcon)
+            .padding(.vertical, 4)
+        }
+    }
+
     /// How long the script is, while it is being written.
     ///
     /// Off until asked for, as in the web app — a word count in the corner is
@@ -1138,12 +1184,12 @@ struct ScriptView: View {
         }
         actions.ignoredWords = { showingIgnoredWords = true }
         actions.pageSetup = { showingPageSetup = true }
-        // The songs and notes the menu bar can reach: the screen itself, and the
-        // handful last edited of each, which open without going through it —
-        // the toolbar menu's contents, for a writer whose hands are on a
-        // keyboard.
+        // The songs and notes the menu bar can reach: each list, and the handful
+        // last edited of each, which open without going through it — what the
+        // two toolbar buttons hold, for a writer whose hands are on a keyboard.
         if model.canViewDocuments {
-            actions.songsAndNotes = { openDocumentsScreen() }
+            actions.songs = { openDocumentsScreen(.song) }
+            actions.notes = { openDocumentsScreen(.notes) }
             actions.recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickDocumentCount)
             actions.recentNotes = model.notes.mostRecentlyEdited(limit: Self.quickDocumentCount)
             actions.openDocument = { document in openingDocument = document }
@@ -1242,54 +1288,58 @@ struct ScriptView: View {
     /// songs cannot crowd its notes out of their own section.
     private static let quickDocumentCount = 5
 
-    /// Songs & Notes, with the documents themselves hanging off it.
-    ///
-    /// Tapping still opens the full screen, as the plain button always did.
-    /// Holding (or the arrow, on a Mac) drops the handful last edited of each
-    /// kind, which go straight to their editor — the screen, the picker, the
-    /// search and the row-tap in between were four steps to reach something the
-    /// writer already knew the name of. Notes were the worse off of the two:
-    /// the screen opens on songs, so reaching a note meant a segment tap on top
-    /// of all that. It stays a plain button until there is a dated document to
-    /// list, so a project that has none shows no empty menu.
-    @ViewBuilder
+    /// The songs, and the songs themselves hanging off them.
     private var songsButton: some View {
-        let recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickDocumentCount)
-        let recentNotes = model.notes.mostRecentlyEdited(limit: Self.quickDocumentCount)
-        if recentSongs.isEmpty && recentNotes.isEmpty {
+        documentButton("Songs", type: .song, icon: "music.note.list",
+                       rowIcon: "music.note", recentsTitle: "Recent Songs",
+                       recents: model.songs)
+    }
+
+    /// The notes, on the same terms.
+    private var notesButton: some View {
+        documentButton("Notes", type: .notes, icon: "note.text",
+                       rowIcon: "note.text", recentsTitle: "Recent Notes",
+                       recents: model.notes)
+    }
+
+    /// One kind's door, with the handful last edited hanging off it.
+    ///
+    /// Songs and notes each get their own button rather than sharing one. The
+    /// shared button could not say which list it opened, so it opened on songs
+    /// and a note cost a segment tap on top of finding it — and its label,
+    /// naming both kinds, was the widest thing in a bar that had no room to
+    /// spare. Two narrow buttons that each name one list are cheaper to draw
+    /// and cheaper to read, and neither one lies about where it goes.
+    ///
+    /// Tapping opens that list. Holding (or the arrow, on a Mac) drops the few
+    /// last edited, which go straight to their editor — the screen, the picker,
+    /// the search and the row-tap in between were four steps to reach something
+    /// the writer already knew the name of. It stays a plain button until there
+    /// is a dated document to list, so a kind with none shows no empty menu.
+    ///
+    /// Whether the button is offered at all is the project's `documents` link,
+    /// never the count: the lists arrive a moment after the script does, and a
+    /// button that appears late is a button that relays out the bar under a
+    /// finger already reaching for it. A kind with nothing in it opens on its
+    /// own empty state, which is where making the first one starts anyway.
+    @ViewBuilder
+    private func documentButton(_ title: String, type: DocumentType, icon: String,
+                                rowIcon: String, recentsTitle: String,
+                                recents: [TextDocument]) -> some View {
+        let recent = recents.mostRecentlyEdited(limit: Self.quickDocumentCount)
+        if recent.isEmpty {
             Button {
-                openDocumentsScreen()
+                openDocumentsScreen(type)
             } label: {
-                Label("Songs & Notes", systemImage: "music.note.list")
+                Label(title, systemImage: icon)
             }
         } else {
             Menu {
-                // Named for the list each one lands on, so the screen opens
-                // where it was asked for rather than on songs and a segment tap
-                // away. A project with only one kind gets the one entry, which
-                // is also the only one that would go anywhere.
-                Section {
-                    if !model.songs.isEmpty {
-                        Button {
-                            openDocumentsScreen(.song)
-                        } label: {
-                            Label("All Songs…", systemImage: "music.note.list")
-                        }
-                    }
-                    if !model.notes.isEmpty {
-                        Button {
-                            openDocumentsScreen(.notes)
-                        } label: {
-                            Label("All Notes…", systemImage: "note.text")
-                        }
-                    }
-                }
-                documentSection("Recent Songs", recentSongs, icon: "music.note")
-                documentSection("Recent Notes", recentNotes, icon: "note.text")
+                documentSection(recentsTitle, recent, icon: rowIcon)
             } label: {
-                Label("Songs & Notes", systemImage: "music.note.list")
+                Label(title, systemImage: icon)
             } primaryAction: {
-                openDocumentsScreen()
+                openDocumentsScreen(type)
             }
         }
     }
@@ -1317,16 +1367,13 @@ struct ScriptView: View {
     /// reaches the whole screen goes through here; the shortcuts beside them
     /// skip it for the editor itself.
     ///
-    /// Unasked, it opens on the list this project was last left on, so a writer
-    /// working out of the notes reaches them with the same one tap as before.
-    /// Failing that it opens on songs, where this button has always opened it —
-    /// unless the project has notes and no songs at all, in which case songs is
-    /// an empty list with the thing being looked for one segment away.
-    private func openDocumentsScreen(_ type: DocumentType? = nil) {
-        let remembered = options.rememberedDocumentList.flatMap(DocumentType.init(rawValue:))
-        let list = type ?? remembered
-            ?? (model.songs.isEmpty && !model.notes.isEmpty ? .notes : .song)
-        documentsSheet = DocumentsRequest(type: list)
+    /// The list is named rather than guessed. It used to be optional, and an
+    /// unasked call fell back to whichever list the project was last left on
+    /// and then to songs — the shape of a single button that had to pick one.
+    /// Now every caller is a button, a menu item or a request that already
+    /// knows its kind, so there is nothing left to guess at.
+    private func openDocumentsScreen(_ type: DocumentType) {
+        documentsSheet = DocumentsRequest(type: type)
     }
 
     /// The editor a document opens in, by what the server says it is: a song
@@ -1403,12 +1450,33 @@ struct ScriptView: View {
                 }
             }
 
-            if model.canViewDocuments && !settings.isFocusMode {
-                songsButton
-            }
-
             if !model.exportOptions.isEmpty && !settings.isFocusMode {
                 ExportButton(exporter: exporter)
+            }
+        }
+
+        // Songs and notes take a capsule of their own, on the same reasoning as
+        // the View menu's: they do neither of those things, they open other
+        // documents kept beside the script. A pill of exactly two also reads as
+        // a pair, which is what says they are two doors onto one screen rather
+        // than two unrelated errands.
+        //
+        // Only where the bar has the room, which on a phone it has not: measured
+        // on a 402pt iPhone, the trailing side draws three controls and the "…"
+        // always claims one of them, so two buttons are all that is ever visible
+        // and the View menu and Add Element are already those two. Adding Songs
+        // and Notes here would put them straight back in the overflow this
+        // change exists to get them out of. `documentsBar` carries them instead.
+        //
+        // Gated as a unit, spacer and all: gating the buttons inside a group
+        // that is always present would leave a divider with nothing after it,
+        // and a stranded gap at the end of the bar.
+        if !isCompact && model.canViewDocuments && !settings.isFocusMode {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                songsButton
+                notesButton
             }
         }
 
@@ -1458,73 +1526,6 @@ struct ScriptView: View {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
                 .disabled(!(undoRedo.canRedo ?? false))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var addElementButton: some View {
-        if !settings.isPageView && !options.isEditingLocked {
-            Button {
-                Task { await model.appendBlock() }
-            } label: {
-                Label("Add Element", systemImage: "plus")
-            }
-        }
-    }
-
-    /// Finding your way around the script in front of you.
-    @ViewBuilder
-    private var scriptToolButtons: some View {
-        if model.hasScriptContent && !settings.isFocusMode {
-            Button {
-                isSearching.toggle()
-                if !isSearching { search.clear() }
-            } label: {
-                Label("Search", systemImage: "magnifyingglass")
-            }
-            .keyboardShortcut("f", modifiers: .command)
-
-            Button {
-                showingOutline = true
-            } label: {
-                Label("Outline", systemImage: "list.bullet.indent")
-            }
-            // ⌘⇧O is outline *mode*, in the View menu below and in the Mac
-            // menu bar. The panel took the same keys until now, which meant
-            // one of the two won by responder order and the other silently
-            // did nothing.
-            .keyboardShortcut("o", modifiers: [.command, .option])
-
-            if model.canSelectBlocks && !settings.isPageView {
-                Button {
-                    selection.isSelecting.toggle()
-                } label: {
-                    Label("Select Elements", systemImage: "checklist")
-                }
-            }
-        }
-    }
-
-    /// The screens kept alongside the script: its people, its songs, and the
-    /// copies of it that leave the app.
-    @ViewBuilder
-    private var referenceButtons: some View {
-        if !settings.isFocusMode {
-            if model.canViewCharacters {
-                Button {
-                    showingCharacters = true
-                } label: {
-                    Label("Characters", systemImage: "person.2")
-                }
-            }
-
-            if model.canViewDocuments {
-                songsButton
-            }
-
-            if !model.exportOptions.isEmpty {
-                ExportButton(exporter: exporter)
             }
         }
     }

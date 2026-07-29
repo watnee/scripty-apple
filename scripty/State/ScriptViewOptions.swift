@@ -144,11 +144,14 @@ final class ScriptViewOptions {
     /// Which of the two lists the Songs & Notes screen last showed, so reopening
     /// it lands on the one the writer works in rather than always on Songs.
     ///
-    /// The screen has always opened on Songs, which costs a writer working from
-    /// the notes a segment tap every single trip — and the notes are the half
-    /// with no shortcut of its own anywhere else. Scoped to the project like the
-    /// outline tab beside it: a musical is a songs project and the drama next to
-    /// it is a notes project, and each should reopen as it was left.
+    /// Its job has narrowed. It was written because one toolbar button had to
+    /// pick a list and always picked Songs, costing a writer working from the
+    /// notes a segment tap every single trip; Songs and Notes are two buttons
+    /// now, so nothing that opens the screen consults this any more — every
+    /// route names its list. What is left is the last line of defence, for a
+    /// caller that arrives with no list named at all. Scoped to the project like
+    /// the outline tab beside it: a musical is a songs project and the drama
+    /// next to it is a notes project, and each should reopen as it was left.
     ///
     /// Stored as the type's raw server value, and read back the same way the
     /// outline tab is — an absent or unrecognised value is nil, and the caller
