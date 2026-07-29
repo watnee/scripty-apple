@@ -22,8 +22,13 @@ struct ContentView: View {
     /// because tapping Songs for the screenplay already on screen changes no
     /// project, so there is no rebuild to carry an initial value in on.
     @State private var openingDocuments: DocumentType?
+    /// Whether the reopen-what-was-open pass has had its turn. Until it has,
+    /// nothing is written back: a selection that is nil only because the list
+    /// is still loading must not be mistaken for one the writer cleared.
+    @State private var hasRestoredSelection = false
 
     private let quickActions = QuickActions.shared
+    private let lastOpened = LastOpenedProject()
 
     init(app: AppModel) {
         self.app = app
@@ -51,9 +56,11 @@ struct ContentView: View {
             if app.isDemo, selectedProject == nil {
                 selectedProject = projectList.projects.first
             }
+            restoreLastOpenedProject()
             // A cold launch from the Home Screen menu lands here: the action was
             // taken before this view existed, so nothing has changed since to
-            // announce it.
+            // announce it. It runs after the restore so a menu tap wins: the
+            // writer naming a screenplay outranks the one they left open.
             performQuickAction()
         }
         // What the menu offers is whatever the list last held.
@@ -65,6 +72,30 @@ struct ContentView: View {
         // waiting for exactly this.
         .onChange(of: projectList.isLoading) { _, _ in performQuickAction() }
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
+        // Where the app was left, kept as it changes rather than on the way
+        // out: a screenplay open when the app is killed should be the one that
+        // comes back. The demo is excluded — its sample project is chosen for
+        // it every run, and letting it overwrite the writer's own choice would
+        // mean a look at the demo lost their place.
+        .onChange(of: selectedProject) { _, project in
+            guard hasRestoredSelection, !app.isDemo else { return }
+            lastOpened.remember(project?.id)
+        }
+    }
+
+    /// Reopens the screenplay the app was last left in, so a relaunch carries
+    /// on where the writer stopped — `ScriptView` then does the same again
+    /// inside the script, scrolling to the element they were on.
+    ///
+    /// Once, on the way in, and only over an empty selection: a demo run has
+    /// already picked its sample and a Home Screen action is about to name its
+    /// own project. A screenplay since deleted, or one belonging to an account
+    /// that has since signed out, is not in the list that came back and is not
+    /// found — so the app simply opens on the projects list as it used to.
+    private func restoreLastOpenedProject() {
+        defer { hasRestoredSelection = true }
+        guard !app.isDemo, selectedProject == nil, let id = lastOpened.projectId else { return }
+        selectedProject = projectList.projects.first { $0.id == id }
     }
 
     /// Opens what the Home Screen menu asked for, if anything.

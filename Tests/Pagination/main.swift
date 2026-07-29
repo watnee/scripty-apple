@@ -196,6 +196,42 @@ check("and it opens the page with no leading blank",
 check("a script of nothing but annotations has no pages",
       ScriptPagination.paginate(blocks: Array(annotated.prefix(3))).count, 0)
 
+// MARK: - Finding a place on paper
+//
+// The remembered reading position is an element id in both surfaces, so moving
+// it between the column and the paper is a lookup in each direction. Getting it
+// wrong sends the writer back to page one, which is exactly what remembering a
+// position is meant to stop.
+
+print("\nFinding a place on paper")
+
+// `forced` is ids 1 (action), 2 (page break), 3 (action) over two sheets.
+check("an element is found on the sheet it prints on",
+      ScriptPagination.page(containing: 1, in: forcedPages) ?? -1, 1)
+check("and on the sheet after a forced break",
+      ScriptPagination.page(containing: 3, in: forcedPages) ?? -1, 2)
+check("an element the script never had is on no page",
+      ScriptPagination.page(containing: 99, in: forcedPages) == nil, true)
+// `annotated` is 1 (section), 2 (synopsis), 3 (note), 4 (action): the working
+// marks are dropped before measuring, so a position remembered on one of them
+// has no sheet to open and the pager is left alone.
+check("an element that never prints is on no page",
+      ScriptPagination.page(containing: 3, in: annotatedPages) == nil, true)
+
+check("a sheet gives back the element it opens with",
+      ScriptPagination.firstBlockId(onPage: 2, in: forcedPages) ?? -1, 3)
+check("a sheet the script does not have gives back nothing",
+      ScriptPagination.firstBlockId(onPage: 9, in: forcedPages) == nil, true)
+// A sheet that opens on a (CONT'D) marker still names the first real element
+// on it, since a marker is not somewhere a writer can be.
+if speechPages.count == 2 {
+    check("a continued sheet skips its marker",
+          ScriptPagination.firstBlockId(onPage: 2, in: speechPages)
+              == speechPages[1].rows.compactMap(\.block).first?.id, true)
+    check("and that is an element, not the marker",
+          speechPages[1].rows.first?.block == nil, true)
+}
+
 // MARK: - Export query
 //
 // A paged export has to carry the writer's own paper and margins, or the PDF
