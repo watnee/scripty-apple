@@ -160,6 +160,16 @@ swiftc "${FLAGS[@]}" -o "$BUILD/quickactions" \
 "$BUILD/quickactions" || status=1
 
 echo
+echo "== Home Screen projects widget =="
+# The file the app and the widget extension both compile, on its own: it is
+# pure Foundation on purpose, so what the extension draws can be checked
+# without a simulator to draw it in.
+swiftc "${FLAGS[@]}" -o "$BUILD/projectswidget" \
+    "$ROOT/Shared/ProjectsWidgetData.swift" \
+    "$ROOT/Tests/ProjectsWidget/main.swift"
+"$BUILD/projectswidget" || status=1
+
+echo
 echo "== Song shortcut ordering =="
 swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
     "$SRC/Models/TextDocument.swift" \

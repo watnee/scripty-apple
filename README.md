@@ -216,6 +216,46 @@ of the wiring is in [QuickAction.swift](scripty/Models/QuickAction.swift) and
 screenplays — its projects only exist while it is running, so an entry for one
 could only ever fail — and signing out takes them back off.
 
+## The Home Screen widget
+
+**Screenplays** lists what you have been working on, most recent first, and
+tapping a row opens that screenplay. The starred one is marked with a star
+wherever it happens to land — the widget answers "what have I been working on"
+rather than "which is mine", so a draft you spent the week in comes first even
+when another is starred. It comes in small, medium and large, and as a Lock
+Screen rectangle.
+
+Add it the usual way: press and hold the Home Screen, **Edit → Add Widget**,
+then search for **Scripty**. The gallery searches the *app's* name, not the
+widget's, so searching "Screenplays" finds nothing.
+
+The widget never talks to the server. The app writes the rows it draws into a
+shared App Group container each time the projects list loads, and the extension
+only reads them — so there is no second copy of the sign-in to keep working, and
+nothing to fail when the network is down. Signing out empties it, and the demo
+writes nothing at all.
+
+The pieces: [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) is
+compiled into both targets and is all they agree on;
+[ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) is the extension;
+[ProjectsWidgetPublisher.swift](scripty/Widgets/ProjectsWidgetPublisher.swift)
+is the app's half. A tapped row hands back a `scripty://project?id=…` URL, which
+[scriptyApp.swift](scripty/scriptyApp.swift) turns into the same pending request
+a long-press menu entry makes.
+
+Two things worth knowing if you are changing it. The App Group identifier is
+spelled out in four entitlement files and once in Swift, and a disagreement
+builds cleanly — it shows up only as a widget that is permanently empty. And an
+extension built with `CODE_SIGNING_ALLOWED=NO` embeds fine, runs fine, and never
+appears in the gallery at all, so a quick unsigned simulator build is not a test
+of anything.
+
+**Mac Catalyst is untried.** macOS spells the group `TEAMID.group.…`, which is
+why `scripty-maccatalyst.entitlements` exists next to each iOS one; the code
+reads the team prefix out of Info.plist and asks for both spellings. It has not
+been run on a Mac. If it is wrong there, the app publishes into a container the
+widget cannot open and the widget shows its empty state — nothing else breaks.
+
 ## Which server it talks to
 
 By default the app uses the hosted backend in
@@ -269,3 +309,6 @@ Anything that needs a running app is out of scope here — use `demo.sh` for tha
 | `scripty/Demo`  | The in-memory backend behind the offline demo           |
 | `scripty/Models`| Screenplay blocks, pagination, stats                    |
 | `scripty/Views` | The editor and everything around it                     |
+| `scripty/Widgets`| The app's half of the Home Screen widget               |
+| `Shared`        | The one file the app and the widget extension share     |
+| `ProjectsWidget`| The widget extension itself                             |

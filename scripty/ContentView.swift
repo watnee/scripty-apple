@@ -7,7 +7,9 @@
 //
 //  Also the one place that can answer a Home Screen quick action, since
 //  answering one means choosing a project, and this is where the list of them
-//  lives. The menu's own recents are republished from here for the same reason.
+//  lives. A tapped widget row arrives by the same route — see
+//  ProjectWidgetLink in scriptyApp — and the menu's own recents and the
+//  widget's rows are both republished from here for the same reason.
 //
 
 import SwiftUI
@@ -56,9 +58,18 @@ struct ContentView: View {
             // announce it.
             performQuickAction()
         }
-        // What the menu offers is whatever the list last held.
+        // What the menu offers, and what the Home Screen widget draws, is
+        // whatever the list last held.
+        //
+        // Deliberately not `initial`: the list starts empty and is only filled
+        // by the load above, so publishing the initial value would take every
+        // screenplay off the widget on each launch — and leave it off, on a
+        // device that then turns out to be offline. An account whose projects
+        // really are all gone still publishes, because that is a change from
+        // what the list held.
         .onChange(of: projectList.projects) { _, projects in
             quickActions.publishRecents(projects, isDemo: app.isDemo)
+            ProjectsWidgetPublisher.publish(projects, isDemo: app.isDemo)
         }
         // A load landing is the other moment an action can become answerable:
         // one taken while the list was still in flight has been sitting here
@@ -67,10 +78,11 @@ struct ContentView: View {
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
     }
 
-    /// Opens what the Home Screen menu asked for, if anything.
+    /// Opens what the Home Screen asked for, if anything — a long-press menu
+    /// entry or a tapped widget row, which arrive as the same kind of request.
     ///
-    /// The action is dropped whether or not it found a project. A menu entry
-    /// naming a screenplay since deleted, or a Songs tap by an account with no
+    /// The action is dropped whether or not it found a project. An entry naming
+    /// a screenplay since deleted, or a Songs tap by an account with no
     /// projects, has nowhere to go — and leaving it pending would only mean it
     /// fired later, at whatever the list happened to hold by then.
     private func performQuickAction() {

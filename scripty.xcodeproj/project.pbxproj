@@ -6,11 +6,50 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BB2000000000000000000003 /* ProjectsWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000002 /* ProjectsWidgetData.swift */; };
+		BB2000000000000000000004 /* ProjectsWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000002 /* ProjectsWidgetData.swift */; };
+		BB2000000000000000000010 /* ProjectsWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000006 /* ProjectsWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BB2000000000000000000012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DDBEC1F23005C5D900BF0514 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB2000000000000000000005;
+			remoteInfo = ProjectsWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BB200000000000000000000F /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BB2000000000000000000010 /* ProjectsWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		BB2000000000000000000002 /* ProjectsWidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsWidgetData.swift; sourceTree = "<group>"; };
+		BB2000000000000000000006 /* ProjectsWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DDBEC1FA3005C5DA00BF0514 /* scripty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = scripty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		BB2000000000000000000008 /* Exceptions for "ProjectsWidget" folder in "ProjectsWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BB2000000000000000000005 /* ProjectsWidget */;
+		};
 		DDBEC2083005C5DB00BF0515 /* Exceptions for "scripty" folder in "scripty" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -21,6 +60,14 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		BB2000000000000000000007 /* ProjectsWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BB2000000000000000000008 /* Exceptions for "ProjectsWidget" folder in "ProjectsWidget" target */,
+			);
+			path = ProjectsWidget;
+			sourceTree = "<group>";
+		};
 		DDBEC1FC3005C5DA00BF0514 /* scripty */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -32,6 +79,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		BB200000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DDBEC1F73005C5D900BF0514 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -42,10 +96,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		BB2000000000000000000001 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				BB2000000000000000000002 /* ProjectsWidgetData.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		DDBEC1F13005C5D900BF0514 = {
 			isa = PBXGroup;
 			children = (
 				DDBEC1FC3005C5DA00BF0514 /* scripty */,
+				BB2000000000000000000007 /* ProjectsWidget */,
+				BB2000000000000000000001 /* Shared */,
 				DDBEC1FB3005C5DA00BF0514 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +118,7 @@
 			isa = PBXGroup;
 			children = (
 				DDBEC1FA3005C5DA00BF0514 /* scripty.app */,
+				BB2000000000000000000006 /* ProjectsWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,6 +126,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		BB2000000000000000000005 /* ProjectsWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB200000000000000000000C /* Build configuration list for PBXNativeTarget "ProjectsWidget" */;
+			buildPhases = (
+				BB2000000000000000000009 /* Sources */,
+				BB200000000000000000000A /* Frameworks */,
+				BB200000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BB2000000000000000000007 /* ProjectsWidget */,
+			);
+			name = ProjectsWidget;
+			packageProductDependencies = (
+			);
+			productName = ProjectsWidget;
+			productReference = BB2000000000000000000006 /* ProjectsWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		DDBEC1F93005C5D900BF0514 /* scripty */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = DDBEC2053005C5DB00BF0514 /* Build configuration list for PBXNativeTarget "scripty" */;
@@ -68,10 +155,12 @@
 				DDBEC1F63005C5D900BF0514 /* Sources */,
 				DDBEC1F73005C5D900BF0514 /* Frameworks */,
 				DDBEC1F83005C5D900BF0514 /* Resources */,
+				BB200000000000000000000F /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				BB2000000000000000000011 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				DDBEC1FC3005C5DA00BF0514 /* scripty */,
@@ -93,6 +182,9 @@
 				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
+					BB2000000000000000000005 = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					DDBEC1F93005C5D900BF0514 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -113,11 +205,19 @@
 			projectRoot = "";
 			targets = (
 				DDBEC1F93005C5D900BF0514 /* scripty */,
+				BB2000000000000000000005 /* ProjectsWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		BB200000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DDBEC1F83005C5D900BF0514 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -128,16 +228,99 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		BB2000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB2000000000000000000004 /* ProjectsWidgetData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DDBEC1F63005C5D900BF0514 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB2000000000000000000003 /* ProjectsWidgetData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		BB2000000000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB2000000000000000000005 /* ProjectsWidget */;
+			targetProxy = BB2000000000000000000012 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		BB200000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ProjectsWidget/ProjectsWidget.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "ProjectsWidget/ProjectsWidget-maccatalyst.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectsWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Screenplays;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = scripty.scripty.ProjectsWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BB200000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ProjectsWidget/ProjectsWidget.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "ProjectsWidget/ProjectsWidget-maccatalyst.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectsWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Screenplays;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = scripty.scripty.ProjectsWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		DDBEC2033005C5DB00BF0514 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -263,6 +446,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = scripty/scripty.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "scripty/scripty-maccatalyst.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -298,6 +482,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = scripty/scripty.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "scripty/scripty-maccatalyst.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -330,6 +515,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		BB200000000000000000000C /* Build configuration list for PBXNativeTarget "ProjectsWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB200000000000000000000D /* Debug */,
+				BB200000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		DDBEC1F53005C5D900BF0514 /* Build configuration list for PBXProject "scripty" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
