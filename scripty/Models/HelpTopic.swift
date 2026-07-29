@@ -207,10 +207,10 @@ extension HelpTopic {
                 title: "Bold, Italic and Alignment",
                 systemImage: "bold.italic.underline",
                 paragraphs: [
-                    "The format bar above the keyboard sets bold, italic and underline "
-                    + "for the element you are in, along with its alignment and "
-                    + "typeface. Each chip shows what the element is already set to, so "
-                    + "the bar doubles as a readout."
+                    "The format button at the left of the bar above the keyboard "
+                    + "unfolds bold, italic and underline for the element you are in, "
+                    + "along with its alignment and typeface. Each chip shows what the "
+                    + "element is already set to, so the bar doubles as a readout."
                 ],
                 keywords: ["bold", "italic", "underline", "align", "centre", "font",
                            "typeface", "style"]),

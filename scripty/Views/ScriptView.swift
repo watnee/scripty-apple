@@ -40,6 +40,10 @@ struct ScriptView: View {
     @State private var showingOutline = false
     @State private var showingStats = false
     @State private var showingIgnoredWords = false
+    /// Whether the format bar is unfolded above the element-type bar. Off by
+    /// default and deliberately not persisted: formatting is an occasional
+    /// errand, and each session should start with the screen it saves.
+    @State private var showingFormatBar = false
     @State private var isSearching = false
     /// Which way the reader was opened, and whether it is open at all.
     ///
@@ -1129,8 +1133,9 @@ struct ScriptView: View {
         }
     }
 
-    /// Formatting sits above the element-type bar, both only while a block is
-    /// focused and only for the affordances the server actually advertised.
+    /// Formatting folds out above the element-type bar behind a toggle button,
+    /// both only while a block is focused and only for the affordances the
+    /// server actually advertised.
     @ViewBuilder
     private var editingBars: some View {
         // Selection mode has its own bar, and nothing is focused for typing.
@@ -1140,15 +1145,48 @@ struct ScriptView: View {
            let id = model.focusedBlockId,
            let block = model.blocks.first(where: { $0.id == id }) {
             VStack(spacing: 0) {
-                if block.hasLink(.update) {
+                if showingFormatBar, block.hasLink(.update) {
                     FormatBar(model: model, block: block)
                     Divider()
                 }
-                if block.hasLink(.setType) {
-                    ElementTypeBar(model: model, block: block)
+                HStack(spacing: 0) {
+                    if block.hasLink(.update) {
+                        formatBarToggle
+                    }
+                    if block.hasLink(.setType) {
+                        ElementTypeBar(model: model, block: block)
+                    }
                 }
             }
         }
+    }
+
+    /// The button the format bar folded into: one chip's worth of row instead
+    /// of a second row of chips, showing the bar only while formatting is the
+    /// errand at hand. Styled as a chip so the row still reads as one language.
+    private var formatBarToggle: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.15)) { showingFormatBar.toggle() }
+        } label: {
+            Image(systemName: "textformat")
+                .font(.footnote.weight(.medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(showingFormatBar ? Color.white : Color.primary)
+        .background(Capsule().fill(showingFormatBar
+                                   ? Color.accentColor
+                                   : Color.secondary.opacity(0.15)))
+        // Matches the 12/5 the type bar's chips inset by inside their own
+        // scroll view, so the row keeps one margin all round; the same 12
+        // then falls between the toggle and the first chip, a slightly wider
+        // gap than the chips' own 6 — right for a control that isn't one of
+        // them.
+        .padding(.leading, 12)
+        .padding(.vertical, 5)
+        .accessibilityLabel("Formatting")
+        .accessibilityAddTraits(showingFormatBar ? [.isSelected] : [])
     }
 
     @ViewBuilder
