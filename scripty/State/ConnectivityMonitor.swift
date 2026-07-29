@@ -56,13 +56,20 @@ final class ConnectivityMonitor {
     }
 
     /// Wait until the system has reported the path once, so an offline cold
-    /// launch doesn't fire its first request into a connection wait it is
-    /// guaranteed to lose. The timeout keeps an odd interface from stalling
-    /// launch: past it, "assume online" stands and the request just takes the
-    /// slow failure it would always have taken.
+    /// launch goes straight to the cached copy instead of spending its first
+    /// request on a route that isn't there. The timeout keeps an odd interface
+    /// from stalling launch: past it, "assume online" stands and the request
+    /// takes the ordinary failure it would always have taken.
     func waitForFirstVerdict(timeout: Duration = .milliseconds(500)) async {
         guard !hasFirstVerdict else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Ask again in here. `settleFirstVerdict` drains the list exactly
+            // once and then never looks at it again, so a continuation parked
+            // after the verdict has already settled is parked forever — and
+            // the timeout below can't save it, since it settles through the
+            // same one-shot gate. Cheap insurance against that window ever
+            // opening, whatever the isolation rules do with the `await` above.
+            guard !hasFirstVerdict else { return continuation.resume() }
             waiters.append(continuation)
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: timeout)

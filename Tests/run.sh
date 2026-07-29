@@ -33,6 +33,52 @@ FLAGS=(
 
 status=0
 
+# Every suite here is arithmetic, in-process fakes, or requests to a closed
+# port: milliseconds of work. So anything still running after the limit is
+# stuck, not slow, and the only useful thing to do is say so and move on —
+# a suite that blocks forever otherwise takes the whole run with it, silently,
+# and nothing here has a timeout of its own.
+#
+# Override with SCRIPTY_TEST_TIMEOUT if a machine is genuinely that slow.
+SUITE_TIMEOUT="${SCRIPTY_TEST_TIMEOUT:-60}"
+
+# Blocks on `wait`, never on `kill -0`: a suite that has exited but has not
+# been reaped yet is still a live pid as far as `kill -0` is concerned, so
+# polling it that way reports a suite that passed in milliseconds as a hang.
+# The watchdog runs alongside instead, and stands down the moment the suite
+# lands — the marker file is what tells it so.
+run_suite() {
+    local binary="$1"
+    local finished="$BUILD/.finished"
+    rm -f "$finished"
+
+    "$binary" &
+    local pid=$!
+    (
+        deadline=$((SECONDS + SUITE_TIMEOUT))
+        while [ "$SECONDS" -lt "$deadline" ] && [ ! -e "$finished" ]; do
+            sleep 0.2
+        done
+        if [ ! -e "$finished" ]; then
+            echo "  TIMEOUT  no result after ${SUITE_TIMEOUT}s — killed $(basename "$binary")"
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    ) &
+    local watchdog=$!
+    # Off the jobs table, or the shell announces its own watchdog's death in
+    # a wall of "Terminated: 15 ( deadline=... )" after every single suite.
+    disown "$watchdog" 2>/dev/null || true
+
+    local result=0
+    wait "$pid" || result=$?
+    # Marker first, and left in place: once it exists the watchdog cannot
+    # accuse a suite that has already landed, however late the kill reaches
+    # it. The next call clears it, and the BUILD trap takes the last one.
+    touch "$finished"
+    kill "$watchdog" 2>/dev/null || true
+    return "$result"
+}
+
 echo "== ScriptStats / ScriptOutline =="
 swiftc "${FLAGS[@]}" -o "$BUILD/stats" \
     "$SRC/Models/Block.swift" \
@@ -40,7 +86,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/stats" \
     "$SRC/Models/ScriptOutline.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/ScriptStats/main.swift"
-"$BUILD/stats" || status=1
+run_suite "$BUILD/stats" || status=1
 
 echo
 echo "== Screenplay pagination =="
@@ -51,7 +97,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/pagination" \
     "$SRC/Models/ScriptPagination.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/Pagination/main.swift"
-"$BUILD/pagination" || status=1
+run_suite "$BUILD/pagination" || status=1
 
 echo
 echo "== Element clipboard =="
@@ -61,7 +107,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/clipboard" \
     "$SRC/Models/FountainDetect.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/Clipboard/main.swift"
-"$BUILD/clipboard" || status=1
+run_suite "$BUILD/clipboard" || status=1
 
 echo
 echo "== Fountain detection =="
@@ -71,7 +117,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/fountain" \
     "$SRC/Models/FountainDetect.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/FountainDetect/main.swift"
-"$BUILD/fountain" || status=1
+run_suite "$BUILD/fountain" || status=1
 
 echo
 echo "== Read-aloud narration =="
@@ -80,21 +126,21 @@ swiftc "${FLAGS[@]}" -o "$BUILD/narration" \
     "$SRC/Models/ScriptNarration.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/Narration/main.swift"
-"$BUILD/narration" || status=1
+run_suite "$BUILD/narration" || status=1
 
 echo
 echo "== Note formatting =="
 swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
     "$SRC/Models/NoteFormatting.swift" \
     "$ROOT/Tests/NoteFormatting/main.swift"
-"$BUILD/notes" || status=1
+run_suite "$BUILD/notes" || status=1
 
 echo
 echo "== Password reset links =="
 swiftc "${FLAGS[@]}" -o "$BUILD/passwordreset" \
     "$SRC/API/PasswordResetLink.swift" \
     "$ROOT/Tests/PasswordReset/main.swift"
-"$BUILD/passwordreset" || status=1
+run_suite "$BUILD/passwordreset" || status=1
 
 echo
 echo "== Autocomplete =="
@@ -104,7 +150,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/suggestions" \
     "$SRC/Models/ScriptSuggestions.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/Suggestions/main.swift"
-"$BUILD/suggestions" || status=1
+run_suite "$BUILD/suggestions" || status=1
 
 echo
 echo "== Script view options =="
@@ -113,7 +159,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/viewoptions" \
     "$SRC/State/LastOpenedProject.swift" \
     "$SRC/State/SongWorkspaceOpenState.swift" \
     "$ROOT/Tests/ViewOptions/main.swift"
-"$BUILD/viewoptions" || status=1
+run_suite "$BUILD/viewoptions" || status=1
 
 echo
 echo "== Reopening what was left open =="
@@ -135,7 +181,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/viewsettings" \
     "$SRC/Models/Block.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/ViewSettings/main.swift"
-"$BUILD/viewsettings" || status=1
+run_suite "$BUILD/viewsettings" || status=1
 
 echo
 echo "== Search and selection =="
@@ -145,7 +191,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/statelogic" \
     "$SRC/State/BlockSelectionModel.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/StateLogic/main.swift"
-"$BUILD/statelogic" || status=1
+run_suite "$BUILD/statelogic" || status=1
 
 echo
 echo "== Passkey ceremony wire formats =="
@@ -154,7 +200,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/passkeys" \
     "$SRC/Models/PasskeyCeremony.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/Passkeys/main.swift"
-"$BUILD/passkeys" || status=1
+run_suite "$BUILD/passkeys" || status=1
 
 echo
 echo "== Home Screen quick actions =="
@@ -174,7 +220,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/quickactions" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/QuickActions/main.swift"
-"$BUILD/quickactions" || status=1
+run_suite "$BUILD/quickactions" || status=1
 
 echo
 echo "== What a launch opens =="
@@ -192,7 +238,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
     "$SRC/Models/DocumentsRequest.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/SongShortcuts/main.swift"
-"$BUILD/songshortcuts" || status=1
+run_suite "$BUILD/songshortcuts" || status=1
 
 echo
 echo "== Folding a lyric line into the one above =="
@@ -257,7 +303,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/APIContract/main.swift"
-"$BUILD/api" || status=1
+run_suite "$BUILD/api" || status=1
 
 echo
 echo "== Unsaved work survives a failed save =="
@@ -281,7 +327,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/Models/"*.swift \
     "${SHARED[@]}" \
     "$ROOT/Tests/UnsavedWork/main.swift"
-"$BUILD/unsaved" || status=1
+run_suite "$BUILD/unsaved" || status=1
 
 echo
 echo "== Offline: cached copies, fast failure, reconnect =="
@@ -305,7 +351,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/Models/"*.swift \
     "${SHARED[@]}" \
     "$ROOT/Tests/Offline/main.swift"
-"$BUILD/offline" || status=1
+run_suite "$BUILD/offline" || status=1
 
 echo
 if [ "$status" -eq 0 ]; then

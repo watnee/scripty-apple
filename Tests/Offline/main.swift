@@ -13,6 +13,12 @@ import Foundation
 
 // MARK: - Harness
 
+// Line-buffer stdout so a run that is killed — by the harness watchdog, or by
+// hand — still shows which case it had reached. Piped into anything, the
+// default block buffering throws all of it away and a stall looks like a suite
+// that printed nothing at all.
+_ = setvbuf(stdout, nil, _IOLBF, 0)
+
 var failures = 0
 
 func check(_ label: String, _ condition: Bool) {
@@ -196,6 +202,25 @@ func checkFastFail() async {
     check("the failure is named offline", failedOffline)
     check("and arrives immediately, not after a connection wait",
           Date().timeIntervalSince(started) < 1)
+
+    // The same promise without the gate: nothing is listening on the port, and
+    // a refused connection must come back as a refused connection. It is worth
+    // pinning because `waitsForConnectivity` quietly breaks it — URLSession
+    // reads "nothing is listening" as a wait-and-see condition, parks the
+    // request for the whole 120s resource timeout, and then reports a timeout.
+    // Two minutes per save whenever the API is down, and a test suite that
+    // looks hung. See the session configuration in APIClient.
+    let unguarded = APIClient()
+    let refusedAt = Date()
+    var refusedAsOffline = false
+    do {
+        _ = try await unguarded.data(for: HALLink(href: "/api/anything"))
+    } catch APIError.offline {
+        refusedAsOffline = true
+    } catch {}
+    check("a refused connection is refused, not waited out",
+          Date().timeIntervalSince(refusedAt) < 5)
+    check("and reads as offline rather than a timeout", refusedAsOffline)
 }
 
 @MainActor
