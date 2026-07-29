@@ -32,6 +32,15 @@ final class AppModel {
     /// the sheet is done with it.
     var passwordResetToken: String?
 
+    /// The song or note a Home Screen widget row was tapped for, waiting for a
+    /// project list to open it against.
+    ///
+    /// Here for the same reason the reset token is: the tap is often what
+    /// launched the app, so it arrives before the sidebar exists — and on a
+    /// cold launch the session has not even been established yet. `ContentView`
+    /// picks it up once there is a list to answer it with, and clears it.
+    var pendingWidgetDestination: WidgetDestination?
+
     /// False when the keychain refused to hold this session's credentials, so
     /// signing in again will be needed after the app is quit.
     private(set) var isSessionPersisted = true

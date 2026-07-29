@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The Mac Catalyst build's entitlements, selected by
+	CODE_SIGN_ENTITLEMENTS[sdk=macosx*].
+
+	Identical to scripty.entitlements but for the App Group, which macOS spells
+	with the team prefix: `TEAMID.group.…` rather than plain `group.…`. The two
+	forms cannot live in one file — the prefixed one is not a valid iOS group
+	and fails provisioning there — so this is a copy that differs by one line.
+	Anything added to scripty.entitlements belongs here too.
+-->
 <plist version="1.0">
 <dict>
 	<!-- App Sandbox is required of a Mac app; ignored on iOS. -->
@@ -11,26 +21,21 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- Shared with the SongsNotesWidget extension, which has no other way to
-	     see anything: the app writes the widget's rows into this container and
-	     the extension only reads them. The identifier is spelled out in
-	     SongsNotesWidgetStore.appGroup and in the extension's own entitlements,
-	     and all three have to agree — a mismatch builds cleanly and shows up
-	     only as a widget that is permanently empty.
-
-	     This is the iOS spelling. Mac Catalyst wants the team-prefixed form and
-	     is served by scripty-maccatalyst.entitlements next door; the two files
-	     exist only because that one difference cannot be expressed in one. -->
+	<!-- The widget's shared container. `$(TeamIdentifierPrefix)` is expanded at
+	     build time and already carries its trailing dot, so this resolves to
+	     e.g. WA6FZ2S8R3.group.scripty.scripty — which is what
+	     `containerURL(forSecurityApplicationGroupIdentifier:)` must be handed on
+	     macOS. SongsNotesWidgetStore tries both spellings for that reason. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.scripty.scripty</string>
+		<string>$(TeamIdentifierPrefix)group.scripty.scripty</string>
 	</array>
-	<!-- Both claims are on the server's domain, validated by iOS against the
+	<!-- Both claims are on the server's domain, validated against the
 	     apple-app-site-association the server serves at /.well-known/. A
 	     different base URL (localhost override, demo) matches neither.
 
-	     webcredentials: passkeys are bound to the domain, and iOS only offers
-	     them to this app once the file names it.
+	     webcredentials: passkeys are bound to the domain, and the system only
+	     offers them to this app once the file names it.
 
 	     applinks: the password reset link in a recovery email opens this app
 	     rather than a browser, which is what spares anyone typing a code out of

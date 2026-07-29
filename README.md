@@ -216,6 +216,55 @@ of the wiring is in [QuickAction.swift](scripty/Models/QuickAction.swift) and
 screenplays — its projects only exist while it is running, so an entry for one
 could only ever fail — and signing out takes them back off.
 
+## The Songs & Notes widget
+
+Add it from the widget gallery — it comes with the app rather than being
+installed separately. It lists the songs and notes you have been working on,
+newest first, across every screenplay, and tapping one opens it.
+
+| Size            | What it shows                                    |
+| --------------- | ------------------------------------------------ |
+| Small           | The one most recently edited                     |
+| Medium          | Three                                            |
+| Large           | Six                                              |
+| Lock Screen     | The one most recently edited, in a rectangle     |
+
+A widget cannot sign in, and this one does not try: the app writes the handful
+of rows into an App Group container whenever a screenplay's songs and notes
+load, and the extension only ever reads them. So a song appears on the widget
+once the app has seen it, the rows are there whether or not the phone has a
+connection, and there is no second copy of the API client to keep honest. The
+shared half is [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift),
+compiled into both; the app's half is
+[WidgetPublisher.swift](scripty/Widgets/WidgetPublisher.swift) and the drawing
+is [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift).
+
+The demo publishes nothing, for the same reason it names no screenplays in the
+Home Screen menu, and signing out empties the widget — the Home Screen keeps
+showing whatever it was last given until this app takes it back, and nobody
+else can.
+
+The App Group is `group.scripty.scripty`, spelled out in
+[scripty.entitlements](scripty/scripty.entitlements), in the extension's own
+entitlements and in `SongsNotesWidgetStore.appGroup`. All three have to agree; a
+mismatch builds cleanly and shows up only as a widget that is permanently empty.
+
+Xcode's automatic signing registers the group against your App ID the first time
+it signs the app for a device, so the first device build after pulling this
+needs a signing team selected.
+
+macOS spells the same group `TEAMID.group.scripty.scripty`, and iOS rejects that
+form, so the two cannot share one entitlements file. Each target has a Catalyst
+twin — [scripty-maccatalyst.entitlements](scripty/scripty-maccatalyst.entitlements)
+and
+[SongsNotesWidget-maccatalyst.entitlements](SongsNotesWidget/SongsNotesWidget-maccatalyst.entitlements)
+— selected by `CODE_SIGN_ENTITLEMENTS[sdk=macosx*]` and using
+`$(TeamIdentifierPrefix)group.scripty.scripty`. `SongsNotesWidgetStore` tries
+the plain identifier first and the prefixed one second, so the same code opens
+the container on both platforms. **Anything you add to `scripty.entitlements`
+has to be added to its Catalyst twin as well** — they differ by one key, and
+nothing checks that they otherwise agree.
+
 ## Which server it talks to
 
 By default the app uses the hosted backend in
