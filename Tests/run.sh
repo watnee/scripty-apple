@@ -168,9 +168,10 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
 "$BUILD/songshortcuts" || status=1
 
 echo
-echo "== Songs & Notes widget =="
-# The half of the widget the extension and the app share. WidgetPublisher next
-# door is not here: it imports WidgetKit and only exists to call these.
+echo "== Songs and Notes widgets =="
+# The half the extension and the app share — one file for both widgets, since
+# they draw one stored list. WidgetPublisher next door is not here: it imports
+# WidgetKit and only exists to call these.
 swiftc "${FLAGS[@]}" -o "$BUILD/widget" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Tests/SongsNotesWidget/main.swift"

@@ -2,10 +2,15 @@
 //  SongsNotesWidgetData.swift
 //  Shared between the scripty app and the SongsNotesWidget extension
 //
-//  The handful of songs and notes the Home Screen widget draws, and the shared
+//  The handful of songs and notes the Home Screen widgets draw, and the shared
 //  container both sides reach it through. This is the whole of what the two
 //  targets agree on: the app writes a snapshot whenever a project's documents
 //  load, and the extension only ever reads one.
+//
+//  One snapshot, two widgets. Songs and Notes are separate entries in the
+//  gallery — placed, sized and torn off independently — but they are two views
+//  of the same file, because the app has both halves of a project in hand at
+//  the same moment and writing them twice would only be two ways to disagree.
 //
 //  Deliberately free of the network and the Keychain. A widget that signed in
 //  for itself would be a second copy of the HAL client to keep honest — and it
@@ -27,9 +32,9 @@ struct WidgetDocument: Codable, Hashable, Identifiable, Sendable {
     let projectId: Int
     let projectTitle: String
     let title: String
-    /// Which of the two lists it belongs to. A Bool rather than the app's
-    /// `DocumentType` so the extension does not have to compile the models —
-    /// the widget's only question is which symbol to draw.
+    /// Which of the two lists — and so which of the two widgets — it belongs
+    /// to. A Bool rather than the app's `DocumentType` so the extension does
+    /// not have to compile the models; `WidgetDocumentKind` reads it back.
     let isSong: Bool
     let updatedAt: Date
 
@@ -41,6 +46,36 @@ struct WidgetDocument: Codable, Hashable, Identifiable, Sendable {
         self.title = title
         self.isSong = isSong
         self.updatedAt = updatedAt
+    }
+}
+
+/// Which of the two widgets a row belongs to.
+///
+/// A widget's whole identity, as far as the shared half is concerned: the rows
+/// it draws and the `kind` string WidgetKit knows it by. Presentation — what it
+/// is called in the gallery, which symbol and tint it draws — lives in the
+/// extension, which is the only target that can say any of it.
+enum WidgetDocumentKind: String, CaseIterable, Hashable, Sendable {
+    case song
+    case note
+
+    /// Matches the `kind` each widget declares, so `WidgetCenter` can be told
+    /// to reload one of them by name.
+    ///
+    /// These replaced the single `SongsNotesWidget` kind the two were one
+    /// widget under. A tile already placed under that kind has nothing left in
+    /// the bundle to draw it and is dropped by the system; WidgetKit offers no
+    /// way to rename a kind, and the combined widget was a day old.
+    var widgetKind: String {
+        switch self {
+        case .song: "SongsWidget"
+        case .note: "NotesWidget"
+        }
+    }
+
+    /// Whether a row belongs to this half.
+    func contains(_ document: WidgetDocument) -> Bool {
+        document.isSong == (self == .song)
     }
 }
 
@@ -58,7 +93,10 @@ struct SongsNotesSnapshot: Codable, Sendable {
         self.savedAt = savedAt
     }
 
-    var isEmpty: Bool { documents.isEmpty }
+    /// The half of the snapshot one widget draws, in the order it was stored.
+    func documents(_ kind: WidgetDocumentKind) -> [WidgetDocument] {
+        documents.filter(kind.contains)
+    }
 }
 
 // MARK: - The shared container
@@ -94,13 +132,18 @@ enum SongsNotesWidgetStore {
         return prefix.hasSuffix(".") ? prefix + appGroup : "\(prefix).\(appGroup)"
     }
 
-    /// Matches the `kind` the widget declares, so `WidgetCenter` can be told
-    /// to reload this one by name.
-    static let widgetKind = "SongsNotesWidget"
+    /// Every kind the extension vends, for the times all of them have to be
+    /// told at once — signing out, which takes the rows away from both.
+    static let widgetKinds = WidgetDocumentKind.allCases.map(\.widgetKind)
 
-    /// How many rows are kept. The largest family draws six, and a couple
-    /// spare means dropping one project's documents still leaves a full
-    /// widget rather than a gap until the next load.
+    /// How many rows are kept **of each kind**. The largest family draws six,
+    /// and a couple spare means dropping one project's documents still leaves
+    /// a full widget rather than a gap until the next load.
+    ///
+    /// Per kind rather than in total because the two widgets share this one
+    /// list but not a single row of it: a week spent writing songs would
+    /// otherwise push every note out of the file and leave the Notes widget
+    /// empty, with notes it could perfectly well have drawn.
     static let limit = 12
 
     private static let fileName = "songs-notes-widget.json"
@@ -147,7 +190,7 @@ enum SongsNotesWidgetStore {
         try? data.write(to: fileURL, options: .atomic)
     }
 
-    /// Takes the widget's rows away entirely. Signing out goes through here:
+    /// Takes both widgets' rows away entirely. Signing out goes through here:
     /// the next person to pick up the phone should not be able to read the
     /// last writer's song titles off the Home Screen.
     static func clear() {
@@ -158,12 +201,16 @@ enum SongsNotesWidgetStore {
     // MARK: Publishing
 
     /// Folds one project's documents into what is already stored, newest
-    /// first, capped at `limit`.
+    /// first, capped at `limit` songs and `limit` notes.
     ///
     /// The project's previous rows are dropped rather than merged, so a song
     /// deleted or renamed since the last publish leaves with them. Every other
-    /// project is left alone — the widget spans an account, but the app only
+    /// project is left alone — the widgets span an account, but the app only
     /// ever has one project's documents in hand at a time.
+    ///
+    /// Songs and notes come back as one ordered list rather than two, because
+    /// storing them apart would only mean sorting them apart as well; each
+    /// widget filters out its own half on the way to being drawn.
     ///
     /// Pure, and separate from the file above, so the ordering can be checked
     /// without an app group container to write into.
@@ -173,31 +220,49 @@ enum SongsNotesWidgetStore {
                         limit: Int = limit) -> [WidgetDocument] {
         let kept = existing.filter { $0.projectId != projectId }
         let combined = kept + documents.filter { $0.projectId == projectId }
-        let ordered = combined.sorted { lhs, rhs in
-            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-            // Swift's sort promises nothing about equal elements, so ties break
-            // on title rather than letting the widget reshuffle itself between
-            // reloads for no visible reason.
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        let ordered = combined.sorted(by: newerFirst)
+        // Each half is capped on its own — see `limit`. Cheap to do twice: the
+        // whole list is a couple of dozen rows.
+        let cap = max(0, limit)
+        let capped = WidgetDocumentKind.allCases.flatMap { kind in
+            ordered.filter(kind.contains).prefix(cap)
         }
-        return Array(ordered.prefix(max(0, limit)))
+        return capped.sorted(by: newerFirst)
     }
 
-    /// Writes the merged list, reporting whether it differs from what was
-    /// already stored.
+    /// Most recently edited first.
     ///
-    /// The answer is what decides whether to spend a `WidgetCenter` reload:
-    /// loading a project's documents happens on every visit to the script, and
-    /// most of those visits change nothing the widget draws.
+    /// Swift's sort promises nothing about equal elements, so ties break on
+    /// title rather than letting a widget reshuffle itself between reloads for
+    /// no visible reason.
+    private static func newerFirst(_ lhs: WidgetDocument, _ rhs: WidgetDocument) -> Bool {
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+
+    /// Writes the merged list, reporting which widgets' rows it changed.
+    ///
+    /// The answer is what decides which `WidgetCenter` reloads to spend, and
+    /// reloads are rationed: loading a project's documents happens on every
+    /// visit to the script, most of those visits change nothing at all, and an
+    /// afternoon spent on the songs leaves the Notes widget drawing exactly
+    /// what it already drew.
+    ///
+    /// A change that only reorders songs against notes counts as no change,
+    /// correctly — neither widget can see the other's rows to be out of order
+    /// against.
     @discardableResult
     static func publish(_ documents: [WidgetDocument],
                         forProject projectId: Int,
-                        at now: Date = .now) -> Bool {
+                        at now: Date = .now) -> Set<WidgetDocumentKind> {
         let existing = load()
         let merged = merging(documents, forProject: projectId, into: existing.documents)
-        guard merged != existing.documents else { return false }
+        let changed = WidgetDocumentKind.allCases.filter { kind in
+            merged.filter(kind.contains) != existing.documents.filter(kind.contains)
+        }
+        guard !changed.isEmpty else { return [] }
         save(SongsNotesSnapshot(documents: merged, savedAt: now))
-        return true
+        return Set(changed)
     }
 
     // MARK: Coding

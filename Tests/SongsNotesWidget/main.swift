@@ -1,8 +1,11 @@
 //
-//  Songs & Notes widget checks
+//  Songs and Notes widget checks
 //
-//  The two pure halves of the widget: which rows survive a publish, and the
+//  The two pure halves of the widgets: which rows survive a publish, and the
 //  URLs a tapped row hands back to the app.
+//
+//  Songs and Notes are two widgets over one stored list, so most of what is
+//  checked here is that neither can crowd the other out of it.
 //
 //  Worth checking without a simulator because both fail quietly. A merge that
 //  keeps the wrong project's rows draws a plausible-looking widget of stale
@@ -62,13 +65,48 @@ func runOrdering() {
     check("documents edited at the same moment order by title",
           ids(SongsNotesWidgetStore.merging(sameMoment, forProject: 1, into: [])), "5,4")
 
-    // Songs and notes are one list here, unlike everywhere else in the app:
-    // the widget answers "what have I been working on", and the answer does
-    // not sort itself by which of the two screens it lives on.
+    // Songs and notes are stored as one list even though two widgets draw it,
+    // so the order has to hold across both. Each widget then filters its own
+    // half out of it, in the order it was stored.
     let mixed = [document(6, title: "A note", isSong: false, edited: hoursAgo(1)),
                  document(7, title: "A song", isSong: true, edited: hoursAgo(2))]
     check("notes and songs interleave by date",
           ids(SongsNotesWidgetStore.merging(mixed, forProject: 1, into: [])), "6,7")
+}
+
+func runSplit() {
+    print("")
+    print("Which rows each widget draws")
+
+    let rows = [document(1, title: "Newest song", edited: hoursAgo(1)),
+                document(2, title: "A note", isSong: false, edited: hoursAgo(2)),
+                document(3, title: "Older song", edited: hoursAgo(3)),
+                document(4, title: "Older note", isSong: false, edited: hoursAgo(4))]
+    let snapshot = SongsNotesSnapshot(documents: SongsNotesWidgetStore.merging(rows,
+                                                                              forProject: 1,
+                                                                              into: []),
+                                      savedAt: now)
+
+    check("the Songs widget draws only songs, newest first",
+          ids(snapshot.documents(.song)), "1,3")
+    check("the Notes widget draws only notes, newest first",
+          ids(snapshot.documents(.note)), "2,4")
+
+    // A writer with songs and no notes has an empty Notes widget, not one
+    // quietly showing songs.
+    let songsOnly = SongsNotesSnapshot(documents: rows.filter(\.isSong), savedAt: now)
+    check("a writer with no notes gets an empty Notes widget",
+          songsOnly.documents(.note).count, 0)
+    check("and a full Songs widget", songsOnly.documents(.song).count, 2)
+
+    // The kinds each widget declares. Renaming one without renaming the
+    // reload it is reached by builds cleanly and leaves that widget frozen on
+    // whatever it last drew.
+    check("the songs widget's kind", WidgetDocumentKind.song.widgetKind, "SongsWidget")
+    check("the notes widget's kind", WidgetDocumentKind.note.widgetKind, "NotesWidget")
+    check("both kinds are reloaded on sign-out",
+          SongsNotesWidgetStore.widgetKinds.sorted().joined(separator: ","),
+          "NotesWidget,SongsWidget")
 }
 
 func runMerging() {
@@ -111,6 +149,28 @@ func runLimit() {
     // widget even after one project's documents drop out.
     check("the limit leaves the largest family room to spare",
           SongsNotesWidgetStore.limit >= 6, true)
+
+    // The cap is per kind, not per file. A burst of songs must not push the
+    // notes out of a list the Notes widget is the only reader of — it would
+    // draw an empty widget while the notes it wanted sat in the app.
+    let notes = (101...120).map {
+        document($0, title: "Note \($0)", isSong: false, edited: hoursAgo(Double($0 - 100) + 0.5))
+    }
+    let both = SongsNotesWidgetStore.merging(many + notes, forProject: 1, into: [])
+    let snapshot = SongsNotesSnapshot(documents: both, savedAt: now)
+    check("songs are capped on their own",
+          snapshot.documents(.song).count, SongsNotesWidgetStore.limit)
+    check("and notes are not capped against them",
+          snapshot.documents(.note).count, SongsNotesWidgetStore.limit)
+    check("both halves are still one list, newest first",
+          ids(Array(both.prefix(4))), "1,101,2,102")
+
+    // A hundred songs and one note: the note survives, however far down the
+    // combined order it lands.
+    let lonely = document(999, title: "The only note", isSong: false, edited: hoursAgo(500))
+    let crowded = SongsNotesWidgetStore.merging(many + [lonely], forProject: 1, into: [])
+    check("a single old note outlives a pile of songs",
+          crowded.contains(lonely), true)
 }
 
 func runLinks() {
@@ -165,8 +225,9 @@ func runLinks() {
             ?? false, true)
 }
 
-print("== Songs & Notes widget ==")
+print("== Songs and Notes widgets ==")
 runOrdering()
+runSplit()
 runMerging()
 runLimit()
 runLinks()

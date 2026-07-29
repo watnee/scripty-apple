@@ -218,10 +218,10 @@ could only ever fail — and signing out takes them back off.
 
 ## The Home Screen widgets
 
-Two of them, both shipped with the app rather than installed separately. Add
-either the usual way: press and hold the Home Screen, **Edit → Add Widget**,
-then search for **Scripty**. The gallery searches the *app's* name, not the
-widget's, so searching "Screenplays" or "Songs & Notes" finds nothing.
+Three of them, all shipped with the app rather than installed separately. Add
+any the usual way: press and hold the Home Screen, **Edit → Add Widget**, then
+search for **Scripty**. The gallery searches the *app's* name, not the widget's,
+so searching "Screenplays" or "Songs" finds nothing.
 
 **Screenplays** lists what you have been working on, most recent first, and
 tapping a row opens that screenplay. The starred one is marked with a star
@@ -229,33 +229,40 @@ wherever it happens to land — the widget answers "what have I been working on"
 rather than "which is mine", so a draft you spent the week in comes first even
 when another is starred.
 
-**Songs & Notes** does the same for the songs and notes inside those
+**Songs** and **Notes** do the same for the songs and the notes inside those
 screenplays, newest first across all of them, and tapping one opens that
-document on the right list.
+document on the right list. Two widgets rather than one, so a wall of songs
+cannot bury the notes: place either, both, or one of each at different sizes.
 
-| Size        | Screenplays              | Songs & Notes                |
-| ----------- | ------------------------ | ---------------------------- |
-| Small       | The most recent          | The one most recently edited |
-| Medium      | Three                    | Three                        |
-| Large       | Six                      | Six                          |
-| Lock Screen | The most recent          | The one most recently edited |
+| Size        | Screenplays     | Songs                        | Notes                        |
+| ----------- | --------------- | ---------------------------- | ---------------------------- |
+| Small       | The most recent | The one most recently edited | The one most recently edited |
+| Medium      | Three           | Three                        | Three                        |
+| Large       | Six             | Six                          | Six                          |
+| Lock Screen | The most recent | The one most recently edited | The one most recently edited |
 
-A widget cannot sign in, and neither of these tries. The app writes the handful
-of rows each one draws into a shared App Group container — the projects list as
-it loads, a screenplay's songs and notes as they settle — and the extensions
-only ever read them. So a row appears once the app has seen it, the rows are
-there whether or not the phone has a connection, and there is no second copy of
-the API client to keep honest. The demo publishes nothing, for the same reason
-it names no screenplays in the Home Screen menu, and signing out empties both —
-the Home Screen keeps showing whatever it was last given until this app takes it
-back, and nobody else can.
+A widget cannot sign in, and none of these tries. The app writes the handful of
+rows each one draws into a shared App Group container — the projects list as it
+loads, a screenplay's songs and notes as they settle — and the extensions only
+ever read them. So a row appears once the app has seen it, the rows are there
+whether or not the phone has a connection, and there is no second copy of the
+API client to keep honest. The demo publishes nothing, for the same reason it
+names no screenplays in the Home Screen menu, and signing out empties all three
+— the Home Screen keeps showing whatever it was last given until this app takes
+it back, and nobody else can.
 
-The pieces, in matching pairs: [Shared/](Shared) holds the one file per widget
-that both its targets compile, and it is pure Foundation on purpose, so
-`Tests/SongsNotesWidget` and `Tests/ProjectsWidget` can check the ordering, the
-merge and the deep-link URLs without a simulator.
+The pieces, in matching pairs: [Shared/](Shared) holds the one file per
+extension that both its targets compile, and it is pure Foundation on purpose,
+so `Tests/SongsNotesWidget` and `Tests/ProjectsWidget` can check the ordering,
+the merge and the deep-link URLs without a simulator.
 
-| | Screenplays | Songs & Notes |
+Songs and Notes are two widgets out of one extension and one stored list. They
+share every line of their drawing and differ only in which half they read, so
+they are a `WidgetBundle` rather than a fourth target; the list is capped at a
+dozen rows *of each kind*, so neither can crowd the other out of the file, and
+publishing reloads only the one whose rows actually changed.
+
+| | Screenplays | Songs and Notes |
 | --- | --- | --- |
 | Shared | [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) | [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift) |
 | Extension | [ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) | [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift) |
@@ -348,4 +355,4 @@ Anything that needs a running app is out of scope here — use `demo.sh` for tha
 | `scripty/Widgets`| The app's half of both Home Screen widgets             |
 | `Shared`        | The files the app and each widget extension share       |
 | `ProjectsWidget`| The Screenplays widget extension                        |
-| `SongsNotesWidget`| The Songs & Notes widget extension                     |
+| `SongsNotesWidget`| The extension vending the Songs and Notes widgets      |
