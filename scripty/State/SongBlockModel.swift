@@ -146,10 +146,16 @@ final class SongBlockModel {
     // MARK: - Structure
 
     /// Adds a line at the end.
+    ///
+    /// Empty for the editor, which adds a line so it can be typed into. A
+    /// dictated one arrives already written — there is no cursor to put in it —
+    /// and sending the words with the line that carries them is one request
+    /// rather than a create followed by an edit that could fail on its own and
+    /// leave a blank line behind.
     @discardableResult
-    func appendLine() async -> Int? {
+    func appendLine(content: String = "") async -> Int? {
         guard let link = links[.create] else { return nil }
-        return await create(from: link)
+        return await create(from: link, content: content)
     }
 
     /// Adds a line directly below another — what Return does.
@@ -160,10 +166,10 @@ final class SongBlockModel {
         return await create(from: link)
     }
 
-    private func create(from link: HALLink) async -> Int? {
+    private func create(from link: HALLink, content: String = "") async -> Int? {
         do {
             let created: SongBlock = try await app.client.fetch(
-                from: link, method: "POST", body: CreateSongBlockCommand(content: ""))
+                from: link, method: "POST", body: CreateSongBlockCommand(content: content))
             await load()
             errorMessage = nil
             return created.id

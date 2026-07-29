@@ -22,6 +22,12 @@ import Foundation
 
 /// One entry in the Home Screen's long-press menu, in the form the app acts on
 /// rather than the form UIKit hands over.
+///
+/// No longer only the menu's, despite the name: Control Center buttons and the
+/// app's own Siri shortcuts park their requests here too. They all want the
+/// same three things — a project, one of the two lists, and whether to open the
+/// composer — and they all arrive at a moment when there may be no session and
+/// no project list yet, which is what this vocabulary was built for.
 enum QuickAction: Equatable, Sendable {
     /// The songs list of whichever project `project(in:)` settles on.
     case songs
@@ -29,6 +35,14 @@ enum QuickAction: Equatable, Sendable {
     case notes
     /// A project the menu named, chosen from the recents.
     case project(id: Int)
+    /// A new, empty song or note, with the composer already open. The project
+    /// is named where one was known and settled the usual way where it wasn't —
+    /// a Control Center tile knows nothing but which half it is for.
+    case compose(projectId: Int?, type: DocumentType)
+    /// The screenplay itself, on whichever project `project(in:)` settles on.
+    /// The unnamed twin of `project(id:)`, for a fixed tile that cannot know
+    /// which screenplay it will be pressed for.
+    case preferredProject
 }
 
 extension QuickAction {
@@ -71,8 +85,16 @@ extension QuickAction {
         switch self {
         case .songs: .song
         case .notes: .notes
-        case .project: nil
+        case .project, .preferredProject: nil
+        case .compose(_, let type): type
         }
+    }
+
+    /// Whether the list should open with the composer already up, rather than
+    /// on the list itself.
+    var isCreating: Bool {
+        if case .compose = self { return true }
+        return false
     }
 }
 
@@ -86,7 +108,9 @@ extension QuickAction {
         switch self {
         case .project(let id):
             return projects.first { $0.id == id }
-        case .songs, .notes:
+        case .compose(.some(let id), _):
+            return projects.first { $0.id == id }
+        case .songs, .notes, .preferredProject, .compose(nil, _):
             return Self.preferredProject(in: projects)
         }
     }

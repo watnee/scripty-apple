@@ -235,6 +235,32 @@ final class AppModel {
         }
     }
 
+    /// Waits until the launch has decided whether there is a session, and says
+    /// what it decided.
+    ///
+    /// Only App Intents call this. Everything else on screen is inside
+    /// `RootView`, which shows a spinner for `.loading` and so never has to ask
+    /// — but an intent can be dispatched into a process that has only just
+    /// started, before `bootstrap()` has finished or, on the very first frame,
+    /// before `RootView` has even begun it. Acting on `.loading` would read as
+    /// "you are signed out" to a writer who is not.
+    ///
+    /// A polling loop rather than a continuation: `phase` is set from five
+    /// places, and a waiter list would be a sixth thing that has to be kept
+    /// honest by every one of them. The cost is a handful of wake-ups on a
+    /// path taken a few times a day.
+    ///
+    /// The deadline is what stops Siri spinning forever behind a launch that
+    /// never lands — a request sitting in `waitsForConnectivity`, say. Timing
+    /// out answers `.loading`, which the caller reports as "try again".
+    func awaitReady(timeout: Duration = .seconds(15)) async -> Phase {
+        let deadline = ContinuousClock.now + timeout
+        while phase == .loading, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return phase
+    }
+
     /// Enters the offline demo: a fresh in-memory backend seeded with a
     /// sample screenplay. Stored real credentials are left untouched.
     ///

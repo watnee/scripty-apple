@@ -151,10 +151,17 @@ echo "== Home Screen quick actions =="
 # QuickAction itself, not QuickActions.swift next door: the routing is pure
 # Swift and belongs here, while the half that talks to UIApplication does not
 # compile outside an app.
+#
+# IntentRouting rides along, with ScriptyLink from the shared widget file it
+# reads its routes out of. A Control Center button arrives as a URL rather than
+# a shortcut item, but what it resolves to is a QuickAction like any other, and
+# checking the two apart would only make it easier for them to disagree.
 swiftc "${FLAGS[@]}" -o "$BUILD/quickactions" \
     "$SRC/Models/Project.swift" \
     "$SRC/Models/TextDocument.swift" \
     "$SRC/Models/QuickAction.swift" \
+    "$SRC/Models/IntentRouting.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/QuickActions/main.swift"
 "$BUILD/quickactions" || status=1
@@ -195,6 +202,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/API/AppConfig.swift" \
     "$SRC/API/Credentials.swift" \
     "$SRC/Models/"*.swift \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/APIContract/main.swift"
 "$BUILD/api" || status=1

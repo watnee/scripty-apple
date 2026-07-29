@@ -24,7 +24,7 @@ struct SongsNotesEntry: TimelineEntry {
     let snapshot: SongsNotesSnapshot
 }
 
-struct SongsNotesProvider: TimelineProvider {
+struct SongsNotesProvider: AppIntentTimelineProvider {
     /// What the gallery and the redacted placeholder draw. Made up on purpose:
     /// the placeholder is shown before the widget has been added, when reading
     /// a real writer's titles would be showing them to whoever is browsing the
@@ -51,9 +51,13 @@ struct SongsNotesProvider: TimelineProvider {
         SongsNotesEntry(date: .now, snapshot: sample)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (SongsNotesEntry) -> Void) {
-        let snapshot = context.isPreview ? sample : SongsNotesWidgetStore.load()
-        completion(SongsNotesEntry(date: .now, snapshot: snapshot))
+    func snapshot(for configuration: SongsNotesWidgetConfigurationIntent,
+                  in context: Context) async -> SongsNotesEntry {
+        // The gallery still draws made-up songs. This is the line that keeps a
+        // stranger browsing the widget gallery from reading the writer's
+        // titles, and it is the easiest thing to lose in a rewrite.
+        let stored = context.isPreview ? sample : SongsNotesWidgetStore.load()
+        return SongsNotesEntry(date: .now, snapshot: configured(stored, by: configuration))
     }
 
     /// One entry, and no schedule worth the name.
@@ -62,9 +66,25 @@ struct SongsNotesProvider: TimelineProvider {
     /// this widget by name when it does. The hourly refresh is a backstop for
     /// the case that reload never arrives — an app removed, or a write that
     /// landed while the widget was unloaded — not the mechanism.
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SongsNotesEntry>) -> Void) {
-        let entry = SongsNotesEntry(date: .now, snapshot: SongsNotesWidgetStore.load())
-        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(3600))))
+    func timeline(for configuration: SongsNotesWidgetConfigurationIntent,
+                  in context: Context) async -> Timeline<SongsNotesEntry> {
+        let stored = SongsNotesWidgetStore.load()
+        let entry = SongsNotesEntry(date: .now, snapshot: configured(stored, by: configuration))
+        return Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(3600)))
+    }
+
+    /// The configuration applied, still as a snapshot.
+    ///
+    /// Filtering here rather than in the view keeps the drawing exactly as dumb
+    /// as it was before there was anything to configure — `isEmpty` and the
+    /// family's own row count both still work off the entry, unchanged — and
+    /// puts the choice in a pure function the tests can reach.
+    private func configured(_ snapshot: SongsNotesSnapshot,
+                            by configuration: SongsNotesWidgetConfigurationIntent) -> SongsNotesSnapshot {
+        SongsNotesSnapshot(documents: snapshot.rows(songs: configuration.kind.includesSongs,
+                                                    notes: configuration.kind.includesNotes,
+                                                    limit: SongsNotesWidgetStore.limit),
+                           savedAt: snapshot.savedAt)
     }
 }
 
@@ -72,8 +92,13 @@ struct SongsNotesProvider: TimelineProvider {
 
 struct SongsNotesWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: SongsNotesWidgetStore.widgetKind,
-                            provider: SongsNotesProvider()) { entry in
+        // The kind is unchanged on purpose: iOS finds an already-placed widget
+        // by that string, and swapping StaticConfiguration for this one under
+        // the same kind is the supported way to let existing widgets keep their
+        // place and simply gain an "Edit Widget" entry.
+        AppIntentConfiguration(kind: SongsNotesWidgetStore.widgetKind,
+                               intent: SongsNotesWidgetConfigurationIntent.self,
+                               provider: SongsNotesProvider()) { entry in
             SongsNotesWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
@@ -87,6 +112,12 @@ struct SongsNotesWidget: Widget {
 struct SongsNotesWidgetBundle: WidgetBundle {
     var body: some Widget {
         SongsNotesWidget()
+        // The Control Center tiles ride in this bundle rather than an extension
+        // of their own — see ScriptyControls.swift for why.
+        SongsControl()
+        NewNoteControl()
+        NewSongControl()
+        ScreenplayControl()
     }
 }
 

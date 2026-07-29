@@ -290,7 +290,83 @@ signing registers the group against your App ID the first time it signs the app
 for a device, so the first device build after pulling this needs a signing team
 selected. And an extension built with `CODE_SIGNING_ALLOWED=NO` embeds fine,
 runs fine, and never appears in the gallery at all — so a quick unsigned
-simulator build is not a test of anything.
+simulator build is not a test of anything. That applies to the Control Center
+gallery below as well.
+
+Both widgets can be configured. The Songs & Notes tile draws songs, notes or
+both; the Screenplays tile leads with the starred draft or with whatever was
+edited last. Every option filters what the app already published, because the
+extensions cannot fetch anything of their own — which is also why neither offers
+a screenplay picker. The app writes songs and notes only for the screenplay
+whose script has been opened, so a tile pinned to any other one would be
+permanently empty with no honest way to say why.
+
+Each widget's `kind` string is load-bearing across an app update: iOS finds an
+already-placed widget by it. `AppIntentConfiguration` was introduced under the
+same kind each widget already had, and both configuration defaults reproduce
+what the tile drew before there was anything to configure — so an existing
+widget keeps its place and simply gains an "Edit Widget" entry.
+
+## Siri, Shortcuts and Control Center
+
+[scripty/Intents/](scripty/Intents) holds seven App Intents, and
+[ScriptyAppShortcuts.swift](scripty/Intents/ScriptyAppShortcuts.swift) gives
+each one Siri phrases and a Spotlight entry.
+
+| | Does | Rides |
+| --- | --- | --- |
+| Open Songs / Notes / Screenplay | Parks a request and returns | The same pending machinery a widget row uses |
+| New Note / New Song | One `documents` POST, content inline | `ScriptModel.createDocument` |
+| Add Lyric Line | One `songBlocks` POST | `SongBlockModel.appendLine(content:)` |
+| Add Screenplay Element | One `blocks` POST | `ScriptModel.createBlock` |
+
+Nothing here needed a new HAL rel, and nothing here should grow one — an intent
+that could do something the app itself cannot is a second idea of what the
+product is.
+
+**Every intent lives in the app target, and that is a design decision rather
+than an accident.** They are all `openAppWhenRun`, so `perform()` runs in the
+app's own process, where `APIClient` and the Keychain already work — the
+keychain item has no access group and no extension has a network entitlement, so
+an intent running out of process would have neither credentials nor a route to
+the server. The Control Center tiles in
+[ScriptyControls.swift](SongsNotesWidget/ScriptyControls.swift) are what makes
+that possible: they carry a `scripty://` URL through the system's own
+`OpenURLIntent`, so no custom intent type has to compile inside an extension.
+Those tiles ride in the Songs & Notes widget bundle for the same reason there is
+no fourth target — a `ControlWidget` is a `Widget`, hosted by the same extension
+point.
+
+The screenplay picker in the Shortcuts app reads the Screenplays widget's App
+Group snapshot rather than the server, so it answers instantly and offline. It
+is empty in the demo and when signed out, both deliberately.
+
+**The Simulator cannot verify a control's final hop.** The tiles register, list
+in the Control Center gallery and hand the right `scripty://` URL to the system,
+but the app never comes forward, and the log says why:
+
+```
+linkd: Missing: scripty.scripty:OpenURLIntent
+       Bundle scripty.scripty exists, action OpenURLIntent is missing
+```
+
+That is not this app's bug. Apple's own Reminders control fails identically in
+the same simulator (`Missing: com.apple.reminders:CreateQuickReminderIntent`),
+and `linkd` cannot extract metadata for several Apple bundles there at all. The
+Simulator's App Intents metadata store is simply broken; **anything to do with
+running an intent has to be checked on a device.**
+
+On a device it all works: Spotlight lists the App Shortcuts, a required
+parameter prompts for its value, `openAppWhenRun` brings the app to the front,
+and the widgets offer their settings under "Edit Widget".
+
+**`Tests/run.sh` cannot compile anything that imports AppIntents**, so
+`ci_scripts/ci_post_clone.sh` will not catch an intents regression. The
+mitigation is the one `QuickAction` already embodies: every decision lives in a
+pure file — `ScriptyLink` and the widget filters in [Shared/](Shared),
+[IntentRouting.swift](scripty/Models/IntentRouting.swift) and
+[QuickAction.swift](scripty/Models/QuickAction.swift) beside it — and the
+AppIntents types are adapters with no branches in them.
 
 ## Which server it talks to
 
