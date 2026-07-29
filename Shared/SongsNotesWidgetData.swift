@@ -122,16 +122,19 @@ enum SongsNotesWidgetStore {
     /// every copy of it on every Home Screen.
     static let widgetKind = "SongsNotesWidget"
 
-    /// How many rows are kept. The largest family draws six, and a couple
-    /// spare means dropping one project's documents still leaves a full
-    /// widget rather than a gap until the next load.
+    /// How many rows are kept.
     ///
-    /// Two dozen rather than a dozen because the widget can now be configured
-    /// to one half of the list: twelve rows that happen to be mostly notes
-    /// leave a songs-only widget short of the six it has room for. The rows are
-    /// six small fields and the file is written whole, so the extra costs
-    /// nothing worth counting.
-    static let limit = 24
+    /// Sized for the second reader rather than the first. The largest widget
+    /// family draws six, and a dozen was once ample for it — but two things
+    /// read this now. The widget can be configured to one half of the list, so
+    /// a dozen rows that happen to be mostly notes leave a songs-only widget
+    /// short of the six it has room for; and the snapshot is the whole of what
+    /// Siri can name (see scripty/Intents), where "sorry, no such song" for a
+    /// song the writer worked on last month is a quiet failure of exactly the
+    /// kind a spoken request cannot recover from. So it holds a working month's
+    /// worth and the widget takes its six off the top. The file is a few fields
+    /// per row; nothing about this is expensive.
+    static let limit = 48
 
     private static let fileName = "songs-notes-widget.json"
 
@@ -203,14 +206,24 @@ enum SongsNotesWidgetStore {
                         limit: Int = limit) -> [WidgetDocument] {
         let kept = existing.filter { $0.projectId != projectId }
         let combined = kept + documents.filter { $0.projectId == projectId }
-        let ordered = combined.sorted { lhs, rhs in
+        return ordered(combined, limit: limit)
+    }
+
+    /// Newest first, capped — the one definition of "which of these come first",
+    /// shared by the merge above and by the App Intents that offer the same rows
+    /// to Siri. Split out so the two cannot drift: a spoken "open my last song"
+    /// answering with a different document than the widget draws would look like
+    /// a bug in whichever of the two the writer happened to distrust.
+    static func ordered(_ documents: [WidgetDocument],
+                        limit: Int = limit) -> [WidgetDocument] {
+        let sorted = documents.sorted { lhs, rhs in
             if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
             // Swift's sort promises nothing about equal elements, so ties break
             // on title rather than letting the widget reshuffle itself between
             // reloads for no visible reason.
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
-        return Array(ordered.prefix(max(0, limit)))
+        return Array(sorted.prefix(max(0, limit)))
     }
 
     /// Writes the merged list, reporting whether it differs from what was

@@ -247,6 +247,62 @@ of the wiring is in [QuickAction.swift](scripty/Models/QuickAction.swift) and
 screenplays — its projects only exist while it is running, so an entry for one
 could only ever fail — and signing out takes them back off.
 
+## Siri, Spotlight and Shortcuts
+
+Say "open my songs in Scripty", or start typing a screenplay's title into
+Spotlight and open it from the result. Nothing to set up: the phrases and the
+actions are registered by the app itself, and the Shortcuts app lists them under
+**Scripty** the moment it is installed.
+
+| Ask for                    | You get                                          |
+| -------------------------- | ------------------------------------------------ |
+| "Open my songs in Scripty" | The songs of your default screenplay             |
+| "Open my notes in Scripty" | The notes of the same one                        |
+| "Open my screenplays in Scripty" | The projects list                          |
+| "Open the Scripty demo"    | The offline demo, no account needed              |
+| **Open Screenplay**        | A screenplay you name — also a Spotlight result  |
+| **Open Song or Note**      | A song or note you name, in its screenplay       |
+
+The last two take a name, so they are offered through the Shortcuts app's picker
+and through Spotlight rather than as a fixed phrase — searching thirty titles is
+something a search field does better than a sentence that has to guess the title
+in advance.
+
+Everything nameable comes out of the same App Group snapshots the widgets draw
+from, and for the same reason: an entity query is answered by a copy of the app
+woken in the background, with no screen and often with no network, so asking the
+server would mean a request that works at a desk and fails on the Tube. It also
+means the same rules apply — the demo offers nothing, and signing out empties the
+Spotlight index along with both widgets and the Home Screen menu.
+
+Each intent ends by handing back a `scripty://` link and letting the app's own
+front door answer it, which is what the widgets have always done. So every one
+of these is available to a shortcut you build by hand, using exactly the link
+Siri uses:
+
+| Link | What it opens |
+| --- | --- |
+| `scripty://songs`, `scripty://notes` | Your default screenplay's songs or notes |
+| `scripty://project?id=…` | That screenplay; `scripty://project` for the list |
+| `scripty://document?project=…&id=…&kind=…` | One song or note |
+| `scripty://demo` | The offline demo |
+
+The pieces are in [scripty/Intents](scripty/Intents): the entities Siri can name
+([ScreenplayEntity.swift](scripty/Intents/ScreenplayEntity.swift),
+[DocumentEntity.swift](scripty/Intents/DocumentEntity.swift)), the intents
+themselves ([OpenIntents.swift](scripty/Intents/OpenIntents.swift)), the spoken
+phrases ([ScriptyShortcuts.swift](scripty/Intents/ScriptyShortcuts.swift)), and
+two files deliberately free of the AppIntents framework so `Tests/AppIntents` can
+check them without a simulator — the links
+([ShortcutLink.swift](scripty/Intents/ShortcutLink.swift)) and the name matching
+([IntentTargets.swift](scripty/Intents/IntentTargets.swift)).
+
+**None of this can be verified in the Simulator.** Its App Intents metadata store
+fails for Apple's own bundles too, so a control or a phrase that does nothing
+there is telling you about the Simulator, not the app. Check on a device. What
+the Simulator can still prove is that the intents shipped at all — they are
+listed in `Metadata.appintents/extract.actionsdata` inside the built `.app`.
+
 ## The Home Screen widgets
 
 Three of them, all shipped with the app rather than installed separately. Add
@@ -459,6 +515,7 @@ Anything that needs a running app is out of scope here — use `demo.sh` for tha
 | `scripty/Demo`  | The in-memory backend behind the offline demo           |
 | `scripty/Models`| Screenplay blocks, pagination, stats                    |
 | `scripty/Views` | The editor and everything around it                     |
+| `scripty/Intents`| Siri, Spotlight and Shortcuts: entities, intents, links |
 | `scripty/Widgets`| The app's half of both Home Screen widgets             |
 | `Shared`        | The files the app and each widget extension share       |
 | `ProjectsWidget`| The Screenplays widget extension                        |
