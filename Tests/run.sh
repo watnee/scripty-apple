@@ -115,6 +115,15 @@ swiftc "${FLAGS[@]}" -o "$BUILD/viewoptions" \
 "$BUILD/viewoptions" || status=1
 
 echo
+echo "== Reopening what was left open =="
+swiftc "${FLAGS[@]}" -o "$BUILD/editorstate" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/Models/TextDocument.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/EditorState/main.swift"
+"$BUILD/editorstate" || status=1
+
+echo
 echo "== Presentation / appearance settings =="
 swiftc "${FLAGS[@]}" -o "$BUILD/viewsettings" \
     "$SRC/State/PresentationSettings.swift" \

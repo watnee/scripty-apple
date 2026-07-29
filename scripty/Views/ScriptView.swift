@@ -70,6 +70,16 @@ struct ScriptView: View {
     /// model is the app-wide one rather than one per script.
     private let settings = PresentationSettings.shared
 
+    /// Which screen the writer had open above the script when they last put the
+    /// app down. The project list owns the project half of that record; this
+    /// view owns the screen sitting on top of it.
+    private let openEditors = OpenEditorState.shared
+    /// What the Songs & Notes screen should reopen once it is up, when this
+    /// launch is restoring a song or note editor that was reached through it.
+    /// Held here rather than read from the record inside that screen because the
+    /// record is handed over once, and this view is the one that claims it.
+    @State private var reopeningInSongs: [OpenEditor] = []
+
     /// What this script shows and whether it can be typed into. Per project
     /// rather than shared, so marking up one draft leaves the others alone.
     @State private var options: ScriptViewOptions
@@ -153,6 +163,10 @@ struct ScriptView: View {
             // list has to be in hand before a menu opens. Quiet, like editions:
             // an empty project just shows no insert section.
             await model.loadDocuments()
+            // Straight after the documents land, since a remembered song editor
+            // needs the song itself, and before the edition restore below, whose
+            // round trip a reopening sheet should not be made to wait out.
+            reopenRememberedEditor()
             model.startSyncPolling()
             repaginate()
             // Loaded quietly: most projects have a single edition and should
@@ -185,6 +199,9 @@ struct ScriptView: View {
         // a script left open and then killed should still reopen in the right
         // place.
         .onChange(of: model.focusedBlockId) { _, id in options.rememberBlock(id) }
+        // Which screen is up over the script, kept the same way and for the same
+        // reason.
+        .remembersOpenEditor(openEditor, atDepth: 0, isEnabled: !model.app.isDemo)
         .onChange(of: model.blocks) { _, _ in
             repaginate()
             restoreRememberedPosition()
@@ -273,8 +290,11 @@ struct ScriptView: View {
         .sheet(isPresented: $showingCharacters) {
             CharactersView(model: model)
         }
-        .sheet(isPresented: $showingSongs) {
-            SongsView(model: model, listType: songsListType)
+        // Dropped on the way out, so a restored editor is reopened once: the next
+        // time this screen is asked for it is because someone tapped for it, and
+        // they asked for the list rather than for whatever was on it last night.
+        .sheet(isPresented: $showingSongs, onDismiss: { reopeningInSongs = [] }) {
+            SongsView(model: model, listType: songsListType, reopening: reopeningInSongs)
         }
         // A Songs or Notes quick action, now that the screenplay it settled on
         // is the one on screen. `initial` is what catches the tap that opened
@@ -728,6 +748,68 @@ struct ScriptView: View {
         model.editionBlocksLink = link
         await model.refreshUndoRedo()
         repaginate()
+    }
+
+    /// Which screen is open over the script, as the restore record spells it.
+    ///
+    /// Outermost first, and only the screens a writer works in — the reader, the
+    /// stats and the administrative sheets are left out on purpose, since
+    /// reopening onto one of those would answer a question that was closed when
+    /// the app was. Every one of these is presented from this view, so at most
+    /// one of them can be up; the order below only settles which wins if two
+    /// flags were ever set in the same turn.
+    private var openEditor: OpenEditor? {
+        if let openingDocument { return .document(openingDocument.id) }
+        if showingSongs { return .songsAndNotes(songsListType) }
+        if showingCharacters { return .characters }
+        if showingOutline { return .outline }
+        if showingTitlePage { return .titlePage }
+        return nil
+    }
+
+    /// Reopens the screen the writer was in when they last put the app down.
+    ///
+    /// The record is claimed rather than read, so this happens once per launch
+    /// and for the remembered project only — switching scripts is not an
+    /// invitation to reopen the last one's songs. Every case is gated the way the
+    /// toolbar gates the button that opens it: a project whose links no longer
+    /// offer songs, or a script since emptied, reopens onto the script itself
+    /// rather than onto a screen with nothing on it. The demo is left out for the
+    /// same reason it keeps no record — it is a walkthrough, not someone's place.
+    private func reopenRememberedEditor() {
+        guard !model.app.isDemo else { return }
+        let path = openEditors.claimReopenPath(forProject: model.project.id)
+        // Claimed either way, then dropped if a Home Screen quick action has
+        // already opened something: tapping Songs is someone asking for the
+        // songs now, which outranks where they happened to be last night — and
+        // the restore is spent rather than left to fire over them later.
+        guard openEditor == nil, let screen = path.first else { return }
+        switch screen {
+        case .songsAndNotes(let type):
+            guard model.canViewDocuments else { return }
+            songsListType = type
+            // Whatever was open on top of the list travels with it, so a song
+            // editor two screens deep comes back with its list underneath.
+            reopeningInSongs = Array(path.dropFirst())
+            showingSongs = true
+        case .document(let id):
+            // A song deleted since is not found, and the script simply opens
+            // without it.
+            guard let document = model.documents.first(where: { $0.id == id }) else { return }
+            openingDocument = document
+        case .characters:
+            guard model.canViewCharacters else { return }
+            showingCharacters = true
+        case .outline:
+            guard model.hasScriptContent else { return }
+            showingOutline = true
+        case .titlePage:
+            showingTitlePage = true
+        case .songWorkspace:
+            // Only ever reached through the songs list, so it is never the
+            // outermost screen and there is nothing to open here.
+            break
+        }
     }
 
     /// Pagination walks the whole script, so it is only worth doing while the

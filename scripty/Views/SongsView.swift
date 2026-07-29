@@ -72,8 +72,13 @@ struct SongsView: View {
     /// only the Home Screen's Notes quick action does.
     @State private var listType: DocumentType
 
-    init(model: ScriptModel, listType: DocumentType = .song) {
+    /// The screen that was open above this one when the app was last put down,
+    /// if this launch is restoring it. Empty every other time this list opens.
+    private let reopening: [OpenEditor]
+
+    init(model: ScriptModel, listType: DocumentType = .song, reopening: [OpenEditor] = []) {
         self.model = model
+        self.reopening = reopening
         _listType = State(initialValue: listType)
     }
 
@@ -260,7 +265,10 @@ struct SongsView: View {
             .navigationTitle("Songs & Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .task { await reload() }
+            .task {
+                await reload()
+                reopenRememberedScreen()
+            }
             .refreshable { await reload() }
             .searchable(text: $searchText,
                         placement: .navigationBarDrawer(displayMode: .always),
@@ -272,6 +280,13 @@ struct SongsView: View {
                 selection.removeAll()
                 searchText = ""
             }
+            // Which of the two lists is showing is the first rung of the record,
+            // and the picker is the only thing that moves it once this screen is
+            // up — the script view set it on the way in and does not hear about
+            // this. The editor or workspace over the list is the rung above.
+            .remembersOpenEditor(.songsAndNotes(listType), atDepth: 0,
+                                 isEnabled: !model.app.isDemo)
+            .remembersOpenEditor(openEditor, atDepth: 1, isEnabled: !model.app.isDemo)
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }
             }
@@ -592,6 +607,38 @@ struct SongsView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Where the writer was
+
+    /// What is open over this list, as the restore record spells it.
+    ///
+    /// Creating and renaming are left out: a half-named new song has nothing
+    /// stored to reopen, and an app that came back up on an empty editor would
+    /// look like it had lost the one that was there.
+    private var openEditor: OpenEditor? {
+        if let editingDocument { return .document(editingDocument.id) }
+        if showingWorkspace { return .songWorkspace }
+        return nil
+    }
+
+    /// Reopens whatever was over this list when the app was last put down.
+    ///
+    /// The script view claimed the record and handed the rest of it down, so
+    /// there is nothing to guard against reopening twice: a list opened by hand
+    /// is given an empty path. A song deleted since is not found and the list
+    /// simply stays on screen, which is where the writer would have to go anyway.
+    private func reopenRememberedScreen() {
+        switch reopening.first {
+        case .document(let id):
+            editingDocument = model.documents.first { $0.id == id }
+        case .songWorkspace:
+            // Same gate the toolbar button has: a workspace needs songs to stack.
+            guard model.songs.count > 1 else { return }
+            showingWorkspace = true
+        default:
+            break
         }
     }
 

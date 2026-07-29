@@ -24,6 +24,9 @@ struct ContentView: View {
     @State private var openingDocuments: DocumentType?
 
     private let quickActions = QuickActions.shared
+    /// Where the writer was when they last put the app down. This view owns the
+    /// project half of that record; the script view owns the screens above it.
+    private let openEditors = OpenEditorState.shared
 
     init(app: AppModel) {
         self.app = app
@@ -50,11 +53,22 @@ struct ContentView: View {
             // script rather than parking on the empty detail pane.
             if app.isDemo, selectedProject == nil {
                 selectedProject = projectList.projects.first
+            } else {
+                reopenRememberedProject()
             }
             // A cold launch from the Home Screen menu lands here: the action was
             // taken before this view existed, so nothing has changed since to
-            // announce it.
+            // announce it. After the restore rather than before, because tapping
+            // a menu entry is someone saying where they want to go now, which
+            // outranks where they happened to be last time.
             performQuickAction()
+        }
+        // Where the writer is, kept as they go. A project deselected on iPad
+        // records nothing rather than the last one, since an empty detail pane
+        // is a place too — and it is the one they left the app in.
+        .onChange(of: selectedProject) { _, project in
+            guard !app.isDemo else { return }
+            openEditors.rememberProject(project?.id)
         }
         // What the menu offers is whatever the list last held.
         .onChange(of: projectList.projects) { _, projects in
@@ -65,6 +79,24 @@ struct ContentView: View {
         // waiting for exactly this.
         .onChange(of: projectList.isLoading) { _, _ in performQuickAction() }
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
+    }
+
+    /// Reopens the project the app was last left in.
+    ///
+    /// Only ever on the way in, and only onto an empty selection, so a project
+    /// chosen since — by a quick action, or by hand while the list was still
+    /// loading — is not overruled by where the writer was yesterday. An id
+    /// belonging to a screenplay since deleted, or to another account, is simply
+    /// not among the projects, and the list opens as it always did.
+    ///
+    /// The demo neither reads this record nor writes one: it opens the sample
+    /// script by its own rule just below, and a five-minute walkthrough must not
+    /// leave its place sitting on top of where the writer's real work was.
+    private func reopenRememberedProject() {
+        guard selectedProject == nil,
+              let id = openEditors.rememberedProjectId,
+              let project = projectList.projects.first(where: { $0.id == id }) else { return }
+        selectedProject = project
     }
 
     /// Opens what the Home Screen menu asked for, if anything.
