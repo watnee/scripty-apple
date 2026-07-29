@@ -322,6 +322,18 @@ if [ "$TEAM" != "$(remembered TEAM)" ]; then
     remember TEAM "$TEAM"
 fi
 
+# Every build out of this project calls itself version 1.0 (1), so installing
+# over the top hands iOS a copy it cannot tell from the one already there. The
+# app survives that — its binary is replaced and relaunched — but the widget
+# extensions do not: their plug-ins are registered once, keyed by that version,
+# and a reinstall that looks unchanged never re-registers them. A widget added
+# since the last install is then simply absent from the widget gallery, with
+# nothing wrong in the build to find. Stamp each run with the time instead, to
+# the second because two installs a minute apart is what debugging a widget
+# looks like. It reaches all four targets: a build setting given on the command
+# line applies project-wide, and CFBundleVersion is generated from this one.
+BUILD_NUMBER=$(date -u +%Y%m%d%H%M%S)
+
 # Ask the build system for the bundle id and the .app path rather than
 # hardcoding them, so renaming the target can't silently break the shortcut.
 # Both move when the bundle id does, so this is read again after that changes.
@@ -333,7 +345,7 @@ settle() {
     # without it the build stops at "isn't registered in your developer account"
     # even though -allowProvisioningUpdates sounds like it should cover that.
     OVERRIDES=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration
-        "DEVELOPMENT_TEAM=$TEAM")
+        "DEVELOPMENT_TEAM=$TEAM" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
     [ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_OVERRIDE")
     local settings status=0
     # Keep the stderr instead of dropping it, in the same file the build writes:
