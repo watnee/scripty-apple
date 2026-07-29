@@ -11,11 +11,13 @@
 //  either.
 //
 //  The line itself is a UITextView bridged into SwiftUI rather than a plain
-//  `TextField`, for one reason SwiftUI's field cannot give: a `TextField` has
+//  `TextField`, for two reasons SwiftUI's field cannot give. A `TextField` has
 //  no spell-check control, so a writer who turns spellcheck off in the view
 //  options still saw red squiggles under every lyric — the one surface that
-//  ignored the preference the screenplay and notes editors already honour. A
-//  UITextView can be told, exactly as `BlockTextView` tells its own.
+//  ignored the preference the screenplay and notes editors already honour. And
+//  it cannot see a Backspace pressed at offset 0, which is what folds a line
+//  into the one above it. A UITextView can be told and can be asked, exactly as
+//  `BlockTextView` tells and asks its own.
 //
 
 import SwiftUI
@@ -72,12 +74,19 @@ struct SongLineRow: View {
             }
 
             SongLineField(text: text,
-                          isFocused: focusedLine == block.id && !isRearranging,
+                          isFocused: isFocused,
                           isEditable: block.isEditable && !isRearranging,
                           fontSize: Self.baseLineSize * textScale,
                           spellChecks: spellChecks,
                           accessibilityLabel: "Lyric line \(block.order ?? 0)",
-                          onBeginEditing: { focusedLine = block.id },
+                          caret: model.caretRequests[block.id],
+                          onCaretApplied: { model.caretRequests[block.id] = nil },
+                          onBeginEditing: {
+                              focusedLine = block.id
+                              // Taken: the model has no further say over where
+                              // the caret goes until it asks again.
+                              if model.focusRequest == block.id { model.focusRequest = nil }
+                          },
                           onEndEditing: {
                               // Save on the way out rather than waiting for the
                               // debounce, and release the shared focus only if it
@@ -90,6 +99,17 @@ struct SongLineRow: View {
                               Task {
                                   if let created = await model.addLine(below: block) {
                                       focusedLine = created
+                                  }
+                              }
+                          },
+                          onBackspaceAtStart: {
+                              // Backspace with nothing behind the caret folds
+                              // the line into the one above, the way it does in
+                              // the screenplay. The model puts the caret at the
+                              // seam; all this has to do is follow it there.
+                              Task {
+                                  if let target = await model.mergeIntoPrevious(block) {
+                                      focusedLine = target
                                   }
                               }
                           })
@@ -106,6 +126,20 @@ struct SongLineRow: View {
                 }
             }
         }
+    }
+
+    /// Whether this line should be holding the caret.
+    ///
+    /// Two sources, because they answer different questions. The host's
+    /// `@FocusState` says which line the writer is in — set from the field
+    /// itself when they tap one. The model's `focusRequest` says which line the
+    /// *model* has just made or changed and wants typed into next, which is a
+    /// value SwiftUI would throw away if it were kept in the focus state: no
+    /// view here claims it with `.focused()`, since the field grants itself
+    /// first responder.
+    private var isFocused: Bool {
+        guard !isRearranging else { return false }
+        return focusedLine == block.id || model.focusRequest == block.id
     }
 
     private var text: Binding<String> {
@@ -208,11 +242,19 @@ private struct SongLineField: UIViewRepresentable {
     let fontSize: CGFloat
     let spellChecks: Bool
     let accessibilityLabel: String
+    /// Where the caret should go once this line has taken focus, in Characters.
+    /// Only a merge asks; the rest of the time UIKit's own placement is right.
+    let caret: Int?
+    let onCaretApplied: () -> Void
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
     /// Return: the model makes and focuses the next line. A lyric line is one
     /// block, so a newline is never inserted into the text itself.
     let onReturn: () -> Void
+    /// Backspace pressed with the caret at offset 0 and nothing selected. It
+    /// has no plain-text form to catch in the delegate, so the text view
+    /// reports it — the same route `BlockUITextView` takes for the screenplay.
+    let onBackspaceAtStart: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -227,6 +269,9 @@ private struct SongLineField: UIViewRepresentable {
         view.smartQuotesType = .no
         view.autocapitalizationType = .sentences
         view.text = text
+        view.onDeleteBackwardAtStart = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onBackspaceAtStart()
+        }
         context.coordinator.textView = view
         apply(to: view)
         return view
@@ -261,6 +306,16 @@ private struct SongLineField: UIViewRepresentable {
             // BlockTextView defers.
             DispatchQueue.main.async {
                 if !view.isFirstResponder { view.becomeFirstResponder() }
+            }
+        }
+
+        if let caret {
+            // After the focus request above, and deferred for the same reason:
+            // a line that has not become first responder yet would take the
+            // selection and then lose it again on the way in.
+            DispatchQueue.main.async {
+                view.setCaret(characterOffset: caret)
+                onCaretApplied()
             }
         }
     }
@@ -316,6 +371,32 @@ private struct SongLineField: UIViewRepresentable {
     }
 }
 
-/// A UITextView the size of one lyric line. Exists only to carry the type; the
-/// line's behaviour lives in the coordinator above.
-final class SongLineUITextView: UITextView {}
+/// A UITextView the size of one lyric line.
+///
+/// Carries the one key the delegate cannot see: Backspace pressed with the
+/// caret at the very start has no text to change, so `shouldChangeTextIn` is
+/// never asked about it. `BlockUITextView` reports the same key the same way
+/// for the screenplay.
+final class SongLineUITextView: UITextView {
+    var onDeleteBackwardAtStart: (() -> Void)?
+
+    override func deleteBackward() {
+        if selectedRange.location == 0, selectedRange.length == 0 {
+            onDeleteBackwardAtStart?()
+            return
+        }
+        super.deleteBackward()
+    }
+
+    /// Puts the caret at a Character offset. The line counts in UTF-16 and
+    /// everything above counts in Characters, so the boundary is crossed here.
+    func setCaret(characterOffset: Int) {
+        let string = text ?? ""
+        let bounded = max(0, min(characterOffset, string.count))
+        let index = string.index(string.startIndex, offsetBy: bounded)
+        let location = string.utf16.distance(
+            from: string.utf16.startIndex,
+            to: index.samePosition(in: string.utf16) ?? string.utf16.endIndex)
+        selectedRange = NSRange(location: location, length: 0)
+    }
+}

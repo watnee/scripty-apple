@@ -4,10 +4,11 @@
 //
 //  A song as its lyric lines, which is how the server has always stored one.
 //
-//  Return makes the next line, Backspace on an empty one removes it, and each
-//  line can be tinted, moved or deleted on its own. Editing a song as a single
-//  block of text — which is what this client did before — could not express any
-//  of that, and left editions and per-line history unreachable.
+//  Return makes the next line, Backspace at the head of one folds it into the
+//  line above, and each line can be tinted, moved or deleted on its own.
+//  Editing a song as a single block of text — which is what this client did
+//  before — could not express any of that, and left editions and per-line
+//  history unreachable.
 //
 
 import SwiftUI
@@ -141,6 +142,9 @@ struct SongBlockEditorView: View {
             .onChange(of: editMode) { _, mode in
                 guard mode.isEditing else { return }
                 focusedLine = nil
+                // Or a line the model was still pointing at would take the
+                // keyboard back the moment the list redraws for the drag.
+                model.focusRequest = nil
                 Task { await model.commitAll() }
             }
             .task {

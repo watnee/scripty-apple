@@ -150,6 +150,44 @@ do {
 }
 
 print("")
+print("Narrowing a rewrite to what changed")
+do {
+    /// The change as "what is cut, what goes in its place", which is what the
+    /// text view is actually told.
+    func narrowed(_ old: String, _ new: String) -> String {
+        guard let change = NoteFormatting.change(from: old, to: new) else { return "<same>" }
+        let start = old.index(old.startIndex, offsetBy: change.start)
+        let end = old.index(old.startIndex, offsetBy: change.end)
+        return "[\(old[start..<end])]→[\(change.replacement)]"
+            .replacingOccurrences(of: "\n", with: "⏎")
+    }
+
+    // The whole reason this exists: a rule that rewrites one line must reach
+    // the text view as one line's worth of edit, or UIKit's undo manager has
+    // no idea what the writer did and ⌘Z steps back past all of it.
+    check("a bullet added to a line touches only that line",
+          narrowed("milk\nbread", "- milk\nbread"), "[]→[- ]")
+    check("and taken off again", narrowed("- milk", "milk"), "[- ]→[]")
+    check("Return in a list inserts only the new line",
+          narrowed("- milk", "- milk\n- "), "[]→[⏎- ]")
+
+    // Renumbering rewrites a run of lines, so the span widens to cover it —
+    // still one replacement, which is all the text view needs.
+    check("a renumber widens the span to the lines it touched",
+          narrowed("1. a\n2. b\n3. c", "1. a\n1. b\n2. c"), "[2. b⏎3]→[1. b⏎2]")
+
+    // A no-op rewrite must be recognised as one: replacing an identical range
+    // would still register an undo step, and ⌘Z would then appear to do
+    // nothing at all.
+    check("an unchanged note reports no change", narrowed("- milk", "- milk"), "<same>")
+
+    // The offsets are in Characters, like every other offset in these rules —
+    // an emoji before the caret is one of them, not two.
+    check("counts in Characters, not UTF-16 units",
+          narrowed("🎸 solo", "🎸 solo!"), "[]→[!]")
+}
+
+print("")
 if failures == 0 {
     print("Note formatting checks passed.")
     exit(0)

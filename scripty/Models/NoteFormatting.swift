@@ -25,6 +25,15 @@ struct NoteEdit: Equatable {
     var caret: Int
 }
 
+/// The one span of a note that a rule rewrote: where it starts, where it ended
+/// in the old text, and what replaces it. Offsets are in Characters, like every
+/// other offset here.
+struct NoteChange: Equatable {
+    var start: Int
+    var end: Int
+    var replacement: String
+}
+
 enum NoteFormatting {
     /// One level, as spaces. Notes have no tab stops, so nesting has to be
     /// something a plain-text reader will also see.
@@ -164,6 +173,43 @@ enum NoteFormatting {
             lines[index] = rewritten
         }
         return join(lines, row: row, column: column)
+    }
+
+    // MARK: - Applying a rewrite
+
+    /// The span that differs between two versions of a note, or nil when they
+    /// are the same text.
+    ///
+    /// The rules above are written as whole-document rewrites, which is what
+    /// makes them checkable without a text view. A text view, though, must be
+    /// told what actually changed: replacing the whole document is invisible to
+    /// UIKit's undo manager and would leave ⌘Z stepping back to a note that no
+    /// longer exists. So the rewrite is narrowed to its one changed span on the
+    /// way in — the same reason the browser editor pushes its edits through
+    /// `execCommand('insertText')` instead of assigning `.value`.
+    ///
+    /// One span is always enough: every rule here rewrites the caret's line,
+    /// and renumbering extends that to a run of lines around it. Anything a
+    /// common prefix and suffix cannot narrow — a renumber above the caret and
+    /// another below it — simply widens the span to cover both, which is still
+    /// one correct replacement.
+    static func change(from old: String, to new: String) -> NoteChange? {
+        guard old != new else { return nil }
+        let before = Array(old)
+        let after = Array(new)
+
+        var start = 0
+        while start < before.count, start < after.count, before[start] == after[start] {
+            start += 1
+        }
+        var oldEnd = before.count
+        var newEnd = after.count
+        while oldEnd > start, newEnd > start, before[oldEnd - 1] == after[newEnd - 1] {
+            oldEnd -= 1
+            newEnd -= 1
+        }
+        return NoteChange(start: start, end: oldEnd,
+                          replacement: String(after[start..<newEnd]))
     }
 
     // MARK: - Line parsing

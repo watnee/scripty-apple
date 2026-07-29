@@ -1029,22 +1029,40 @@ final class ScriptModel {
         }
     }
 
+    /// Writes a document and disturbs nothing else. What the note editor's
+    /// autosave uses: a save every second of typing cannot also pull the
+    /// documents list and the script's blocks down each time, and while the
+    /// editor is open neither of them is on screen to be stale. The editor asks
+    /// for that refresh once, on its way out.
     @discardableResult
-    func updateDocument(_ document: TextDocument, title: String, content: String) async -> Bool {
+    func saveDocument(_ document: TextDocument, title: String, content: String) async -> Bool {
         guard let link = document.link(.update) else { return false }
         do {
             let _: TextDocument = try await app.client.fetch(
                 from: link, method: "PUT",
                 body: EditDocumentCommand(projectId: project.id, title: title,
                                           documentType: document.kind.rawValue, content: content))
-            await loadDocuments()
-            await loadBlocks()   // an edit may have re-synced inserted blocks
             errorMessage = nil
             return true
         } catch {
             report(error)
             return false
         }
+    }
+
+    /// Writes a document and brings everything that shows it back into step.
+    func updateDocument(_ document: TextDocument, title: String, content: String) async -> Bool {
+        guard await saveDocument(document, title: title, content: content) else { return false }
+        await refreshAfterDocumentEdit()
+        return true
+    }
+
+    /// The two lists an edited document can appear in: the songs & notes list
+    /// itself, and the script, where an inserted note's blocks may have been
+    /// re-synced by the same save.
+    func refreshAfterDocumentEdit() async {
+        await loadDocuments()
+        await loadBlocks()
     }
 
     /// Renames without touching content — fetches the full document first so

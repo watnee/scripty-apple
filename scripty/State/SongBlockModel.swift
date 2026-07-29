@@ -32,6 +32,24 @@ final class SongBlockModel {
     var focusedBlockId: Int?
     private(set) var liveText: [Int: String] = [:]
 
+    /// Where the caret should land in a line the model has just rewritten,
+    /// by line id. A merge is the only thing that asks: the writer's Backspace
+    /// has to leave the caret at the seam rather than wherever UIKit puts it
+    /// when the line takes focus. Read and cleared by the row that owns the
+    /// line, exactly as the screenplay's `caretRequests` is.
+    var caretRequests: [Int: Int] = [:]
+
+    /// The line the model wants typed into next: the one Return just made, or
+    /// the one a Backspace just folded another into.
+    ///
+    /// Held here rather than in the host's `@FocusState` because SwiftUI will
+    /// not keep a focus value no view has claimed with `.focused()` — and these
+    /// rows deliberately do not, since a lyric line is a bridged UITextView
+    /// that grants itself first responder. Written from a host, the value was
+    /// discarded before the new row could read it, and the keyboard stayed on
+    /// the line the writer had just left. Cleared by whichever row takes it.
+    var focusRequest: Int?
+
     /// Which edition's lyric to read. Nil means whichever the server calls
     /// default, which is what a song with one edition always resolves to.
     var editionBlocksLink: HALLink? {
@@ -113,13 +131,18 @@ final class SongBlockModel {
     }
 
     /// Saves a line now — on blur, or before an action that would reload.
-    func commit(_ block: SongBlock) async {
+    ///
+    /// Reports whether the line and the server now agree, which a merge has to
+    /// know before it deletes the line it just folded away. Nothing to save
+    /// counts as agreeing.
+    @discardableResult
+    func commit(_ block: SongBlock) async -> Bool {
         commitTasks[block.id]?.cancel()
         commitTasks[block.id] = nil
-        guard let pending = liveText[block.id], let link = block.link(.update) else { return }
+        guard let pending = liveText[block.id], let link = block.link(.update) else { return true }
         guard pending != block.text else {
             liveText[block.id] = nil
-            return
+            return true
         }
         do {
             let updated: SongBlock = try await app.client.fetch(
@@ -130,8 +153,10 @@ final class SongBlockModel {
             // The edit left a checkpoint behind it, so there is now somewhere
             // to step back to even though the list did not reload.
             await refreshUndoRedo()
+            return true
         } catch {
             report(error)
+            return false
         }
     }
 
@@ -166,11 +191,62 @@ final class SongBlockModel {
                 from: link, method: "POST", body: CreateSongBlockCommand(content: ""))
             await load()
             errorMessage = nil
+            focusRequest = created.id
             return created.id
         } catch {
             report(error)
             return nil
         }
+    }
+
+    /// Backspace with the caret at the very start of a line: fold the line into
+    /// the one above and leave the caret at the seam. Returns the line the
+    /// caret should move to, or nil when there is nowhere to fold into — the
+    /// first line of the lyric, or one the server will not let this writer
+    /// change.
+    ///
+    /// The screenplay has done this since it shipped, and a lyric is the same
+    /// shape: lines a writer walks through with the caret, where the way out of
+    /// a Return pressed by mistake should be the key that undoes typing
+    /// everywhere else. An empty line is the ordinary case and falls out of the
+    /// same arithmetic — nothing is added to the line above, and the empty one
+    /// goes.
+    @discardableResult
+    func mergeIntoPrevious(_ block: SongBlock) async -> Int? {
+        guard block.hasLink(.delete),
+              let index = index(of: block), index > 0,
+              let previous = blocks[..<index].last(where: { $0.hasLink(.update) })
+        else { return nil }
+
+        let previousText = currentText(previous)
+        let seam = previousText.count
+        let merged = previousText + currentText(block)
+
+        // A merge that cannot be persisted has to leave both lines exactly as
+        // they were: half of one would show the writer their own words twice.
+        let restore = liveText[previous.id]
+        liveText[previous.id] = merged
+        guard await commit(previous) else {
+            liveText[previous.id] = restore
+            return nil
+        }
+
+        commitTasks[block.id]?.cancel()
+        commitTasks[block.id] = nil
+        liveText[block.id] = nil
+        guard await delete(block) else {
+            // The folded-away line is still there, so the merged words now
+            // appear twice. Put the line above back the way it was and leave
+            // the lyric as it stood before the Backspace.
+            if let current = self.block(previous.id) {
+                liveText[previous.id] = previousText
+                await commit(current)
+            }
+            return nil
+        }
+        caretRequests[previous.id] = seam
+        focusRequest = previous.id
+        return previous.id
     }
 
     @discardableResult
@@ -272,6 +348,13 @@ final class SongBlockModel {
 
     private func index(of block: SongBlock) -> Int? {
         blocks.firstIndex { $0.id == block.id }
+    }
+
+    /// The line as the model currently holds it. A snapshot taken before a
+    /// round trip is stale afterwards, and the links a rollback needs live on
+    /// the current one.
+    private func block(_ id: Int) -> SongBlock? {
+        blocks.first { $0.id == id }
     }
 
     private func replace(_ block: SongBlock) {

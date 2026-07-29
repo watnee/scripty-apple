@@ -15,6 +15,15 @@
 //  formatting bar while the caret is in the note, and the same word-count
 //  readout the screenplay and lyric editors show under the same preference.
 //
+//  A note that already exists saves itself as it is written, as it does in the
+//  browser. Every other writing surface in this app has worked that way for as
+//  long as it has existed — the screenplay debounces each block, a lyric line
+//  saves on the way out of it — and this was the one place where an hour of
+//  prose lived only in a text view until somebody remembered to press a button.
+//  A new note is still saved by hand: it has no title until the writer gives it
+//  one, and creating a document behind their back on the first keystroke is a
+//  worse surprise than the prompt on the way out.
+//
 
 import SwiftUI
 
@@ -24,18 +33,29 @@ struct SongEditorView: View {
     let type: DocumentType
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var title: String
     @State private var content: String
     @State private var isSaving = false
     @State private var isLoading = false
     @State private var didLoad = false
     @State private var errorMessage: String?
+    /// What the writer is told about the saving of an existing note. Nil until
+    /// something has been typed, so a note opened and not touched says nothing.
+    @State private var saveStatus: SaveStatus?
+    /// The armed debounce. Cancelled and replaced on every keystroke, which is
+    /// what makes this a save a second after typing stops rather than one per
+    /// character — the same shape `SongBlockModel` gives a lyric line.
+    @State private var autosave: Task<Void, Never>?
     /// Whether the caret is in the note itself, so the formatting bar shows
     /// only when there is a line under the caret for it to act on — pressing
     /// "H1" while the title field has focus would silently head a line the
     /// writer cannot see.
     @State private var isWritingBody = false
     @State private var confirmingDiscard = false
+    /// Set by Discard on the way out, so the parting save knows the words on
+    /// screen are not wanted.
+    @State private var discarding = false
     /// The formatting bar's handle on the text view.
     @State private var formatting = NoteEditorController()
     @FocusState private var titleFocused: Bool
@@ -65,6 +85,25 @@ struct SongEditorView: View {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     private var canSave: Bool { canEdit && !trimmedTitle.isEmpty && !isSaving }
+
+    /// Whether this editor saves as it is written. A document the server will
+    /// take an edit for, and that therefore already exists to be edited.
+    private var autosaves: Bool { document != nil && canEdit }
+
+    /// How long typing has to stop before the note is sent. The browser waits
+    /// 900ms; this waits a little longer because a phone's save is a request
+    /// over whatever network it has, not a same-host POST.
+    private static let autosaveDelay: Duration = .milliseconds(1200)
+
+    /// Where an autosaving note has got to. Absent while nothing has been
+    /// typed, so an untouched note carries no chrome at all.
+    private enum SaveStatus: Equatable {
+        case saving
+        case saved
+        /// The save was refused. Sticky: this is the one state the writer has
+        /// to see, because it is the one where leaving loses something.
+        case failed(String)
+    }
 
     /// Whether leaving now would lose something. A brand-new document counts as
     /// changed the moment anything is typed into it — there is nothing on the
@@ -97,21 +136,58 @@ struct SongEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task { await loadFullContentIfNeeded() }
-            // A sheet dragged away takes the note with it, and unlike Cancel it
-            // gives no chance to say so — so while there is something to lose,
-            // the drag is turned off and Cancel is the only way out.
-            .interactiveDismissDisabled(hasUnsavedChanges)
-            .confirmationDialog("Discard changes?",
+            .onChange(of: title) { _, _ in scheduleAutosave() }
+            .onChange(of: content) { _, _ in scheduleAutosave() }
+            // A phone put down mid-sentence is backgrounded, and a backgrounded
+            // app is one the system may end without asking. Don't wait out the
+            // debounce for that. The sheet is still here, so this is the
+            // ordinary save rather than the parting one below.
+            .onChange(of: scenePhase) { _, phase in
+                guard phase != .active else { return }
+                autosave?.cancel()
+                Task { await saveNow() }
+            }
+            // Covers every other way this sheet goes away: Done, the drag, and
+            // the parent view deciding it is finished with it.
+            .onDisappear {
+                autosave?.cancel()
+                flush()
+            }
+            // A sheet dragged away takes the note with it, and unlike a button
+            // it gives no chance to say so. An autosaving note has nothing to
+            // lose to the drag — it is already saved, or saving — so the drag
+            // is only refused where the words really would go: a note that was
+            // never created, and one whose last save the server turned down.
+            .interactiveDismissDisabled(isNew ? hasUnsavedChanges : saveFailed)
+            .confirmationDialog(saveFailed ? "Discard unsaved changes?" : "Discard changes?",
                                 isPresented: $confirmingDiscard,
                                 titleVisibility: .visible) {
-                Button("Discard", role: .destructive) { dismiss() }
+                Button("Discard", role: .destructive) {
+                    // Before dismissing, or the parting save below would send
+                    // the very words the writer just chose to throw away.
+                    discarding = true
+                    dismiss()
+                }
                 Button("Keep Editing", role: .cancel) {}
             } message: {
-                Text(isNew
-                     ? "This \(type == .song ? "song" : "note") has not been saved yet."
-                     : "Your edits since opening will be lost.")
+                Text(discardMessage)
             }
         }
+    }
+
+    /// Whether the last save was refused and the words are still only here.
+    private var saveFailed: Bool {
+        if case .failed = saveStatus { return true }
+        return false
+    }
+
+    private var discardMessage: String {
+        if saveFailed {
+            return "The last save did not reach the server, so your most recent edits are only on this device."
+        }
+        return isNew
+            ? "This \(type == .song ? "song" : "note") has not been saved yet."
+            : "Your edits since opening will be lost."
     }
 
     // MARK: - Surfaces
@@ -150,9 +226,10 @@ struct SongEditorView: View {
         return type == .song ? "Write the lyrics here…" : "Write your notes here…"
     }
 
-    /// Under the note: what went wrong, how long it is, and the formatting bar
-    /// riding above the keyboard. Stacked in that order so the bar sits closest
-    /// to the writer's thumbs and the readout stays put above it.
+    /// Under the note: what went wrong, whether it is saved, how long it is,
+    /// and the formatting bar riding above the keyboard. Stacked in that order
+    /// so the bar sits closest to the writer's thumbs and the readouts stay put
+    /// above it.
     @ViewBuilder
     private var footer: some View {
         VStack(spacing: 0) {
@@ -164,6 +241,7 @@ struct SongEditorView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
             }
+            saveStatusBar
             if settings.showsWordCount {
                 WordCountBar(words: ScriptStats.countWords(content))
             }
@@ -173,18 +251,53 @@ struct SongEditorView: View {
         }
     }
 
+    /// Says where the note stands with the server, and — when that is nowhere —
+    /// offers the one thing worth offering, which is to try again.
+    @ViewBuilder
+    private var saveStatusBar: some View {
+        if let saveStatus {
+            HStack(spacing: 6) {
+                switch saveStatus {
+                case .saving:
+                    ProgressView().controlSize(.mini)
+                    Text("Saving…").foregroundStyle(.secondary)
+                case .saved:
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                    Text("Saved").foregroundStyle(.secondary)
+                case .failed(let message):
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(message).foregroundStyle(.primary)
+                    Button("Retry") { Task { await saveNow() } }
+                        .font(.footnote.weight(.medium))
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.footnote)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // An autosaving note is only ever left, never cancelled: there is
+        // nothing to cancel back to. The one exception is a save the server
+        // refused, where leaving does lose something and so has to be asked
+        // about.
         ToolbarItem(placement: .cancellationAction) {
-            Button(canEdit ? "Cancel" : "Done") {
-                if hasUnsavedChanges {
+            Button(autosaves || !canEdit ? "Done" : "Cancel") {
+                if autosaves ? saveFailed : hasUnsavedChanges {
                     confirmingDiscard = true
                 } else {
                     dismiss()
                 }
             }
         }
-        if canEdit {
+        if canEdit && !autosaves {
             ToolbarItem(placement: .confirmationAction) {
                 if isSaving {
                     ProgressView()
@@ -260,18 +373,99 @@ struct SongEditorView: View {
         savedContent = content
     }
 
+    // MARK: - Autosave
+
+    /// Arms the debounce. The load above writes into the same two fields, so
+    /// this checks that the note has really diverged rather than trusting that
+    /// a change came from the keyboard.
+    private func scheduleAutosave() {
+        guard autosaves, !isLoading, hasUnsavedChanges else { return }
+        // Said from the first keystroke rather than when the request leaves:
+        // what the writer needs to know is that the words are on their way, and
+        // a readout that still says "Saved" over unsent text is the one thing
+        // this bar must never do.
+        saveStatus = .saving
+        autosave?.cancel()
+        autosave = Task {
+            try? await Task.sleep(for: Self.autosaveDelay)
+            guard !Task.isCancelled else { return }
+            await saveNow()
+        }
+    }
+
+    /// Sends what is on screen and says so.
+    ///
+    /// A save landing while more is being typed is the ordinary case, so what
+    /// went is remembered and compared against what is there afterwards — if
+    /// the note moved on in the meantime, another save is armed rather than the
+    /// newer words being marked as saved.
+    private func saveNow() async {
+        guard autosaves, let document, !isSaving else { return }
+        // Typed back to what the server already holds — there is nothing to
+        // send, but the bar has been saying "Saving…" since the keystroke that
+        // got it there.
+        guard hasUnsavedChanges else {
+            if saveStatus == .saving { saveStatus = .saved }
+            return
+        }
+        // An untitled note cannot be saved: the server requires the title, and
+        // the list would have nothing to draw. Say so rather than retrying into
+        // a refusal every second.
+        guard !trimmedTitle.isEmpty else {
+            saveStatus = .failed("Add a title to save this \(type == .song ? "song" : "note").")
+            return
+        }
+        let sentTitle = title
+        let sentContent = content
+        isSaving = true
+        saveStatus = .saving
+        let succeeded = await model.saveDocument(document, title: trimmedTitle, content: sentContent)
+        isSaving = false
+        guard succeeded else {
+            saveStatus = .failed(model.errorMessage ?? "Not saved.")
+            return
+        }
+        savedTitle = sentTitle
+        savedContent = sentContent
+        saveStatus = .saved
+        errorMessage = nil
+        // Typed into while that was in flight: those words have not been sent.
+        if hasUnsavedChanges { scheduleAutosave() }
+    }
+
+    /// Sends whatever is unsent without waiting out the debounce, on a task
+    /// that belongs to the model rather than to this view — a sheet on its way
+    /// out takes its own tasks with it, and this is exactly the moment the
+    /// last paragraph would be lost.
+    ///
+    /// Also where the lists left alone during the session are brought back into
+    /// step, since every save until now deliberately skipped them.
+    private func flush() {
+        guard autosaves, let document else { return }
+        let dirty = hasUnsavedChanges && !trimmedTitle.isEmpty && !discarding
+        guard dirty || saveStatus != nil else { return }
+        let sentTitle = trimmedTitle
+        let sentContent = content
+        let model = model
+        Task { @MainActor in
+            if dirty {
+                await model.saveDocument(document, title: sentTitle, content: sentContent)
+            }
+            await model.refreshAfterDocumentEdit()
+        }
+    }
+
+    /// The Save button, which now only ever creates: a document that exists is
+    /// saving itself, and one that does not has no update link for anything
+    /// else to use.
     private func save() {
-        guard canSave else { return }
+        guard canSave, document == nil else { return }
         isSaving = true
         errorMessage = nil
         let title = trimmedTitle
         Task {
-            let succeeded: Bool
-            if let document {
-                succeeded = await model.updateDocument(document, title: title, content: content)
-            } else {
-                succeeded = await model.createDocument(title: title, content: content, type: type) != nil
-            }
+            let succeeded = await model.createDocument(
+                title: title, content: content, type: type) != nil
             isSaving = false
             if succeeded {
                 // Cleared before dismissing so the discard prompt cannot fire
