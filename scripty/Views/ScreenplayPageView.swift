@@ -31,6 +31,9 @@ struct ScreenplayPageView: View {
     var onVisiblePageChanged: (Int) -> Void = { _ in }
     /// Reported back so the navigator can show what fit worked out to.
     var onFitZoomChanged: (Int) -> Void = { _ in }
+    /// Reported for every scroll the reader drives by hand, so the owner can
+    /// fold its chrome away — this view hides nothing itself.
+    var onUserScroll: (_ delta: CGFloat, _ fromTop: CGFloat) -> Void = { _, _ in }
 
     var body: some View {
         GeometryReader { outer in
@@ -71,6 +74,7 @@ struct ScreenplayPageView: View {
                 if let current { onVisiblePageChanged(current) }
             }
             .background(deskColor)
+            .onUserScroll(onUserScroll)
             // Fit is re-resolved whenever the space changes — a rotation, a
             // sidebar, or full-width mode all move the sheet's own width.
             .onChange(of: outer.size.width, initial: true) { _, width in

@@ -109,6 +109,16 @@ struct ScriptView: View {
     /// Zero until the first layout, which reads as "use the printed measure".
     @State private var availableWidth: CGFloat = 0
 
+    /// Whether the toolbar and the reading bars are folded away because the
+    /// writer is scrolling down through the script — the reading posture
+    /// Word's iOS app takes. Scrolling back up, or reaching the top, brings
+    /// them straight back. Never persisted: every visit starts dressed.
+    @State private var isChromeHidden = false
+    /// How far the current run of scrolling has travelled in one direction.
+    /// A change of direction resets it, so folding the bars away — or bringing
+    /// them back — takes deliberate travel rather than a jitter of the finger.
+    @State private var scrollRun: CGFloat = 0
+
     /// Pagination is recomputed when the script or the paper changes rather
     /// than on every redraw — it walks the whole script.
     @State private var pages: [ScriptPage] = []
@@ -159,6 +169,14 @@ struct ScriptView: View {
     }
 
     var body: some View {
+        presentations(over: scriptSurface)
+    }
+
+    /// The script with its chrome, banners and lifecycle hooks — everything
+    /// short of the sheets, which `presentations` carries. Split because one
+    /// expression carrying every modifier is more than the type-checker will
+    /// finish in reasonable time.
+    private var scriptSurface: some View {
         Group {
             if settings.isPageView {
                 pageView
@@ -198,6 +216,20 @@ struct ScriptView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .toolbarTitleMenu { projectButtons }
+        // Scrolling down through the script folds the bar away for reading
+        // room; `respondToScroll` is what sets the flag. The reading bars at
+        // the bottom fold on the same flag, each at its own declaration.
+        .toolbarVisibility(isChromeHidden ? .hidden : .visible, for: .navigationBar)
+        // Search and selection are toolbar errands with bars of their own —
+        // the chrome comes back for them rather than leaving the writer to
+        // work them in a bare room. Search matters in particular: ⌘F can start
+        // it while the toolbar is folded away.
+        .onChange(of: isSearching) { _, searching in
+            if searching { setChrome(hidden: false) }
+        }
+        .onChange(of: selection.isSelecting) { _, selecting in
+            if selecting { setChrome(hidden: false) }
+        }
         .exportPresentation(exporter)
         .focusedSceneValue(\.scriptActions, menuActions)
         .refreshable {
@@ -291,6 +323,13 @@ struct ScriptView: View {
                 scroll(toRemembered: id)
             }
         }
+    }
+
+    /// Every sheet this screen can present, with the importer and the error
+    /// alert — `body`'s other half; see `scriptSurface` for why the split
+    /// exists.
+    private func presentations(over content: some View) -> some View {
+        content
         .sheet(item: $reader) { mode in
             ReadScriptView(
                 title: model.project.displayTitle,
@@ -619,6 +658,10 @@ struct ScriptView: View {
                 guard hasRestoredPosition, let top = visible.first else { return }
                 options.rememberBlock(top)
             }
+            // Only gestures reach this — the spy drops programmatic jumps, so
+            // the outline and the position restore cannot fold the bars away
+            // under a writer who never scrolled.
+            .onUserScroll(respondToScroll)
         }
         .scrollDismissesKeyboard(.interactively)
         // A soft edge lets the writing dissolve into the navigation bar rather
@@ -782,7 +825,7 @@ struct ScriptView: View {
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
     @ViewBuilder
     private var documentsBar: some View {
-        if isCompact && model.canViewDocuments && !settings.isFocusMode {
+        if isCompact && !isChromeHidden && model.canViewDocuments && !settings.isFocusMode {
             HStack(spacing: 8) {
                 songsButton
                 notesButton
@@ -800,7 +843,10 @@ struct ScriptView: View {
     /// want to be looking at.
     @ViewBuilder
     private var wordCountBar: some View {
-        if settings.showsWordCount {
+        // Folded away with the rest of the chrome while the script is being
+        // scrolled through: the count is a readout, not a control, and reading
+        // room is the whole point of the fold.
+        if settings.showsWordCount && !isChromeHidden {
             let words = memoizedWordCount
             WordCountBar(words: words, detail: pageReadout(words: words))
         }
@@ -814,6 +860,41 @@ struct ScriptView: View {
             return pages.count == 1 ? "1 page" : "\(pages.count) pages"
         }
         return "~\(ScriptWordCount.pageEstimate(words: words)) pages"
+    }
+
+    /// Folds the chrome away while the script is scrolled down through, and
+    /// brings it back the moment the direction turns — how Word's iOS app
+    /// treats its ribbon, and for the same reason: on a phone the bars are a
+    /// real share of the page, and someone scrolling is reading, not reaching
+    /// for a control.
+    ///
+    /// Compact widths only. A full-size iPad has room to keep its toolbar —
+    /// Word keeps its ribbon there too — and the toolbar is where that layout
+    /// keeps Songs and Notes, which have no bottom bar to fall back to.
+    private func respondToScroll(delta: CGFloat, fromTop: CGFloat) {
+        guard isCompact else { return }
+        // The top of the script is home: the bars are always dressed there,
+        // whichever direction the last gesture moved.
+        if fromTop < 32 {
+            scrollRun = 0
+            setChrome(hidden: false)
+            return
+        }
+        guard delta != 0 else { return }
+        if (delta > 0) != (scrollRun > 0) { scrollRun = 0 }
+        scrollRun += delta
+        // Asymmetric on purpose: folding away takes a real pull down, coming
+        // back should cost barely more than the thought.
+        if scrollRun > 60 {
+            setChrome(hidden: true)
+        } else if scrollRun < -20 {
+            setChrome(hidden: false)
+        }
+    }
+
+    private func setChrome(hidden: Bool) {
+        guard isChromeHidden != hidden else { return }
+        withAnimation(.easeInOut(duration: 0.22)) { isChromeHidden = hidden }
     }
 
     @ViewBuilder
@@ -856,7 +937,8 @@ struct ScriptView: View {
                     currentPage = page
                     rememberPagePosition(page)
                 },
-                onFitZoomChanged: { settings.fitZoom = $0 })
+                onFitZoomChanged: { settings.fitZoom = $0 },
+                onUserScroll: respondToScroll)
             .onChange(of: pendingPageTarget, initial: true) { _, page in
                 guard let page else { return }
                 proxy.scrollTo(page, anchor: .top)
