@@ -109,7 +109,19 @@ struct AccountView: View {
             } else if let account = model.account {
                 LabeledContent("Name", value: account.displayName)
                 if let username = account.username {
-                    LabeledContent("Username", value: username)
+                    // A field rather than plain text, and inert: nothing here
+                    // is editable, but the Passwords app can only *update* the
+                    // entry it holds if it can see which account the new
+                    // password below belongs to, and it looks for a username
+                    // field to learn that. Text it can't read means a duplicate
+                    // entry — or no offer to save at all.
+                    LabeledContent("Username") {
+                        TextField("", text: .constant(username))
+                            .textContentType(.username)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.secondary)
+                            .disabled(true)
+                    }
                 }
                 if account.passwordChangeRequired == true {
                     Label("The server is asking you to change your password.",
@@ -124,9 +136,17 @@ struct AccountView: View {
     @ViewBuilder
     private var passwordSection: some View {
         Section {
+            // The content types are what the Passwords app reads the form by:
+            // `.password` is the entry it already holds, `.newPassword` on both
+            // of the others is what makes it offer a strong password and, once
+            // this is saved, update the entry rather than leave the old one
+            // behind. The username it needs to match on is in the section above.
             SecureField("Current password", text: $currentPassword)
+                .textContentType(.password)
             SecureField("New password", text: $newPassword)
+                .textContentType(.newPassword)
             SecureField("Confirm new password", text: $confirmPassword)
+                .textContentType(.newPassword)
             if mismatch {
                 Text("The new passwords don't match.")
                     .font(.caption)

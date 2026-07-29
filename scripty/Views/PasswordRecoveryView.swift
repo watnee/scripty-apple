@@ -134,16 +134,27 @@ struct PasswordRecoveryView: View {
     @ViewBuilder
     private var setPassword: some View {
         Section {
+            // Which account, once the server has confirmed the token: a writer
+            // with two of them should see which one is about to change. It is a
+            // field rather than a line of text, and inert — the address comes
+            // from the token, not from typing — because the Passwords app reads
+            // a username field to decide which saved entry the new password
+            // below replaces. Without one it saves a second, nameless entry.
+            if let account = model.tokenEmail {
+                LabeledContent("Account") {
+                    TextField("", text: .constant(account))
+                        .textContentType(.username)
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(.secondary)
+                        .disabled(true)
+                }
+            }
             SecureField("New password", text: $password)
                 .textContentType(.newPassword)
         } header: {
             Text("Set a new password")
         } footer: {
-            // Which account, once the server has confirmed the token: a writer
-            // with two of them should see which one is about to change.
-            if let account = model.tokenEmail {
-                Text("This will change the password for \(account).")
-            } else if model.tokenRejected {
+            if model.tokenRejected {
                 Text("Ask for a new reset link and try again.")
             }
         }
