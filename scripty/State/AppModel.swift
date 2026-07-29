@@ -109,7 +109,7 @@ final class AppModel {
         client.credentials = stored
         // Let the system report the path once before the first request, so an
         // offline cold launch goes straight to the cached copy instead of
-        // sitting in the connectivity wait it is guaranteed to lose.
+        // spending a doomed round trip on the way there.
         await connectivity.waitForFirstVerdict()
         do {
             let data = try await client.data(for: client.rootLink)

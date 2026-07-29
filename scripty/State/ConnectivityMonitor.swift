@@ -4,9 +4,9 @@
 //
 //  Answers one question — does this device currently have a route to the
 //  network? — so the rest of the app can fail fast while offline instead of
-//  hanging in `waitsForConnectivity`, and can push held work the moment the
-//  route returns. The web client probes a /health endpoint on a timer for the
-//  same answer; a native app gets it straight from the system.
+//  spending a round trip to learn the same thing, and can push held work the
+//  moment the route returns. The web client probes a /health endpoint on a
+//  timer for the same answer; a native app gets it straight from the system.
 //
 //  A satisfied path is not a reachable server — the API can be down while the
 //  Wi-Fi is fine. That case still travels the existing slow route (a request

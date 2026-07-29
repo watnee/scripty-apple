@@ -207,12 +207,9 @@ func checkBlocksFallback() async {
                              baseText: "First line.", savedAt: .now),
                 projectId: 1)
 
-    // Hand-driven and offline, like every other case here. Left to the system
-    // monitor this would depend on the machine having a route to the network:
-    // `waitsForConnectivity` holds a request until the system reports a path,
-    // so somewhere without one (a sandbox, a CI box) the closed port below is
-    // never even tried and each request sits out the full 120s resource
-    // timeout instead of being refused in milliseconds.
+    // Hand-driven and offline, like every other case here: the verdict this
+    // case needs is "no route", and asking the system for it would make the
+    // check depend on whether the machine running it happens to have one.
     let offline = ConnectivityMonitor(startMonitoring: false)
     offline.adopt(false)
     let model = ScriptModel(app: AppModel(connectivity: offline), project: project,
