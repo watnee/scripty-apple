@@ -103,17 +103,27 @@ final class ScriptModel {
     /// connection. Nil exactly when the draft store is (signed out, demo).
     @ObservationIgnored private let offlineStore: OfflineStore?
 
+    /// Elements written while offline, waiting to be sent. Nil exactly when
+    /// the draft store is (signed out, demo) — the demo backend answers
+    /// offline anyway, so nothing there ever needs queueing.
+    @ObservationIgnored private let createQueue: OfflineBlockQueue?
+
     /// Set when the script on screen is the offline copy rather than the
     /// server's answer, with when that copy was saved.
     private(set) var offlineCopySavedAt: Date?
     var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
 
+    /// How many elements on screen exist only on this device. Drives the
+    /// banner's count alongside the unsaved-text one.
+    var pendingCreateCount: Int { blocks.filter(\.isLocal).count }
+
     init(app: AppModel, project: Project, draftStore: UnsavedDraftStore? = nil,
-         offlineStore: OfflineStore? = nil) {
+         offlineStore: OfflineStore? = nil, createQueue: OfflineBlockQueue? = nil) {
         self.app = app
         self.project = project
         self.draftStore = draftStore ?? app.draftScope.map { UnsavedDraftStore(scope: $0) }
         self.offlineStore = offlineStore ?? app.offlineStore
+        self.createQueue = createQueue ?? app.draftScope.map { OfflineBlockQueue(scope: $0) }
     }
 
     // MARK: - Loading
@@ -158,6 +168,7 @@ final class ScriptModel {
             guard generation == blockLoadGeneration else { return }
             adopt(collection)
             adoptPersistedDrafts()
+            adoptPendingCreates()
             offlineCopySavedAt = nil
             errorMessage = nil
             if isDefaultEdition, let store = offlineStore {
@@ -175,6 +186,7 @@ final class ScriptModel {
                let collection: HALCollection<Block> = try? app.client.decode(from: snapshot.data) {
                 adopt(collection)
                 adoptPersistedDrafts()
+                adoptPendingCreates()
                 offlineCopySavedAt = snapshot.savedAt
                 errorMessage = nil
             } else {
@@ -287,6 +299,14 @@ final class ScriptModel {
     }
 
     func deleteBlock(_ block: Block) async {
+        // An element that only ever existed on this device is deleted by
+        // forgetting it — there is nothing to ask the server to remove, and
+        // anything the writer anchored to it goes the same way.
+        if block.isLocal {
+            if let queue = createQueue { dropPendingCreate(block.id, from: queue) }
+            errorMessage = nil
+            return
+        }
         guard let link = block.link(.delete) else { return }
         do {
             try await app.client.data(for: link, method: "DELETE")
@@ -400,6 +420,18 @@ final class ScriptModel {
         commitTasks[id] = nil
         guard let text = liveText[id],
               let block = blocks.first(where: { $0.id == id }) else { return nil }
+        // An element written offline has nothing to PUT to. Its words go into
+        // the queue entry instead, so the create that eventually goes out
+        // carries the newest version — and it stays flagged unsaved, because
+        // it genuinely is. Returning the block lets Return chain off it.
+        if block.isLocal {
+            createQueue?.updateContent(tempId: id, to: text, projectId: project.id)
+            var updated = block
+            updated.content = text
+            replace(updated)
+            unsavedBlockIds.insert(id)
+            return updated
+        }
         guard text != (block.content ?? ""), let link = block.link(.update) else {
             markSaved(id)
             return block
@@ -530,6 +562,160 @@ final class ScriptModel {
         }
     }
 
+    // MARK: - Elements written offline
+
+    /// Put a new element on screen that the server has never seen, and queue
+    /// the create for the next time there is a connection.
+    ///
+    /// This is what Return, the + button and "Add Element Below" fall back to
+    /// when the create request can't get out. Without it the writer simply
+    /// cannot start a new line while offline — they can keep editing the lines
+    /// that already exist, which is a strange half-offline to be in.
+    ///
+    /// Returns the stand-in so the caller can focus it, exactly as it would
+    /// have focused the server's answer.
+    @discardableResult
+    private func createLocalBlock(below anchor: Block?, type: BlockType,
+                                  content: String, personId: Int?) -> Block? {
+        guard let queue = createQueue else { return nil }
+        let tempId = queue.nextTempId(projectId: project.id)
+        let insertAt = anchor
+            .flatMap { a in blocks.firstIndex(where: { $0.id == a.id }).map { $0 + 1 } }
+            ?? blocks.count
+        let block = Block.local(tempId: tempId, projectId: project.id,
+                                order: anchor?.order, content: content,
+                                type: type, personId: personId)
+        blocks.insert(block, at: insertAt)
+        queue.enqueue(PendingBlockCreate(tempId: tempId,
+                                         anchorId: anchor?.id ?? PendingBlockCreate.appendAnchor,
+                                         type: type.rawValue,
+                                         content: content,
+                                         personId: personId,
+                                         createdAt: .now),
+                      projectId: project.id)
+        // Counted as unsaved work so the banner speaks for it, and so the
+        // reconnect sweep has a reason to look.
+        unsavedBlockIds.insert(tempId)
+        if !content.isEmpty { liveText[tempId] = content }
+        errorMessage = nil
+        return block
+    }
+
+    /// Re-materialise the elements queued by an earlier run (or held across a
+    /// reload) on top of whatever the server just gave us.
+    ///
+    /// Runs after every adopt, for the same reason `adoptPersistedDrafts` does:
+    /// a load replaces the collection wholesale, and the writer's un-sent lines
+    /// have to survive that. Entries are walked in creation order so a chain of
+    /// them lands in the order it was written.
+    private func adoptPendingCreates() {
+        guard let queue = createQueue else { return }
+        for entry in queue.pending(projectId: project.id) {
+            guard !blocks.contains(where: { $0.id == entry.tempId }) else { continue }
+            // The anchor may be a real element, an earlier pending one, or
+            // gone entirely (deleted elsewhere) — in which case the line still
+            // belongs in the script, so it goes at the end rather than being
+            // silently dropped.
+            let insertAt = entry.isAppend
+                ? blocks.count
+                : (blocks.firstIndex { $0.id == entry.anchorId }.map { $0 + 1 } ?? blocks.count)
+            let type = BlockType(rawValue: entry.type) ?? .action
+            let precedingOrder = insertAt > 0 ? blocks[insertAt - 1].order : nil
+            blocks.insert(Block.local(tempId: entry.tempId, projectId: project.id,
+                                      order: precedingOrder,
+                                      content: entry.content, type: type,
+                                      personId: entry.personId),
+                          at: insertAt)
+            unsavedBlockIds.insert(entry.tempId)
+        }
+    }
+
+    /// Send everything written offline, oldest first.
+    ///
+    /// Order is not an optimisation here: a later element may be anchored to an
+    /// earlier one, so each create has to land (and have its real id recorded)
+    /// before the next can name it. A failure that could clear up stops the
+    /// drain and leaves the rest queued; one that never will drops that element
+    /// and everything hanging off it, rather than blocking the queue forever.
+    private func replayPendingCreates() async {
+        guard let queue = createQueue else { return }
+        var droppedAny = false
+        while let entry = queue.pending(projectId: project.id).first {
+            // Resolve the anchor: a temp anchor has by now been sent and
+            // mapped, since the queue is drained in order.
+            var anchor: Block?
+            if !entry.isAppend {
+                let realId = entry.anchorId < 0
+                    ? queue.realId(for: entry.anchorId, projectId: project.id)
+                    : entry.anchorId
+                anchor = realId.flatMap { id in blocks.first { $0.id == id } }
+            }
+            // No anchor (append, or the anchor is gone) means the end of the
+            // script — the last element the server actually knows about.
+            let source = anchor ?? blocks.last { !$0.isLocal }
+            guard let link = source?.link(.createBelow) ?? blocksLinks[.createInitial] else {
+                // Nothing on this script can take a new element: no edit
+                // access any more, or an empty script with no seed link.
+                dropPendingCreate(entry.tempId, from: queue)
+                droppedAny = true
+                continue
+            }
+            // The words as they stand now, not as they stood when the line was
+            // first typed — the writer has probably kept going.
+            let content = liveText[entry.tempId] ?? entry.content
+            do {
+                let created: Block = try await app.client.fetch(
+                    from: link, method: "POST",
+                    body: CreateBelowCommand(content: content,
+                                             personId: entry.personId,
+                                             type: entry.type))
+                queue.resolve(tempId: entry.tempId, realId: created.id, projectId: project.id)
+                // Swap the real element in where the stand-in stood, rather
+                // than just dropping it. The next entry in the queue may be
+                // anchored to this one, and it resolves that anchor by looking
+                // the real id up in `blocks` — so the created element has to be
+                // there, with its `createBelow` link, before the loop goes on.
+                // Removing it here instead would send the rest of a chain to
+                // the end of the script.
+                if let index = blocks.firstIndex(where: { $0.id == entry.tempId }) {
+                    blocks[index] = created
+                } else {
+                    blocks.append(created)
+                }
+                // The caret may be sitting in the element that just changed id.
+                if focusedBlockId == entry.tempId { focusedBlockId = created.id }
+                if let caret = caretRequests.removeValue(forKey: entry.tempId) {
+                    caretRequests[created.id] = caret
+                }
+                liveText[entry.tempId] = nil
+                markSaved(entry.tempId)
+            } catch {
+                if error.isRetryableAPIError {
+                    // Still no usable connection. Everything stays queued.
+                    return
+                }
+                dropPendingCreate(entry.tempId, from: queue)
+                droppedAny = true
+            }
+        }
+        if droppedAny {
+            // Not `report`: this is not a failure the writer can retry, it is
+            // news about work that could not be placed. The banner and the
+            // alert both belong to things still in flight.
+            presentToast("Some elements written offline couldn't be added")
+        }
+    }
+
+    /// Abandon a queued element and anything anchored to it, on screen as well
+    /// as on disk.
+    private func dropPendingCreate(_ tempId: Int, from queue: OfflineBlockQueue) {
+        for dropped in queue.drop(tempId: tempId, projectId: project.id) {
+            blocks.removeAll { $0.id == dropped }
+            liveText[dropped] = nil
+            markSaved(dropped)
+        }
+    }
+
     /// Flush every pending debounced commit right now — the app is heading to
     /// the background, and the debounce window may outlive its execution time.
     /// Each block's text is snapshotted to disk first, so even a commit that
@@ -548,7 +734,10 @@ final class ScriptModel {
     /// once everything lands.
     func connectionRestored() async {
         let pending = unsavedBlockIds.sorted()
-        for id in pending { await commit(id) }
+        // Existing elements first: a queued create is anchored to one of them,
+        // and its own words ride on the create rather than on a PUT.
+        for id in pending where id > 0 { await commit(id) }
+        await replayPendingCreates()
         // Not over active typing — the sync poll reloads after the writer
         // blurs (the commits above bumped the revision), clearing the
         // offline-copy flag with it.
@@ -620,19 +809,40 @@ final class ScriptModel {
         }
         liveText[block.id] = nil
 
+        let newType = currentType.followingType
+        // A source that is itself pending has no createBelow link to use, so
+        // the new line is queued behind it rather than refused.
+        if source.isLocal {
+            if let created = createLocalBlock(below: source, type: newType,
+                                              content: after, personId: nil) {
+                focus(created.id, caret: 0)
+            }
+            return
+        }
+        // No link on a *real* element means no permission to add one, which is
+        // not something a queue can fix — deliberately still a silent no-op,
+        // not an offline create that could never be sent.
         guard let link = source.link(.createBelow) else { return }
         do {
             let created: Block = try await app.client.fetch(
                 from: link, method: "POST",
                 body: CreateBelowCommand(content: after,
                                          personId: nil,
-                                         type: currentType.followingType.rawValue))
+                                         type: newType.rawValue))
             await loadBlocks()
             await refreshUndoRedo()
             focus(created.id, caret: 0)
             errorMessage = nil
         } catch {
-            report(error)
+            // Return has to keep working with no connection — this is the
+            // whole of writing. Hold the line locally and send it later.
+            guard error.isRetryableAPIError,
+                  let created = createLocalBlock(below: source, type: newType,
+                                                 content: after, personId: nil) else {
+                report(error)
+                return
+            }
+            focus(created.id, caret: 0)
         }
     }
 
@@ -643,6 +853,16 @@ final class ScriptModel {
     /// the following-type convention. This is the only touch route to the
     /// types the element-type bar leaves off (Text, Dual Dialogue, Page Break).
     func insertBlock(below block: Block, type: BlockType) async {
+        if block.isLocal {
+            if let created = createLocalBlock(below: block, type: type,
+                                              content: "", personId: nil) {
+                focus(created.id, caret: 0)
+            }
+            return
+        }
+        // As in `splitBlock`: a missing link is a permission answer, not a
+        // connection one, so it stays a no-op rather than becoming a queued
+        // create that the server would never accept.
         guard let link = block.link(.createBelow) else { return }
         do {
             let created: Block = try await app.client.fetch(
@@ -653,7 +873,13 @@ final class ScriptModel {
             focus(created.id, caret: 0)
             errorMessage = nil
         } catch {
-            report(error)
+            guard error.isRetryableAPIError,
+                  let created = createLocalBlock(below: block, type: type,
+                                                 content: "", personId: nil) else {
+                report(error)
+                return
+            }
+            focus(created.id, caret: 0)
         }
     }
 
@@ -676,6 +902,17 @@ final class ScriptModel {
         }
         liveText[previous.id] = nil   // model value is now authoritative for the merged row
 
+        if block.isLocal {
+            // Nothing to delete on the server: the absorbed element only ever
+            // existed here, so dropping its queued create is the whole of it.
+            // Done before the reload so the stand-in doesn't come back.
+            if let queue = createQueue { dropPendingCreate(block.id, from: queue) }
+            liveText[block.id] = nil
+            await loadBlocks()
+            await refreshUndoRedo()
+            focus(updatedPrevious.id, caret: seam)
+            return
+        }
         if let deleteLink = block.link(.delete) {
             do {
                 try await app.client.data(for: deleteLink, method: "DELETE")
@@ -707,6 +944,21 @@ final class ScriptModel {
 
     @discardableResult
     private func retype(_ block: Block, to type: BlockType, content: String?) async -> Block? {
+        // A local element's type is just another field of its queued create,
+        // so Tab cycling and the element-type bar work offline on the line the
+        // writer is actually typing.
+        if block.isLocal {
+            createQueue?.updateType(tempId: block.id, to: type.rawValue, projectId: project.id)
+            if let content {
+                liveText[block.id] = content
+                createQueue?.updateContent(tempId: block.id, to: content, projectId: project.id)
+            }
+            var updated = block
+            updated.type = type.rawValue
+            if let content { updated.content = content }
+            replace(updated)
+            return updated
+        }
         guard let link = block.link(.setType) else {
             // Server without setType: fall back to a content-only commit.
             if let content { liveText[block.id] = content; return await commit(block.id) }
@@ -796,7 +1048,17 @@ final class ScriptModel {
             await seedInitialBlock()
             return
         }
-        guard let last = blocks.last, let link = last.link(.createBelow) else {
+        guard let last = blocks.last else { return }
+        // A pending last element can't anchor a server create, but it can
+        // anchor another pending one.
+        if last.isLocal {
+            if let created = createLocalBlock(below: last, type: .action,
+                                              content: "", personId: nil) {
+                focus(created.id, caret: 0)
+            }
+            return
+        }
+        guard let link = last.link(.createBelow) else {
             await createBlock(content: "", type: .action, personId: nil)
             return
         }
@@ -809,7 +1071,13 @@ final class ScriptModel {
             focus(created.id, caret: 0)
             errorMessage = nil
         } catch {
-            report(error)
+            guard error.isRetryableAPIError,
+                  let created = createLocalBlock(below: last, type: .action,
+                                                 content: "", personId: nil) else {
+                report(error)
+                return
+            }
+            focus(created.id, caret: 0)
         }
     }
 

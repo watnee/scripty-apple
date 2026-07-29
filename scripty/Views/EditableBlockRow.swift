@@ -183,7 +183,10 @@ struct EditableBlockRow: View {
         // rides the bulk-format link with a single id rather than a dedicated
         // per-block endpoint, so one tap is one undo step — the same call the
         // multi-select bar makes, just without entering selection mode first.
-        if model.canBulkFormat && block.isEditable {
+        // Not on an element that exists only on this device: highlighting goes
+        // through the bulk-format endpoint, which can only name ids the server
+        // has issued. The line gets its colour once it has been sent.
+        if model.canBulkFormat && block.isEditable && !block.isLocal {
             Menu {
                 ForEach(BlockHighlight.allCases) { colour in
                     Button {
@@ -202,7 +205,9 @@ struct EditableBlockRow: View {
         // The web block editor's "Tags (comma separated)" field, brought to the
         // element menu. Editing rides the same `update` PUT as a text save, so
         // it is gated on the block being editable rather than on a bulk link.
-        if block.isEditable {
+        // Same reasoning as Highlight: tags ride the per-block PUT, and there
+        // is nothing to PUT to until the element has been created.
+        if block.isEditable && !block.isLocal {
             Button {
                 tagDraft = block.tagList.joined(separator: ", ")
                 isEditingTags = true
@@ -279,7 +284,10 @@ struct EditableBlockRow: View {
                 }
             }
         }
-        if block.hasLink(.delete) {
+        // A local element has no delete link and never will until it is sent,
+        // but the writer must still be able to take back a line they just
+        // typed — `deleteBlock` handles that by forgetting the queued create.
+        if block.hasLink(.delete) || block.isLocal {
             Button(role: .destructive) {
                 Task { await model.deleteBlock(block) }
             } label: {

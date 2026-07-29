@@ -358,14 +358,22 @@ struct ScriptView: View {
 
     @ViewBuilder
     private var unsavedBanner: some View {
+        // Elements written offline are counted in `unsavedBlockIds` too, so
+        // the number already covers them; they are named separately only when
+        // they are the whole of what is held, because "3 elements kept on this
+        // device" reads oddly for lines that do not exist anywhere yet.
         let count = model.unsavedBlockIds.count
+        let newCount = model.pendingCreateCount
+        let noun = { (n: Int) in n == 1 ? "element" : "elements" }
+        let held = newCount == count && newCount > 0
+            ? "· \(newCount) new \(noun(newCount)) kept on this device"
+            : "· \(count) \(noun(count)) kept on this device"
         if isOffline {
             heldWorkBanner(
                 icon: "wifi.slash",
                 title: "You're offline",
                 detail: count > 0
-                    ? "· \(count) " + (count == 1 ? "element" : "elements")
-                      + " kept on this device"
+                    ? held
                     : "— edits are kept on this device and sync when you're back online",
                 count: count,
                 accessibility: count > 0
@@ -377,8 +385,7 @@ struct ScriptView: View {
             heldWorkBanner(
                 icon: "arrow.trianglehead.2.clockwise.rotate.90",
                 title: "Not saved yet",
-                detail: "· \(count) " + (count == 1 ? "element" : "elements")
-                    + " kept on this device",
+                detail: held,
                 count: count,
                 accessibility:
                     "\(count) " + (count == 1 ? "element is" : "elements are")
