@@ -55,8 +55,14 @@ struct EditableBlockRow: View {
             .frame(maxWidth: pageWidth, alignment: pageAlignment)
             .padding(.top, topPadding)
             .overlay(alignment: .topLeading) { elementLabel }
+            .blockMarkers(block,
+                          commentCount: model.commentCount(for: block),
+                          // Past the row's own top padding, so a mark sits
+                          // beside the element's first line rather than above
+                          // it.
+                          topInset: topPadding,
+                          onComment: { onComment(block) })
             .frame(maxWidth: .infinity)
-            .overlay(alignment: .topTrailing) { badges }
             .contextMenu { contextMenu }
             .alert("Tags", isPresented: $isEditingTags) {
                 TextField("e.g. funny, action", text: $tagDraft)
@@ -295,23 +301,6 @@ struct EditableBlockRow: View {
                 .padding(.top, topPadding + 5)
                 .accessibilityHidden(true)
         }
-    }
-
-    @ViewBuilder
-    private var badges: some View {
-        HStack(spacing: 4) {
-            // The writer's own marks share one tint; the comment badge brings
-            // its own, since it is other people's.
-            HStack(spacing: 4) {
-                if block.isPinned && chrome.showsPins { Image(systemName: "pin.fill") }
-                if block.isBookmarked && chrome.showsBookmarks { Image(systemName: "bookmark.fill") }
-            }
-            .foregroundStyle(.orange)
-            CommentCountBadge(count: model.commentCount(for: block))
-        }
-        .font(.caption2)
-        // Every badge here is already spoken as part of the row's label.
-        .accessibilityHidden(true)
     }
 
     // MARK: - Per-type layout
