@@ -40,7 +40,13 @@ struct ContentView: View {
     @State private var hasRestoredSelection = false
 
     private let quickActions = QuickActions.shared
+    /// Which screenplay to come back to. The screens *above* it are the script
+    /// view's half of the same question — see `openEditors`, which is told the
+    /// project so it knows whose screens it is holding.
     private let lastOpened = LastOpenedProject()
+    /// Where the writer was when they last put the app down. This view owns the
+    /// project half of that record; the script view owns the screens above it.
+    private let openEditors = OpenEditorState.shared
 
     /// Watched only to refresh the menu on the way out — see the handler below.
     @Environment(\.scenePhase) private var scenePhase
@@ -81,6 +87,7 @@ struct ContentView: View {
             // announce it. A widget row tapped on a cold launch is in exactly
             // the same position. It runs after the open above so a menu tap
             // wins: the writer naming a screenplay outranks the one they left.
+
             performQuickAction()
             openWidgetDestination()
         }
@@ -93,6 +100,13 @@ struct ContentView: View {
         // device that then turns out to be offline. An account whose projects
         // really are all gone still publishes, because that is a change from
         // what the list held.
+        // Where the writer is, kept as they go. A project deselected on iPad
+        // records nothing rather than the last one, since an empty detail pane
+        // is a place too — and it is the one they left the app in.
+        .onChange(of: selectedProject) { _, project in
+            guard !app.isDemo else { return }
+            openEditors.rememberProject(project?.id)
+        }
         .onChange(of: projectList.projects) { _, projects in
             quickActions.publishRecents(projects, isDemo: app.isDemo)
             ProjectsWidgetPublisher.publish(projects, isDemo: app.isDemo)

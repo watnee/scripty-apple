@@ -74,6 +74,7 @@ struct SongsView: View {
     /// Which list the picker starts on.
     @State private var listType: DocumentType
 
+<<<<<<< HEAD
     /// A document to open as soon as the list has loaded, which only a tapped
     /// Home Screen widget row ever names. Not `@State`: it is answered once, on
     /// the load this screen opens with, and nothing on screen can set it.
@@ -92,11 +93,16 @@ struct SongsView: View {
     /// tile exists for. Seeded rather than applied on appear: the sheet is
     /// wanted from the first frame, and a second animation on the way in would
     /// read as the screen changing its mind.
+    /// The screen that was open above this one when the app was last put down,
+    /// if this launch is restoring it. Empty every other time this list opens.
+    private let reopening: [OpenEditor]
+
     init(model: ScriptModel, options: ScriptViewOptions, listType: DocumentType? = nil,
-         openingId: Int? = nil, creating: Bool = false) {
+         openingId: Int? = nil, creating: Bool = false, reopening: [OpenEditor] = []) {
         self.model = model
         self.options = options
         self.openingId = openingId
+        self.reopening = reopening
         let remembered = options.rememberedDocumentList.flatMap(DocumentType.init(rawValue:))
         let opening = listType ?? remembered ?? .song
         _listType = State(initialValue: opening)
@@ -295,12 +301,17 @@ struct SongsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task {
+<<<<<<< HEAD
                 // A list a quick action named is as much a statement of intent
                 // as one the picker was tapped over to, so it is remembered the
                 // same way — the picker's own change never fires for it.
                 options.rememberDocumentList(listType.rawValue)
                 await reload()
                 openRequestedDocument()
+=======
+                await reload()
+                reopenRememberedScreen()
+>>>>>>> claude/editor-state-persistence-b7bfe0
             }
             .refreshable { await reload() }
             .searchable(text: $searchText,
@@ -315,6 +326,13 @@ struct SongsView: View {
                 searchText = ""
                 options.rememberDocumentList(type.rawValue)
             }
+            // Which of the two lists is showing is the first rung of the record,
+            // and the picker is the only thing that moves it once this screen is
+            // up — the script view set it on the way in and does not hear about
+            // this. The editor or workspace over the list is the rung above.
+            .remembersOpenEditor(.songsAndNotes(listType), atDepth: 0,
+                                 isEnabled: !model.app.isDemo)
+            .remembersOpenEditor(openEditor, atDepth: 1, isEnabled: !model.app.isDemo)
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }
             }
@@ -655,6 +673,38 @@ struct SongsView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Where the writer was
+
+    /// What is open over this list, as the restore record spells it.
+    ///
+    /// Creating and renaming are left out: a half-named new song has nothing
+    /// stored to reopen, and an app that came back up on an empty editor would
+    /// look like it had lost the one that was there.
+    private var openEditor: OpenEditor? {
+        if let editingDocument { return .document(editingDocument.id) }
+        if showingWorkspace { return .songWorkspace }
+        return nil
+    }
+
+    /// Reopens whatever was over this list when the app was last put down.
+    ///
+    /// The script view claimed the record and handed the rest of it down, so
+    /// there is nothing to guard against reopening twice: a list opened by hand
+    /// is given an empty path. A song deleted since is not found and the list
+    /// simply stays on screen, which is where the writer would have to go anyway.
+    private func reopenRememberedScreen() {
+        switch reopening.first {
+        case .document(let id):
+            editingDocument = model.documents.first { $0.id == id }
+        case .songWorkspace:
+            // Same gate the toolbar button has: a workspace needs songs to stack.
+            guard model.songs.count > 1 else { return }
+            showingWorkspace = true
+        default:
+            break
         }
     }
 
