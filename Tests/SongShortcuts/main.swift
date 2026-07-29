@@ -1,10 +1,12 @@
 //
-//  Song shortcut ordering checks
+//  Song and note shortcut checks
 //
-//  Two screens offer a shortcut straight to a song — the script's Songs menu
-//  and the strip at the head of the songs list — and both take their handful
-//  from `mostRecentlyEdited`. So the rule is worth pinning: which songs it
-//  picks, in which order, and what it does with one the server never dated.
+//  Two screens offer a shortcut straight to a song or a note — the script's
+//  Songs & Notes menu and the strip at the head of each list — and both take
+//  their handful from `mostRecentlyEdited`. So the rule is worth pinning: which
+//  ones it picks, in which order, and what it does with one the server never
+//  dated. The last group pins what tells one request for the Songs & Notes
+//  screen from another, which is what decides the list it opens on.
 //
 //  The failure this guards against is quiet. A shortcut list that silently
 //  ordered itself by id, or that let an undated row take a slot, still looks
@@ -139,45 +141,25 @@ func run() {
     }
 
     print("")
-    print("Songs and notes are two shortcut lists")
+    print("Which list the Songs & Notes screen was asked for")
     do {
-        // One project's documents, interleaved in time, as the server returns
-        // them: the script's Songs & Notes menu draws a section from each.
-        let all = [
-            document(1, "Ballad", type: "SONG", minutesAgo: 40),
-            document(2, "Blocking", type: "NOTES", minutesAgo: 30),
-            document(3, "Finale", type: "SONG", minutesAgo: 10),
-            document(4, "Casting", type: "NOTES", minutesAgo: 20)
-        ]
-        // The failure this guards is a menu whose "Recent Notes" quietly leads
-        // with a song, or vice versa — each section is drawn from its own kind
-        // and takes its own newest, not the project's.
-        check("the songs section holds only songs, newest first",
-              titles(songsAmong(all).mostRecentlyEdited(limit: 3)), "Finale, Ballad")
-        check("the notes section holds only notes, newest first",
-              titles(notesAmong(all).mostRecentlyEdited(limit: 3)), "Casting, Blocking")
-        // Each section is capped on its own, so a busy week of songs cannot
-        // crowd the notes out of the menu.
-        check("the caps do not share a budget",
-              titles(notesAmong(all).mostRecentlyEdited(limit: 1)), "Casting")
-    }
-
-    print("")
-    print("Documents the server typed oddly")
-    do {
-        let all = [
-            document(1, "Sketch", type: "OTHER", minutesAgo: 20),
-            document(2, "Unclassified", type: nil, minutesAgo: 10)
-        ]
-        // OTHER is not a song, and the notes list is where the screen puts it —
-        // it is the half that means "everything else".
-        check("OTHER goes to the notes", titles(notesAmong(all).mostRecentlyEdited(limit: 2)),
-              "Sketch")
-        // An untyped document falls back to SONG, which is the server's own
-        // default for a new one, so the two shortcut lists between them still
-        // account for every document in the project.
-        check("an untyped one falls back to a song",
-              titles(songsAmong(all).mostRecentlyEdited(limit: 2)), "Unclassified")
+        // The screen is presented as this request's *item*, and its list is
+        // seeded from the request the first time that item exists. So two
+        // requests for different lists have to be two identities — otherwise
+        // the second opening reuses the first one's state and "All Notes…"
+        // lands on songs, which is exactly the bug this identity exists to fix.
+        check("songs and notes are told apart",
+              DocumentsRequest(type: .song).id == DocumentsRequest(type: .notes).id, false)
+        check("the same list asked for twice is one request",
+              DocumentsRequest(type: .song).id, DocumentsRequest(type: .song).id)
+        // A widget row names the document as well as the list, and opening two
+        // different songs in turn has to re-present rather than reopen the first.
+        check("two songs on one list are told apart",
+              DocumentsRequest(type: .song, documentId: 1).id
+                  == DocumentsRequest(type: .song, documentId: 2).id, false)
+        check("naming a document differs from opening the list",
+              DocumentsRequest(type: .song, documentId: 1).id
+                  == DocumentsRequest(type: .song).id, false)
     }
 }
 
@@ -185,9 +167,9 @@ MainActor.assumeIsolated { run() }
 
 print("")
 if failures == 0 {
-    print("Song shortcut checks passed.")
+    print("Song and note shortcut checks passed.")
     exit(0)
 } else {
-    print("\(failures) song shortcut check(s) FAILED.")
+    print("\(failures) song and note shortcut check(s) FAILED.")
     exit(1)
 }

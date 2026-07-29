@@ -16,7 +16,7 @@
 
 import Foundation
 
-struct DocumentsRequest: Equatable, Sendable {
+struct DocumentsRequest: Equatable, Identifiable, Sendable {
     /// Which of the two lists — songs or notes — the sheet opens on.
     var type: DocumentType
 
@@ -44,4 +44,14 @@ struct DocumentsRequest: Equatable, Sendable {
         self.documentId = documentId
         self.creating = creating
     }
+
+    /// What the request asks for, which is also what tells two of them apart.
+    ///
+    /// It exists so the screen can be presented as a sheet's *item* rather than
+    /// off a boolean: a sheet raised by `isPresented` reads the rest of the view
+    /// as it stood before the button ran, so a list chosen in the same tap
+    /// arrives stale and "All Notes…" opens on songs. Carrying the request as
+    /// the item is what makes it arrive at all — the same reason the script's
+    /// reader is presented by its mode.
+    var id: String { "\(type.rawValue):\(documentId?.description ?? "")" }
 }

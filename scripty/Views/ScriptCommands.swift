@@ -94,23 +94,26 @@ struct ScriptActions {
 
     /// Songs & Notes, and the documents themselves.
     ///
-    /// `songsAndNotes` opens the screen; the two recent lists are the few last
-    /// edited of each kind, which `openDocument` opens directly — the toolbar
-    /// menu's contents, so a writer at a keyboard reaches either without the
-    /// screen in between. They are snapshots rather than closures because the
-    /// menu has to draw the titles, not only act on them. Empty when the server
-    /// never advertised the project's documents, or when no script is frontmost.
+    /// `songsAndNotes` opens the screen; `recentSongs` and `recentNotes` are the
+    /// few last edited of each kind, which `openDocument` opens directly — the
+    /// toolbar menu's contents, so a writer at a keyboard reaches either without
+    /// the screen in between. The lists are snapshots rather than closures
+    /// because the menu has to draw the titles, not only act on them. Empty when
+    /// the server never advertised the project's documents, or when no script is
+    /// frontmost.
     var songsAndNotes: (() -> Void)?
     var recentSongs: [TextDocument] = []
     var recentNotes: [TextDocument] = []
     var openDocument: ((TextDocument) -> Void)?
 
-    /// Insert a song's lyrics below the focused element — the block menu's
-    /// "Insert Song". Empty and nil unless an element is focused, the script is
-    /// unlocked, and the server advertised an `insert` link on at least one
-    /// song, which it does only for a writer who may edit.
+    /// Insert a song's lyrics or a note's text below the focused element — the
+    /// block menu's "Insert Song" and "Insert Note". Empty and nil unless an
+    /// element is focused, the script is unlocked, and the server advertised an
+    /// `insert` link on at least one document, which it does only for a writer
+    /// who may edit.
     var insertableSongs: [TextDocument] = []
-    var insertSong: ((TextDocument) -> Void)?
+    var insertableNotes: [TextDocument] = []
+    var insertDocument: ((TextDocument) -> Void)?
 
     /// Open the screenplay file picker — the web's ⌘⇧I Import. Nil unless the
     /// server advertises `importScript` (editors only); the client otherwise
@@ -208,7 +211,7 @@ struct ScriptCommands: Commands {
             Button("Paste Elements Below") { actions?.pasteElements?() }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
                 .disabled(actions?.pasteElements == nil)
-            insertSongItem
+            insertDocumentItems
             Divider()
             // ⌘⌥M, not a ⌘⇧ chord: the web deliberately puts comments there so
             // it fires while the caret is still in the block ("comments on the
@@ -252,44 +255,47 @@ struct ScriptCommands: Commands {
     ///
     /// The submenus are named for what they hold: "Songs" would claim to list
     /// every one of them, when each lists the few last edited and leaves the rest
-    /// to the screen above. A kind with none stays there greyed out rather than
-    /// disappearing — a menu whose items move around between openings is harder
-    /// to learn than one with a dead entry in it.
+    /// to the screen above them. Notes get their own rather than sharing one
+    /// list with the songs, so a project deep in either kind still shows both.
+    ///
+    /// Neither submenu takes a chord: ⌘⇧N is Show/Hide Pins, and the shortcuts
+    /// here are a list to pick from rather than one action a key could stand for.
     @ViewBuilder
     private var songItems: some View {
         Button("Songs & Notes…") { actions?.songsAndNotes?() }
             .keyboardShortcut("s", modifiers: [.command, .shift])
             .disabled(actions?.songsAndNotes == nil)
 
-        recentMenu("Recent Songs", actions?.recentSongs ?? [])
-        recentMenu("Recent Notes", actions?.recentNotes ?? [])
+        documentMenu("Recent Songs", actions?.recentSongs ?? [], actions?.openDocument)
+        documentMenu("Recent Notes", actions?.recentNotes ?? [], actions?.openDocument)
     }
 
+    /// One kind of document, listed by title under a heading, each row doing
+    /// the one thing the menu is for — opening it, or inserting it. Greyed out
+    /// rather than dropped when the project has none of that kind, so the items
+    /// keep their places in the menu between projects.
     @ViewBuilder
-    private func recentMenu(_ title: String, _ documents: [TextDocument]) -> some View {
+    private func documentMenu(_ title: String, _ documents: [TextDocument],
+                              _ action: ((TextDocument) -> Void)?) -> some View {
         Menu(title) {
             ForEach(documents) { document in
-                Button(document.displayTitle) { actions?.openDocument?(document) }
+                Button(document.displayTitle) { action?(document) }
             }
         }
-        .disabled(documents.isEmpty || actions?.openDocument == nil)
+        .disabled(documents.isEmpty || action == nil)
     }
 
-    /// The block menu's "Insert Song", where the keyboard can reach it.
+    /// The block menu's "Insert Song" and "Insert Note", where the keyboard can
+    /// reach them.
     ///
-    /// Acts on the focused element, so it is unavailable with nothing focused —
-    /// which is also the only way it could know where to put the lyrics. A
-    /// submenu with no songs in it is left to the platform to grey out or drop,
-    /// as it does the element clipboard items it sits with.
+    /// They act on the focused element, so they are unavailable with nothing
+    /// focused — which is also the only way they could know where to put the
+    /// text. A submenu with nothing in it is left to the platform to grey out or
+    /// drop, as it does the element clipboard items these sit with.
     @ViewBuilder
-    private var insertSongItem: some View {
-        let songs = actions?.insertableSongs ?? []
-        Menu("Insert Song Below") {
-            ForEach(songs) { song in
-                Button(song.displayTitle) { actions?.insertSong?(song) }
-            }
-        }
-        .disabled(songs.isEmpty || actions?.insertSong == nil)
+    private var insertDocumentItems: some View {
+        documentMenu("Insert Song Below", actions?.insertableSongs ?? [], actions?.insertDocument)
+        documentMenu("Insert Note Below", actions?.insertableNotes ?? [], actions?.insertDocument)
     }
 
     @ViewBuilder
