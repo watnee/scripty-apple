@@ -10,7 +10,9 @@ struct LoginView: View {
 
     @State private var username = ""
     @State private var password = ""
-    @State private var isSigningIn = false
+    /// Which button's work is in flight, so the spinner lands on the button
+    /// that was tapped rather than always on Sign In.
+    @State private var busy: Busy?
     /// Where password recovery lives, if this server offers it. Learned from
     /// the 401 challenge — it is the only document a caller with no credentials
     /// can read, so it is the only place the link could come from.
@@ -27,115 +29,133 @@ struct LoginView: View {
         case username, password
     }
 
+    private enum Busy {
+        case password, passkey, demo
+    }
+
     private var canSubmit: Bool {
         !username.trimmingCharacters(in: .whitespaces).isEmpty
             && !password.isEmpty
-            && !isSigningIn
+            && busy == nil
     }
 
     var body: some View {
-        VStack(spacing: 28) {
-            Spacer()
+        // The scroll view only matters when the keyboard leaves too little
+        // room — the minHeight frame keeps everything centered whenever the
+        // content does fit, so a full-height screen looks exactly as before.
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 28) {
+                    Spacer(minLength: 16)
 
-            VStack(spacing: 8) {
-                Image(systemName: "film.stack")
-                    .font(.system(size: 52))
-                    .foregroundStyle(.tint)
-                Text("Scripty")
-                    .font(.largeTitle.bold())
-                Text("Collaborative Screenwriting")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(spacing: 14) {
-                TextField("Username or email", text: $username)
-                    .textContentType(.username)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($focusedField, equals: .username)
-                    .submitLabel(.next)
-                    .onSubmit { focusedField = .password }
-
-                SecureField("Password", text: $password)
-                    .textContentType(.password)
-                    .focused($focusedField, equals: .password)
-                    .submitLabel(.go)
-                    .onSubmit { if canSubmit { signIn() } }
-            }
-            .textFieldStyle(.roundedBorder)
-            .frame(maxWidth: 360)
-
-            if let error = app.signInError {
-                Text(error)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-            }
-
-            Button {
-                signIn()
-            } label: {
-                Group {
-                    if isSigningIn {
-                        ProgressView()
-                    } else {
-                        Text("Sign In")
-                            .fontWeight(.semibold)
+                    VStack(spacing: 8) {
+                        Image(systemName: "film.stack")
+                            .font(.system(size: 52))
+                            .foregroundStyle(.tint)
+                        Text("Scripty")
+                            .font(.largeTitle.bold())
+                        Text("Collaborative Screenwriting")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
+
+                    VStack(spacing: 14) {
+                        TextField("Username or email", text: $username)
+                            .textContentType(.username)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($focusedField, equals: .username)
+                            .submitLabel(.next)
+                            .onSubmit { focusedField = .password }
+
+                        SecureField("Password", text: $password)
+                            .textContentType(.password)
+                            .focused($focusedField, equals: .password)
+                            .submitLabel(.go)
+                            .onSubmit { if canSubmit { signIn() } }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 360)
+
+                    if let error = app.signInError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: 360, alignment: .leading)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    Button {
+                        signIn()
+                    } label: {
+                        busyLabel(if: .password) {
+                            Text("Sign In")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(!canSubmit)
+
+                    if let passkeyLink {
+                        Button {
+                            signInWithSavedCredential(using: passkeyLink)
+                        } label: {
+                            // The sheet lists this domain's passkeys and the
+                            // passwords the Passwords app has saved for it, so
+                            // the button can't promise only one of them.
+                            busyLabel(if: .passkey) {
+                                Label("Use a Saved Passkey or Password",
+                                      systemImage: "person.badge.key")
+                            }
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(busy != nil)
+                    }
+
+                    if let recoveryLink {
+                        Button("Forgot password?") {
+                            focusedField = nil
+                            self.presentedRecovery = recoveryLink
+                        }
+                        .font(.callout)
+                        .disabled(busy != nil)
+                    }
+
+                    VStack(spacing: 6) {
+                        Button {
+                            enterDemo()
+                        } label: {
+                            busyLabel(if: .demo) {
+                                Label("Try the Demo", systemImage: "sparkles")
+                            }
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(busy != nil)
+
+                        Text("Explore a sample screenplay — no account needed.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 16)
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: 360)
-                .padding(.vertical, 6)
+                .padding()
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                .animation(.snappy, value: app.signInError == nil)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!canSubmit)
-
-            if let passkeyLink {
-                Button {
-                    signInWithSavedCredential(using: passkeyLink)
-                } label: {
-                    // The sheet lists this domain's passkeys and the passwords
-                    // the Passwords app has saved for it, so the button can't
-                    // promise only one of them.
-                    Label("Use a Saved Passkey or Password",
-                          systemImage: "person.badge.key")
-                        .frame(maxWidth: 360)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isSigningIn)
-            }
-
-            if let recoveryLink {
-                Button("Forgot password?") {
-                    focusedField = nil
-                    self.presentedRecovery = recoveryLink
-                }
-                .font(.callout)
-                .disabled(isSigningIn)
-            }
-
-            VStack(spacing: 6) {
-                Button {
-                    enterDemo()
-                } label: {
-                    Label("Try the Demo", systemImage: "sparkles")
-                        .frame(maxWidth: 360)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isSigningIn)
-
-                Text("Explore a sample screenplay — no account needed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-            Spacer()
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
         }
-        .padding()
+        // A failure sticks around only until the writer starts fixing it.
+        .onChange(of: username) { _, _ in app.signInError = nil }
+        .onChange(of: password) { _, _ in app.signInError = nil }
+        // The message sits below the fields, where VoiceOver focus isn't —
+        // say it, or a failed attempt is silence.
+        .onChange(of: app.signInError) { _, error in
+            if let error { AccessibilityNotification.Announcement(error).post() }
+        }
         // Asked for once, on the way in. A server that offers nothing simply
         // leaves the buttons out.
         .task {
@@ -156,23 +176,38 @@ struct LoginView: View {
         }
     }
 
+    /// The button's own label, replaced by a spinner while its work runs —
+    /// laid over each other so the button doesn't change size mid-swap.
+    private func busyLabel(if action: Busy,
+                           @ViewBuilder content: () -> some View) -> some View {
+        ZStack {
+            content()
+                .opacity(busy == action ? 0 : 1)
+            if busy == action {
+                ProgressView()
+            }
+        }
+        .frame(maxWidth: 360)
+        .padding(.vertical, 6)
+    }
+
     private func enterDemo() {
         focusedField = nil
-        isSigningIn = true
+        busy = .demo
         Task {
             await app.enterDemo()
-            isSigningIn = false
+            busy = nil
         }
     }
 
     private func signIn() {
         focusedField = nil
-        isSigningIn = true
+        busy = .password
         Task {
             await app.signIn(
                 username: username.trimmingCharacters(in: .whitespaces),
                 password: password)
-            isSigningIn = false
+            busy = nil
         }
     }
 
@@ -181,7 +216,7 @@ struct LoginView: View {
     /// back up if this attempt didn't end in a session.
     private func signInWithSavedCredential(using link: HALLink) {
         focusedField = nil
-        isSigningIn = true
+        busy = .passkey
         autoFill.cancel()
         Task {
             switch await PasskeySignInFlow(app: app).signIn(using: link) {
@@ -193,7 +228,7 @@ struct LoginView: View {
                 app.signInError = message
                 startAutoFill(using: link)
             }
-            isSigningIn = false
+            busy = nil
         }
     }
 
