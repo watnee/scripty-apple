@@ -57,7 +57,7 @@ struct scriptyApp: App {
                     // picks either one up once there is.
 
                     // scripty://document?project=…&id=…&kind=… — a row on the
-                    // Songs & Notes widget, which names a document as well as a
+                    // Songs or Notes widget, which names a document as well as a
                     // screenplay and so needs a request of its own.
                     if let destination = WidgetLink.destination(in: url) {
                         appModel.pendingWidgetDestination = destination

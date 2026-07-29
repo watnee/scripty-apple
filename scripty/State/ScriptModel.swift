@@ -128,7 +128,51 @@ final class ScriptModel {
 
     // MARK: - Loading
 
-    func loadEverything() async {
+    /// Everything a freshly opened screenplay needs: its elements, its cast,
+    /// its history, its songs and notes, and the poll that keeps them current.
+    ///
+    /// Owned here and run unstructured, rather than left to the view's `.task`.
+    /// SwiftUI cancels a `.task` the moment it takes that build of the view
+    /// down, and opening a screenplay does exactly that — the detail pane is
+    /// built and rebuilt as the navigation settles, so the load the first build
+    /// started dies in flight. A cancelled request is deliberately silent (see
+    /// `report`), which left nothing said, nothing cached and nothing retrying:
+    /// the writer read "Empty Script" over a screenplay that was perfectly
+    /// intact, until a pull-to-refresh — a load nothing cancels — fetched it.
+    ///
+    /// Held here, the load outlives whichever build of the view began it and
+    /// lands in the model the surviving build is reading. A second caller joins
+    /// the load already in flight rather than starting another alongside it.
+    func open() async {
+        if let openTask { return await openTask.value }
+        openGeneration += 1
+        let generation = openGeneration
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await loadEverything()
+            // Before the sheets that need them: a remembered song editor is
+            // reopened from this list the moment this returns.
+            await loadDocuments()
+            // Started here rather than in the view, so a screenplay whose open
+            // was interrupted still has the one thing that keeps it current.
+            startSyncPolling()
+        }
+        openTask = task
+        await task.value
+        // Only if it is still ours: a view that came back has since started its
+        // own, and that one is the load in charge.
+        if generation == openGeneration { openTask = nil }
+    }
+
+    /// The opening load, so it can be joined rather than duplicated, and a
+    /// count of them so the one that finishes clears only its own. See
+    /// `open()`, which is the only thing that sets either.
+    private var openTask: Task<Void, Never>?
+    private var openGeneration = 0
+
+    /// Private on purpose: awaiting this from a view's `.task` is the shape
+    /// that stranded the writer on an empty script. Go through `open()`.
+    private func loadEverything() async {
         isLoading = true
         defer { isLoading = false }
         await loadBlocks()
@@ -171,6 +215,7 @@ final class ScriptModel {
             adoptPendingCreates()
             offlineCopySavedAt = nil
             errorMessage = nil
+            wasAbandoned = false
             if isDefaultEdition, let store = offlineStore {
                 store.save(data, .blocks(projectId: project.id))
                 store.prune(keeping: project.id)
@@ -189,12 +234,24 @@ final class ScriptModel {
                 adoptPendingCreates()
                 offlineCopySavedAt = snapshot.savedAt
                 errorMessage = nil
+                wasAbandoned = false
             } else {
+                // A cancelled load is the one failure nobody hears about: no
+                // alert, no cached copy, no retry behind it. Remember it, so
+                // the sync poll can put the script on screen rather than
+                // leaving the writer to work out that a refresh would.
+                wasAbandoned = error.isCancelledRequest
                 report(error)
             }
         }
         await loadCommentCounts()
     }
+
+    /// True when the last attempt at this script's elements was abandoned
+    /// mid-flight rather than answered — see the catch above, which is the only
+    /// place it is set. A load that genuinely failed is not abandoned: the
+    /// writer was told, or was given the copy saved on this device.
+    private var wasAbandoned = false
 
     /// Fetches how many comments each element carries, so the script can mark
     /// the discussed lines. Advertised on the block collection, so this is a
@@ -1150,8 +1207,13 @@ final class ScriptModel {
         syncTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.syncInterval)
-                guard !Task.isCancelled else { return }
-                await self?.pollSync()
+                // Gone as well as cancelled: `stopSyncPolling` is what normally
+                // ends this, and it is the screen closing that calls it — but
+                // the opening load can now outlive that screen and start a poll
+                // just after it left. Left to `self?`, that poll would tick
+                // every five seconds against nothing for the life of the app.
+                guard !Task.isCancelled, let self else { return }
+                await pollSync()
             }
         }
     }
@@ -1162,7 +1224,19 @@ final class ScriptModel {
     }
 
     private func pollSync() async {
-        guard !hasActiveEdit, let base = project.link(.syncStatus) else { return }
+        guard !hasActiveEdit else { return }
+        // The script never arrived, and nothing else is going to fetch it. Take
+        // the tick as the retry rather than reading a revision off a screen
+        // with nothing on it — the baseline below would settle against an empty
+        // script and every later tick would then agree that nothing had
+        // changed. Ahead of the sync link, and not behind it: a screenplay the
+        // server offers no sync rel for still has to arrive.
+        if wasAbandoned {
+            await loadBlocks()
+            await refreshUndoRedo()
+            return
+        }
+        guard let base = project.link(.syncStatus) else { return }
         let link = base.addingQuery(["since": String(lastRevision)])
         do {
             let status: SyncStatus = try await app.client.fetch(from: link)

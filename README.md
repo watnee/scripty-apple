@@ -305,7 +305,7 @@ listed in `Metadata.appintents/extract.actionsdata` inside the built `.app`.
 
 ## The Home Screen widgets
 
-Three of them, all shipped with the app rather than installed separately. Add
+Four of them, all shipped with the app rather than installed separately. Add
 any of them the usual way: press and hold the Home Screen, **Edit → Add
 Widget**, then search for **Scripty**. The gallery searches the *app's* name,
 not the widget's, so searching "Screenplays" or "Bookmarks" finds nothing.
@@ -331,7 +331,7 @@ reading an old draft does not push aside the one you annotated this morning.
 The server dates neither the element nor the flag, so that stamp is the app's
 own.
 
-| Size        | Screenplays     | Songs & Notes                | Bookmarks         |
+| Size        | Screenplays     | Songs / Notes (each)         | Bookmarks         |
 | ----------- | --------------- | ---------------------------- | ----------------- |
 | Small       | The most recent | The one most recently edited | The most recent   |
 | Medium      | Three           | Three                        | Two               |
@@ -353,12 +353,13 @@ whatever it was last given until this app takes it back, and nobody else can.
 That last part matters most for Bookmarks, whose rows are not titles but the
 script itself.
 
-The pieces, in matching sets: [Shared/](Shared) holds the one file per widget
-that both its targets compile, and it is pure Foundation on purpose, so
+The pieces, in matching sets: [Shared/](Shared) holds the one file per set
+that both its targets compile — Songs and Notes share theirs, being two views
+of one stored list — and it is pure Foundation on purpose, so
 `Tests/SongsNotesWidget`, `Tests/ProjectsWidget` and `Tests/BookmarksWidget` can
 check the ordering, the merge and the deep-link URLs without a simulator.
 
-| | Screenplays | Songs & Notes | Bookmarks |
+| | Screenplays | Songs / Notes | Bookmarks |
 | --- | --- | --- | --- |
 | Shared | [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) | [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift) | [BookmarksWidgetData.swift](Shared/BookmarksWidgetData.swift) |
 | Extension | [ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) | [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift) | [BookmarksWidget.swift](BookmarksWidget/BookmarksWidget.swift) |
@@ -400,19 +401,20 @@ runs fine, and never appears in the gallery at all — so a quick unsigned
 simulator build is not a test of anything. That applies to the Control Center
 gallery below as well.
 
-Both widgets can be configured. The Songs & Notes tile draws songs, notes or
-both; the Screenplays tile leads with the starred draft or with whatever was
-edited last. Every option filters what the app already published, because the
-extensions cannot fetch anything of their own — which is also why neither offers
-a screenplay picker. The app writes songs and notes only for the screenplay
-whose script has been opened, so a tile pinned to any other one would be
-permanently empty with no honest way to say why.
+The Screenplays tile can be configured: it leads with the starred draft or with
+whatever was edited last. The option filters what the app already published,
+because the extensions cannot fetch anything of their own — which is also why no
+widget offers a screenplay picker. The app writes songs and notes only for the
+screenplay whose script has been opened, so a tile pinned to any other one would
+be permanently empty with no honest way to say why. Songs and Notes have nothing
+left to configure: choosing between them is done in the gallery, by placing the
+one you meant — or both, at different sizes.
 
 Each widget's `kind` string is load-bearing across an app update: iOS finds an
-already-placed widget by it. `AppIntentConfiguration` was introduced under the
-same kind each widget already had, and both configuration defaults reproduce
-what the tile drew before there was anything to configure — so an existing
-widget keeps its place and simply gains an "Edit Widget" entry.
+already-placed widget by it. `SongsWidget` and `NotesWidget` replaced the single
+`SongsNotesWidget` kind the two once shared, and WidgetKit offers no way to
+rename a kind — a tile placed under the old combined widget has nothing left in
+the bundle to draw it, is dropped by the system, and has to be placed again.
 
 ## Siri, Shortcuts and Control Center
 
@@ -465,7 +467,7 @@ running an intent has to be checked on a device.**
 
 On a device it all works: Spotlight lists the App Shortcuts, a required
 parameter prompts for its value, `openAppWhenRun` brings the app to the front,
-and the widgets offer their settings under "Edit Widget".
+and the Screenplays widget offers its setting under "Edit Widget".
 
 **`Tests/run.sh` cannot compile anything that imports AppIntents**, so
 `ci_scripts/ci_post_clone.sh` will not catch an intents regression. The

@@ -237,16 +237,16 @@ struct ScriptView: View {
             await model.refreshUndoRedo()
         }
         .task {
-            await model.loadEverything()
-            // The block menu can drop a song or note into the script, so the
-            // list has to be in hand before a menu opens. Quiet, like editions:
-            // an empty project just shows no insert section.
-            await model.loadDocuments()
+            // The script, the cast, the history, the songs and notes and the
+            // sync poll — all of it owned by the model rather than by this
+            // task, which SwiftUI cancels as soon as it takes this build of the
+            // view down. Opening a screenplay does exactly that, and a load
+            // abandoned there is silent: see `ScriptModel.open`.
+            await model.open()
             // Straight after the documents land, since a remembered song editor
             // needs the song itself, and before the edition restore below, whose
             // round trip a reopening sheet should not be made to wait out.
             reopenRememberedEditor()
-            model.startSyncPolling()
             repaginate()
             // Loaded quietly: most projects have a single edition and should
             // show no sign of the feature at all.
@@ -814,12 +814,13 @@ struct ScriptView: View {
     /// of demotions elsewhere fixes it, because the bar's budget is the title's
     /// leftovers rather than a count of items.
     ///
-    /// So they come down here, where there is width for both to be named rather
-    /// than left as two glyphs to be recognised — and where they are under the
-    /// thumb instead of in the corner furthest from it. Named buttons in a
-    /// `.safeAreaBar` rather than `.bottomBar` toolbar items for the reason
-    /// `ProjectsSidebarView.newProjectBar` records: a bar item built from a
-    /// `Label` shows the glyph and drops the title, even under `.titleAndIcon`.
+    /// So they come down here, under the thumb instead of in the corner
+    /// furthest from it. Icon-only, matching the toolbar the iPad and Mac
+    /// keep them in — the titles stay on the `Label`s, where VoiceOver still
+    /// reads them. Buttons in a `.safeAreaBar` rather than `.bottomBar`
+    /// toolbar items for the reason `ProjectsSidebarView.newProjectBar`
+    /// records: a bar item built from a `Label` shows the glyph and drops
+    /// the title, even under `.titleAndIcon`.
     ///
     /// It draws no background of its own — the `.safeAreaBar` already floats it
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
@@ -831,7 +832,7 @@ struct ScriptView: View {
                 notesButton
             }
             .buttonStyle(.bordered)
-            .labelStyle(.titleAndIcon)
+            .labelStyle(.iconOnly)
             .padding(.vertical, 4)
         }
     }
@@ -1070,7 +1071,7 @@ struct ScriptView: View {
     /// `editionId`.
     ///
     /// Only ever loads a *non-default* edition: the default's elements are
-    /// already on screen from `loadEverything`, so restoring it would be a
+    /// already on screen from the opening load, so restoring it would be a
     /// second round trip for the same script. An edition the server has since
     /// dropped is not found and the default simply stays.
     private func reopenRememberedEdition() async {
