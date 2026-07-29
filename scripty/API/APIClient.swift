@@ -52,9 +52,11 @@ final class APIClient {
     var credentials: Credentials?
 
     /// Asked before every network request; answering true fails the request
-    /// immediately with `APIError.offline` instead of letting it sit in the
-    /// session's connectivity wait. Wired by AppModel to the connectivity
-    /// monitor on real clients only — the demo backend never goes offline.
+    /// immediately with `APIError.offline` rather than spending a round trip
+    /// discovering the same thing, and names the failure for what it is
+    /// instead of leaving it to whatever the transport happens to report.
+    /// Wired by AppModel to the connectivity monitor on real clients only —
+    /// the demo backend never goes offline.
     var offlineCheck: (() -> Bool)?
 
     /// When set, requests are answered by the in-process demo backend
@@ -77,11 +79,22 @@ final class APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        // A writer on a train shouldn't get an instant failure the moment the
-        // signal drops: hold the request until the connection comes back, up
-        // to the resource timeout. The per-request timeout still bounds a
-        // server that has accepted the connection and then gone quiet.
-        configuration.waitsForConnectivity = true
+        // Fail the request rather than sitting in URLSession's connectivity
+        // wait. The writer on a train is covered better by the app's own
+        // machinery — `offlineCheck` below refuses a request the moment the
+        // route is gone, the words are flagged unsaved and written to disk,
+        // a backoff retries them, and `connectionRestored()` pushes the lot
+        // the instant the route is back. Waiting here only hides that from
+        // the writer.
+        //
+        // It is also the wrong answer to the one case it can still reach.
+        // With the connectivity monitor wired, a request only gets as far as
+        // the session when the path *is* satisfied — so the wait engages
+        // exactly when the route is fine and the server is not. URLSession
+        // counts a refused connection as something to wait out, so that case
+        // hangs for the full resource timeout and then reports a timeout,
+        // instead of failing in milliseconds and entering the retry path.
+        configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 120
         session = URLSession(configuration: configuration)
@@ -181,9 +194,9 @@ final class APIClient {
     /// transport failures into `APIError` so no caller ever has to surface a
     /// raw `NSURLErrorDomain` string to the writer.
     private func perform(_ request: URLRequest) async throws -> (Int, Data) {
-        // No route to the network means the connectivity wait is guaranteed
-        // lost time: fail now, so a save is held (and a load falls back to
-        // the offline copy) in milliseconds rather than minutes.
+        // No route to the network means the request is guaranteed lost time:
+        // fail now, and fail as `.offline`, so a save is held (and a load
+        // falls back to the offline copy) knowing why.
         if offlineCheck?() == true {
             throw APIError.offline
         }
