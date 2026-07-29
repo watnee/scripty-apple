@@ -61,6 +61,10 @@ final class TestServer: @unchecked Sendable {
     /// While true, connections are accepted and then left open unanswered —
     /// a request in flight, for as long as the case needs one.
     private var _hangs = false
+    /// How long to hold a request before answering it. A stand-in for the
+    /// round trip a real server costs, which is the window a cancellation has
+    /// to land in — answered instantly, nothing can be interrupted.
+    private var _answersAfter: TimeInterval = 0
 
     /// Every request line seen so far, newest last, as "METHOD path".
     var requests: [String] {
@@ -71,6 +75,11 @@ final class TestServer: @unchecked Sendable {
     var hangs: Bool {
         get { lock.lock(); defer { lock.unlock() }; return _hangs }
         set { lock.lock(); _hangs = newValue; lock.unlock() }
+    }
+
+    var answersAfter: TimeInterval {
+        get { lock.lock(); defer { lock.unlock() }; return _answersAfter }
+        set { lock.lock(); _answersAfter = newValue; lock.unlock() }
     }
 
     init() {
@@ -137,6 +146,8 @@ final class TestServer: @unchecked Sendable {
             close(client)
             return
         }
+        let wait = answersAfter
+        if wait > 0 { Thread.sleep(forTimeInterval: wait) }
         let body = Data(answer(to: text).utf8)
         let head = """
         HTTP/1.1 200 OK\r
@@ -267,6 +278,63 @@ func run() async {
         check("no alert is raised", model.errorMessage == nil)
         check("no offline banner is raised", !model.isShowingOfflineCopy)
         server.hangs = false
+    }
+
+    print()
+    print("== Opening a screenplay outlives the screen that asked for it ==")
+    do {
+        server.reset()
+        server.answersAfter = 0.4
+        let model = makeModel()
+
+        // Tapping a screenplay builds the detail pane, and SwiftUI takes that
+        // build down and puts up another as the navigation settles — cancelling
+        // the `.task` the first one started, with the script still on the wire.
+        // Nothing awaits it after that, so the load has to land on its own.
+        let opening = Task { await model.open() }
+        try? await Task.sleep(for: .milliseconds(150))
+        checkEqual("the request did reach the server", server.requests.count, 1)
+        opening.cancel()
+
+        // Deliberately not `await opening.value`: the screen that started this
+        // is gone. Waiting past the round trip is the writer sitting in front
+        // of the screenplay they just tapped.
+        try? await Task.sleep(for: .milliseconds(900))
+
+        checkEqual("the script arrived anyway", model.blocks.count, 2)
+        check("so no empty-script placeholder is ever shown", !model.blocks.isEmpty)
+        check("and it did not need a second request",
+              server.requests.count == 1)
+        check("with nothing to alarm the writer", model.errorMessage == nil)
+        server.answersAfter = 0
+    }
+
+    print()
+    print("== A script that never arrived is fetched again, not left blank ==")
+    do {
+        server.reset()
+        server.hangs = true
+        let model = makeModel()
+
+        // The load abandoned mid-flight by something no longer owned here —
+        // a pull-to-refresh the writer navigated away from, say. It says
+        // nothing, by design; what it must not do is settle as an empty script
+        // that only a second pull would fix.
+        let abandoned = Task { await model.loadBlocks() }
+        try? await Task.sleep(for: .milliseconds(300))
+        abandoned.cancel()
+        await abandoned.value
+        check("nothing is on screen yet", model.blocks.isEmpty)
+        check("and nothing was said about it", model.errorMessage == nil)
+
+        // The sync poll is the only thing still running, and it now treats a
+        // script that never arrived as work rather than as a baseline.
+        server.hangs = false
+        model.startSyncPolling()
+        try? await Task.sleep(for: .milliseconds(6000))
+
+        checkEqual("the poll fetched the script", model.blocks.count, 2)
+        model.stopSyncPolling()
     }
 
     print()

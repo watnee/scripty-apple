@@ -201,16 +201,16 @@ struct ScriptView: View {
             await model.refreshUndoRedo()
         }
         .task {
-            await model.loadEverything()
-            // The block menu can drop a song or note into the script, so the
-            // list has to be in hand before a menu opens. Quiet, like editions:
-            // an empty project just shows no insert section.
-            await model.loadDocuments()
+            // The script, the cast, the history, the songs and notes and the
+            // sync poll — all of it owned by the model rather than by this
+            // task, which SwiftUI cancels as soon as it takes this build of the
+            // view down. Opening a screenplay does exactly that, and a load
+            // abandoned there is silent: see `ScriptModel.open`.
+            await model.open()
             // Straight after the documents land, since a remembered song editor
             // needs the song itself, and before the edition restore below, whose
             // round trip a reopening sheet should not be made to wait out.
             reopenRememberedEditor()
-            model.startSyncPolling()
             repaginate()
             // Loaded quietly: most projects have a single edition and should
             // show no sign of the feature at all.
@@ -984,7 +984,7 @@ struct ScriptView: View {
     /// `editionId`.
     ///
     /// Only ever loads a *non-default* edition: the default's elements are
-    /// already on screen from `loadEverything`, so restoring it would be a
+    /// already on screen from the opening load, so restoring it would be a
     /// second round trip for the same script. An edition the server has since
     /// dropped is not found and the default simply stays.
     private func reopenRememberedEdition() async {
