@@ -67,9 +67,11 @@ enum DocumentSort: String, CaseIterable, Identifiable {
 struct SongsView: View {
     let model: ScriptModel
 
+    /// Where the choice of list is remembered between visits.
+    private let options: ScriptViewOptions
+
     @Environment(\.dismiss) private var dismiss
-    /// Which list the picker starts on. Songs unless asked otherwise, which
-    /// only the Home Screen's Notes quick action does.
+    /// Which list the picker starts on.
     @State private var listType: DocumentType
 
     /// A document to open as soon as the list has loaded, which only a tapped
@@ -77,10 +79,33 @@ struct SongsView: View {
     /// the load this screen opens with, and nothing on screen can set it.
     private let openingId: Int?
 
-    init(model: ScriptModel, listType: DocumentType = .song, openingId: Int? = nil) {
+    /// The screen that was open above this one when the app was last put down,
+    /// if this launch is restoring it. Empty every other time this list opens.
+    private let reopening: [OpenEditor]
+
+    /// Opens on the list named, and otherwise on the one this project was last
+    /// left on — Songs the first time. Only a route that means a particular
+    /// list names one: the Home Screen's two quick actions, a tapped widget
+    /// row, and a document changing kind under us.
+    ///
+    /// Opens the composer along with the list, rather than after a tap on New.
+    ///
+    /// Only a Control Center button asks for this. The tile is pressed by
+    /// someone with a line in their head and nowhere to type it, so landing
+    /// them on a list they then have to find a button on spends the moment the
+    /// tile exists for. Seeded rather than applied on appear: the sheet is
+    /// wanted from the first frame, and a second animation on the way in would
+    /// read as the screen changing its mind.
+    init(model: ScriptModel, options: ScriptViewOptions, listType: DocumentType? = nil,
+         openingId: Int? = nil, creating: Bool = false, reopening: [OpenEditor] = []) {
         self.model = model
+        self.options = options
         self.openingId = openingId
-        _listType = State(initialValue: listType)
+        self.reopening = reopening
+        let remembered = options.rememberedDocumentList.flatMap(DocumentType.init(rawValue:))
+        let opening = listType ?? remembered ?? .song
+        _listType = State(initialValue: opening)
+        _creatingType = State(initialValue: creating ? opening : nil)
     }
 
     @State private var editingDocument: TextDocument?
@@ -140,15 +165,14 @@ struct SongsView: View {
         return sortMode.applied(to: matching)
     }
 
-    /// Dragging rows is only meaningful while the list is showing the writer's
-    /// own order in full: `moveDocuments` sends the rows on screen as the new
-    /// order, so doing it to an alphabetized or searched-down list would save
-    /// an arrangement nobody asked for. The web reaches the same place from the
-    /// other side, flipping its sort back to "Custom order" after a drop.
-    private var canReorder: Bool {
-        model.canReorderDocuments && sortMode == .custom
-            && searchText.trimmingCharacters(in: .whitespaces).isEmpty
-    }
+    /// Rows can be put in a new order wherever the server advertised the link,
+    /// whatever the list is currently sorted or searched down to — as on the
+    /// web, where "cards can be reordered from any sort mode".
+    ///
+    /// What that costs is handled at the other end, in `save(_:)`: the rows on
+    /// screen are merged back into the full list before it is sent, and the
+    /// sort flips to "Custom order" so what was saved is what stays on screen.
+    private var canReorder: Bool { model.canReorderDocuments }
 
     /// Selecting several is a song affordance: the bulk delete is advertised
     /// only where there is a song to delete, and the songbook is the only
@@ -175,11 +199,10 @@ struct SongsView: View {
                     row(for: document)
                 }
                 .onMove { source, destination in
-                    // Guarded rather than conditionally attached — a plain
-                    // closure keeps the list's content type unambiguous, and
-                    // edit mode is reachable for selecting even when the list
-                    // is sorted or searched down and so cannot be rearranged.
-                    guard canReorder else { return }
+                    // Guarded inside rather than conditionally attached: a
+                    // plain closure keeps the list's content type unambiguous,
+                    // and a view-only collaborator reaches edit mode for the
+                    // selection without being able to rearrange anything.
                     moveDocuments(from: source, to: destination)
                 }
             } header: {
@@ -277,8 +300,13 @@ struct SongsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task {
+                // A list a quick action named is as much a statement of intent
+                // as one the picker was tapped over to, so it is remembered the
+                // same way — the picker's own change never fires for it.
+                options.rememberDocumentList(listType.rawValue)
                 await reload()
                 openRequestedDocument()
+                reopenRememberedScreen()
             }
             .refreshable { await reload() }
             .searchable(text: $searchText,
@@ -286,11 +314,20 @@ struct SongsView: View {
                         prompt: listType == .song ? "Search songs" : "Search notes")
             // Songs and notes are two lists, so a selection made in one has no
             // meaning in the other — nor does a search for a title that only
-            // exists in the one being left.
-            .onChange(of: listType) { _, _ in
+            // exists in the one being left. The choice itself is kept, so the
+            // next trip to this screen opens where this one ended.
+            .onChange(of: listType) { _, type in
                 selection.removeAll()
                 searchText = ""
+                options.rememberDocumentList(type.rawValue)
             }
+            // Which of the two lists is showing is the first rung of the record,
+            // and the picker is the only thing that moves it once this screen is
+            // up — the script view set it on the way in and does not hear about
+            // this. The editor or workspace over the list is the rung above.
+            .remembersOpenEditor(.songsAndNotes(listType), atDepth: 0,
+                                 isEnabled: !model.app.isDemo)
+            .remembersOpenEditor(openEditor, atDepth: 1, isEnabled: !model.app.isDemo)
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }
             }
@@ -405,6 +442,26 @@ struct SongsView: View {
             }
         }
         .contextMenu {
+            // Ordering without a drag, which is what the web's arrow keys are
+            // for. Offered on the row itself rather than only in edit mode: a
+            // song that belongs one place higher is two taps from here, where
+            // dragging it means entering edit mode and holding it steady past
+            // the rows in between.
+            if canReorder, shown.count > 1 {
+                let at = shown.firstIndex { $0.id == document.id }
+                Button {
+                    move(document, by: -1)
+                } label: {
+                    Label("Move Up", systemImage: "arrow.up")
+                }
+                .disabled(at == 0)
+                Button {
+                    move(document, by: 1)
+                } label: {
+                    Label("Move Down", systemImage: "arrow.down")
+                }
+                .disabled(at == shown.count - 1)
+            }
             if document.hasLink(.insert) {
                 Button {
                     insert(document)
@@ -614,6 +671,38 @@ struct SongsView: View {
         }
     }
 
+    // MARK: - Where the writer was
+
+    /// What is open over this list, as the restore record spells it.
+    ///
+    /// Creating and renaming are left out: a half-named new song has nothing
+    /// stored to reopen, and an app that came back up on an empty editor would
+    /// look like it had lost the one that was there.
+    private var openEditor: OpenEditor? {
+        if let editingDocument { return .document(editingDocument.id) }
+        if showingWorkspace { return .songWorkspace }
+        return nil
+    }
+
+    /// Reopens whatever was over this list when the app was last put down.
+    ///
+    /// The script view claimed the record and handed the rest of it down, so
+    /// there is nothing to guard against reopening twice: a list opened by hand
+    /// is given an empty path. A song deleted since is not found and the list
+    /// simply stays on screen, which is where the writer would have to go anyway.
+    private func reopenRememberedScreen() {
+        switch reopening.first {
+        case .document(let id):
+            editingDocument = model.documents.first { $0.id == id }
+        case .songWorkspace:
+            // Same gate the toolbar button has: a workspace needs songs to stack.
+            guard model.songs.count > 1 else { return }
+            showingWorkspace = true
+        default:
+            break
+        }
+    }
+
     // MARK: - Actions
 
     private func reload() async {
@@ -680,9 +769,34 @@ struct SongsView: View {
     }
 
     private func moveDocuments(from source: IndexSet, to destination: Int) {
-        var reordered = shown
-        reordered.move(fromOffsets: source, toOffset: destination)
-        Task { await model.reorderDocuments(reordered) }
+        var rearranged = shown
+        rearranged.move(fromOffsets: source, toOffset: destination)
+        save(rearranged)
+    }
+
+    /// One slot up or down — the arrow keys the web's drag handle answers, and
+    /// the route to an order that needs neither edit mode nor a steady drag.
+    private func move(_ document: TextDocument, by delta: Int) {
+        guard let rearranged = shown.moving(document, by: delta) else { return }
+        save(rearranged)
+    }
+
+    /// Saves the rows on screen as the writer's own order.
+    ///
+    /// Two things have to happen before the sequence is the whole truth. The
+    /// rows on screen may be a search narrowed down to a handful, so they are
+    /// merged back into the full list rather than sent as if the rest had gone
+    /// away. And the list may have been sorted by title or by date, in which
+    /// case the arrangement being saved is that sort with one row moved — so
+    /// the sort flips to "Custom order", exactly as the web's `<select>` does
+    /// after a drop, rather than leaving the list to snap back and hide what
+    /// was just saved.
+    private func save(_ rearranged: [TextDocument]) {
+        guard canReorder else { return }
+        let all = listType == .song ? model.songs : model.notes
+        let merged = sortMode.applied(to: all).merging(shown: rearranged)
+        sortBinding.wrappedValue = .custom
+        Task { await model.reorderDocuments(merged) }
     }
 
     private func exportSong(_ document: TextDocument, _ option: ScriptModel.ExportOption) {

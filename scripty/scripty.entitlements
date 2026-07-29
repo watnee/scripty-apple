@@ -11,14 +11,14 @@
 	<!-- Export writes files the writer picks; import reads them. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- Shared with both widget extensions, which have no other way to see
+	<!-- Shared with all three widget extensions, which have no other way to see
 	     anything: the app writes each widget's rows into this container and the
-	     extensions only read them. One group serves both — they keep separate
-	     files inside it. The identifier is spelled out in
-	     SongsNotesWidgetStore.appGroup, in ProjectsWidgetStore.appGroup and in
-	     each extension's own entitlements, and all of them have to agree — a
-	     mismatch builds cleanly and shows up only as a widget that is
-	     permanently empty.
+	     extensions only read them. One group serves them all — they keep
+	     separate files inside it. The identifier is spelled out in
+	     SongsNotesWidgetStore.appGroup, in ProjectsWidgetStore.appGroup, in
+	     BookmarksWidgetStore.appGroup and in each extension's own entitlements,
+	     and all of them have to agree — a mismatch builds cleanly and shows up
+	     only as a widget that is permanently empty.
 
 	     This is the iOS spelling. Mac Catalyst wants the team-prefixed form and
 	     is served by scripty-maccatalyst.entitlements next door; the two files
@@ -43,5 +43,15 @@
 		<string>webcredentials:web-production-ce5bc3.up.railway.app</string>
 		<string>applinks:web-production-ce5bc3.up.railway.app</string>
 	</array>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.scripty.scripty</string>
+	</array>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

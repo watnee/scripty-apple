@@ -73,6 +73,10 @@ struct NoteTextView: UIViewRepresentable {
     /// Whether misspellings are underlined, following the same device-wide
     /// preference the script editor honours.
     var spellChecks = true
+    /// Which version of the ignored-words list this text was last checked
+    /// against, so a word ignored from the menu below stops being underlined
+    /// where it appears again.
+    var spellcheckRevision = 0
     /// The writer's chosen type size, the same `scripty-text-size` preference
     /// the script and lyric surfaces honour. Passed in rather than read from
     /// an environment: the editor lives in a sheet the script view's
@@ -144,11 +148,7 @@ struct NoteTextView: UIViewRepresentable {
         let font = scaledFont
         if view.font?.pointSize != font.pointSize { view.font = font }
 
-        let checking: UITextSpellCheckingType = spellChecks ? .yes : .no
-        if view.spellCheckingType != checking {
-            view.spellCheckingType = checking
-            if view.isFirstResponder { view.reloadInputViews() }
-        }
+        view.applySpellchecking(spellChecks, revision: spellcheckRevision)
     }
 
     /// The formatting the toolbar and the keyboard shortcuts can ask for.
@@ -203,6 +203,14 @@ struct NoteTextView: UIViewRepresentable {
             guard let edit else { return false }
             apply(edit)
             return true
+        }
+
+        /// "Ignore Spelling" beside the system's corrections, the same route the
+        /// screenplay and lyric surfaces offer.
+        func textView(_ textView: UITextView,
+                      editMenuForTextIn range: NSRange,
+                      suggestedActions: [UIMenuElement]) -> UIMenu? {
+            SpellcheckEditMenu.menu(for: textView, in: range, appending: suggestedActions)
         }
 
         func perform(_ command: Command) {
@@ -275,7 +283,9 @@ struct NoteTextView: UIViewRepresentable {
 /// Return and Tab arrive as ordinary text and so could be caught in the
 /// delegate, but Shift-Tab has no text at all and needs a key command — so all
 /// three are routed the same way rather than split across two mechanisms.
-final class NoteUITextView: UITextView {
+final class NoteUITextView: UITextView, SpellcheckingTextView {
+    var checkedSpellingRevision = 0
+
     enum Key {
         case newline, tab, backTab
     }

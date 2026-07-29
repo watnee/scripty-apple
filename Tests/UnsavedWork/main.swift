@@ -15,6 +15,12 @@ import Foundation
 
 // MARK: - Harness
 
+// Line-buffer stdout so a run that is killed — by the harness watchdog, or by
+// hand — still shows which case it had reached. Piped into anything, the
+// default block buffering throws all of it away and a stall looks like a suite
+// that printed nothing at all.
+_ = setvbuf(stdout, nil, _IOLBF, 0)
+
 var failures = 0
 
 func check(_ label: String, _ condition: Bool) {

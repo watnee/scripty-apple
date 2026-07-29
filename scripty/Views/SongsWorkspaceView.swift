@@ -33,6 +33,7 @@ struct SongsWorkspaceView: View {
     @State private var lyrics: [Int: SongBlockModel] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
+    @State private var showingIgnoredWords = false
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
@@ -73,6 +74,9 @@ struct SongsWorkspaceView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            .sheet(isPresented: $showingIgnoredWords) {
+                SpellcheckWordsView()
+            }
             // Leaving flushes every song that was opened: a line half-typed in
             // the third song down is no less precious than one in the first.
             .task {
@@ -91,32 +95,70 @@ struct SongsWorkspaceView: View {
     // MARK: - Rows
 
     private func header(_ song: TextDocument) -> some View {
-        Button {
-            toggle(song)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(expanded.contains(song.id) ? 90 : 0))
-                Text(song.displayTitle)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-                if let count = lineCount(song) {
-                    Text("\(count) \(count == 1 ? "line" : "lines")")
-                        .font(.caption)
-                        .monospacedDigit()
+        HStack(spacing: 8) {
+            Button {
+                toggle(song)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded.contains(song.id) ? 90 : 0))
+                    Text(song.displayTitle)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 0)
+                    if let count = lineCount(song) {
+                        Text("\(count) \(count == 1 ? "line" : "lines")")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(song.displayTitle)
+            .accessibilityHint(expanded.contains(song.id) ? "Hide lyrics" : "Show lyrics")
+            .accessibilityAddTraits(expanded.contains(song.id) ? [.isSelected] : [])
+            if canReorder {
+                reorderMenu(song)
+            }
         }
-        .buttonStyle(.plain)
         .textCase(nil)
-        .accessibilityLabel(song.displayTitle)
-        .accessibilityHint(expanded.contains(song.id) ? "Hide lyrics" : "Show lyrics")
-        .accessibilityAddTraits(expanded.contains(song.id) ? [.isSelected] : [])
+    }
+
+    /// The web puts a drag handle on every song here, beside the one on every
+    /// lyric line, so ordering the songs and ordering their lines read as the
+    /// same gesture. Each song is a `Section` in this list, and sections do not
+    /// take `.onMove` — so the ordering is offered as the move the web's handle
+    /// also answers to, one slot at a time, which is the half of it that works
+    /// on touch anyway.
+    private func reorderMenu(_ song: TextDocument) -> some View {
+        let at = songs.firstIndex { $0.id == song.id }
+        return Menu {
+            Button {
+                move(song, by: -1)
+            } label: {
+                Label("Move Up", systemImage: "arrow.up")
+            }
+            .disabled(at == 0)
+            Button {
+                move(song, by: 1)
+            } label: {
+                Label("Move Down", systemImage: "arrow.down")
+            }
+            .disabled(at == songs.count - 1)
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .accessibilityLabel("Reorder \(song.displayTitle)")
     }
 
     @ViewBuilder
@@ -178,6 +220,26 @@ struct SongsWorkspaceView: View {
             }
             .disabled(expanded.isEmpty)
         }
+        // Every song at once is where a field of red squiggles is hardest to
+        // read past, so the switch belongs here as much as anywhere.
+        ToolbarItem(placement: .secondaryAction) {
+            SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
+        }
+    }
+
+    // MARK: - Ordering
+
+    /// Only where the server said the songs may be rearranged, and only with
+    /// more than one of them on screen to rearrange.
+    private var canReorder: Bool { model.canReorderDocuments && songs.count > 1 }
+
+    /// Moves a song one slot among the ones the filter is showing, then saves
+    /// the whole list — songs the filter hid keep the places they held, since
+    /// they are not on screen to have been moved past.
+    private func move(_ song: TextDocument, by delta: Int) {
+        guard canReorder, let rearranged = songs.moving(song, by: delta) else { return }
+        let merged = model.songs.merging(shown: rearranged)
+        Task { await model.reorderDocuments(merged) }
     }
 
     // MARK: - Opening and closing

@@ -113,6 +113,28 @@ enum ScriptPagination {
         return fill(atoms: atoms, linesPerPage: setup.linesPerPage)
     }
 
+    // MARK: - Finding a place on paper
+
+    /// Which sheet an element is printed on, for carrying a remembered position
+    /// between the column and the paper.
+    ///
+    /// A speech split across a page break appears on both, and the first sheet
+    /// is the answer: that is where the writer would have been reading from.
+    /// Elements that never go to paper — a note, a synopsis — are on no page at
+    /// all, so this returns nil and the caller leaves the pager where it is.
+    static func page(containing blockId: Int, in pages: [ScriptPage]) -> Int? {
+        pages.first { page in
+            page.rows.contains { $0.block?.id == blockId }
+        }?.number
+    }
+
+    /// The first element printed on a sheet — what "the reader is on page 12"
+    /// amounts to in the element ids the rest of the app remembers positions
+    /// in. A page carrying only continuation markers has none.
+    static func firstBlockId(onPage number: Int, in pages: [ScriptPage]) -> Int? {
+        pages.first { $0.number == number }?.rows.lazy.compactMap(\.block).first?.id
+    }
+
     /// Outline scaffolding and working annotations do not go to paper. The web
     /// app's print stylesheet hides exactly these three, and they are dropped
     /// before measuring so the page does not reserve room for something it

@@ -15,18 +15,24 @@ struct ScriptView: View {
     /// opened. Written back to nil once it has been, so the sheet does not
     /// reopen every time this view is rebuilt.
     @Binding var openingDocuments: DocumentsRequest?
+    /// An element a tapped Bookmarks widget row asked for, waiting to be
+    /// scrolled to. Written back to nil once it has been taken, so it is not
+    /// re-taken every time this view is rebuilt.
+    @Binding var openingBookmark: Int?
 
     @State private var model: ScriptModel
     @State private var showingCharacters = false
-    @State private var showingSongs = false
-    /// Which of the two lists the Songs & Notes sheet opens on. The toolbar
-    /// button leaves it at songs, as the sheet has always opened; a Notes quick
-    /// action is the only thing that says otherwise.
-    @State private var songsListType: DocumentType = .song
-    /// A song or note for the Songs & Notes sheet to open straight into, which
-    /// only a tapped widget row ever names. Cleared with the sheet's own state
-    /// so the toolbar button never inherits it.
-    @State private var songsOpeningId: Int?
+    /// What the Songs & Notes sheet was asked for, and whether it is open at
+    /// all: which of the two lists it opens on, the song or note to open
+    /// straight into if the request named one, and whether the composer comes
+    /// up with it.
+    ///
+    /// The request is the sheet's item rather than a set of flags beside an
+    /// `isPresented` — a sheet raised that way reads the rest of the view as it
+    /// stood *before* the button ran, so a list chosen in the same tap arrives
+    /// stale and "All Notes…" opens on songs. The reader below carries its mode
+    /// for the same reason.
+    @State private var documentsSheet: DocumentsRequest?
     /// The song or note opened straight from the script's Songs menu, without
     /// going through the Songs & Notes screen first.
     @State private var openingDocument: TextDocument?
@@ -74,6 +80,16 @@ struct ScriptView: View {
     /// model is the app-wide one rather than one per script.
     private let settings = PresentationSettings.shared
 
+    /// Which screen the writer had open above the script when they last put the
+    /// app down. The project list owns the project half of that record; this
+    /// view owns the screen sitting on top of it.
+    private let openEditors = OpenEditorState.shared
+    /// What the Songs & Notes screen should reopen once it is up, when this
+    /// launch is restoring a song or note editor that was reached through it.
+    /// Held here rather than read from the record inside that screen because the
+    /// record is handed over once, and this view is the one that claims it.
+    @State private var reopeningInSongs: [OpenEditor] = []
+
     /// What this script shows and whether it can be typed into. Per project
     /// rather than shared, so marking up one draft leaves the others alone.
     @State private var options: ScriptViewOptions
@@ -81,6 +97,9 @@ struct ScriptView: View {
     /// (a restore from trash, a version rollback) must not yank the writer
     /// back to where they came in.
     @State private var hasRestoredPosition = false
+    /// An element a Bookmarks widget row asked for, held until the script it
+    /// belongs to has actually arrived. Nil the rest of the time.
+    @State private var pendingBookmarkBlockId: Int?
 
     /// How much room the writing column actually has, for full-width mode.
     /// Zero until the first layout, which reads as "use the printed measure".
@@ -90,6 +109,10 @@ struct ScriptView: View {
     /// than on every redraw — it walks the whole script.
     @State private var pages: [ScriptPage] = []
     @State private var currentPage = 1
+    /// The sheet the paper surface has been asked to scroll to, cleared once it
+    /// has. Page view's counterpart to the navigator's pending target, kept
+    /// local because nothing outside this view asks for a page.
+    @State private var pendingPageTarget: Int?
 
     /// The undo/redo confirmation currently on screen, if any, and the task
     /// that clears it. Kept in the view because how long it stays up is pure
@@ -102,8 +125,17 @@ struct ScriptView: View {
     /// outlive the app's execution time, and this is the writer's only copy.
     @Environment(\.scenePhase) private var scenePhase
 
-    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentsRequest?>) {
+    /// Told when the project resource itself changes — a rename, new front
+    /// matter, a script imported over the top. The list behind this screen is
+    /// showing the old name until somebody says otherwise.
+    private let onProjectChanged: (Project) async -> Void
+
+    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentsRequest?>,
+         openingBookmark: Binding<Int?> = .constant(nil),
+         onProjectChanged: @escaping (Project) async -> Void = { _ in }) {
         _openingDocuments = openingDocuments
+        _openingBookmark = openingBookmark
+        self.onProjectChanged = onProjectChanged
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
         _editions = State(initialValue: EditionsModel(app: app, project: project))
@@ -147,6 +179,7 @@ struct ScriptView: View {
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
+        .toolbarTitleMenu { projectButtons }
         .exportPresentation(exporter)
         .focusedSceneValue(\.scriptActions, menuActions)
         .refreshable {
@@ -159,6 +192,10 @@ struct ScriptView: View {
             // list has to be in hand before a menu opens. Quiet, like editions:
             // an empty project just shows no insert section.
             await model.loadDocuments()
+            // Straight after the documents land, since a remembered song editor
+            // needs the song itself, and before the edition restore below, whose
+            // round trip a reopening sheet should not be made to wait out.
+            reopenRememberedEditor()
             model.startSyncPolling()
             repaginate()
             // Loaded quietly: most projects have a single edition and should
@@ -192,12 +229,26 @@ struct ScriptView: View {
         // that every path which changes the documents — creating, renaming,
         // deleting, importing, restoring from the trash — is covered once.
         .publishingSongsAndNotes(from: model)
+        // An element a tapped Bookmarks row named. Taken here and acted on
+        // below, once the script it belongs to has landed.
+        .openingBookmark($openingBookmark, perform: receiveBookmarkRequest)
         // Where the writer is, kept as they go rather than only on the way out:
         // a script left open and then killed should still reopen in the right
-        // place.
+        // place. Typing says it here; reading says it from the scroll spy on
+        // each surface, and whichever spoke last is where they were.
         .onChange(of: model.focusedBlockId) { _, id in options.rememberBlock(id) }
+        // Which screen is up over the script, kept the same way and for the same
+        // reason.
+        .remembersOpenEditor(openEditor, atDepth: 0, isEnabled: !model.app.isDemo)
         .onChange(of: model.blocks) { _, _ in
             repaginate()
+            // What the Bookmarks widget draws is whichever of these elements
+            // are flagged. Hung off this closure rather than given a modifier
+            // of its own, unlike the songs and notes above: the elements change
+            // far more often than the documents do — every commit, every sync
+            // poll — and this is the one pass that already watches them.
+            publishBookmarks()
+            openPendingBookmark()
             restoreRememberedPosition()
         }
         .onChange(of: settings.pageSetup) { _, _ in repaginate() }
@@ -211,7 +262,17 @@ struct ScriptView: View {
         // switch changes this view's identity and re-runs the .task above,
         // which happens to repaginate — but that is incidental, and the sheets
         // would come up empty if the Group were ever restructured.
-        .onChange(of: settings.isPageView) { _, _ in repaginate() }
+        .onChange(of: settings.isPageView) { _, _ in
+            repaginate()
+            // Changing surface is not leaving the page: the paper opens on the
+            // sheet the column was showing, and the column comes back to the
+            // element the sheet started with. Both read the position the other
+            // has been keeping, so the switch is where it changes hands.
+            if let id = options.rememberedBlockId,
+               model.blocks.contains(where: { $0.id == id }) {
+                scroll(toRemembered: id)
+            }
+        }
         .sheet(item: $reader) { mode in
             ReadScriptView(
                 title: model.project.displayTitle,
@@ -284,8 +345,20 @@ struct ScriptView: View {
         .sheet(isPresented: $showingCharacters) {
             CharactersView(model: model)
         }
-        .sheet(isPresented: $showingSongs) {
-            SongsView(model: model, listType: songsListType, openingId: songsOpeningId)
+        // The reopening path is dropped on the way out, so a restored editor is
+        // reopened once: the next time this screen is asked for it is because
+        // someone tapped for it, and they asked for the list rather than for
+        // whatever was on it last night.
+        .sheet(item: $documentsSheet, onDismiss: { reopeningInSongs = [] }) { request in
+            // Identified by the request, because the screen's own list is
+            // `@State` seeded from this argument — and seeding only happens the
+            // first time a view identity exists. Without this, the second
+            // opening reuses the state the first one left behind and "All
+            // Songs…" lands on notes because that is where the last visit ended.
+            SongsView(model: model, options: options, listType: request.type,
+                      openingId: request.documentId, creating: request.creating,
+                      reopening: reopeningInSongs)
+                .id(request.id)
         }
         // A Songs or Notes quick action, now that the screenplay it settled on
         // is the one on screen. `initial` is what catches the tap that opened
@@ -299,9 +372,7 @@ struct ScriptView: View {
             guard let requested else { return }
             openingDocuments = nil
             guard model.canViewDocuments else { return }
-            songsListType = requested.type
-            songsOpeningId = requested.documentId
-            showingSongs = true
+            documentsSheet = requested
         }
         // A song reached from the toolbar menu opens the same editor the songs
         // list would have opened it in — the list is only skipped, not replaced.
@@ -320,6 +391,9 @@ struct ScriptView: View {
         .sheet(isPresented: $showingTitlePage) {
             TitlePageView(app: model.app, project: model.project) { updated in
                 model.adopt(updated)
+                // The name on this bar is now right and the one in the list
+                // behind it is not, so hand the new resource back.
+                Task { await onProjectChanged(updated) }
             }
         }
         .sheet(isPresented: $showingOutline) {
@@ -337,6 +411,7 @@ struct ScriptView: View {
         .scriptImporter(app: model.app, project: model.project,
                         isPresented: $showingScriptImporter) { updated in
             model.adopt(updated)
+            await onProjectChanged(updated)
             await model.loadBlocks()
             await model.refreshUndoRedo()
         }
@@ -360,14 +435,22 @@ struct ScriptView: View {
 
     @ViewBuilder
     private var unsavedBanner: some View {
+        // Elements written offline are counted in `unsavedBlockIds` too, so
+        // the number already covers them; they are named separately only when
+        // they are the whole of what is held, because "3 elements kept on this
+        // device" reads oddly for lines that do not exist anywhere yet.
         let count = model.unsavedBlockIds.count
+        let newCount = model.pendingCreateCount
+        let noun = { (n: Int) in n == 1 ? "element" : "elements" }
+        let held = newCount == count && newCount > 0
+            ? "· \(newCount) new \(noun(newCount)) kept on this device"
+            : "· \(count) \(noun(count)) kept on this device"
         if isOffline {
             heldWorkBanner(
                 icon: "wifi.slash",
                 title: "You're offline",
                 detail: count > 0
-                    ? "· \(count) " + (count == 1 ? "element" : "elements")
-                      + " kept on this device"
+                    ? held
                     : "— edits are kept on this device and sync when you're back online",
                 count: count,
                 accessibility: count > 0
@@ -379,8 +462,7 @@ struct ScriptView: View {
             heldWorkBanner(
                 icon: "arrow.trianglehead.2.clockwise.rotate.90",
                 title: "Not saved yet",
-                detail: "· \(count) " + (count == 1 ? "element" : "elements")
-                    + " kept on this device",
+                detail: held,
                 count: count,
                 accessibility:
                     "\(count) " + (count == 1 ? "element is" : "elements are")
@@ -483,18 +565,41 @@ struct ScriptView: View {
                             .id(block.id)
                     }
                 }
+                // Marks the rows as scroll targets, which is what lets the
+                // scroll spy below name them. No behaviour is attached, so
+                // nothing snaps — the column scrolls exactly as before.
+                .scrollTargetLayout()
                 .padding(.vertical, 12)
                 // Focus mode pulls the column in to a single measure and
                 // drops the surrounding chrome, as the web app does.
                 .frame(maxWidth: settings.isFocusMode ? 720 : .infinity)
                 .frame(maxWidth: .infinity)
             }
-            .onChange(of: navigator.pendingScrollTarget) { _, target in
+            // `initial` so a target set while the paper was on screen — the
+            // handoff when the writer switches back to the column — is not
+            // dropped by a scroll view that did not exist when it was set.
+            .onChange(of: navigator.pendingScrollTarget, initial: true) { _, target in
                 guard let target else { return }
-                withAnimation { proxy.scrollTo(target, anchor: .center) }
+                let anchor: UnitPoint =
+                    navigator.pendingPlacement == .atTop ? .top : .center
+                withAnimation { proxy.scrollTo(target, anchor: anchor) }
                 // Clearing the target is what lets the same block be jumped
                 // to twice in a row.
                 navigator.consumeScrollTarget()
+            }
+            // Reading is leaving a place too. Focus alone only knows where the
+            // writer last *typed*, so a script scrolled through and then closed
+            // reopened wherever the cursor had been left, which on a long read
+            // is nowhere near. The element at the top of the screen is the
+            // honest answer to "where was I", and it is the one restoring puts
+            // back at the top — record and restore agree, so reopening twice
+            // over lands in the same place rather than creeping up the script.
+            .onScrollTargetVisibilityChange(idType: Int.self) { visible in
+                // Not until the remembered position has had its turn: the first
+                // rows to appear are the top of the script, and recording those
+                // would overwrite the very thing being restored.
+                guard hasRestoredPosition, let top = visible.first else { return }
+                options.rememberBlock(top)
             }
         }
         .scrollDismissesKeyboard(.interactively)
@@ -569,22 +674,52 @@ struct ScriptView: View {
         // bleed, indistinguishable from action.
         chrome.columnWidth = min(chrome.columnWidth, max(280, usable))
 
-        // The badges sit in the margin beyond the column, so full width leaves
+        // The marks sit in the margin beyond the column, so full width leaves
         // them room rather than running the text underneath them.
         if settings.isFullWidth {
-            chrome.columnWidth = max(320, usable - 48)
+            chrome.columnWidth = max(320, usable - BlockMarkerBadges.gutter)
             chrome.isFullWidth = true
         }
-        // The labels hang off the left of the column, so the column gives up
-        // the room when the window has none to spare — without this they print
-        // straight over the scene headings, which start at the margin.
-        if options.showsElementLabels {
-            let margin = (usable - chrome.columnWidth) / 2
-            if margin < ElementLabelTag.gutter {
-                chrome.columnWidth = max(280, usable - 2 * ElementLabelTag.gutter)
-            }
+
+        // Both margins now have something in them: the element labels hang off
+        // the left of the column, the marks off the right. Where the centred
+        // column already leaves margin enough, they live in it and the page
+        // stays centred. Where it doesn't — a phone, a split-view slice — the
+        // column gives up exactly the room they need, because a lopsided page
+        // is better than a label printed over a scene heading or an action line
+        // running under a bookmark.
+        let leading = options.showsElementLabels ? ElementLabelTag.gutter : 0
+        let trailing = hasVisibleMarks ? BlockMarkerBadges.gutter : 0
+        let margin = (usable - chrome.columnWidth) / 2
+        if margin >= max(leading, trailing) {
+            // Room enough already: the marks sit in the margin the centred
+            // column leaves, and the same room on the left keeps the page where
+            // it was rather than nudging it off centre.
+            chrome.leadingGutter = min(BlockMarkerBadges.gutter, margin)
+            chrome.trailingGutter = chrome.leadingGutter
+        } else {
+            // Not room enough: the column gives it up — but never so much that
+            // there is nothing left to write in, so a window that cannot pay
+            // for both margins hands each a share of what it has.
+            let wanted = leading + trailing
+            let affordable = min(wanted, max(0, usable - 280))
+            let share = wanted > 0 ? affordable / wanted : 0
+            chrome.leadingGutter = leading * share
+            chrome.trailingGutter = trailing * share
+            chrome.columnWidth = usable - chrome.leadingGutter - chrome.trailingGutter
         }
         return chrome
+    }
+
+    /// Whether anything on screen is marked at all — usually nothing is. Most
+    /// scripts carry a handful of marks and plenty carry none, and an empty
+    /// gutter is column width thrown away, so the room is only taken once there
+    /// is something to put in it.
+    private var hasVisibleMarks: Bool {
+        if !model.commentCounts.isEmpty { return true }
+        return visibleBlocks.contains {
+            ($0.isPinned && options.showsPins) || ($0.isBookmarked && options.showsBookmarks)
+        }
     }
 
     /// The transient confirmation after an undo/redo, as the web editor shows.
@@ -667,8 +802,16 @@ struct ScriptView: View {
                 setup: settings.pageSetup,
                 zoomScale: settings.zoomScale,
                 isFitToWidth: settings.isPageZoomFit,
-                onVisiblePageChanged: { currentPage = $0 },
+                onVisiblePageChanged: { page in
+                    currentPage = page
+                    rememberPagePosition(page)
+                },
                 onFitZoomChanged: { settings.fitZoom = $0 })
+            .onChange(of: pendingPageTarget, initial: true) { _, page in
+                guard let page else { return }
+                proxy.scrollTo(page, anchor: .top)
+                pendingPageTarget = nil
+            }
             .overlay(alignment: .bottom) {
                 if pages.count > 0 {
                     PageNavigatorBar(
@@ -698,10 +841,8 @@ struct ScriptView: View {
     ///
     /// Driven off the blocks landing rather than off `.task`, because the
     /// remembered edition loads a second time and the position belongs to
-    /// whichever script ends up on screen. Routed through the navigator so it
-    /// uses the same scroll the outline and search already do; an element that
-    /// has since been deleted is not found and the script simply opens at the
-    /// top.
+    /// whichever script ends up on screen. An element that has since been
+    /// deleted is not found and the script simply opens at the top.
     private func restoreRememberedPosition() {
         guard !hasRestoredPosition, !model.blocks.isEmpty else { return }
         guard let id = options.rememberedBlockId else {
@@ -714,6 +855,80 @@ struct ScriptView: View {
         // flag unset lets the next arrival try again. An element that really
         // was deleted is never found, so this quietly stops mattering.
         guard model.blocks.contains(where: { $0.id == id }) else { return }
+        hasRestoredPosition = true
+        scroll(toRemembered: id)
+    }
+
+    /// Sends whichever surface is on screen to a remembered element: the column
+    /// scrolls the row to the top, the paper opens the sheet that element is
+    /// printed on.
+    ///
+    /// The column route goes through the navigator so it is the same scroll the
+    /// outline and search already do — only the placement differs, since the
+    /// element recorded was the one at the top of the screen and that is where
+    /// it belongs on the way back.
+    private func scroll(toRemembered id: Int) {
+        guard settings.isPageView else {
+            navigator.jump(to: id, placement: .atTop)
+            return
+        }
+        // Notes and outline scaffolding are never printed, so an element
+        // remembered from the column may be on no sheet at all. Nothing to do
+        // then: the paper opens at page one, as it did before.
+        guard let page = ScriptPagination.page(containing: id, in: pages) else { return }
+        currentPage = page
+        pendingPageTarget = page
+    }
+
+    /// Records where the paper is being read, in the same element ids the column
+    /// records — so the two surfaces hand the position back and forth rather
+    /// than each keeping a place of its own.
+    private func rememberPagePosition(_ page: Int) {
+        guard hasRestoredPosition,
+              let id = ScriptPagination.firstBlockId(onPage: page, in: pages) else { return }
+        options.rememberBlock(id)
+    }
+
+    /// Republishes this screenplay's half of the Bookmarks widget.
+    ///
+    /// Every call is cheap when nothing changed — the store compares what it
+    /// would write against what is already there and declines to spend a
+    /// WidgetKit reload — which is what makes it safe to hang off a change as
+    /// frequent as the elements landing.
+    private func publishBookmarks() {
+        BookmarksWidgetPublisher.publish(model.blocks, project: model.project,
+                                         isDemo: model.app.isDemo)
+    }
+
+    /// Takes down the element a tapped Bookmarks row asked for, and jumps to it
+    /// if the script is already in hand.
+    ///
+    /// Both halves are needed: a tap that opened this screenplay arrives before
+    /// its elements do, and a tap for the screenplay already on screen arrives
+    /// after — and nothing else would fire in that second case, since the
+    /// elements do not change for it.
+    private func receiveBookmarkRequest(_ blockId: Int) {
+        pendingBookmarkBlockId = blockId
+        openPendingBookmark()
+    }
+
+    /// Scrolls to the flagged element a widget row named, once its script has
+    /// arrived.
+    ///
+    /// The same shape as `restoreRememberedPosition`, and for the same reason:
+    /// not found yet is not the same as gone, so an element still on its way
+    /// (a remembered edition loading second) leaves the request standing and
+    /// tries again on the next arrival. An element really deleted is never
+    /// found, and the screenplay simply opens where it otherwise would.
+    ///
+    /// Where it differs is that this outranks the remembered position: the
+    /// writer asked for this line by tapping it, so the flag is set even though
+    /// the restore never ran.
+    private func openPendingBookmark() {
+        guard let id = pendingBookmarkBlockId,
+              model.blocks.contains(where: { $0.id == id })
+        else { return }
+        pendingBookmarkBlockId = nil
         hasRestoredPosition = true
         navigator.jump(to: id)
     }
@@ -737,6 +952,69 @@ struct ScriptView: View {
         repaginate()
     }
 
+    /// Which screen is open over the script, as the restore record spells it.
+    ///
+    /// Outermost first, and only the screens a writer works in — the reader, the
+    /// stats and the administrative sheets are left out on purpose, since
+    /// reopening onto one of those would answer a question that was closed when
+    /// the app was. Every one of these is presented from this view, so at most
+    /// one of them can be up; the order below only settles which wins if two
+    /// flags were ever set in the same turn.
+    private var openEditor: OpenEditor? {
+        if let openingDocument { return .document(openingDocument.id) }
+        if let documentsSheet { return .songsAndNotes(documentsSheet.type) }
+        if showingCharacters { return .characters }
+        if showingOutline { return .outline }
+        if showingTitlePage { return .titlePage }
+        return nil
+    }
+
+    /// Reopens the screen the writer was in when they last put the app down.
+    ///
+    /// The record is claimed rather than read, so this happens once per launch
+    /// and for the remembered project only — switching scripts is not an
+    /// invitation to reopen the last one's songs. Every case is gated the way the
+    /// toolbar gates the button that opens it: a project whose links no longer
+    /// offer songs, or a script since emptied, reopens onto the script itself
+    /// rather than onto a screen with nothing on it. The demo is left out for the
+    /// same reason it keeps no record — it is a walkthrough, not someone's place.
+    private func reopenRememberedEditor() {
+        guard !model.app.isDemo else { return }
+        let path = openEditors.claimReopenPath(forProject: model.project.id)
+        // Claimed either way, then dropped if a Home Screen quick action has
+        // already opened something: tapping Songs is someone asking for the
+        // songs now, which outranks where they happened to be last night — and
+        // the restore is spent rather than left to fire over them later.
+        guard openEditor == nil, let screen = path.first else { return }
+        switch screen {
+        case .songsAndNotes(let type):
+            guard model.canViewDocuments else { return }
+            // Whatever was open on top of the list travels with it, so a song
+            // editor two screens deep comes back with its list underneath.
+            // Seeded before the request, because presenting the sheet is what
+            // reads it.
+            reopeningInSongs = Array(path.dropFirst())
+            documentsSheet = DocumentsRequest(type: type)
+        case .document(let id):
+            // A song deleted since is not found, and the script simply opens
+            // without it.
+            guard let document = model.documents.first(where: { $0.id == id }) else { return }
+            openingDocument = document
+        case .characters:
+            guard model.canViewCharacters else { return }
+            showingCharacters = true
+        case .outline:
+            guard model.hasScriptContent else { return }
+            showingOutline = true
+        case .titlePage:
+            showingTitlePage = true
+        case .songWorkspace:
+            // Only ever reached through the songs list, so it is never the
+            // outermost screen and there is nothing to open here.
+            break
+        }
+    }
+
     /// Pagination walks the whole script, so it is only worth doing while the
     /// pages are actually on screen — in the editor the writer is typing and
     /// nothing would read the result.
@@ -758,7 +1036,12 @@ struct ScriptView: View {
                 commentTarget = commented
             }
         } else {
-            BlockRowView(block: block, commentCount: model.commentCount(for: block))
+            // A locked or read-only element has no context menu, so the bubble
+            // is the only way in to its thread — and commenting needs no more
+            // than read access.
+            BlockRowView(block: block,
+                         commentCount: model.commentCount(for: block),
+                         onComment: block.hasLink(.comments) ? { commentTarget = block } : nil)
                 .padding(.vertical, 4)
         }
     }
@@ -855,12 +1138,14 @@ struct ScriptView: View {
         }
         actions.ignoredWords = { showingIgnoredWords = true }
         actions.pageSetup = { showingPageSetup = true }
-        // The songs the menu bar can reach: the screen itself, and the handful
-        // last edited, which open without going through it — the toolbar menu's
-        // contents, for a writer whose hands are on a keyboard.
+        // The songs and notes the menu bar can reach: the screen itself, and the
+        // handful last edited of each, which open without going through it —
+        // the toolbar menu's contents, for a writer whose hands are on a
+        // keyboard.
         if model.canViewDocuments {
-            actions.songsAndNotes = { openSongsScreen() }
-            actions.recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickSongCount)
+            actions.songsAndNotes = { openDocumentsScreen() }
+            actions.recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickDocumentCount)
+            actions.recentNotes = model.notes.mostRecentlyEdited(limit: Self.quickDocumentCount)
             actions.openDocument = { document in openingDocument = document }
         }
         actions.exporter = model.exportOptions.isEmpty ? nil : exporter
@@ -912,13 +1197,15 @@ struct ScriptView: View {
             if model.canPaste(below: focused) && !options.isEditingLocked {
                 actions.pasteElements = { Task { await model.pasteBlocks(below: focused) } }
             }
-            // Drop a song's lyrics in at the element the writer is in — the
-            // block menu's "Insert Song", which until now could only be reached
-            // by opening that element's menu. Held to the same lock the
-            // clipboard items are, since it writes elements into the script.
-            if !options.isEditingLocked && !model.insertableSongs.isEmpty {
+            // Drop a song's lyrics or a note's text in at the element the writer
+            // is in — the block menu's "Insert Song" and "Insert Note", which
+            // until now could only be reached by opening that element's menu.
+            // Held to the same lock the clipboard items are, since it writes
+            // elements into the script.
+            if !options.isEditingLocked && model.canInsertDocuments {
                 actions.insertableSongs = model.insertableSongs
-                actions.insertSong = { document in
+                actions.insertableNotes = model.insertableNotes
+                actions.insertDocument = { document in
                     Task { await model.insertDocument(document, afterBlockId: focused.id) }
                 }
             }
@@ -947,61 +1234,99 @@ struct ScriptView: View {
         return actions
     }
 
-    /// How many songs the shortcuts offer. Enough that the one being worked on
-    /// this week is nearly always among them, short enough that the menu is
-    /// still read at a glance rather than scrolled — past that, the songs list
-    /// with its search is the better tool and is one item away.
-    private static let quickSongCount = 5
+    /// How many songs — and how many notes — the shortcuts offer. Enough that
+    /// the one being worked on this week is nearly always among them, short
+    /// enough that the menu is still read at a glance rather than scrolled —
+    /// past that, the list with its search is the better tool and is one item
+    /// away. Counted per list rather than across both, so a project heavy in
+    /// songs cannot crowd its notes out of their own section.
+    private static let quickDocumentCount = 5
 
-    /// Songs & Notes, with the songs themselves hanging off it.
+    /// Songs & Notes, with the documents themselves hanging off it.
     ///
     /// Tapping still opens the full screen, as the plain button always did.
-    /// Holding (or the arrow, on a Mac) drops the handful of songs last edited,
-    /// which go straight to the lyric editor — the screen, the search and the
-    /// row-tap in between were three steps to reach a song the writer already
-    /// knew the name of. It stays a plain button until there is a dated song to
+    /// Holding (or the arrow, on a Mac) drops the handful last edited of each
+    /// kind, which go straight to their editor — the screen, the picker, the
+    /// search and the row-tap in between were four steps to reach something the
+    /// writer already knew the name of. Notes were the worse off of the two:
+    /// the screen opens on songs, so reaching a note meant a segment tap on top
+    /// of all that. It stays a plain button until there is a dated document to
     /// list, so a project that has none shows no empty menu.
     @ViewBuilder
     private var songsButton: some View {
-        let recent = model.songs.mostRecentlyEdited(limit: Self.quickSongCount)
-        if recent.isEmpty {
+        let recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickDocumentCount)
+        let recentNotes = model.notes.mostRecentlyEdited(limit: Self.quickDocumentCount)
+        if recentSongs.isEmpty && recentNotes.isEmpty {
             Button {
-                openSongsScreen()
+                openDocumentsScreen()
             } label: {
                 Label("Songs & Notes", systemImage: "music.note.list")
             }
         } else {
             Menu {
-                Button {
-                    openSongsScreen()
-                } label: {
-                    Label("All Songs & Notes…", systemImage: "music.note.list")
-                }
-                Section("Recently Edited") {
-                    ForEach(recent) { song in
+                // Named for the list each one lands on, so the screen opens
+                // where it was asked for rather than on songs and a segment tap
+                // away. A project with only one kind gets the one entry, which
+                // is also the only one that would go anywhere.
+                Section {
+                    if !model.songs.isEmpty {
                         Button {
-                            openingDocument = song
+                            openDocumentsScreen(.song)
                         } label: {
-                            Label(song.displayTitle, systemImage: "music.note")
+                            Label("All Songs…", systemImage: "music.note.list")
+                        }
+                    }
+                    if !model.notes.isEmpty {
+                        Button {
+                            openDocumentsScreen(.notes)
+                        } label: {
+                            Label("All Notes…", systemImage: "note.text")
                         }
                     }
                 }
+                documentSection("Recent Songs", recentSongs, icon: "music.note")
+                documentSection("Recent Notes", recentNotes, icon: "note.text")
             } label: {
                 Label("Songs & Notes", systemImage: "music.note.list")
             } primaryAction: {
-                openSongsScreen()
+                openDocumentsScreen()
             }
         }
     }
 
-    /// Opens the Songs & Notes screen on the songs list — where this button has
-    /// always opened it, whatever list a Home Screen quick action last asked
-    /// for. Every route that reaches the whole screen goes through here; the
-    /// recent songs beside them skip it for the editor itself.
-    private func openSongsScreen() {
-        songsListType = .song
-        songsOpeningId = nil
-        showingSongs = true
+    /// One kind's shortcuts, or nothing at all when it has none — a heading
+    /// over an empty section reads as "you have no notes" when the truth is
+    /// only that the server never dated them.
+    @ViewBuilder
+    private func documentSection(_ title: String, _ documents: [TextDocument],
+                                 icon: String) -> some View {
+        if !documents.isEmpty {
+            Section(title) {
+                ForEach(documents) { document in
+                    Button {
+                        openingDocument = document
+                    } label: {
+                        Label(document.displayTitle, systemImage: icon)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Opens the Songs & Notes screen on the list asked for. Every route that
+    /// reaches the whole screen goes through here; the shortcuts beside them
+    /// skip it for the editor itself.
+    ///
+    /// Unasked, it opens on the list this project was last left on, so a writer
+    /// working out of the notes reaches them with the same one tap as before.
+    /// Failing that it opens on songs, where this button has always opened it —
+    /// unless the project has notes and no songs at all, in which case songs is
+    /// an empty list with the thing being looked for one segment away.
+    private func openDocumentsScreen(_ type: DocumentType? = nil) {
+        let remembered = options.rememberedDocumentList.flatMap(DocumentType.init(rawValue:))
+        let list = type ?? remembered
+            ?? (model.songs.isEmpty && !model.notes.isEmpty ? .notes : .song)
+        documentsSheet = DocumentsRequest(type: list)
     }
 
     /// The editor a document opens in, by what the server says it is: a song
@@ -1087,17 +1412,19 @@ struct ScriptView: View {
             }
         }
 
-        // Front matter, import and stats are occasional actions — they live in
-        // the overflow so the writing controls stay reachable on iPhone width.
-        // Focus mode clears the overflow out entirely.
+        // Front matter, history and the occasional errands. These also hang off
+        // the screenplay's name (`projectButtons` is what the title menu
+        // shows), but they are declared here as well rather than only there:
+        // whether the bar has the room to draw a title at all is iOS's
+        // decision, and an affordance that exists only inside a menu that may
+        // not appear is an affordance that may not be reachable.
+        // Focus mode clears the overflow out but for the history pair.
         if !settings.isFocusMode {
             ToolbarItemGroup(placement: .secondaryAction) {
-                Button {
-                    showingTitlePage = true
-                } label: {
-                    Label("Title Page", systemImage: "doc.text")
-                }
+                projectButtons
+            }
 
+            ToolbarItemGroup(placement: .secondaryAction) {
                 if model.hasScriptContent {
                     Button {
                         showingStats = true
@@ -1106,54 +1433,11 @@ struct ScriptView: View {
                     }
                 }
 
-                // Only worth surfacing once there is more than one edition, or
-                // the writer can make one. A single-edition project should show
-                // no sign of the feature.
-                if editions.hasChoice || editions.canCreate {
-                    Button {
-                        showingEditions = true
-                    } label: {
-                        Label("Editions", systemImage: "doc.on.doc")
-                    }
-                }
-
-                if model.project.hasLink(.versions) {
-                    Button {
-                        showingVersions = true
-                    } label: {
-                        Label("Version History", systemImage: "clock.arrow.circlepath")
-                    }
-                }
-
-                if model.project.hasLink(.invitations) || model.project.hasLink(.access) {
-                    Button {
-                        showingShare = true
-                    } label: {
-                        Label("Share", systemImage: "person.badge.plus")
-                    }
-                }
-
-                if let activity = model.project.link(.activity) {
-                    Button {
-                        activityLink = activity
-                    } label: {
-                        Label("Recent Activity", systemImage: "clock")
-                    }
-                }
-
                 if let trash = model.blocksLinks[.trash] {
                     Button {
                         trashLink = trash
                     } label: {
                         Label("Deleted Elements", systemImage: "trash")
-                    }
-                }
-
-                if model.project.hasLink(.importScript) {
-                    Button {
-                        showingScriptImporter = true
-                    } label: {
-                        Label("Import Script", systemImage: "square.and.arrow.down.on.square")
                     }
                 }
             }
@@ -1174,6 +1458,132 @@ struct ScriptView: View {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
                 .disabled(!(undoRedo.canRedo ?? false))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var addElementButton: some View {
+        if !settings.isPageView && !options.isEditingLocked {
+            Button {
+                Task { await model.appendBlock() }
+            } label: {
+                Label("Add Element", systemImage: "plus")
+            }
+        }
+    }
+
+    /// Finding your way around the script in front of you.
+    @ViewBuilder
+    private var scriptToolButtons: some View {
+        if model.hasScriptContent && !settings.isFocusMode {
+            Button {
+                isSearching.toggle()
+                if !isSearching { search.clear() }
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+            }
+            .keyboardShortcut("f", modifiers: .command)
+
+            Button {
+                showingOutline = true
+            } label: {
+                Label("Outline", systemImage: "list.bullet.indent")
+            }
+            // ⌘⇧O is outline *mode*, in the View menu below and in the Mac
+            // menu bar. The panel took the same keys until now, which meant
+            // one of the two won by responder order and the other silently
+            // did nothing.
+            .keyboardShortcut("o", modifiers: [.command, .option])
+
+            if model.canSelectBlocks && !settings.isPageView {
+                Button {
+                    selection.isSelecting.toggle()
+                } label: {
+                    Label("Select Elements", systemImage: "checklist")
+                }
+            }
+        }
+    }
+
+    /// The screens kept alongside the script: its people, its songs, and the
+    /// copies of it that leave the app.
+    @ViewBuilder
+    private var referenceButtons: some View {
+        if !settings.isFocusMode {
+            if model.canViewCharacters {
+                Button {
+                    showingCharacters = true
+                } label: {
+                    Label("Characters", systemImage: "person.2")
+                }
+            }
+
+            if model.canViewDocuments {
+                songsButton
+            }
+
+            if !model.exportOptions.isEmpty {
+                ExportButton(exporter: exporter)
+            }
+        }
+    }
+
+    /// The project's own affairs, as against the script on screen: its front
+    /// matter, its named drafts, its history, who else can see it.
+    ///
+    /// Gathered so they can hang off the screenplay's name as well as sit in
+    /// the overflow — a document app has taught everyone to look under the
+    /// title for these, and the same list serves both places. See `toolbar`
+    /// for why they are in both rather than only under the title.
+    @ViewBuilder
+    private var projectButtons: some View {
+        Button {
+            showingTitlePage = true
+        } label: {
+            Label("Title Page…", systemImage: "doc.text")
+        }
+
+        // Only worth surfacing once there is more than one edition, or the
+        // writer can make one. A single-edition project should show no sign
+        // of the feature.
+        if editions.hasChoice || editions.canCreate {
+            Button {
+                showingEditions = true
+            } label: {
+                Label("Editions…", systemImage: "doc.on.doc")
+            }
+        }
+
+        if model.project.hasLink(.versions) {
+            Button {
+                showingVersions = true
+            } label: {
+                Label("Version History…", systemImage: "clock.arrow.circlepath")
+            }
+        }
+
+        if model.project.hasLink(.invitations) || model.project.hasLink(.access) {
+            Button {
+                showingShare = true
+            } label: {
+                Label("Share…", systemImage: "person.badge.plus")
+            }
+        }
+
+        if let activity = model.project.link(.activity) {
+            Button {
+                activityLink = activity
+            } label: {
+                Label("Recent Activity…", systemImage: "clock")
+            }
+        }
+
+        if model.project.hasLink(.importScript) {
+            Button {
+                showingScriptImporter = true
+            } label: {
+                Label("Import Script…", systemImage: "square.and.arrow.down.on.square")
             }
         }
     }

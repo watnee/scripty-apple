@@ -371,6 +371,11 @@ private struct UserEditorSheet: View {
                     TextField("Team (optional)", text: $draft.team)
                 }
                 Section {
+                    // Deliberately unmarked for AutoFill, unlike the account
+                    // and reset screens. This password belongs to somebody
+                    // else — an admin is setting it for another writer — and a
+                    // `.newPassword` field here would have the Passwords app
+                    // offer to save it over the admin's own entry for Scripty.
                     SecureField(isCreating ? "Password" : "New password", text: $draft.password)
                 } header: {
                     Text("Password")

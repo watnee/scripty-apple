@@ -5,11 +5,12 @@
 //  Created by Clint Watnee on 7/13/26.
 //
 
+import AppIntents
 import SwiftUI
 
 @main
 struct scriptyApp: App {
-    @State private var appModel = AppModel()
+    @State private var appModel: AppModel
 
     /// Only reason for an app delegate: a Home Screen quick action is delivered
     /// through the scene delegate this one names, and SwiftUI gives no other
@@ -19,6 +20,21 @@ struct scriptyApp: App {
     /// Light, dark or the device's own — the whole app, so it is applied here
     /// rather than anywhere a script happens to be.
     private let appearance = AppearanceSettings.shared
+
+    /// The one thing this initialiser exists for: handing the session to the
+    /// App Intents dependency graph, so a capture intent has a signed-in
+    /// client to write through.
+    ///
+    /// Registered here rather than in a `.task` because of when an intent can
+    /// arrive. `openAppWhenRun` launches this process and dispatches into it,
+    /// and `App.init` is the only hook guaranteed to have run first — a scene's
+    /// `task` is not, and an intent resolving its dependency before this ran
+    /// would trap rather than fail politely.
+    init() {
+        let model = AppModel()
+        AppDependencyManager.shared.add(dependency: model)
+        _appModel = State(initialValue: model)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -47,6 +63,13 @@ struct scriptyApp: App {
                         appModel.pendingWidgetDestination = destination
                         return
                     }
+                    // scripty://bookmark?project=…&block=… — a row on the
+                    // Bookmarks widget, which names an element as well as a
+                    // screenplay and so needs a request of its own.
+                    if let destination = BookmarkWidgetLink.destination(in: url) {
+                        appModel.pendingBookmarkDestination = destination
+                        return
+                    }
                     // scripty://project?id=… — a row on the Screenplays widget.
                     // Reusing the quick action rather than inventing a second
                     // kind of pending request: `.project(id:)` already means
@@ -55,6 +78,18 @@ struct scriptyApp: App {
                     // already built around it.
                     if let projectId = ProjectWidgetLink.projectId(in: url) {
                         QuickActions.shared.pending = .project(id: projectId)
+                        return
+                    }
+                    // scripty://songs, //notes, //compose?kind=…, //screenplay
+                    // — a Control Center button, or a Shortcut built by hand.
+                    // Neither names a project: a tile on a Lock Screen cannot
+                    // know which screenplay it will be pressed for, so it asks
+                    // for a screen and lets the loaded list settle the rest.
+                    //
+                    // Checked after the two widget links, which are more
+                    // specific, and before the demo one, which is not a route.
+                    if let route = ScriptyLink.route(in: url) {
+                        QuickActions.shared.pending = IntentRouting.action(for: route)
                         return
                     }
                     // scripty://demo — e.g. from a home-screen Shortcut —
@@ -125,8 +160,9 @@ struct RootView: View {
             // a cold launch is `.loading` while it finds out whether there is
             // one — so the drop waits for the answer rather than firing on the
             // way past. The named projects come off the menu at the same time,
-            // and both widgets' rows off the Home Screen: all of it is this
-            // writer's screenplay and song titles, readable by whoever picks
+            // and every widget's rows off the Home Screen: all of it is this
+            // writer's screenplay and song titles — and, on the Bookmarks
+            // widget, lines of the script itself — readable by whoever picks
             // the phone up next. The widgets need it more than the menu does —
             // the Home Screen keeps drawing whatever it was last given until
             // this app takes it back, and nobody else can.
@@ -134,9 +170,12 @@ struct RootView: View {
                 guard case .signedOut = phase else { return }
                 QuickActions.shared.pending = nil
                 QuickActions.shared.clearRecents()
+                QuickActions.shared.forgetOpens()
                 app.pendingWidgetDestination = nil
+                app.pendingBookmarkDestination = nil
                 WidgetPublisher.clear()
                 ProjectsWidgetPublisher.clear()
+                BookmarksWidgetPublisher.clear()
             }
     }
 

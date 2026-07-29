@@ -39,7 +39,10 @@ enum ProjectSort: String, CaseIterable, Identifiable {
 struct ProjectsSidebarView: View {
     let app: AppModel
     let model: ProjectListModel
-    @Binding var selection: Project?
+    /// The open screenplay's id. An id rather than the project itself because a
+    /// selection matched on the whole value does not survive a refresh — see
+    /// `ContentView`.
+    @Binding var selection: Int?
 
     @State private var showingCreate = false
     @State private var showingImporter = false
@@ -147,6 +150,9 @@ struct ProjectsSidebarView: View {
                 Button("Done") { editMode = .inactive }
             }
         } else {
+            // Left plain, and left where it has always been: the prominent copy
+            // of this action is the named one under the list, and two filled
+            // blue buttons for the same thing read as two different things.
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showingCreate = true
@@ -325,7 +331,7 @@ struct ProjectsSidebarView: View {
             if project.hasLink(.delete) {
                 Button(role: .destructive) {
                     Task {
-                        if selection?.id == project.id { selection = nil }
+                        if selection == project.id { selection = nil }
                         await model.delete(project)
                     }
                 } label: {
@@ -399,7 +405,7 @@ struct ProjectsSidebarView: View {
             Section {
                 Button(role: .destructive) {
                     Task {
-                        if selection?.id == project.id { selection = nil }
+                        if selection == project.id { selection = nil }
                         await model.delete(project)
                     }
                 } label: {
@@ -434,7 +440,7 @@ struct ProjectsSidebarView: View {
                         DemoBanner()
                     }
                     ForEach(displayedProjects) { project in
-                        projectRow(for: project).tag(project)
+                        projectRow(for: project).tag(project.id)
                     }
                 }
             }
@@ -471,7 +477,12 @@ struct ProjectsSidebarView: View {
         .navigationSubtitle(countSubtitle)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
         .refreshable { await model.refresh() }
-        .safeAreaBar(edge: .bottom, spacing: 0) { offlineFooter }
+        .safeAreaBar(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                offlineFooter
+                newProjectBar
+            }
+        }
         // The connection is back — trade the offline copy for the real list.
         .onChange(of: app.connectivity.isOnline) { _, online in
             guard online else { return }
@@ -514,11 +525,7 @@ struct ProjectsSidebarView: View {
                 guard let created = await model.createProject(title: title) else { return false }
                 // Naming a screenplay is the writer asking to start writing it,
                 // so open it rather than leaving them to find the new row.
-                // Prefer the copy from the list `createProject` reloaded: the
-                // sidebar's selection matches on the whole value, so the
-                // POST's answer — with its own idea of `lastEdited` — would
-                // highlight nothing.
-                selection = model.projects.first { $0.id == created.id } ?? created
+                selection = created.id
                 return true
             }
         }
@@ -561,6 +568,44 @@ struct ProjectsSidebarView: View {
         Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } })
+    }
+
+    /// The primary action, named and in reach. The toolbar "+" is a glyph whose
+    /// meaning you have to already know, sitting in the corner furthest from the
+    /// thumb; this says what it does, stays put as the list scrolls, and is the
+    /// only place the action is named once the empty state stops being shown —
+    /// which is from the writer's very first screenplay onwards.
+    ///
+    /// Drawn here rather than as a `.bottomBar` toolbar item, which is where it
+    /// started: a bar item built from a `Label` shows the glyph and drops the
+    /// title even under `.titleAndIcon`, and inside the iPad's sidebar column a
+    /// prominent one loses its fill and leaves white text on a white bar. An
+    /// inset is drawn by SwiftUI rather than bridged into a `UIBarButtonItem`,
+    /// so neither happens, and it stacks with the offline footer instead of
+    /// competing with it for the same edge.
+    ///
+    /// Edit mode hides it: that list is answering which screenplays to export,
+    /// and starting a new one is not an answer to it. It is deliberately *not*
+    /// also hidden behind an empty list, even though the empty state offers the
+    /// same button: a bottom inset that starts out empty is never installed at
+    /// all, so gating on the list having loaded leaves the bar missing for the
+    /// rest of the session.
+    @ViewBuilder
+    private var newProjectBar: some View {
+        if !editMode.isEditing {
+            Button {
+                showingCreate = true
+            } label: {
+                Label("New Project", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            // No background of its own: the host mounts it with `.safeAreaBar`,
+            // so the button is already floating on Liquid Glass, and a `.bar`
+            // fill under it draws a second, flatter surface on top of that one.
+        }
     }
 
     /// Says the list on screen is the copy saved on this device, and how old

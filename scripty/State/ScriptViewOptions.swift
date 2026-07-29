@@ -139,6 +139,28 @@ final class ScriptViewOptions {
         defaults.set(tab, forKey: Self.outlineTabKey(project: projectId))
     }
 
+    // MARK: - Songs & Notes list
+
+    /// Which of the two lists the Songs & Notes screen last showed, so reopening
+    /// it lands on the one the writer works in rather than always on Songs.
+    ///
+    /// The screen has always opened on Songs, which costs a writer working from
+    /// the notes a segment tap every single trip — and the notes are the half
+    /// with no shortcut of its own anywhere else. Scoped to the project like the
+    /// outline tab beside it: a musical is a songs project and the drama next to
+    /// it is a notes project, and each should reopen as it was left.
+    ///
+    /// Stored as the type's raw server value, and read back the same way the
+    /// outline tab is — an absent or unrecognised value is nil, and the caller
+    /// supplies the default by treating it as "Songs".
+    var rememberedDocumentList: String? {
+        defaults.string(forKey: Self.documentListKey(project: projectId))
+    }
+
+    func rememberDocumentList(_ type: String) {
+        defaults.set(type, forKey: Self.documentListKey(project: projectId))
+    }
+
     // MARK: - Editing lock
 
     /// Read-only until unlocked. A private setter because the value depends on
@@ -172,6 +194,13 @@ final class ScriptViewOptions {
     /// the same `scripty-…-project-<id>` family as its neighbours.
     private static func outlineTabKey(project: Int) -> String {
         "scripty-outline-list-tab-project-\(project)"
+    }
+
+    /// This client's own key too — the web reaches Songs and Notes as two
+    /// separate pages, so it has no "which list" to remember. Same family and
+    /// same project scoping as the outline tab above.
+    private static func documentListKey(project: Int) -> String {
+        "scripty-document-list-project-\(project)"
     }
 
     private static func lockKey(edition: Int) -> String {

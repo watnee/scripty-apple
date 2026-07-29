@@ -26,9 +26,33 @@ struct Project: Decodable, Identifiable, Hashable, HALResource {
         case links = "_links"
     }
 
+    /// What to call this project on screen: the screenplay's own title where
+    /// there is one, else the project name.
+    ///
+    /// Blank is the same as absent at every step. The title page clears a field
+    /// by saving it empty rather than by omitting it — omitting means "leave it
+    /// alone" — so a screenplay whose title has been cleared comes back as `""`
+    /// rather than as nil, and `??` alone would let that empty string shadow a
+    /// perfectly good project name. The title page's own preview has always
+    /// trimmed and fallen through; this is the same rule everywhere else.
     var displayTitle: String {
-        let name = screenplayTitle ?? title ?? ""
+        let screenplay = (screenplayTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !screenplay.isEmpty { return screenplay }
+        let name = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? "Untitled Project" : name
+    }
+
+    /// Whether the writer has starred this as their default project. The flag
+    /// is optional because the server omits it for everyone but its owner, and
+    /// "not sent" means the same thing here as "sent false".
+    var isTheDefault: Bool { isDefault ?? false }
+
+    /// The starred project, if the writer has one — their own answer to "which
+    /// screenplay is mine". At most one project can carry the star (the server
+    /// keeps a single `defaultProjectId` per user), so the first match is the
+    /// only one.
+    static func starred(in projects: [Project]) -> Project? {
+        projects.first { $0.isTheDefault }
     }
 
     /// Everything the sidebar's search box matches against. The web list filters

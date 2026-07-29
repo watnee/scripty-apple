@@ -2,9 +2,9 @@
 //  WidgetPublisher.swift
 //  scripty
 //
-//  Where the app meets its Home Screen widget: it turns a project's documents
-//  into the handful of rows the widget draws, and tells WidgetKit when they
-//  have changed.
+//  Where the app meets its Songs and Notes widgets: it turns a project's
+//  documents into the handful of rows they draw, and tells WidgetKit which of
+//  the two has changed.
 //
 //  The shape of this file is QuickActions.swift's, for the same reasons. The
 //  pure half — merging, ordering, the URLs — lives next door in
@@ -18,7 +18,7 @@ import SwiftUI
 import WidgetKit
 
 enum WidgetPublisher {
-    /// Republishes one project's half of the widget.
+    /// Republishes one project's rows on both widgets.
     ///
     /// Called wherever a project's documents settle rather than from the load
     /// itself, so that every path that changes them — creating, renaming,
@@ -46,13 +46,17 @@ enum WidgetPublisher {
                                   isSong: document.kind == .song,
                                   updatedAt: updatedAt)
         }
-        guard SongsNotesWidgetStore.publish(rows, forProject: project.id) else { return }
-        WidgetCenter.shared.reloadTimelines(ofKind: SongsNotesWidgetStore.widgetKind)
+        // Reloaded only when the rows actually changed. Reloads are rationed
+        // by the system, and an afternoon spent on one project's songs leaves
+        // the snapshot exactly as the widget already drew it.
+        if SongsNotesWidgetStore.publish(rows, forProject: project.id) {
+            WidgetCenter.shared.reloadTimelines(ofKind: SongsNotesWidgetStore.widgetKind)
+        }
     }
 
     /// Empties the widget. Signing out goes through here: the next person to
     /// pick up the phone should not be able to read the last writer's song
-    /// titles off the Home Screen.
+    /// titles off the Home Screen — whichever list it is configured to draw.
     static func clear() {
         SongsNotesWidgetStore.clear()
         WidgetCenter.shared.reloadTimelines(ofKind: SongsNotesWidgetStore.widgetKind)
@@ -60,7 +64,7 @@ enum WidgetPublisher {
 }
 
 extension View {
-    /// Republishes the widget whenever this project's songs and notes change.
+    /// Republishes both widgets whenever this project's songs and notes change.
     ///
     /// A named modifier rather than the `onChange` written inline where it is
     /// used: `ScriptView`'s body is long enough that adding one more closure to

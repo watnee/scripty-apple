@@ -70,6 +70,29 @@ struct ProjectsSnapshot: Codable, Sendable {
     var isEmpty: Bool { projects.isEmpty }
 }
 
+// MARK: - Choosing which rows to draw
+
+extension ProjectsSnapshot {
+    /// The rows left after the widget's configuration has had its say.
+    ///
+    /// The stored list is already newest-edited first, which is what the widget
+    /// drew before it could be configured and is still the default. The other
+    /// setting floats the starred screenplay to the top without disturbing
+    /// anything below it — the writer's own answer to "which one is mine",
+    /// asked of a widget that otherwise only knows what was touched last.
+    ///
+    /// Filtering here rather than in the extension's view keeps the drawing as
+    /// dumb as it was, and lets the choice be checked without a simulator.
+    func rows(starredFirst: Bool = false, limit: Int) -> [WidgetProject] {
+        guard starredFirst, let starred = projects.firstIndex(where: { $0.isDefault }) else {
+            return Array(projects.prefix(max(0, limit)))
+        }
+        var reordered = projects
+        reordered.insert(reordered.remove(at: starred), at: 0)
+        return Array(reordered.prefix(max(0, limit)))
+    }
+}
+
 // MARK: - The shared container
 
 enum ProjectsWidgetStore {
@@ -99,12 +122,23 @@ enum ProjectsWidgetStore {
 
     /// Matches the `kind` the widget declares, so `WidgetCenter` can be told to
     /// reload this one by name.
+    ///
+    /// Load-bearing across an app update: iOS finds an already-placed widget by
+    /// this string, so changing it would not rename the widget, it would orphan
+    /// every copy of it on every Home Screen.
     static let widgetKind = "ProjectsWidget"
 
-    /// How many rows are kept. The largest family draws six, and a couple spare
-    /// means the widget still fills after a project is deleted rather than
-    /// showing a gap until the next load.
-    static let limit = 8
+    /// How many rows are kept.
+    ///
+    /// Sized for the second reader rather than the first. The largest widget
+    /// family draws six, and a couple spare would be ample for it — but this
+    /// snapshot is no longer only the widget's. It is also the list a Shortcuts
+    /// or Siri picker offers when it asks which screenplay, and the whole of
+    /// what Spotlight can name (see scripty/Intents); there a cap is not a
+    /// shorter list, it is "no such screenplay" for a screenplay that plainly
+    /// exists. Thirty-two is past any working writer's shelf; the widget still
+    /// takes its six off the top with `prefix(rowLimit)` on its own side.
+    static let limit = 32
 
     private static let fileName = "projects-widget.json"
 
@@ -178,6 +212,34 @@ enum ProjectsWidgetStore {
     ///
     /// Pure, and separate from the file above, so the ordering can be checked
     /// without an app group container to write into.
+    /// The rows a Shortcuts or Siri picker offers when it asks which screenplay.
+    ///
+    /// Separate from `ordered` only in name: a picker wants the same list the
+    /// widget draws, and there is nothing to gain by letting the two drift.
+    static func suggested(in snapshot: ProjectsSnapshot) -> [WidgetProject] {
+        snapshot.projects
+    }
+
+    /// The rows behind a set of ids a picker has already settled on.
+    ///
+    /// An id the snapshot has never heard of gets a placeholder rather than
+    /// being dropped, and this is the whole reason the method exists. When iOS
+    /// asks what a configured widget's saved id stands for and is told nothing,
+    /// it does not ask again — it decides the widget needs reconfiguring and
+    /// throws the writer's choice away. A screenplay that is merely absent from
+    /// this device's last snapshot (signed out, in the demo, or simply not
+    /// loaded yet) is not a screenplay that is gone, and it should survive a
+    /// launch that happened to be offline.
+    ///
+    /// The order asked for is the order returned: pickers pair these back up
+    /// against the ids they sent.
+    static func pick(ids: [Int], in projects: [WidgetProject]) -> [WidgetProject] {
+        let known = Dictionary(projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return ids.map { id in
+            known[id] ?? WidgetProject(id: id, title: "Screenplay")
+        }
+    }
+
     static func ordered(_ projects: [WidgetProject], limit: Int = limit) -> [WidgetProject] {
         let sorted = projects.sorted { lhs, rhs in
             let left = lhs.lastEdited ?? .distantPast

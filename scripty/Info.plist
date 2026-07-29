@@ -11,11 +11,12 @@
 	<!-- The signing team, with its trailing dot, substituted at build time.
 	     macOS spells an App Group `TEAMID.group.…` where iOS spells it plain
 	     `group.…`, and the container can only be opened by the exact string the
-	     entitlement granted — so both widget stores have to be able to build the
-	     prefixed form, and this is where they read the prefix from. Substituted
-	     on a simulator build too, which is harmless: the plain spelling is tried
-	     first and always resolves on iOS. It comes through unexpanded only on a
-	     build that had no team at all, which both stores check for. -->
+	     entitlement granted — so all three widget stores have to be able to
+	     build the prefixed form, and this is where they read the prefix from.
+	     Substituted on a simulator build too, which is harmless: the plain
+	     spelling is tried first and always resolves on iOS. It comes through
+	     unexpanded only on a build that had no team at all, which every store
+	     checks for. -->
 	<key>TeamIdentifierPrefix</key>
 	<string>$(TeamIdentifierPrefix)</string>
 
@@ -50,7 +51,21 @@
 	     QuickActions.publishRecents, and iOS lists the static pair first.
 
 	     The type strings have to match QuickAction.ItemType. A disagreement
-	     builds cleanly and shows up only as a menu entry that does nothing. -->
+	     builds cleanly and shows up only as a menu entry that does nothing.
+
+	     The subtitles name both destinations because these entries have two:
+	     the starred project when there is one, and otherwise the screenplay
+	     most recently opened or edited (QuickAction.preferredProject). Saying
+	     only "your default screenplay" would be a promise the app breaks for
+	     every writer who has never starred anything — which is most of them,
+	     since nothing makes you star one. A static entry cannot say more than
+	     this: it is read from here at install time, and unlike the named
+	     projects below there is no moment at which the app could revise it.
+
+	     "Screenplay" is left off the end so the line does not wrap. Wrapped,
+	     these two stood taller than the named projects beneath them, which put
+	     the weight of the menu on its fixed half rather than on the writer's
+	     own work. -->
 	<key>UIApplicationShortcutItems</key>
 	<array>
 		<dict>
@@ -59,7 +74,7 @@
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Songs</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>In your default screenplay</string>
+			<string>Default or latest</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>music.note.list</string>
 		</dict>
@@ -69,7 +84,7 @@
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Notes</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>In your default screenplay</string>
+			<string>Default or latest</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>note.text</string>
 		</dict>
@@ -77,8 +92,9 @@
 
 	<!-- scripty://demo launches the offline demo (e.g. from a Shortcut);
 	     scripty://document?project=…&id=…&kind=… is a row tapped on the
-	     Songs & Notes widget, and scripty://project?id=… one on the Screenplays
-	     widget. All three are read in scriptyApp's onOpenURL. -->
+	     Songs & Notes widget, scripty://project?id=… one on the Screenplays
+	     widget, and scripty://bookmark?project=…&block=… one on the Bookmarks
+	     widget. All four are read in scriptyApp's onOpenURL. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

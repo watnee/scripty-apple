@@ -1,13 +1,15 @@
 //
 //  Songs & Notes widget checks
 //
-//  The two pure halves of the widget: which rows survive a publish, and the
-//  URLs a tapped row hands back to the app.
+//  The pure halves of the widget: which rows survive a publish, which of those
+//  a configured widget draws, and the URLs a tapped row — or a pressed Control
+//  Center button — hands back to the app.
 //
-//  Worth checking without a simulator because both fail quietly. A merge that
-//  keeps the wrong project's rows draws a plausible-looking widget of stale
-//  titles, and a link that parses to the wrong document opens something real
-//  but not what was tapped — neither looks like a bug from the outside.
+//  Worth checking without a simulator because all of it fails quietly. A merge
+//  that keeps the wrong project's rows draws a plausible-looking widget of
+//  stale titles, a filter that keeps the wrong half draws a widget of the
+//  wrong thing, and a link that parses to the wrong document opens something
+//  real but not what was asked for — none of it looks like a bug from outside.
 //
 //  The file half of the store is not exercised here: it writes into an App
 //  Group container, which a command-line process has none of. That is why
@@ -101,7 +103,14 @@ func runLimit() {
     print("")
     print("How many rows are kept")
 
-    let many = (1...20).map { document($0, title: "Song \($0)", edited: hoursAgo(Double($0))) }
+    // Sized off the limit rather than at a round number, so this goes on
+    // checking that the cap is applied when the cap changes — it has already
+    // grown once, when Siri became a second reader of the same snapshot, and a
+    // fixture shorter than the limit quietly stops testing anything.
+    let overflowing = SongsNotesWidgetStore.limit + 5
+    let many = (1...overflowing).map {
+        document($0, title: "Song \($0)", edited: hoursAgo(Double($0)))
+    }
     let kept = SongsNotesWidgetStore.merging(many, forProject: 1, into: [])
     check("capped at the store's limit", kept.count, SongsNotesWidgetStore.limit)
     check("and it is the most recent that are kept", ids(kept.prefix(3).map { $0 }), "1,2,3")
@@ -111,6 +120,95 @@ func runLimit() {
     // widget even after one project's documents drop out.
     check("the limit leaves the largest family room to spare",
           SongsNotesWidgetStore.limit >= 6, true)
+    // And room again after the configuration has taken half of them away: a
+    // widget set to songs only draws six songs out of whatever mix was stored.
+    check("the limit leaves room for a half of it to fill a widget",
+          SongsNotesWidgetStore.limit >= 12, true)
+}
+
+func runFiltering() {
+    print("")
+    print("Which half of the list a configured widget draws")
+
+    let mixed = SongsNotesSnapshot(documents: [
+        document(1, title: "Song one", isSong: true, edited: hoursAgo(1)),
+        document(2, title: "Note one", isSong: false, edited: hoursAgo(2)),
+        document(3, title: "Song two", isSong: true, edited: hoursAgo(3)),
+        document(4, title: "Note two", isSong: false, edited: hoursAgo(4)),
+    ], savedAt: now)
+
+    check("both halves is the whole list, in the order it was stored",
+          ids(mixed.rows(songs: true, notes: true, limit: 6)), "1,2,3,4")
+    check("songs only keeps the songs", ids(mixed.rows(songs: true, notes: false, limit: 6)), "1,3")
+    check("notes only keeps the notes", ids(mixed.rows(songs: false, notes: true, limit: 6)), "2,4")
+    // Not a state the picker can reach, but "no" twice quietly meaning "yes"
+    // is exactly the sort of thing that is only found after it has shipped.
+    check("neither half keeps nothing", ids(mixed.rows(songs: false, notes: false, limit: 6)), "")
+
+    // Filtering happens before the family's row count, not after: a medium
+    // widget set to songs only should draw three songs, not three rows of
+    // which two happen to be songs.
+    check("the limit is applied to what survives the filter",
+          ids(mixed.rows(songs: true, notes: false, limit: 1)), "1")
+    check("a limit of none keeps none", ids(mixed.rows(limit: 0)), "")
+    check("a negative limit is not a crash", ids(mixed.rows(limit: -1)), "")
+
+    // A project whose documents are all notes, on a widget asking for songs.
+    // Empty is the honest answer; the widget draws its own empty state.
+    let notesOnly = SongsNotesSnapshot(documents: [
+        document(9, title: "Beats", isSong: false, edited: hoursAgo(1)),
+    ], savedAt: now)
+    check("asking for songs where there are none draws none",
+          ids(notesOnly.rows(songs: true, notes: false, limit: 6)), "")
+    check("an empty snapshot filters to nothing rather than trapping",
+          ids(SongsNotesSnapshot().rows(limit: 6)), "")
+}
+
+func runControlLinks() {
+    print("")
+    print("What a Control Center button asks for")
+
+    func described(_ route: ScriptyLink.Route) -> String {
+        ScriptyLink.url(for: route).absoluteString
+    }
+    check("songs names a screen and no project", described(.songs), "scripty://songs")
+    check("notes likewise", described(.notes), "scripty://notes")
+    check("the screenplay likewise", described(.screenplay), "scripty://screenplay")
+    check("a new song says which half it is for",
+          described(.compose(isSong: true)), "scripty://compose?kind=song")
+    check("and so does a new note",
+          described(.compose(isSong: false)), "scripty://compose?kind=notes")
+
+    func read(_ raw: String) -> String {
+        guard let url = URL(string: raw), let route = ScriptyLink.route(in: url) else {
+            return "none"
+        }
+        return "\(route)"
+    }
+    for route in [ScriptyLink.Route.songs, .notes, .screenplay,
+                  .compose(isSong: true), .compose(isSong: false)] {
+        check("\(route) reads back", read(described(route)), "\(route)")
+    }
+
+    // Every scripty:// URL arrives at the same door. Both widgets' rows, the
+    // demo shortcut and the reset email are each somebody else's to answer, and
+    // claiming one of them here would open the wrong screen on a tap that was
+    // never meant for a control.
+    check("a widget row is not a control route",
+          read("scripty://document?project=1&id=2&kind=song"), "none")
+    check("a screenplay row is not a control route", read("scripty://project?id=1"), "none")
+    check("the demo link is not a control route", read("scripty://demo"), "none")
+    check("a different scheme is not a control route", read("https://example.com/songs"), "none")
+    check("an unknown host is not a control route", read("scripty://nowhere"), "none")
+
+    // A compose link with no kind is the notes composer, which is what a link
+    // built by hand most likely meant. One with a kind that is neither word is
+    // malformed — opening the wrong half beats nothing only if you are sure
+    // which half, and here nobody is.
+    check("compose with no kind opens the notes composer",
+          read("scripty://compose"), "\(ScriptyLink.Route.compose(isSong: false))")
+    check("compose with a kind that is neither word is dropped",
+          read("scripty://compose?kind=zzz"), "none")
 }
 
 func runLinks() {
@@ -169,7 +267,9 @@ print("== Songs & Notes widget ==")
 runOrdering()
 runMerging()
 runLimit()
+runFiltering()
 runLinks()
+runControlLinks()
 
 print("")
 if failures == 0 {

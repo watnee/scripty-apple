@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Sandbox is required of a Mac extension; ignored on iOS. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The one thing this extension can reach: the container the app writes
+	     the widget's rows into. No network client entitlement on purpose — the
+	     widget draws what the app already fetched and never asks the server
+	     anything itself.
+
+	     The identifier has to match BookmarksWidgetStore.appGroup and the app's
+	     own entitlements. A mismatch builds cleanly and shows up only as a
+	     widget that is permanently empty. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.scripty.scripty</string>
+	</array>
+</dict>
+</plist>

@@ -46,6 +46,7 @@ struct EditableBlockRow: View {
                       isFocused: model.focusedBlockId == block.id,
                       font: uiFont, alignment: nsAlignment, autocapitalize: capitalization,
                       spellChecks: spellChecks,
+                      spellcheckRevision: spellcheckRevision,
                       accessibilityLabel: accessibilityDescription)
             .equatable()
             .blockHighlight(block)
@@ -55,8 +56,14 @@ struct EditableBlockRow: View {
             .frame(maxWidth: pageWidth, alignment: pageAlignment)
             .padding(.top, topPadding)
             .overlay(alignment: .topLeading) { elementLabel }
+            .blockMarkers(block,
+                          commentCount: model.commentCount(for: block),
+                          // Past the row's own top padding, so a mark sits
+                          // beside the element's first line rather than above
+                          // it.
+                          topInset: topPadding,
+                          onComment: { onComment(block) })
             .frame(maxWidth: .infinity)
-            .overlay(alignment: .topTrailing) { badges }
             .contextMenu { contextMenu }
             .alert("Tags", isPresented: $isEditingTags) {
                 TextField("e.g. funny, action", text: $tagDraft)
@@ -183,7 +190,10 @@ struct EditableBlockRow: View {
         // rides the bulk-format link with a single id rather than a dedicated
         // per-block endpoint, so one tap is one undo step — the same call the
         // multi-select bar makes, just without entering selection mode first.
-        if model.canBulkFormat && block.isEditable {
+        // Not on an element that exists only on this device: highlighting goes
+        // through the bulk-format endpoint, which can only name ids the server
+        // has issued. The line gets its colour once it has been sent.
+        if model.canBulkFormat && block.isEditable && !block.isLocal {
             Menu {
                 ForEach(BlockHighlight.allCases) { colour in
                     Button {
@@ -202,7 +212,9 @@ struct EditableBlockRow: View {
         // The web block editor's "Tags (comma separated)" field, brought to the
         // element menu. Editing rides the same `update` PUT as a text save, so
         // it is gated on the block being editable rather than on a bulk link.
-        if block.isEditable {
+        // Same reasoning as Highlight: tags ride the per-block PUT, and there
+        // is nothing to PUT to until the element has been created.
+        if block.isEditable && !block.isLocal {
             Button {
                 tagDraft = block.tagList.joined(separator: ", ")
                 isEditingTags = true
@@ -279,7 +291,10 @@ struct EditableBlockRow: View {
                 }
             }
         }
-        if block.hasLink(.delete) {
+        // A local element has no delete link and never will until it is sent,
+        // but the writer must still be able to take back a line they just
+        // typed — `deleteBlock` handles that by forgetting the queued create.
+        if block.hasLink(.delete) || block.isLocal {
             Button(role: .destructive) {
                 Task { await model.deleteBlock(block) }
             } label: {
@@ -295,23 +310,6 @@ struct EditableBlockRow: View {
                 .padding(.top, topPadding + 5)
                 .accessibilityHidden(true)
         }
-    }
-
-    @ViewBuilder
-    private var badges: some View {
-        HStack(spacing: 4) {
-            // The writer's own marks share one tint; the comment badge brings
-            // its own, since it is other people's.
-            HStack(spacing: 4) {
-                if block.isPinned && chrome.showsPins { Image(systemName: "pin.fill") }
-                if block.isBookmarked && chrome.showsBookmarks { Image(systemName: "bookmark.fill") }
-            }
-            .foregroundStyle(.orange)
-            CommentCountBadge(count: model.commentCount(for: block))
-        }
-        .font(.caption2)
-        // Every badge here is already spoken as part of the row's label.
-        .accessibilityHidden(true)
     }
 
     // MARK: - Per-type layout
@@ -381,6 +379,12 @@ struct EditableBlockRow: View {
     /// visible row re-draw when one is switched.
     private var spellChecks: Bool {
         PresentationSettings.shared.isSpellcheckEnabled
+    }
+
+    /// Read for the same reason: ignoring a word from one element's menu has to
+    /// clear the underline under the same word everywhere else on the page.
+    private var spellcheckRevision: Int {
+        SpellcheckDictionary.shared.revision
     }
 
     private var uiFont: UIFont {

@@ -22,6 +22,14 @@ struct OutlineEntry: Identifiable, Hashable {
     var id: Int { blockId }
 }
 
+/// The scene an element falls under: where a bookmarked line, a pinned one or
+/// a commented one *is*, which a preview of the line itself never says.
+struct OutlineSceneContext: Hashable {
+    /// The scene's position in the script, numbered as the outline numbers it.
+    let number: Int
+    let heading: String
+}
+
 /// A speaker, with the cue you land on when you tap it.
 struct OutlineCharacter: Identifiable, Hashable {
     let name: String
@@ -157,6 +165,30 @@ struct ScriptOutline: Equatable {
             return OutlineLocation(name: entry.name, blockId: entry.blockId, sceneCount: entry.count)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Which scene each of the given elements sits in.
+    ///
+    /// Asked for a handful of ids rather than built for the whole script: only
+    /// the marked lists need it, and they are short. Elements before the first
+    /// scene heading are in no scene and are simply absent from the answer.
+    static func sceneContexts(for blockIds: Set<Int>,
+                              in blocks: [Block]) -> [Int: OutlineSceneContext] {
+        guard !blockIds.isEmpty else { return [:] }
+        var contexts: [Int: OutlineSceneContext] = [:]
+        var scene: OutlineSceneContext?
+        var number = 0
+        for block in blocks {
+            if block.blockType == .scene {
+                number += 1
+                scene = OutlineSceneContext(number: number,
+                                            heading: preview(block.content ?? ""))
+            }
+            if blockIds.contains(block.id), let scene {
+                contexts[block.id] = scene
+            }
+        }
+        return contexts
     }
 
     /// Blocks worth showing as bookmarks/pins keep their document order, so

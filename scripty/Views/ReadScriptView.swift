@@ -60,14 +60,28 @@ struct ReadScriptView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    // Walked once per redraw rather than once per row: the
+                    // first-element test below needs the head of the list, and
+                    // asking `readableBlocks` for it inside the ForEach would
+                    // re-filter the whole script for every line it drew.
+                    let readable = readableBlocks
+                    let firstId = readable.first?.id
+                    // Lazy for the same reason the editor and the page view
+                    // are: reading aloud republishes `currentBlockId` on every
+                    // line, and each one rebuilds this body. Eagerly stacked,
+                    // that re-laid-out every element of a feature-length script
+                    // per spoken line — for a highlight the reader can only see
+                    // one of. Lazily, only the elements on screen are built at
+                    // all, so the cost per line is the window rather than the
+                    // script, and opening the sheet no longer typesets an hour
+                    // of screenplay before showing the first page of it.
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         Text(title.isEmpty ? "Untitled Project" : title)
                             .font(.system(size: 28 * scale, weight: .bold, design: .serif))
                             .padding(.bottom, 24)
 
-                        ForEach(Array(readableBlocks.enumerated()),
-                                id: \.element.id) { index, block in
-                            row(block, isFirst: index == 0)
+                        ForEach(readable) { block in
+                            row(block, isFirst: block.id == firstId)
                                 .background(alignment: .center) { spotlight(block) }
                                 .id(block.id)
                                 .contextMenu {
@@ -77,6 +91,12 @@ struct ReadScriptView: View {
                                 }
                         }
                     }
+                    // Take the whole measure rather than settling on the
+                    // widest element. A lazy stack is only as wide as the rows
+                    // it has actually built, so without this the column's width
+                    // — and, being centred, its left edge — would shift as
+                    // scrolling brought a longer line into the window.
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(maxWidth: measure, alignment: .leading)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)

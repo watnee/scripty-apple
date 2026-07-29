@@ -215,6 +215,15 @@ id, and a build number it has not seen — hence the timestamp default.
 but it only installs on devices whose UDIDs are already registered at
 developer.apple.com > Devices.
 
+## Where it opens
+
+Star a project in the sidebar and Scripty opens it on its own the next time it
+starts, the way signing in to the web editor lands you on the same screenplay.
+Star nothing and it opens on the list — with no request behind a launch, it
+would rather ask than guess. A tap on the Home Screen menu outranks both, and
+going back to the list stays there until the next launch. The choice itself is
+[LaunchProject.swift](scripty/Models/LaunchProject.swift).
+
 ## The Home Screen menu
 
 Press and hold the app icon and four entries come up:
@@ -238,12 +247,68 @@ of the wiring is in [QuickAction.swift](scripty/Models/QuickAction.swift) and
 screenplays — its projects only exist while it is running, so an entry for one
 could only ever fail — and signing out takes them back off.
 
+## Siri, Spotlight and Shortcuts
+
+Say "open my songs in Scripty", or start typing a screenplay's title into
+Spotlight and open it from the result. Nothing to set up: the phrases and the
+actions are registered by the app itself, and the Shortcuts app lists them under
+**Scripty** the moment it is installed.
+
+| Ask for                    | You get                                          |
+| -------------------------- | ------------------------------------------------ |
+| "Open my songs in Scripty" | The songs of your default screenplay             |
+| "Open my notes in Scripty" | The notes of the same one                        |
+| "Open my screenplays in Scripty" | The projects list                          |
+| "Open the Scripty demo"    | The offline demo, no account needed              |
+| **Open Screenplay**        | A screenplay you name — also a Spotlight result  |
+| **Open Song or Note**      | A song or note you name, in its screenplay       |
+
+The last two take a name, so they are offered through the Shortcuts app's picker
+and through Spotlight rather than as a fixed phrase — searching thirty titles is
+something a search field does better than a sentence that has to guess the title
+in advance.
+
+Everything nameable comes out of the same App Group snapshots the widgets draw
+from, and for the same reason: an entity query is answered by a copy of the app
+woken in the background, with no screen and often with no network, so asking the
+server would mean a request that works at a desk and fails on the Tube. It also
+means the same rules apply — the demo offers nothing, and signing out empties the
+Spotlight index along with both widgets and the Home Screen menu.
+
+Each intent ends by handing back a `scripty://` link and letting the app's own
+front door answer it, which is what the widgets have always done. So every one
+of these is available to a shortcut you build by hand, using exactly the link
+Siri uses:
+
+| Link | What it opens |
+| --- | --- |
+| `scripty://songs`, `scripty://notes` | Your default screenplay's songs or notes |
+| `scripty://project?id=…` | That screenplay; `scripty://project` for the list |
+| `scripty://document?project=…&id=…&kind=…` | One song or note |
+| `scripty://demo` | The offline demo |
+
+The pieces are in [scripty/Intents](scripty/Intents): the entities Siri can name
+([ScreenplayEntity.swift](scripty/Intents/ScreenplayEntity.swift),
+[DocumentEntity.swift](scripty/Intents/DocumentEntity.swift)), the intents
+themselves ([OpenIntents.swift](scripty/Intents/OpenIntents.swift)), the spoken
+phrases ([ScriptyShortcuts.swift](scripty/Intents/ScriptyShortcuts.swift)), and
+two files deliberately free of the AppIntents framework so `Tests/AppIntents` can
+check them without a simulator — the links
+([ShortcutLink.swift](scripty/Intents/ShortcutLink.swift)) and the name matching
+([IntentTargets.swift](scripty/Intents/IntentTargets.swift)).
+
+**None of this can be verified in the Simulator.** Its App Intents metadata store
+fails for Apple's own bundles too, so a control or a phrase that does nothing
+there is telling you about the Simulator, not the app. Check on a device. What
+the Simulator can still prove is that the intents shipped at all — they are
+listed in `Metadata.appintents/extract.actionsdata` inside the built `.app`.
+
 ## The Home Screen widgets
 
-Two of them, both shipped with the app rather than installed separately. Add
-either the usual way: press and hold the Home Screen, **Edit → Add Widget**,
-then search for **Scripty**. The gallery searches the *app's* name, not the
-widget's, so searching "Screenplays" or "Songs & Notes" finds nothing.
+Three of them, all shipped with the app rather than installed separately. Add
+any of them the usual way: press and hold the Home Screen, **Edit → Add
+Widget**, then search for **Scripty**. The gallery searches the *app's* name,
+not the widget's, so searching "Screenplays" or "Bookmarks" finds nothing.
 
 **Screenplays** lists what you have been working on, most recent first, and
 tapping a row opens that screenplay. The starred one is marked with a star
@@ -251,46 +316,66 @@ wherever it happens to land — the widget answers "what have I been working on"
 rather than "which is mine", so a draft you spent the week in comes first even
 when another is starred.
 
-**Songs & Notes** does the same for the songs and notes inside those
+**Songs** and **Notes** do the same for the songs and the notes inside those
 screenplays, newest first across all of them, and tapping one opens that
-document on the right list.
+document on the right list. Two widgets rather than one, so a wall of songs
+cannot bury the notes: place either, both, or one of each at different sizes.
 
-| Size        | Screenplays              | Songs & Notes                |
-| ----------- | ------------------------ | ---------------------------- |
-| Small       | The most recent          | The one most recently edited |
-| Medium      | Three                    | Three                        |
-| Large       | Six                      | Six                          |
-| Lock Screen | The most recent          | The one most recently edited |
+**Bookmarks** shows the lines you flagged while writing, and tapping one opens
+that screenplay scrolled to that element — the same jump the outline sidebar
+makes from inside the app. Its rows are grouped by screenplay rather than
+individually sorted: they are sentences out of a script, and a run of them only
+reads as anything in the order it was written. The most recently marked-up
+screenplay leads, which is when it was *flagged*, not when it was last opened —
+reading an old draft does not push aside the one you annotated this morning.
+The server dates neither the element nor the flag, so that stamp is the app's
+own.
 
-A widget cannot sign in, and neither of these tries. The app writes the handful
-of rows each one draws into a shared App Group container — the projects list as
-it loads, a screenplay's songs and notes as they settle — and the extensions
-only ever read them. So a row appears once the app has seen it, the rows are
-there whether or not the phone has a connection, and there is no second copy of
-the API client to keep honest. The demo publishes nothing, for the same reason
-it names no screenplays in the Home Screen menu, and signing out empties both —
-the Home Screen keeps showing whatever it was last given until this app takes it
-back, and nobody else can.
+| Size        | Screenplays     | Songs & Notes                | Bookmarks         |
+| ----------- | --------------- | ---------------------------- | ----------------- |
+| Small       | The most recent | The one most recently edited | The most recent   |
+| Medium      | Three           | Three                        | Two               |
+| Large       | Six             | Six                          | Five              |
+| Lock Screen | The most recent | The one most recently edited | The most recent   |
 
-The pieces, in matching pairs: [Shared/](Shared) holds the one file per widget
+Bookmarks fits fewer per size on purpose: its rows are lines of dialogue and
+action rather than titles, and a clipped sentence is worth less than a whole one.
+
+A widget cannot sign in, and none of these tries. The app writes the handful of
+rows each one draws into a shared App Group container — the projects list as it
+loads, a screenplay's songs and notes as they settle, its flagged elements as
+the script does — and the extensions only ever read them. So a row appears once
+the app has seen it, the rows are there whether or not the phone has a
+connection, and there is no second copy of the API client to keep honest. The
+demo publishes nothing, for the same reason it names no screenplays in the Home
+Screen menu, and signing out empties all three — the Home Screen keeps showing
+whatever it was last given until this app takes it back, and nobody else can.
+That last part matters most for Bookmarks, whose rows are not titles but the
+script itself.
+
+The pieces, in matching sets: [Shared/](Shared) holds the one file per widget
 that both its targets compile, and it is pure Foundation on purpose, so
-`Tests/SongsNotesWidget` and `Tests/ProjectsWidget` can check the ordering, the
-merge and the deep-link URLs without a simulator.
+`Tests/SongsNotesWidget`, `Tests/ProjectsWidget` and `Tests/BookmarksWidget` can
+check the ordering, the merge and the deep-link URLs without a simulator.
 
-| | Screenplays | Songs & Notes |
-| --- | --- | --- |
-| Shared | [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) | [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift) |
-| Extension | [ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) | [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift) |
-| App's half | [ProjectsWidgetPublisher.swift](scripty/Widgets/ProjectsWidgetPublisher.swift) | [WidgetPublisher.swift](scripty/Widgets/WidgetPublisher.swift) |
-| Tapped row | `scripty://project?id=…` | `scripty://document?project=…&id=…&kind=…` |
+| | Screenplays | Songs & Notes | Bookmarks |
+| --- | --- | --- | --- |
+| Shared | [ProjectsWidgetData.swift](Shared/ProjectsWidgetData.swift) | [SongsNotesWidgetData.swift](Shared/SongsNotesWidgetData.swift) | [BookmarksWidgetData.swift](Shared/BookmarksWidgetData.swift) |
+| Extension | [ProjectsWidget.swift](ProjectsWidget/ProjectsWidget.swift) | [SongsNotesWidget.swift](SongsNotesWidget/SongsNotesWidget.swift) | [BookmarksWidget.swift](BookmarksWidget/BookmarksWidget.swift) |
+| App's half | [ProjectsWidgetPublisher.swift](scripty/Widgets/ProjectsWidgetPublisher.swift) | [WidgetPublisher.swift](scripty/Widgets/WidgetPublisher.swift) | [BookmarksWidgetPublisher.swift](scripty/Widgets/BookmarksWidgetPublisher.swift) |
+| Tapped row | `scripty://project?id=…` | `scripty://document?project=…&id=…&kind=…` | `scripty://bookmark?project=…&block=…` |
 
-Both URLs are read in [scriptyApp.swift](scripty/scriptyApp.swift). A tapped
-screenplay becomes the same pending request a long-press menu entry makes; a
-tapped song carries a document as well, so it gets a request of its own.
+All three URLs are read in [scriptyApp.swift](scripty/scriptyApp.swift). A
+tapped screenplay becomes the same pending request a long-press menu entry
+makes; a tapped song carries a document as well, and a tapped bookmark an
+element, so each of those gets a request of its own. A bookmark's element is
+handed to the script view, which scrolls to it once the script has actually
+arrived — an element deleted since it was flagged is simply never found, and the
+screenplay opens where it otherwise would.
 
 The App Group is `group.scripty.scripty`, named once in each widget's store and
-spelled out in **six** entitlements files — one iOS and one Catalyst for each of
-the three targets. They all have to agree; a mismatch builds cleanly and shows
+spelled out in **eight** entitlements files — one iOS and one Catalyst for each
+of the four targets. They all have to agree; a mismatch builds cleanly and shows
 up only as a widget that is permanently empty.
 
 The two platforms spell the same group differently, which is why there are two
@@ -312,7 +397,83 @@ signing registers the group against your App ID the first time it signs the app
 for a device, so the first device build after pulling this needs a signing team
 selected. And an extension built with `CODE_SIGNING_ALLOWED=NO` embeds fine,
 runs fine, and never appears in the gallery at all — so a quick unsigned
-simulator build is not a test of anything.
+simulator build is not a test of anything. That applies to the Control Center
+gallery below as well.
+
+Both widgets can be configured. The Songs & Notes tile draws songs, notes or
+both; the Screenplays tile leads with the starred draft or with whatever was
+edited last. Every option filters what the app already published, because the
+extensions cannot fetch anything of their own — which is also why neither offers
+a screenplay picker. The app writes songs and notes only for the screenplay
+whose script has been opened, so a tile pinned to any other one would be
+permanently empty with no honest way to say why.
+
+Each widget's `kind` string is load-bearing across an app update: iOS finds an
+already-placed widget by it. `AppIntentConfiguration` was introduced under the
+same kind each widget already had, and both configuration defaults reproduce
+what the tile drew before there was anything to configure — so an existing
+widget keeps its place and simply gains an "Edit Widget" entry.
+
+## Siri, Shortcuts and Control Center
+
+[scripty/Intents/](scripty/Intents) holds seven App Intents, and
+[ScriptyAppShortcuts.swift](scripty/Intents/ScriptyAppShortcuts.swift) gives
+each one Siri phrases and a Spotlight entry.
+
+| | Does | Rides |
+| --- | --- | --- |
+| Open Songs / Notes / Screenplay | Parks a request and returns | The same pending machinery a widget row uses |
+| New Note / New Song | One `documents` POST, content inline | `ScriptModel.createDocument` |
+| Add Lyric Line | One `songBlocks` POST | `SongBlockModel.appendLine(content:)` |
+| Add Screenplay Element | One `blocks` POST | `ScriptModel.createBlock` |
+
+Nothing here needed a new HAL rel, and nothing here should grow one — an intent
+that could do something the app itself cannot is a second idea of what the
+product is.
+
+**Every intent lives in the app target, and that is a design decision rather
+than an accident.** They are all `openAppWhenRun`, so `perform()` runs in the
+app's own process, where `APIClient` and the Keychain already work — the
+keychain item has no access group and no extension has a network entitlement, so
+an intent running out of process would have neither credentials nor a route to
+the server. The Control Center tiles in
+[ScriptyControls.swift](SongsNotesWidget/ScriptyControls.swift) are what makes
+that possible: they carry a `scripty://` URL through the system's own
+`OpenURLIntent`, so no custom intent type has to compile inside an extension.
+Those tiles ride in the Songs & Notes widget bundle for the same reason there is
+no fourth target — a `ControlWidget` is a `Widget`, hosted by the same extension
+point.
+
+The screenplay picker in the Shortcuts app reads the Screenplays widget's App
+Group snapshot rather than the server, so it answers instantly and offline. It
+is empty in the demo and when signed out, both deliberately.
+
+**The Simulator cannot verify a control's final hop.** The tiles register, list
+in the Control Center gallery and hand the right `scripty://` URL to the system,
+but the app never comes forward, and the log says why:
+
+```
+linkd: Missing: scripty.scripty:OpenURLIntent
+       Bundle scripty.scripty exists, action OpenURLIntent is missing
+```
+
+That is not this app's bug. Apple's own Reminders control fails identically in
+the same simulator (`Missing: com.apple.reminders:CreateQuickReminderIntent`),
+and `linkd` cannot extract metadata for several Apple bundles there at all. The
+Simulator's App Intents metadata store is simply broken; **anything to do with
+running an intent has to be checked on a device.**
+
+On a device it all works: Spotlight lists the App Shortcuts, a required
+parameter prompts for its value, `openAppWhenRun` brings the app to the front,
+and the widgets offer their settings under "Edit Widget".
+
+**`Tests/run.sh` cannot compile anything that imports AppIntents**, so
+`ci_scripts/ci_post_clone.sh` will not catch an intents regression. The
+mitigation is the one `QuickAction` already embodies: every decision lives in a
+pure file — `ScriptyLink` and the widget filters in [Shared/](Shared),
+[IntentRouting.swift](scripty/Models/IntentRouting.swift) and
+[QuickAction.swift](scripty/Models/QuickAction.swift) beside it — and the
+AppIntents types are adapters with no branches in them.
 
 ## Which server it talks to
 
@@ -367,7 +528,8 @@ Anything that needs a running app is out of scope here — use `demo.sh` for tha
 | `scripty/Demo`  | The in-memory backend behind the offline demo           |
 | `scripty/Models`| Screenplay blocks, pagination, stats                    |
 | `scripty/Views` | The editor and everything around it                     |
-| `scripty/Widgets`| The app's half of both Home Screen widgets             |
+| `scripty/Widgets`| The app's half of the Home Screen widgets              |
 | `Shared`        | The files the app and each widget extension share       |
 | `ProjectsWidget`| The Screenplays widget extension                        |
 | `SongsNotesWidget`| The Songs & Notes widget extension                     |
+| `BookmarksWidget`| The Bookmarks widget extension                         |

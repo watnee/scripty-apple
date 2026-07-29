@@ -41,6 +41,15 @@ final class AppModel {
     /// picks it up once there is a list to answer it with, and clears it.
     var pendingWidgetDestination: WidgetDestination?
 
+    /// The flagged element a Bookmarks widget row was tapped for, waiting for a
+    /// project list to open it against.
+    ///
+    /// Separate from `pendingWidgetDestination` rather than folded into it: that
+    /// one names a song or note and ends at a sheet, this one names an element
+    /// and ends at a scroll, and a type that could be either would only push the
+    /// question of which one down to `ContentView`.
+    var pendingBookmarkDestination: BookmarkDestination?
+
     /// False when the keychain refused to hold this session's credentials, so
     /// signing in again will be needed after the app is quit.
     private(set) var isSessionPersisted = true
@@ -118,7 +127,7 @@ final class AppModel {
         client.credentials = stored
         // Let the system report the path once before the first request, so an
         // offline cold launch goes straight to the cached copy instead of
-        // sitting in the connectivity wait it is guaranteed to lose.
+        // spending a doomed round trip on the way there.
         await connectivity.waitForFirstVerdict()
         do {
             let data = try await client.data(for: client.rootLink)
@@ -233,6 +242,32 @@ final class AppModel {
             signInError = error.localizedDescription
             return false
         }
+    }
+
+    /// Waits until the launch has decided whether there is a session, and says
+    /// what it decided.
+    ///
+    /// Only App Intents call this. Everything else on screen is inside
+    /// `RootView`, which shows a spinner for `.loading` and so never has to ask
+    /// — but an intent can be dispatched into a process that has only just
+    /// started, before `bootstrap()` has finished or, on the very first frame,
+    /// before `RootView` has even begun it. Acting on `.loading` would read as
+    /// "you are signed out" to a writer who is not.
+    ///
+    /// A polling loop rather than a continuation: `phase` is set from five
+    /// places, and a waiter list would be a sixth thing that has to be kept
+    /// honest by every one of them. The cost is a handful of wake-ups on a
+    /// path taken a few times a day.
+    ///
+    /// The deadline is what stops Siri spinning forever behind a launch that
+    /// never lands — a request sitting in `waitsForConnectivity`, say. Timing
+    /// out answers `.loading`, which the caller reports as "try again".
+    func awaitReady(timeout: Duration = .seconds(15)) async -> Phase {
+        let deadline = ContinuousClock.now + timeout
+        while phase == .loading, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return phase
     }
 
     /// Enters the offline demo: a fresh in-memory backend seeded with a

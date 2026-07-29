@@ -33,6 +33,10 @@ struct BlockTextView: UIViewRepresentable, Equatable {
     let autocapitalize: UITextAutocapitalizationType
     /// Whether misspellings are underlined as the writer types.
     let spellChecks: Bool
+    /// Which version of the ignored-words list this row has been checked
+    /// against. Compared below, so ignoring a word redraws every visible
+    /// element rather than only the one it was ignored from.
+    let spellcheckRevision: Int
     /// Names the screenplay element type for VoiceOver; the spoken value stays
     /// the block's own text.
     let accessibilityLabel: String
@@ -71,7 +75,7 @@ struct BlockTextView: UIViewRepresentable, Equatable {
         }
         context.coordinator.textView = view
         apply(font: font, alignment: alignment, capitalize: autocapitalize,
-              spellChecks: spellChecks, to: view)
+              spellChecks: spellChecks, revision: spellcheckRevision, to: view)
         if view.accessibilityLabel != accessibilityLabel {
             view.accessibilityLabel = accessibilityLabel
         }
@@ -112,7 +116,7 @@ struct BlockTextView: UIViewRepresentable, Equatable {
         // storage from the view's plain font/colour, dropping the underline
         // attribute, so styling has to be re-stamped on top of the new string.
         apply(font: font, alignment: alignment, capitalize: autocapitalize,
-              spellChecks: spellChecks, to: view)
+              spellChecks: spellChecks, revision: spellcheckRevision, to: view)
         if view.accessibilityLabel != accessibilityLabel {
             view.accessibilityLabel = accessibilityLabel
         }
@@ -149,6 +153,7 @@ struct BlockTextView: UIViewRepresentable, Equatable {
             && lhs.alignment == rhs.alignment
             && lhs.autocapitalize == rhs.autocapitalize
             && lhs.spellChecks == rhs.spellChecks
+            && lhs.spellcheckRevision == rhs.spellcheckRevision
             && lhs.accessibilityLabel == rhs.accessibilityLabel
             && lhs.model === rhs.model
             && lhs.autocomplete === rhs.autocomplete
@@ -156,20 +161,14 @@ struct BlockTextView: UIViewRepresentable, Equatable {
 
     private func apply(font: UIFont, alignment: NSTextAlignment,
                        capitalize: UITextAutocapitalizationType,
-                       spellChecks: Bool, to view: BlockUITextView) {
+                       spellChecks: Bool, revision: Int, to view: BlockUITextView) {
         if view.font != font { view.font = font }
         if view.textAlignment != alignment { view.textAlignment = alignment }
         if view.autocapitalizationType != capitalize { view.autocapitalizationType = capitalize }
 
-        // Explicit rather than `.default`, which would mean "on" and leave the
-        // preference with nothing to say. A live text view has already told the
-        // keyboard how it wants to be treated, so the change only takes hold
-        // once its input configuration is asked for again.
-        let checking: UITextSpellCheckingType = spellChecks ? .yes : .no
-        if view.spellCheckingType != checking {
-            view.spellCheckingType = checking
-            if view.isFirstResponder { view.reloadInputViews() }
-        }
+        // Before the underline, never after: a re-check reassigns the string,
+        // which is exactly the thing that drops the attribute stamped below.
+        view.applySpellchecking(spellChecks, revision: revision)
         applyUnderline(block.textUnderline ?? false, font: font, to: view)
     }
 
@@ -315,6 +314,14 @@ struct BlockTextView: UIViewRepresentable, Equatable {
             }
         }
 
+        /// "Ignore Spelling" on an underlined name, alongside the corrections
+        /// the system offers — a screenplay is mostly words no dictionary has.
+        func textView(_ textView: UITextView,
+                      editMenuForTextIn range: NSRange,
+                      suggestedActions: [UIMenuElement]) -> UIMenu? {
+            SpellcheckEditMenu.menu(for: textView, in: range, appending: suggestedActions)
+        }
+
         // MARK: - Suggestions
 
         private func refreshSuggestions(_ text: String) {
@@ -375,7 +382,8 @@ struct BlockTextView: UIViewRepresentable, Equatable {
 /// A UITextView that reports a Backspace pressed with the caret at the very
 /// start (nothing to delete) and Shift-Tab, both of which have no plain-text
 /// representation to catch in the delegate.
-final class BlockUITextView: UITextView {
+final class BlockUITextView: UITextView, SpellcheckingTextView {
+    var checkedSpellingRevision = 0
     var onDeleteBackwardAtStart: (() -> Void)?
     var onShiftTab: (() -> Void)?
     /// Whether a suggestion list is open for this element. The arrow keys and

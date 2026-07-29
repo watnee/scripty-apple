@@ -59,6 +59,7 @@ struct SongEditorView: View {
     /// The formatting bar's handle on the text view.
     @State private var formatting = NoteEditorController()
     @FocusState private var titleFocused: Bool
+    @State private var showingIgnoredWords = false
 
     /// What was on screen when the document finished loading. Anything typed
     /// after that is the work a discard would throw away.
@@ -135,6 +136,9 @@ struct SongEditorView: View {
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            .sheet(isPresented: $showingIgnoredWords) {
+                SpellcheckWordsView()
+            }
             .task { await loadFullContentIfNeeded() }
             .onChange(of: title) { _, _ in scheduleAutosave() }
             .onChange(of: content) { _, _ in scheduleAutosave() }
@@ -212,6 +216,7 @@ struct SongEditorView: View {
                      controller: formatting,
                      isEditable: canEdit,
                      spellChecks: settings.isSpellcheckEnabled,
+                     spellcheckRevision: SpellcheckDictionary.shared.revision,
                      textScale: settings.textScale,
                      placeholder: placeholder,
                      onFocusChange: { isWritingBody = $0 })
@@ -310,6 +315,15 @@ struct SongEditorView: View {
         ToolbarItem(placement: .secondaryAction) {
             Toggle(isOn: wordCountBinding) {
                 Label("Word Count", systemImage: "number")
+            }
+        }
+        // Only where there is typing to check. Reached from here rather than
+        // from a screenplay's View menu, which is where the only copy of these
+        // controls used to live — a writer working in a note had no way to
+        // reach them at all.
+        if canEdit {
+            ToolbarItem(placement: .secondaryAction) {
+                SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
             }
         }
         // The same device-wide type size the lyric and screenplay editors set.

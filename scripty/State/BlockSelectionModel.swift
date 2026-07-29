@@ -64,7 +64,12 @@ final class BlockSelectionModel {
     /// Selection order follows the script, not the order things were tapped —
     /// the server renumbers by position anyway and a stable order makes the
     /// request reproducible.
+    ///
+    /// Elements written offline are left out: every bulk action names its
+    /// elements by server id, and one that has never been sent has no id the
+    /// server would recognise. Including it would fail the whole request and
+    /// take the rest of the selection down with it.
     func orderedIds(in blocks: [Block]) -> [Int] {
-        blocks.map(\.id).filter { selected.contains($0) }
+        blocks.filter { !$0.isLocal && selected.contains($0.id) }.map(\.id)
     }
 }

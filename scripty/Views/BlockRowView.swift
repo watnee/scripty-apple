@@ -43,6 +43,17 @@ struct ScriptRowChrome: Equatable {
     /// a measured width must not be grown a second time.
     var isFullWidth = false
 
+    /// The room kept beside the column for what hangs in the margins: the
+    /// element labels on the left, the marks on the right.
+    ///
+    /// Equal on both sides where the window can afford it, so the column stays
+    /// centred on the page; lopsided where it cannot, because a phone would
+    /// rather give up one margin than have text run under a badge. Somewhere
+    /// without a script page to measure — a preview, the bulk-action strip —
+    /// keeps the marks' side and nothing else.
+    var leadingGutter: CGFloat = 0
+    var trailingGutter: CGFloat = BlockMarkerBadges.gutter
+
     /// The dialogue column, in points. On the full measure this is the printed
     /// 3.5in-of-6in proportion, and a widened column keeps that proportion so a
     /// full-width script is still recognisably a script. A *narrowed* column
@@ -155,43 +166,15 @@ extension View {
     }
 }
 
-/// "3 comments on this line", as a bubble and a number beside the pin and
-/// bookmark badges. Draws nothing at all when the count is zero, which is most
-/// elements — and is also what a server that never offered the count looks
-/// like, so the row degrades to how it looked before.
-///
-/// Deliberately not tinted like the pin and bookmark: those are marks the
-/// writer put on the line themselves, while this is other people's.
-struct CommentCountBadge: View {
-    let count: Int
-
-    var body: some View {
-        if count > 0 {
-            Label("\(count)", systemImage: "bubble.left.fill")
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    /// How the badge reads aloud, or nil when there is nothing to say. Rows
-    /// hide the badges from VoiceOver and fold them into the row's own label
-    /// instead, so a screen reader hears one element per line rather than
-    /// several.
-    static func spokenLabel(_ count: Int) -> String? {
-        switch count {
-        case ..<1: return nil
-        case 1: return "1 comment"
-        default: return "\(count) comments"
-        }
-    }
-}
-
 struct BlockRowView: View {
     let block: Block
     /// How many comments sit on this element. Defaults to none so the row can
     /// still be rendered somewhere the counts aren't loaded — the bulk-action
     /// preview strip, for one.
     var commentCount: Int = 0
+    /// Opens this element's comment thread. Handed in by the script page, which
+    /// owns the sheet; nil elsewhere, and then the bubble is a badge only.
+    var onComment: (() -> Void)?
 
     @Environment(\.scriptTextScale) private var textScale
     @Environment(\.scriptRowChrome) private var chrome
@@ -215,14 +198,20 @@ struct BlockRowView: View {
         // the centring frame below — otherwise it would sit at the far left of
         // the window instead of beside the line it names.
         .overlay(alignment: .topLeading) { elementLabel }
-        .frame(maxWidth: .infinity)
-        .overlay(alignment: .topTrailing) { badges }
         // A screenplay is carried by which *kind* of line each one is: sighted
         // readers get that from the indentation and the capitalisation, both of
         // which are purely visual. Without naming the type, VoiceOver reads a
         // scene heading, a character cue and a transition identically.
+        //
+        // Applied to the text rather than to the whole row: the marks hang off
+        // it, and one of them is the button that opens the thread — swallowing
+        // the row's children would take the only route to it on a line that
+        // cannot be edited.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
+        .blockMarkers(block, commentCount: commentCount,
+                      topInset: markerTopInset, onComment: onComment)
+        .frame(maxWidth: .infinity)
     }
 
     private var accessibilityDescription: String {
@@ -371,23 +360,17 @@ struct BlockRowView: View {
         }
     }
 
-    @ViewBuilder
-    private var badges: some View {
-        HStack(spacing: 4) {
-            // The writer's own marks share one tint; the comment badge brings
-            // its own, since it is other people's.
-            HStack(spacing: 4) {
-                if block.isPinned && chrome.showsPins {
-                    Image(systemName: "pin.fill")
-                }
-                if block.isBookmarked && chrome.showsBookmarks {
-                    Image(systemName: "bookmark.fill")
-                }
-            }
-            .foregroundStyle(.orange)
-            CommentCountBadge(count: commentCount)
+    /// The space this element leaves above its first line, which is where its
+    /// marks belong — a pin drawn at the top of a scene heading's row floats
+    /// clear of the heading and looks like it belongs to the line before.
+    private var markerTopInset: CGFloat {
+        switch block.blockType {
+        case .scene: return 18
+        case .section: return 14
+        case .character, .dualDialogue, .transition, .shot: return 10
+        case .pageBreak: return 8
+        default: return 0
         }
-        .font(.caption2)
     }
 
     /// Character cues carry the speaker name as content; fall back to the

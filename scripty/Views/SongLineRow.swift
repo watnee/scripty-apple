@@ -55,6 +55,13 @@ struct SongLineRow: View {
         PresentationSettings.shared.isSpellcheckEnabled
     }
 
+    /// Which version of the ignored-words list these lines have been checked
+    /// against. Read here for the same reason: a name ignored from one line's
+    /// menu has to stop being underlined in the chorus that repeats it.
+    private var spellcheckRevision: Int {
+        SpellcheckDictionary.shared.revision
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if isRearranging {
@@ -78,6 +85,7 @@ struct SongLineRow: View {
                           isEditable: block.isEditable && !isRearranging,
                           fontSize: Self.baseLineSize * textScale,
                           spellChecks: spellChecks,
+                          spellcheckRevision: spellcheckRevision,
                           accessibilityLabel: "Lyric line \(block.order ?? 0)",
                           caret: model.caretRequests[block.id],
                           onCaretApplied: { model.caretRequests[block.id] = nil },
@@ -241,6 +249,7 @@ private struct SongLineField: UIViewRepresentable {
     let isEditable: Bool
     let fontSize: CGFloat
     let spellChecks: Bool
+    let spellcheckRevision: Int
     let accessibilityLabel: String
     /// Where the caret should go once this line has taken focus, in Characters.
     /// Only a merge asks; the rest of the time UIKit's own placement is right.
@@ -325,14 +334,7 @@ private struct SongLineField: UIViewRepresentable {
         if view.font != font { view.font = font }
         if view.isEditable != isEditable { view.isEditable = isEditable }
 
-        // Explicit rather than `.default`, which would mean "on" and leave the
-        // preference with nothing to say — and a live text view only adopts the
-        // change once its input configuration is asked for again.
-        let checking: UITextSpellCheckingType = spellChecks ? .yes : .no
-        if view.spellCheckingType != checking {
-            view.spellCheckingType = checking
-            if view.isFirstResponder { view.reloadInputViews() }
-        }
+        view.applySpellchecking(spellChecks, revision: spellcheckRevision)
         if view.accessibilityLabel != accessibilityLabel {
             view.accessibilityLabel = accessibilityLabel
         }
@@ -368,6 +370,14 @@ private struct SongLineField: UIViewRepresentable {
             }
             return true
         }
+
+        /// "Ignore Spelling" beside the system's corrections — a lyric is as
+        /// full of invented words as a screenplay is of names.
+        func textView(_ textView: UITextView,
+                      editMenuForTextIn range: NSRange,
+                      suggestedActions: [UIMenuElement]) -> UIMenu? {
+            SpellcheckEditMenu.menu(for: textView, in: range, appending: suggestedActions)
+        }
     }
 }
 
@@ -376,8 +386,11 @@ private struct SongLineField: UIViewRepresentable {
 /// Carries the one key the delegate cannot see: Backspace pressed with the
 /// caret at the very start has no text to change, so `shouldChangeTextIn` is
 /// never asked about it. `BlockUITextView` reports the same key the same way
-/// for the screenplay.
-final class SongLineUITextView: UITextView {
+/// for the screenplay. It also carries the revision of the ignored-word list
+/// it was last checked against, which is what lets an edit to that list
+/// re-check a line already on screen.
+final class SongLineUITextView: UITextView, SpellcheckingTextView {
+    var checkedSpellingRevision = 0
     var onDeleteBackwardAtStart: (() -> Void)?
 
     override func deleteBackward() {

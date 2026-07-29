@@ -10,14 +10,53 @@
 
 import Foundation
 
+/// Keeps a request inside the API.
+///
+/// The server is a web app with an API bolted to the side of it, and some of its
+/// filters answer by redirecting to a page — the change-password lock sends every
+/// request from a flagged account to `/account/password`. `URLSession` would
+/// follow that happily, hand back a page of HTML with a 200 on it, and leave the
+/// decoder to fail somewhere with no idea what happened. Redirects that stay
+/// within the API are followed; the rest are refused, so the caller sees the
+/// redirect and can say what it means.
+private final class APIRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let apiPrefix: String
+    private let host: String?
+
+    init(apiPrefix: String, host: String?) {
+        self.apiPrefix = apiPrefix
+        self.host = host
+    }
+
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let url = request.url, url.host == host, staysInAPI(url.path) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+
+    /// `/api` and `/api/anything`, but not `/apifoo` — a bare prefix test would
+    /// wave through a path that merely starts with the same letters.
+    private func staysInAPI(_ path: String) -> Bool {
+        path == apiPrefix || path.hasPrefix(apiPrefix + "/")
+    }
+}
+
 final class APIClient {
     let baseURL: URL
     var credentials: Credentials?
 
     /// Asked before every network request; answering true fails the request
-    /// immediately with `APIError.offline` instead of letting it sit in the
-    /// session's connectivity wait. Wired by AppModel to the connectivity
-    /// monitor on real clients only — the demo backend never goes offline.
+    /// immediately with `APIError.offline` rather than spending a round trip
+    /// discovering the same thing, and names the failure for what it is
+    /// instead of leaving it to whatever the transport happens to report.
+    /// Wired by AppModel to the connectivity monitor on real clients only —
+    /// the demo backend never goes offline.
     var offlineCheck: (() -> Bool)?
 
     /// When set, requests are answered by the in-process demo backend
@@ -27,6 +66,7 @@ final class APIClient {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private let redirectPolicy: APIRedirectPolicy
 
     init(baseURL: URL = AppConfig.baseURL, credentials: Credentials? = nil,
          demo: DemoBackend? = nil) {
@@ -39,11 +79,22 @@ final class APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        // A writer on a train shouldn't get an instant failure the moment the
-        // signal drops: hold the request until the connection comes back, up
-        // to the resource timeout. The per-request timeout still bounds a
-        // server that has accepted the connection and then gone quiet.
-        configuration.waitsForConnectivity = true
+        // Fail the request rather than sitting in URLSession's connectivity
+        // wait. The writer on a train is covered better by the app's own
+        // machinery — `offlineCheck` below refuses a request the moment the
+        // route is gone, the words are flagged unsaved and written to disk,
+        // a backoff retries them, and `connectionRestored()` pushes the lot
+        // the instant the route is back. Waiting here only hides that from
+        // the writer.
+        //
+        // It is also the wrong answer to the one case it can still reach.
+        // With the connectivity monitor wired, a request only gets as far as
+        // the session when the path *is* satisfied — so the wait engages
+        // exactly when the route is fine and the server is not. URLSession
+        // counts a refused connection as something to wait out, so that case
+        // hangs for the full resource timeout and then reports a timeout,
+        // instead of failing in milliseconds and entering the retry path.
+        configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 120
         session = URLSession(configuration: configuration)
@@ -51,6 +102,9 @@ final class APIClient {
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         encoder = JSONEncoder()
+        redirectPolicy = APIRedirectPolicy(
+            apiPrefix: baseURL.appendingPathComponent("api").path,
+            host: baseURL.host)
     }
 
     /// The API entry point (`GET /api`) — the root of all link-following.
@@ -140,21 +194,32 @@ final class APIClient {
     /// transport failures into `APIError` so no caller ever has to surface a
     /// raw `NSURLErrorDomain` string to the writer.
     private func perform(_ request: URLRequest) async throws -> (Int, Data) {
-        // No route to the network means the connectivity wait is guaranteed
-        // lost time: fail now, so a save is held (and a load falls back to
-        // the offline copy) in milliseconds rather than minutes.
+        // No route to the network means the request is guaranteed lost time:
+        // fail now, and fail as `.offline`, so a save is held (and a load
+        // falls back to the offline copy) knowing why.
         if offlineCheck?() == true {
             throw APIError.offline
         }
         let received: Data
         let response: URLResponse
         do {
-            (received, response) = try await session.data(for: request)
+            (received, response) = try await session.data(for: request,
+                                                          delegate: redirectPolicy)
         } catch {
             throw APIError.from(transportError: error)
         }
         guard let http = response as? HTTPURLResponse else {
             throw APIError.server(status: -1)
+        }
+        // A redirect that survives to here is one the policy refused to follow,
+        // so the response is the redirect itself. Following it would fetch a web
+        // page and fail to decode as JSON several frames later, where nothing
+        // knows enough to say why — name it here instead.
+        if (300..<400).contains(http.statusCode) {
+            let destination = http.value(forHTTPHeaderField: "Location")
+                ?? http.url?.path
+                ?? "elsewhere"
+            throw APIError.redirectedOutOfAPI(destination)
         }
         return (http.statusCode, received)
     }

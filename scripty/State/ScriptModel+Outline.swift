@@ -23,6 +23,14 @@ extension ScriptModel {
     /// Blocks the writer pinned, in document order.
     var pinnedBlocks: [Block] { blocks.filter(\.isPinned) }
 
+    /// Blocks somebody has commented on, in document order.
+    ///
+    /// Comments are the one mark on a line the writer did not put there, and
+    /// until now the only way to find one was to scroll past its badge.
+    var commentedBlocks: [Block] {
+        blocks.filter { commentCount(for: $0) > 0 }
+    }
+
     /// True once there is anything worth navigating or measuring.
     var hasScriptContent: Bool { !blocks.isEmpty }
 

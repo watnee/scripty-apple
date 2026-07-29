@@ -42,15 +42,26 @@ enum ProjectsWidgetPublisher {
                           lastEdited: project.lastEdited,
                           isDefault: project.isDefault == true)
         }
+        // What was on the widget a moment ago, so the screenplays that have
+        // since left it can be taken out of Spotlight by name.
+        let before = ProjectsWidgetStore.load().projects
         guard ProjectsWidgetStore.publish(rows) else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: ProjectsWidgetStore.widgetKind)
+        // Read back rather than recomputed: the store trims and orders on the
+        // way in, and Spotlight should be told what is actually stored, not
+        // this file's second guess at it.
+        let stored = ProjectsWidgetStore.load().projects
+        let gone = before.map(\.id).filter { id in !stored.contains { $0.id == id } }
+        SpotlightIndex.replace(stored.map(ScreenplayEntity.init), removing: gone)
     }
 
     /// Empties the widget. Signing out goes through here: the next person to
     /// pick up the phone should not be able to read the last writer's
-    /// screenplay titles off the Home Screen.
+    /// screenplay titles off the Home Screen — nor, since the same titles are
+    /// donated to Spotlight, out of a search field.
     static func clear() {
         ProjectsWidgetStore.clear()
         WidgetCenter.shared.reloadTimelines(ofKind: ProjectsWidgetStore.widgetKind)
+        SpotlightIndex.clear()
     }
 }

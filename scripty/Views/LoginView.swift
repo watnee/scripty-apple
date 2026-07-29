@@ -19,6 +19,8 @@ struct LoginView: View {
     /// Where passkey sign-in begins, if this server offers it — learned from
     /// the same challenge, for the same reason.
     @State private var passkeyLink: HALLink?
+    /// The standing offer in the keyboard, live for as long as this screen is.
+    @State private var autoFill = PasskeyAutoFill()
     @FocusState private var focusedField: Field?
 
     private enum Field {
@@ -91,9 +93,13 @@ struct LoginView: View {
 
             if let passkeyLink {
                 Button {
-                    signInWithPasskey(using: passkeyLink)
+                    signInWithSavedCredential(using: passkeyLink)
                 } label: {
-                    Label("Sign in with Passkey", systemImage: "person.badge.key")
+                    // The sheet lists this domain's passkeys and the passwords
+                    // the Passwords app has saved for it, so the button can't
+                    // promise only one of them.
+                    Label("Use a Saved Passkey or Password",
+                          systemImage: "person.badge.key")
                         .frame(maxWidth: 360)
                         .padding(.vertical, 6)
                 }
@@ -136,7 +142,12 @@ struct LoginView: View {
             let links = await app.client.signedOutLinks()
             recoveryLink = links[.forgotPassword]
             passkeyLink = links[.passkeyLogin]
+            // A passkey needs a challenge before the system can offer it, so
+            // asking for one is the price of the offer appearing in the
+            // keyboard at all — one POST, on a screen that has just made one.
+            if let passkeyLink { startAutoFill(using: passkeyLink) }
         }
+        .onDisappear { autoFill.cancel() }
         // Only the "Forgot password?" route is presented here. A token arriving
         // from the link in an email is RootView's, because that one can land in
         // any phase — including one where this screen doesn't exist.
@@ -165,17 +176,38 @@ struct LoginView: View {
         }
     }
 
-    private func signInWithPasskey(using link: HALLink) {
+    /// Opens the system sheet. The keyboard's standing offer has to come down
+    /// first — the platform runs one authorization request at a time — and goes
+    /// back up if this attempt didn't end in a session.
+    private func signInWithSavedCredential(using link: HALLink) {
         focusedField = nil
         isSigningIn = true
+        autoFill.cancel()
         Task {
             switch await PasskeySignInFlow(app: app).signIn(using: link) {
-            case .signedIn, .canceled:
+            case .signedIn:
                 break
+            case .canceled:
+                startAutoFill(using: link)
             case .failed(let message):
                 app.signInError = message
+                startAutoFill(using: link)
             }
             isSigningIn = false
+        }
+    }
+
+    private func startAutoFill(using link: HALLink) {
+        autoFill.start(app: app, using: link) { outcome in
+            // Only the server refusing a credential the writer actually picked
+            // reaches here as a failure; everything quieter is already a cancel.
+            // Say so, then offer again with a fresh challenge — the likeliest
+            // refusal is the one this screen sets itself up for, a challenge
+            // minted on arrival and picked against much later.
+            if case .failed(let message) = outcome {
+                app.signInError = message
+                startAutoFill(using: link)
+            }
         }
     }
 }
