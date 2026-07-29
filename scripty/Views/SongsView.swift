@@ -67,9 +67,11 @@ enum DocumentSort: String, CaseIterable, Identifiable {
 struct SongsView: View {
     let model: ScriptModel
 
+    /// Where the choice of list is remembered between visits.
+    private let options: ScriptViewOptions
+
     @Environment(\.dismiss) private var dismiss
-    /// Which list the picker starts on. Songs unless asked otherwise, which
-    /// only the Home Screen's Notes quick action does.
+    /// Which list the picker starts on.
     @State private var listType: DocumentType
 
     /// A document to open as soon as the list has loaded, which only a tapped
@@ -77,6 +79,11 @@ struct SongsView: View {
     /// the load this screen opens with, and nothing on screen can set it.
     private let openingId: Int?
 
+    /// Opens on the list named, and otherwise on the one this project was last
+    /// left on — Songs the first time. Only a route that means a particular
+    /// list names one: the Home Screen's two quick actions, a tapped widget
+    /// row, and a document changing kind under us.
+    ///
     /// Opens the composer along with the list, rather than after a tap on New.
     ///
     /// Only a Control Center button asks for this. The tile is pressed by
@@ -85,12 +92,15 @@ struct SongsView: View {
     /// tile exists for. Seeded rather than applied on appear: the sheet is
     /// wanted from the first frame, and a second animation on the way in would
     /// read as the screen changing its mind.
-    init(model: ScriptModel, listType: DocumentType = .song,
+    init(model: ScriptModel, options: ScriptViewOptions, listType: DocumentType? = nil,
          openingId: Int? = nil, creating: Bool = false) {
         self.model = model
+        self.options = options
         self.openingId = openingId
-        _listType = State(initialValue: listType)
-        _creatingType = State(initialValue: creating ? listType : nil)
+        let remembered = options.rememberedDocumentList.flatMap(DocumentType.init(rawValue:))
+        let opening = listType ?? remembered ?? .song
+        _listType = State(initialValue: opening)
+        _creatingType = State(initialValue: creating ? opening : nil)
     }
 
     @State private var editingDocument: TextDocument?
@@ -285,6 +295,10 @@ struct SongsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task {
+                // A list a quick action named is as much a statement of intent
+                // as one the picker was tapped over to, so it is remembered the
+                // same way — the picker's own change never fires for it.
+                options.rememberDocumentList(listType.rawValue)
                 await reload()
                 openRequestedDocument()
             }
@@ -294,10 +308,12 @@ struct SongsView: View {
                         prompt: listType == .song ? "Search songs" : "Search notes")
             // Songs and notes are two lists, so a selection made in one has no
             // meaning in the other — nor does a search for a title that only
-            // exists in the one being left.
-            .onChange(of: listType) { _, _ in
+            // exists in the one being left. The choice itself is kept, so the
+            // next trip to this screen opens where this one ended.
+            .onChange(of: listType) { _, type in
                 selection.removeAll()
                 searchText = ""
+                options.rememberDocumentList(type.rawValue)
             }
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }

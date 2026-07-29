@@ -92,16 +92,17 @@ struct ScriptActions {
     /// client otherwise surfaced editions as a toolbar button alone.
     var editions: (() -> Void)?
 
-    /// Songs & Notes, and the songs themselves.
+    /// Songs & Notes, and the documents themselves.
     ///
-    /// `songsAndNotes` opens the screen; `recentSongs` are the few last edited,
-    /// which `openDocument` opens directly — the toolbar menu's contents, so a
-    /// writer at a keyboard reaches a song without the screen in between. The
-    /// list is a snapshot rather than a closure because the menu has to draw
-    /// the titles, not only act on them. Empty when the server never advertised
-    /// the project's documents, or when no script is frontmost.
+    /// `songsAndNotes` opens the screen; the two recent lists are the few last
+    /// edited of each kind, which `openDocument` opens directly — the toolbar
+    /// menu's contents, so a writer at a keyboard reaches either without the
+    /// screen in between. They are snapshots rather than closures because the
+    /// menu has to draw the titles, not only act on them. Empty when the server
+    /// never advertised the project's documents, or when no script is frontmost.
     var songsAndNotes: (() -> Void)?
     var recentSongs: [TextDocument] = []
+    var recentNotes: [TextDocument] = []
     var openDocument: ((TextDocument) -> Void)?
 
     /// Insert a song's lyrics below the focused element — the block menu's
@@ -242,25 +243,36 @@ struct ScriptCommands: Commands {
         }
     }
 
-    /// Songs & Notes, and the songs under it.
+    /// Songs & Notes, and the documents under it.
     ///
     /// ⌘⇧S is free in the client — nothing here is a saveable document, so the
-    /// stock Save chords never appear. The submenu is named for what it holds:
-    /// "Songs" would claim to list every one of them, when it lists the few
-    /// last edited and leaves the rest to the screen above it.
+    /// stock Save chords never appear. It opens the screen on whichever list the
+    /// project was last left on, so a writer working from the notes reaches them
+    /// with the one chord rather than the chord and a segment tap.
+    ///
+    /// The submenus are named for what they hold: "Songs" would claim to list
+    /// every one of them, when each lists the few last edited and leaves the rest
+    /// to the screen above. A kind with none stays there greyed out rather than
+    /// disappearing — a menu whose items move around between openings is harder
+    /// to learn than one with a dead entry in it.
     @ViewBuilder
     private var songItems: some View {
         Button("Songs & Notes…") { actions?.songsAndNotes?() }
             .keyboardShortcut("s", modifiers: [.command, .shift])
             .disabled(actions?.songsAndNotes == nil)
 
-        let recent = actions?.recentSongs ?? []
-        Menu("Recent Songs") {
-            ForEach(recent) { song in
-                Button(song.displayTitle) { actions?.openDocument?(song) }
+        recentMenu("Recent Songs", actions?.recentSongs ?? [])
+        recentMenu("Recent Notes", actions?.recentNotes ?? [])
+    }
+
+    @ViewBuilder
+    private func recentMenu(_ title: String, _ documents: [TextDocument]) -> some View {
+        Menu(title) {
+            ForEach(documents) { document in
+                Button(document.displayTitle) { actions?.openDocument?(document) }
             }
         }
-        .disabled(recent.isEmpty || actions?.openDocument == nil)
+        .disabled(documents.isEmpty || actions?.openDocument == nil)
     }
 
     /// The block menu's "Insert Song", where the keyboard can reach it.

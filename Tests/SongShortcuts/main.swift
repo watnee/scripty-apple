@@ -46,8 +46,26 @@ func song(_ id: Int, _ title: String, minutesAgo: Int?) -> TextDocument {
         links: nil)
 }
 
+/// The same, as the server's other kinds spell themselves. A nil type is what
+/// an older server sends for a document it never classified.
+func document(_ id: Int, _ title: String, type: String?, minutesAgo: Int?) -> TextDocument {
+    var made = song(id, title, minutesAgo: minutesAgo)
+    made.documentType = type
+    return made
+}
+
 func titles(_ documents: [TextDocument]) -> String {
     documents.map(\.displayTitle).joined(separator: ", ")
+}
+
+/// How the two shortcut menus divide one project's documents between them —
+/// the same predicates `ScriptModel.songs` and `.notes` use.
+func songsAmong(_ documents: [TextDocument]) -> [TextDocument] {
+    documents.filter { $0.kind == .song }
+}
+
+func notesAmong(_ documents: [TextDocument]) -> [TextDocument] {
+    documents.filter { $0.kind != .song }
 }
 
 @MainActor
@@ -118,6 +136,48 @@ func run() {
         // it is named the same way the lists name it.
         check("keeps the placeholder name the lists give it",
               titles([untitled].mostRecentlyEdited(limit: 1)), "Untitled Song")
+    }
+
+    print("")
+    print("Songs and notes are two shortcut lists")
+    do {
+        // One project's documents, interleaved in time, as the server returns
+        // them: the script's Songs & Notes menu draws a section from each.
+        let all = [
+            document(1, "Ballad", type: "SONG", minutesAgo: 40),
+            document(2, "Blocking", type: "NOTES", minutesAgo: 30),
+            document(3, "Finale", type: "SONG", minutesAgo: 10),
+            document(4, "Casting", type: "NOTES", minutesAgo: 20)
+        ]
+        // The failure this guards is a menu whose "Recent Notes" quietly leads
+        // with a song, or vice versa — each section is drawn from its own kind
+        // and takes its own newest, not the project's.
+        check("the songs section holds only songs, newest first",
+              titles(songsAmong(all).mostRecentlyEdited(limit: 3)), "Finale, Ballad")
+        check("the notes section holds only notes, newest first",
+              titles(notesAmong(all).mostRecentlyEdited(limit: 3)), "Casting, Blocking")
+        // Each section is capped on its own, so a busy week of songs cannot
+        // crowd the notes out of the menu.
+        check("the caps do not share a budget",
+              titles(notesAmong(all).mostRecentlyEdited(limit: 1)), "Casting")
+    }
+
+    print("")
+    print("Documents the server typed oddly")
+    do {
+        let all = [
+            document(1, "Sketch", type: "OTHER", minutesAgo: 20),
+            document(2, "Unclassified", type: nil, minutesAgo: 10)
+        ]
+        // OTHER is not a song, and the notes list is where the screen puts it —
+        // it is the half that means "everything else".
+        check("OTHER goes to the notes", titles(notesAmong(all).mostRecentlyEdited(limit: 2)),
+              "Sketch")
+        // An untyped document falls back to SONG, which is the server's own
+        // default for a new one, so the two shortcut lists between them still
+        // account for every document in the project.
+        check("an untyped one falls back to a song",
+              titles(songsAmong(all).mostRecentlyEdited(limit: 2)), "Unclassified")
     }
 }
 
