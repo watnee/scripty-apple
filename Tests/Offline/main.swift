@@ -89,6 +89,10 @@ func run() async {
     await checkBlocksFallback()
     print()
     await checkReconnectHoldsWork()
+    print()
+    await checkQueueArithmetic()
+    print()
+    await checkWritingNewElementsOffline()
 
     print()
     if failures == 0 {
@@ -262,6 +266,206 @@ func checkReconnectHoldsWork() async {
                model.currentText(model.blocks[0]), "Typed while offline.")
     check("and still flagged unsaved", model.unsavedBlockIds.contains(10))
     check("no premature all-synced toast", model.historyToast == nil)
+}
+
+/// The outbox's own arithmetic, driven directly: temp ids, the persisted
+/// mapping, and what happens to a chain when its head is abandoned. These are
+/// the parts a live server can't be asked about.
+@MainActor
+func checkQueueArithmetic() async {
+    print("== The outbox hands out ids, remembers them, and survives a reopen ==")
+    let directory = scratchDirectory("queue")
+    let queue = OfflineBlockQueue(scope: "server|alice", directory: directory)
+
+    let first = queue.nextTempId(projectId: 1)
+    checkEqual("the first temp id is negative", first, -1)
+    queue.enqueue(PendingBlockCreate(tempId: first, anchorId: 10, type: "ACTION",
+                                     content: "One.", personId: nil, createdAt: .now),
+                  projectId: 1)
+    let second = queue.nextTempId(projectId: 1)
+    checkEqual("the next id steps past the one in the queue", second, -2)
+    queue.enqueue(PendingBlockCreate(tempId: second, anchorId: first, type: "ACTION",
+                                     content: "Two.", personId: nil, createdAt: .now),
+                  projectId: 1)
+
+    checkEqual("both are queued", queue.pending(projectId: 1).count, 2)
+    checkEqual("in the order they were written",
+               queue.pending(projectId: 1).map(\.tempId), [first, second])
+    checkEqual("another project's queue is its own",
+               queue.pending(projectId: 2).count, 0)
+
+    queue.updateContent(tempId: first, to: "One, rewritten.", projectId: 1)
+    checkEqual("the words are kept up to date",
+               queue.pending(projectId: 1).first?.content, "One, rewritten.")
+    queue.updateType(tempId: first, to: "SCENE", projectId: 1)
+    checkEqual("and so is the type",
+               queue.pending(projectId: 1).first?.type, "SCENE")
+
+    let reopened = OfflineBlockQueue(scope: "server|alice", directory: directory)
+    checkEqual("a reopened queue still holds both",
+               reopened.pending(projectId: 1).map(\.tempId), [first, second])
+    checkEqual("with the newest words",
+               reopened.pending(projectId: 1).first?.content, "One, rewritten.")
+    let bob = OfflineBlockQueue(scope: "server|bob", directory: directory)
+    checkEqual("another account sees nothing", bob.pending(projectId: 1).count, 0)
+
+    print()
+    print("== A resolved element is remembered by id and leaves the queue ==")
+    reopened.resolve(tempId: first, realId: 99, projectId: 1)
+    checkEqual("the mapping is recorded", reopened.realId(for: first, projectId: 1), 99)
+    checkEqual("and the entry is gone", reopened.pending(projectId: 1).map(\.tempId), [second])
+    let afterResolve = OfflineBlockQueue(scope: "server|alice", directory: directory)
+    checkEqual("the mapping outlives the process — a half-finished run resumes",
+               afterResolve.realId(for: first, projectId: 1), 99)
+    check("and an id already spoken for is never handed out again",
+          afterResolve.nextTempId(projectId: 1) < second)
+
+    print()
+    print("== Abandoning an element abandons the chain hanging off it ==")
+    let chain = OfflineBlockQueue(scope: "server|carol", directory: directory)
+    let a = chain.nextTempId(projectId: 1)
+    chain.enqueue(PendingBlockCreate(tempId: a, anchorId: 10, type: "ACTION",
+                                     content: "A", personId: nil, createdAt: .now),
+                  projectId: 1)
+    let b = chain.nextTempId(projectId: 1)
+    chain.enqueue(PendingBlockCreate(tempId: b, anchorId: a, type: "ACTION",
+                                     content: "B", personId: nil, createdAt: .now),
+                  projectId: 1)
+    let c = chain.nextTempId(projectId: 1)
+    chain.enqueue(PendingBlockCreate(tempId: c, anchorId: b, type: "ACTION",
+                                     content: "C", personId: nil, createdAt: .now),
+                  projectId: 1)
+    // An element anchored to something outside the chain must survive.
+    let loose = chain.nextTempId(projectId: 1)
+    chain.enqueue(PendingBlockCreate(tempId: loose, anchorId: 10, type: "ACTION",
+                                     content: "Loose", personId: nil, createdAt: .now),
+                  projectId: 1)
+
+    let dropped = chain.drop(tempId: a, projectId: 1)
+    checkEqual("the whole chain is dropped, however deep", Set(dropped), Set([a, b, c]))
+    checkEqual("and only the chain — the queue drains rather than blocking",
+               chain.pending(projectId: 1).map(\.tempId), [loose])
+}
+
+/// The point of the whole feature: with no connection, Return still starts a
+/// new line, and nothing typed into it is lost.
+@MainActor
+func checkWritingNewElementsOffline() async {
+    print("== With no connection, a new element can still be written ==")
+    // These elements advertise `createBelow`, unlike the shared payload above:
+    // the case is about a create the *network* refuses, so the affordance has
+    // to be there and the request has to genuinely go out and fail. A missing
+    // link would exercise the permission path instead, which is a no-op.
+    let editableBlocksJSON = """
+    {
+      "_embedded": {
+        "blockResourceList": [
+          {
+            "id": 10, "order": 1, "type": "ACTION", "content": "First line.",
+            "_links": {
+              "update": {"href": "/api/blocks/10"},
+              "delete": {"href": "/api/blocks/10"},
+              "createBelow": {"href": "/api/blocks/10/below"}
+            }
+          },
+          {
+            "id": 11, "order": 2, "type": "ACTION", "content": "Second line.",
+            "_links": {
+              "update": {"href": "/api/blocks/11"},
+              "delete": {"href": "/api/blocks/11"},
+              "createBelow": {"href": "/api/blocks/11/below"}
+            }
+          }
+        ]
+      },
+      "_links": {"self": {"href": "/api/projects/1/blocks"}}
+    }
+    """
+    let directory = scratchDirectory("writing")
+    let store = OfflineStore(scope: "server|alice", directory: directory)
+    store.save(Data(editableBlocksJSON.utf8), .blocks(projectId: 1))
+    let queue = OfflineBlockQueue(scope: "server|alice",
+                                  directory: directory.appendingPathComponent("queue"))
+
+    let monitor = ConnectivityMonitor(startMonitoring: false)
+    monitor.adopt(false)
+    let model = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                            draftStore: nil, offlineStore: store, createQueue: queue)
+    await model.loadBlocks()
+    checkEqual("the cached script opens", model.blocks.count, 2)
+
+    // Return at the end of the first line: the create can't get out, so the
+    // new element has to be held on this device instead of refused.
+    await model.splitBlock(model.blocks[0], caret: 11)
+    checkEqual("the new element is on screen", model.blocks.count, 3)
+    let created = model.blocks[1]
+    check("it is a local one", created.isLocal)
+    check("the writer can type into it", created.isEditable)
+    check("it is queued to be sent", queue.hasPending(projectId: 1))
+    check("and counted as work held on this device",
+          model.unsavedBlockIds.contains(created.id))
+    checkEqual("one element is pending creation", model.pendingCreateCount, 1)
+    check("no error alert — Return is not a failure", model.errorMessage == nil)
+
+    // Typing into it keeps the queued copy current.
+    model.liveEdit(created, text: "Written on a train.")
+    await model.blur(created)
+    checkEqual("the queued words follow the writer",
+               queue.pending(projectId: 1).first?.content, "Written on a train.")
+    checkEqual("and are what the row shows",
+               model.currentText(model.blocks[1]), "Written on a train.")
+
+    // Return again, this time below an element that itself only exists here.
+    await model.splitBlock(model.blocks[1], caret: 19)
+    checkEqual("a second new element chains off the first", model.blocks.count, 4)
+    checkEqual("both are queued", queue.pending(projectId: 1).count, 2)
+    checkEqual("the second is anchored to the first, not to the server's line",
+               queue.pending(projectId: 1).last?.anchorId, created.id)
+
+    print()
+    print("== Retyping and deleting work on an element that only exists here ==")
+    await model.changeType(model.blocks[1], to: .character)
+    checkEqual("the queued type follows the element-type bar",
+               queue.pending(projectId: 1).first?.type, "CHARACTER")
+    checkEqual("and the row shows it", model.blocks[1].blockType, .character)
+
+    let chained = model.blocks[2]
+    await model.deleteBlock(model.blocks[1])
+    check("deleting a local element removes it", !model.blocks.contains { $0.id == created.id })
+    check("along with what was anchored to it",
+          !model.blocks.contains { $0.id == chained.id })
+    checkEqual("and the queue is empty again", queue.pending(projectId: 1).count, 0)
+    checkEqual("leaving the server's own elements alone", model.blocks.count, 2)
+
+    print()
+    print("== The queue survives a relaunch, and a reconnect that still fails ==")
+    await model.splitBlock(model.blocks[0], caret: 11)
+    model.liveEdit(model.blocks[1], text: "Survives a relaunch.")
+    await model.blur(model.blocks[1])
+
+    // A fresh model over the same store, as a relaunch would build.
+    let relaunched = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                                 draftStore: nil, offlineStore: store,
+                                 createQueue: OfflineBlockQueue(
+                                     scope: "server|alice",
+                                     directory: directory.appendingPathComponent("queue")))
+    await relaunched.loadBlocks()
+    checkEqual("the un-sent element is back on screen", relaunched.blocks.count, 3)
+    checkEqual("with the words that were typed into it",
+               relaunched.currentText(relaunched.blocks[1]), "Survives a relaunch.")
+    check("still marked as held on this device", relaunched.blocks[1].isLocal)
+
+    // The route returns but the server is still refusing (the closed port).
+    // Nothing may be dropped: the create is retryable, so it stays queued.
+    monitor.adopt(true)
+    await relaunched.connectionRestored()
+    checkEqual("a replay that can't reach the server keeps the element",
+               relaunched.pendingCreateCount, 1)
+    checkEqual("and keeps it queued",
+               queue.pending(projectId: 1).count, 1)
+    checkEqual("with the words intact",
+               relaunched.currentText(relaunched.blocks[1]), "Survives a relaunch.")
+    check("and says nothing about having synced", relaunched.historyToast == nil)
 }
 
 await run()

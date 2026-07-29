@@ -50,8 +50,34 @@ struct Block: Decodable, Identifiable, Hashable, HALResource {
     var isBookmarked: Bool { bookmarked ?? false }
     var isPinned: Bool { pinned ?? false }
 
-    /// True when the server advertises any mutation link for this block.
-    var isEditable: Bool { hasLink(.update) }
+    /// An element written while offline, which the server has never seen. Its
+    /// id is a placeholder handed out by `OfflineBlockQueue` and is negative;
+    /// every real id the server issues is positive, so the sign is the whole
+    /// test and no extra field has to be threaded through the decoder.
+    var isLocal: Bool { id < 0 }
+
+    /// True when the writer may type into this element. A local element
+    /// advertises no links at all — there is nothing on the server to link to
+    /// — so it would otherwise come out read-only, which is precisely the
+    /// element the writer is in the middle of writing.
+    var isEditable: Bool { hasLink(.update) || isLocal }
+}
+
+extension Block {
+    /// Build the on-screen stand-in for an element created while offline.
+    ///
+    /// `order` is the anchor's, which only ever matters if a server load
+    /// re-sorts — and a server load replaces the collection wholesale and
+    /// re-inserts the pending elements by position anyway. Declared in an
+    /// extension so the memberwise initialiser survives.
+    static func local(tempId: Int, projectId: Int?, order: Int?,
+                      content: String, type: BlockType, personId: Int?) -> Block {
+        Block(id: tempId, projectId: projectId, order: order, content: content,
+              type: type.rawValue, personId: personId, personName: nil,
+              bookmarked: false, pinned: false, scene: type == .scene,
+              tags: nil, textAlign: nil, font: nil, highlight: nil,
+              textBold: nil, textItalic: nil, textUnderline: nil, links: nil)
+    }
 }
 
 /// Fountain screenplay element types (mirrors Block.java on the server).

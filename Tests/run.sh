@@ -257,6 +257,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
@@ -280,6 +281,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
