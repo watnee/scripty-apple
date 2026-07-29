@@ -150,6 +150,17 @@ struct ProjectsSidebarView: View {
     /// is one item holding as many entries as it likes.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // Same corner it takes in the script, for the same reason: a writer
+        // should be able to learn one place to look. Here it reports on the
+        // list rather than on any one screenplay — an amber cloud means what
+        // is on screen came off this device, not the server.
+        if let cloud = cloudState {
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncBadge(state: cloud, label: cloudLabel(cloud))
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
+
         if editMode.isEditing {
             // Nothing but leaving: the list under it is answering a different
             // question, and New/Import/Account all belong to the other one.
@@ -648,6 +659,32 @@ struct ProjectsSidebarView: View {
             // No background of its own: the host mounts it with `.safeAreaBar`,
             // so the button is already floating on Liquid Glass, and a `.bar`
             // fill under it draws a second, flatter surface on top of that one.
+        }
+    }
+
+    /// What the toolbar cloud says about this list, or nil in the demo, which
+    /// has no server behind it to be in step with.
+    ///
+    /// A cached list with the radio back on is neither of the plain answers:
+    /// the rows on screen still came off the disk, but the refresh that
+    /// replaces them is already running — so it wears the in-between state
+    /// until that lands and clears `offlineCopySavedAt`.
+    private var cloudState: CloudSyncState? {
+        guard !app.isDemo else { return nil }
+        if !app.connectivity.isOnline { return .offline }
+        return model.isShowingOfflineCopy ? .holding : .synced
+    }
+
+    /// The list's own words for each state — the badge's defaults are written
+    /// for a script being typed into, and none of them fit a list of them.
+    private func cloudLabel(_ state: CloudSyncState) -> String {
+        switch state {
+        case .synced:
+            "Your screenplays are saved to the cloud."
+        case .holding:
+            "Showing the screenplays saved on this device while the list refreshes."
+        case .offline:
+            "Offline. Showing the screenplays saved on this device."
         }
     }
 

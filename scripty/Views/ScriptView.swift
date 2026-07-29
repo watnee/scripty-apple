@@ -433,6 +433,18 @@ struct ScriptView: View {
         !model.app.connectivity.isOnline && !model.app.isDemo
     }
 
+    /// What the toolbar cloud says, or nil for the demo — a sample screenplay
+    /// that never leaves the device has no cloud to report on, and a slashed
+    /// one would read as a fault rather than as the point of the demo.
+    ///
+    /// Elements written offline are already inside `unsavedBlockIds`, so held
+    /// work is one question, not two.
+    private var cloudState: CloudSyncState? {
+        guard !model.app.isDemo else { return nil }
+        if !model.app.connectivity.isOnline { return .offline }
+        return model.hasUnsavedChanges ? .holding : .synced
+    }
+
     @ViewBuilder
     private var unsavedBanner: some View {
         // Elements written offline are counted in `unsavedBlockIds` too, so
@@ -1345,6 +1357,19 @@ struct ScriptView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // Status rather than an action, so it keeps the leading edge — beside
+        // the way back — instead of joining the controls crowding the far side,
+        // which on an iPhone are one item away from spilling into an overflow
+        // menu a standing indicator would be no use inside of. It stays through
+        // focus mode: that mode clears away what the writer does not need to
+        // look at, and whether their words are safe is not that.
+        if let cloud = cloudState {
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncBadge(state: cloud, heldCount: model.unsavedBlockIds.count)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
+
         // The View menu stays put in focus mode — it is the way back out.
         //
         // It sits in a group of its own, divided from the rest by a
