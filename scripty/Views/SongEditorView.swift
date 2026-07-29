@@ -6,6 +6,11 @@
 //  so an existing document's full content is fetched when the sheet opens.
 //  Read-only when the server didn't advertise an `update` link.
 //
+//  Laid out plainly rather than in a Form: grouped rows drew hairlines across
+//  what is meant to read as one continuous page, and they put a scroll view
+//  around a text view that already scrolls itself. Spacing separates the title
+//  from the prose here, nothing drawn.
+//
 
 import SwiftUI
 
@@ -47,40 +52,42 @@ struct SongEditorView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("Title", text: $title)
-                        .font(.headline)
-                        .disabled(!canEdit)
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Title", text: $title)
+                    .font(.headline)
+                    .disabled(!canEdit)
+
+                // Notes get the list and heading controls; lyrics take the
+                // same keyboard rules but not the bar, which is the split
+                // the browser makes too.
+                if type != .song && canEdit {
+                    NoteFormatBar(controller: formatting)
                 }
-                Section(type == .song ? "Lyrics" : "Notes") {
-                    // Notes get the list and heading controls; lyrics take the
-                    // same keyboard rules but not the bar, which is the split
-                    // the browser makes too.
-                    if type != .song && canEdit {
-                        NoteFormatBar(controller: formatting)
-                            .listRowSeparator(.hidden)
-                    }
-                    NoteTextView(text: $content,
-                                 controller: formatting,
-                                 isEditable: canEdit,
-                                 spellChecks: settings.isSpellcheckEnabled,
-                                 textScale: settings.textScale)
-                        .frame(minHeight: 260)
-                        .overlay(alignment: .topLeading) {
-                            if content.isEmpty {
-                                Text(type == .song
-                                     ? "Write the lyrics here…"
-                                     : "Write your notes here…")
-                                    .foregroundStyle(.tertiary)
-                                    .allowsHitTesting(false)
-                            }
+
+                NoteTextView(text: $content,
+                             controller: formatting,
+                             isEditable: canEdit,
+                             spellChecks: settings.isSpellcheckEnabled,
+                             textScale: settings.textScale)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .overlay(alignment: .topLeading) {
+                        if content.isEmpty {
+                            Text(type == .song
+                                 ? "Write the lyrics here…"
+                                 : "Write your notes here…")
+                                .foregroundStyle(.tertiary)
+                                .allowsHitTesting(false)
                         }
-                }
+                    }
+
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
             .overlay {
                 if isLoading { ProgressView() }
             }
