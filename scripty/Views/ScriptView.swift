@@ -771,12 +771,13 @@ struct ScriptView: View {
     /// of demotions elsewhere fixes it, because the bar's budget is the title's
     /// leftovers rather than a count of items.
     ///
-    /// So they come down here, where there is width for both to be named rather
-    /// than left as two glyphs to be recognised — and where they are under the
-    /// thumb instead of in the corner furthest from it. Named buttons in a
-    /// `.safeAreaBar` rather than `.bottomBar` toolbar items for the reason
-    /// `ProjectsSidebarView.newProjectBar` records: a bar item built from a
-    /// `Label` shows the glyph and drops the title, even under `.titleAndIcon`.
+    /// So they come down here, under the thumb instead of in the corner
+    /// furthest from it. Icon-only, matching the toolbar the iPad and Mac
+    /// keep them in — the titles stay on the `Label`s, where VoiceOver still
+    /// reads them. Buttons in a `.safeAreaBar` rather than `.bottomBar`
+    /// toolbar items for the reason `ProjectsSidebarView.newProjectBar`
+    /// records: a bar item built from a `Label` shows the glyph and drops
+    /// the title, even under `.titleAndIcon`.
     ///
     /// It draws no background of its own — the `.safeAreaBar` already floats it
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
@@ -788,7 +789,7 @@ struct ScriptView: View {
                 notesButton
             }
             .buttonStyle(.bordered)
-            .labelStyle(.titleAndIcon)
+            .labelStyle(.iconOnly)
             .padding(.vertical, 4)
         }
     }
