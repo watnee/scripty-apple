@@ -94,10 +94,12 @@ extension HelpTopic {
                     + "title, sort by last edited or by name, and swipe a row to rename "
                     + "or delete it.",
                     "The star marks a default project. Tap it on the row you keep "
-                    + "coming back to."
+                    + "coming back to, and Scripty opens that screenplay for you "
+                    + "the next time it starts — the same landing the web editor "
+                    + "gives you. With nothing starred you begin here, on the list."
                 ],
                 keywords: ["sidebar", "list", "screenplays", "sort", "rename", "default",
-                           "star", "swipe"]),
+                           "star", "swipe", "launch", "open", "startup"]),
             HelpTopic(
                 id: "project-transfer",
                 title: "Importing and Exporting a Project",

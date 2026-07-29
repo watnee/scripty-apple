@@ -103,7 +103,7 @@ extension QuickAction {
     /// a menu that quietly follows it would break the day the sidebar changed
     /// its mind.
     static func preferredProject(in projects: [Project]) -> Project? {
-        if let starred = projects.first(where: { $0.isDefault == true }) {
+        if let starred = Project.starred(in: projects) {
             return starred
         }
         return recentProjects(in: projects, limit: 1).first

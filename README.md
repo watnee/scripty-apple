@@ -193,6 +193,15 @@ id, and a build number it has not seen — hence the timestamp default.
 but it only installs on devices whose UDIDs are already registered at
 developer.apple.com > Devices.
 
+## Where it opens
+
+Star a project in the sidebar and Scripty opens it on its own the next time it
+starts, the way signing in to the web editor lands you on the same screenplay.
+Star nothing and it opens on the list — with no request behind a launch, it
+would rather ask than guess. A tap on the Home Screen menu outranks both, and
+going back to the list stays there until the next launch. The choice itself is
+[LaunchProject.swift](scripty/Models/LaunchProject.swift).
+
 ## The Home Screen menu
 
 Press and hold the app icon and four entries come up:
