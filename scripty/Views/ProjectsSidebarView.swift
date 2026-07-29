@@ -39,7 +39,10 @@ enum ProjectSort: String, CaseIterable, Identifiable {
 struct ProjectsSidebarView: View {
     let app: AppModel
     let model: ProjectListModel
-    @Binding var selection: Project?
+    /// The open screenplay's id. An id rather than the project itself because a
+    /// selection matched on the whole value does not survive a refresh — see
+    /// `ContentView`.
+    @Binding var selection: Int?
 
     @State private var showingCreate = false
     @State private var showingImporter = false
@@ -325,7 +328,7 @@ struct ProjectsSidebarView: View {
             if project.hasLink(.delete) {
                 Button(role: .destructive) {
                     Task {
-                        if selection?.id == project.id { selection = nil }
+                        if selection == project.id { selection = nil }
                         await model.delete(project)
                     }
                 } label: {
@@ -399,7 +402,7 @@ struct ProjectsSidebarView: View {
             Section {
                 Button(role: .destructive) {
                     Task {
-                        if selection?.id == project.id { selection = nil }
+                        if selection == project.id { selection = nil }
                         await model.delete(project)
                     }
                 } label: {
@@ -434,7 +437,7 @@ struct ProjectsSidebarView: View {
                         DemoBanner()
                     }
                     ForEach(displayedProjects) { project in
-                        projectRow(for: project).tag(project)
+                        projectRow(for: project).tag(project.id)
                     }
                 }
             }
@@ -514,11 +517,7 @@ struct ProjectsSidebarView: View {
                 guard let created = await model.createProject(title: title) else { return false }
                 // Naming a screenplay is the writer asking to start writing it,
                 // so open it rather than leaving them to find the new row.
-                // Prefer the copy from the list `createProject` reloaded: the
-                // sidebar's selection matches on the whole value, so the
-                // POST's answer — with its own idea of `lastEdited` — would
-                // highlight nothing.
-                selection = model.projects.first { $0.id == created.id } ?? created
+                selection = created.id
                 return true
             }
         }

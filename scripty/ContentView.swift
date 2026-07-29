@@ -18,7 +18,16 @@ struct ContentView: View {
     let app: AppModel
 
     @State private var projectList: ProjectListModel
-    @State private var selectedProject: Project?
+    /// Which screenplay is open, held as an id rather than as the project.
+    ///
+    /// A `List` matches its selection against the row tags by equality, so a
+    /// selection carrying the whole value is dropped the moment a refresh
+    /// returns a project differing in any field — and `lastEdited` moves as
+    /// soon as the writer types. The list then writes nil back through this
+    /// binding, the detail pane goes with it, and the script load still in
+    /// flight dies as a cancelled request the writer sees as "couldn't reach
+    /// the server". The id is the part of a project that does not drift.
+    @State private var selectedProjectId: Int?
     /// Set by a Songs or Notes quick action, or by a tapped widget row, and
     /// cleared by the script view once it has opened that list. Held here
     /// rather than passed at creation because tapping Songs for the screenplay
@@ -33,9 +42,16 @@ struct ContentView: View {
         _projectList = State(initialValue: ProjectListModel(app: app))
     }
 
+    /// The selected screenplay as the list currently holds it. Resolved on each
+    /// read rather than stored, so a rename or a re-sort lands in the open
+    /// script instead of pointing it at a stale copy.
+    private var selectedProject: Project? {
+        projectList.projects.first { $0.id == selectedProjectId }
+    }
+
     var body: some View {
         NavigationSplitView {
-            ProjectsSidebarView(app: app, model: projectList, selection: $selectedProject)
+            ProjectsSidebarView(app: app, model: projectList, selection: $selectedProjectId)
         } detail: {
             if let project = selectedProject {
                 ScriptView(app: app, project: project, openingDocuments: $openingDocuments)
@@ -51,8 +67,8 @@ struct ContentView: View {
             await projectList.refresh()
             // The demo exists to show the screenplay, so open the sample
             // script rather than parking on the empty detail pane.
-            if app.isDemo, selectedProject == nil {
-                selectedProject = projectList.projects.first
+            if app.isDemo, selectedProjectId == nil {
+                selectedProjectId = projectList.projects.first?.id
             }
             // A cold launch from the Home Screen menu lands here: the action was
             // taken before this view existed, so nothing has changed since to
@@ -100,7 +116,7 @@ struct ContentView: View {
         guard !projectList.isLoading, let action = quickActions.pending else { return }
         quickActions.pending = nil
         guard let project = action.project(in: projectList.projects) else { return }
-        selectedProject = project
+        selectedProjectId = project.id
         openingDocuments = action.documentType.map { DocumentsRequest(type: $0) }
     }
 
@@ -118,7 +134,7 @@ struct ContentView: View {
         app.pendingWidgetDestination = nil
         guard let project = projectList.projects.first(where: { $0.id == destination.projectId })
         else { return }
-        selectedProject = project
+        selectedProjectId = project.id
         openingDocuments = DocumentsRequest(type: destination.isSong ? .song : .notes,
                                             documentId: destination.documentId)
     }
