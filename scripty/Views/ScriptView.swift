@@ -98,8 +98,15 @@ struct ScriptView: View {
     /// outlive the app's execution time, and this is the writer's only copy.
     @Environment(\.scenePhase) private var scenePhase
 
-    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentType?>) {
+    /// Told when the project resource itself changes — a rename, new front
+    /// matter, a script imported over the top. The list behind this screen is
+    /// showing the old name until somebody says otherwise.
+    private let onProjectChanged: (Project) async -> Void
+
+    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentType?>,
+         onProjectChanged: @escaping (Project) async -> Void = { _ in }) {
         _openingDocuments = openingDocuments
+        self.onProjectChanged = onProjectChanged
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
         _editions = State(initialValue: EditionsModel(app: app, project: project))
@@ -141,6 +148,7 @@ struct ScriptView: View {
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
+        .toolbarTitleMenu { projectButtons }
         .exportPresentation(exporter)
         .focusedSceneValue(\.scriptActions, menuActions)
         .refreshable {
@@ -308,6 +316,9 @@ struct ScriptView: View {
         .sheet(isPresented: $showingTitlePage) {
             TitlePageView(app: model.app, project: model.project) { updated in
                 model.adopt(updated)
+                // The name on this bar is now right and the one in the list
+                // behind it is not, so hand the new resource back.
+                Task { await onProjectChanged(updated) }
             }
         }
         .sheet(isPresented: $showingOutline) {
@@ -325,6 +336,7 @@ struct ScriptView: View {
         .scriptImporter(app: model.app, project: model.project,
                         isPresented: $showingScriptImporter) { updated in
             model.adopt(updated)
+            await onProjectChanged(updated)
             await model.loadBlocks()
             await model.refreshUndoRedo()
         }
@@ -1012,75 +1024,31 @@ struct ScriptView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // Writing controls first, then the screens kept beside the script.
+        // Which of these iOS keeps as icons and which it folds into the
+        // overflow is its own call, and it makes a different one on a phone
+        // than on an iPad.
         ToolbarItemGroup(placement: .primaryAction) {
             // The View menu stays put in focus mode — it is the way back out.
             viewMenu
-
-            if !settings.isPageView && !options.isEditingLocked {
-                Button {
-                    Task { await model.appendBlock() }
-                } label: {
-                    Label("Add Element", systemImage: "plus")
-                }
-            }
-
-            if model.hasScriptContent && !settings.isFocusMode {
-                Button {
-                    isSearching.toggle()
-                    if !isSearching { search.clear() }
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                .keyboardShortcut("f", modifiers: .command)
-
-                Button {
-                    showingOutline = true
-                } label: {
-                    Label("Outline", systemImage: "list.bullet.indent")
-                }
-                // ⌘⇧O is outline *mode*, in the View menu below and in the Mac
-                // menu bar. The panel took the same keys until now, which meant
-                // one of the two won by responder order and the other silently
-                // did nothing.
-                .keyboardShortcut("o", modifiers: [.command, .option])
-
-                if model.canSelectBlocks && !settings.isPageView {
-                    Button {
-                        selection.isSelecting.toggle()
-                    } label: {
-                        Label("Select Elements", systemImage: "checklist")
-                    }
-                }
-            }
-
-            if model.canViewCharacters && !settings.isFocusMode {
-                Button {
-                    showingCharacters = true
-                } label: {
-                    Label("Characters", systemImage: "person.2")
-                }
-            }
-
-            if model.canViewDocuments && !settings.isFocusMode {
-                songsButton
-            }
-
-            if !model.exportOptions.isEmpty && !settings.isFocusMode {
-                ExportButton(exporter: exporter)
-            }
+            addElementButton
+            scriptToolButtons
+            referenceButtons
         }
 
-        // Front matter, import and stats are occasional actions — they live in
-        // the overflow so the writing controls stay reachable on iPhone width.
-        // Focus mode clears the overflow out entirely.
+        // Front matter, history and the occasional errands. These also hang off
+        // the screenplay's name (`projectButtons` is what the title menu
+        // shows), but they are declared here as well rather than only there:
+        // whether the bar has the room to draw a title at all is iOS's
+        // decision, and an affordance that exists only inside a menu that may
+        // not appear is an affordance that may not be reachable.
+        // Focus mode clears the overflow out but for the history pair.
         if !settings.isFocusMode {
             ToolbarItemGroup(placement: .secondaryAction) {
-                Button {
-                    showingTitlePage = true
-                } label: {
-                    Label("Title Page", systemImage: "doc.text")
-                }
+                projectButtons
+            }
 
+            ToolbarItemGroup(placement: .secondaryAction) {
                 if model.hasScriptContent {
                     Button {
                         showingStats = true
@@ -1089,54 +1057,11 @@ struct ScriptView: View {
                     }
                 }
 
-                // Only worth surfacing once there is more than one edition, or
-                // the writer can make one. A single-edition project should show
-                // no sign of the feature.
-                if editions.hasChoice || editions.canCreate {
-                    Button {
-                        showingEditions = true
-                    } label: {
-                        Label("Editions", systemImage: "doc.on.doc")
-                    }
-                }
-
-                if model.project.hasLink(.versions) {
-                    Button {
-                        showingVersions = true
-                    } label: {
-                        Label("Version History", systemImage: "clock.arrow.circlepath")
-                    }
-                }
-
-                if model.project.hasLink(.invitations) || model.project.hasLink(.access) {
-                    Button {
-                        showingShare = true
-                    } label: {
-                        Label("Share", systemImage: "person.badge.plus")
-                    }
-                }
-
-                if let activity = model.project.link(.activity) {
-                    Button {
-                        activityLink = activity
-                    } label: {
-                        Label("Recent Activity", systemImage: "clock")
-                    }
-                }
-
                 if let trash = model.blocksLinks[.trash] {
                     Button {
                         trashLink = trash
                     } label: {
                         Label("Deleted Elements", systemImage: "trash")
-                    }
-                }
-
-                if model.project.hasLink(.importScript) {
-                    Button {
-                        showingScriptImporter = true
-                    } label: {
-                        Label("Import Script", systemImage: "square.and.arrow.down.on.square")
                     }
                 }
             }
@@ -1157,6 +1082,132 @@ struct ScriptView: View {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
                 .disabled(!(undoRedo.canRedo ?? false))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var addElementButton: some View {
+        if !settings.isPageView && !options.isEditingLocked {
+            Button {
+                Task { await model.appendBlock() }
+            } label: {
+                Label("Add Element", systemImage: "plus")
+            }
+        }
+    }
+
+    /// Finding your way around the script in front of you.
+    @ViewBuilder
+    private var scriptToolButtons: some View {
+        if model.hasScriptContent && !settings.isFocusMode {
+            Button {
+                isSearching.toggle()
+                if !isSearching { search.clear() }
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+            }
+            .keyboardShortcut("f", modifiers: .command)
+
+            Button {
+                showingOutline = true
+            } label: {
+                Label("Outline", systemImage: "list.bullet.indent")
+            }
+            // ⌘⇧O is outline *mode*, in the View menu below and in the Mac
+            // menu bar. The panel took the same keys until now, which meant
+            // one of the two won by responder order and the other silently
+            // did nothing.
+            .keyboardShortcut("o", modifiers: [.command, .option])
+
+            if model.canSelectBlocks && !settings.isPageView {
+                Button {
+                    selection.isSelecting.toggle()
+                } label: {
+                    Label("Select Elements", systemImage: "checklist")
+                }
+            }
+        }
+    }
+
+    /// The screens kept alongside the script: its people, its songs, and the
+    /// copies of it that leave the app.
+    @ViewBuilder
+    private var referenceButtons: some View {
+        if !settings.isFocusMode {
+            if model.canViewCharacters {
+                Button {
+                    showingCharacters = true
+                } label: {
+                    Label("Characters", systemImage: "person.2")
+                }
+            }
+
+            if model.canViewDocuments {
+                songsButton
+            }
+
+            if !model.exportOptions.isEmpty {
+                ExportButton(exporter: exporter)
+            }
+        }
+    }
+
+    /// The project's own affairs, as against the script on screen: its front
+    /// matter, its named drafts, its history, who else can see it.
+    ///
+    /// Gathered so they can hang off the screenplay's name as well as sit in
+    /// the overflow — a document app has taught everyone to look under the
+    /// title for these, and the same list serves both places. See `toolbar`
+    /// for why they are in both rather than only under the title.
+    @ViewBuilder
+    private var projectButtons: some View {
+        Button {
+            showingTitlePage = true
+        } label: {
+            Label("Title Page…", systemImage: "doc.text")
+        }
+
+        // Only worth surfacing once there is more than one edition, or the
+        // writer can make one. A single-edition project should show no sign
+        // of the feature.
+        if editions.hasChoice || editions.canCreate {
+            Button {
+                showingEditions = true
+            } label: {
+                Label("Editions…", systemImage: "doc.on.doc")
+            }
+        }
+
+        if model.project.hasLink(.versions) {
+            Button {
+                showingVersions = true
+            } label: {
+                Label("Version History…", systemImage: "clock.arrow.circlepath")
+            }
+        }
+
+        if model.project.hasLink(.invitations) || model.project.hasLink(.access) {
+            Button {
+                showingShare = true
+            } label: {
+                Label("Share…", systemImage: "person.badge.plus")
+            }
+        }
+
+        if let activity = model.project.link(.activity) {
+            Button {
+                activityLink = activity
+            } label: {
+                Label("Recent Activity…", systemImage: "clock")
+            }
+        }
+
+        if model.project.hasLink(.importScript) {
+            Button {
+                showingScriptImporter = true
+            } label: {
+                Label("Import Script…", systemImage: "square.and.arrow.down.on.square")
             }
         }
     }

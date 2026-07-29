@@ -26,6 +26,17 @@ struct TitlePageView: View {
         NavigationStack {
             Form {
                 Section {
+                    TextField("Project Name", text: $model.projectName)
+                        .textInputAutocapitalization(.words)
+                        .disabled(!model.canEdit)
+                } header: {
+                    Text("Project")
+                } footer: {
+                    Text("What this screenplay is called in your projects list. "
+                         + "It never appears on the printed page.")
+                }
+
+                Section {
                     TextField("Screenplay Title", text: $model.screenplayTitle)
                         .textInputAutocapitalization(.words)
                         .disabled(!model.canEdit)
@@ -72,7 +83,7 @@ struct TitlePageView: View {
                             ProgressView()
                         } else {
                             Button("Save") { save() }
-                                .disabled(!model.hasChanges)
+                                .disabled(!model.hasChanges || !model.canSave)
                         }
                     }
                 }

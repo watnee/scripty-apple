@@ -16,7 +16,16 @@ struct ContentView: View {
     let app: AppModel
 
     @State private var projectList: ProjectListModel
-    @State private var selectedProject: Project?
+    /// Which screenplay is open, by id rather than by value.
+    ///
+    /// A `Project` is a snapshot of a resource that keeps changing under it —
+    /// every save bumps `lastEdited`, starring one flips `default` — and a
+    /// selection held as the whole value goes stale the moment any of that
+    /// happens: the sidebar stops highlighting the row it is showing, and on a
+    /// phone the split view reads the change as picking a different screenplay
+    /// and re-pushes the detail, throwing away a loaded script to load the same
+    /// one again. The id is the part that actually says which project this is.
+    @State private var selectedProjectId: Project.ID?
     /// Set by a Songs or Notes quick action, and cleared by the script view
     /// once it has opened that list. Held here rather than passed at creation
     /// because tapping Songs for the screenplay already on screen changes no
@@ -30,12 +39,20 @@ struct ContentView: View {
         _projectList = State(initialValue: ProjectListModel(app: app))
     }
 
+    /// The chosen project as the list currently describes it. Derived rather
+    /// than stored, so a refreshed list is a refreshed selection.
+    private var selectedProject: Project? {
+        projectList.projects.first { $0.id == selectedProjectId }
+    }
+
     var body: some View {
         NavigationSplitView {
-            ProjectsSidebarView(app: app, model: projectList, selection: $selectedProject)
+            ProjectsSidebarView(app: app, model: projectList, selection: $selectedProjectId)
         } detail: {
             if let project = selectedProject {
-                ScriptView(app: app, project: project, openingDocuments: $openingDocuments)
+                ScriptView(app: app, project: project,
+                           openingDocuments: $openingDocuments,
+                           onProjectChanged: adoptRenamedProject)
                     .id(project.id)
             } else {
                 ContentUnavailableView(
@@ -48,8 +65,8 @@ struct ContentView: View {
             await projectList.refresh()
             // The demo exists to show the screenplay, so open the sample
             // script rather than parking on the empty detail pane.
-            if app.isDemo, selectedProject == nil {
-                selectedProject = projectList.projects.first
+            if app.isDemo, selectedProjectId == nil {
+                selectedProjectId = projectList.projects.first?.id
             }
             // A cold launch from the Home Screen menu lands here: the action was
             // taken before this view existed, so nothing has changed since to
@@ -67,6 +84,17 @@ struct ContentView: View {
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
     }
 
+    /// Takes on a project the screenplay screen renamed or re-imported.
+    ///
+    /// The sidebar holds its own copy of the resource, so a name changed from
+    /// the title page leaves the row behind it reading the old one. Reloading
+    /// the list is the whole job — the selection is an id, so it survives the
+    /// swap — and it is also what brings back the row's other facts (last
+    /// edited, teams) that the save's own answer does not carry.
+    private func adoptRenamedProject(_ updated: Project) async {
+        await projectList.refresh()
+    }
+
     /// Opens what the Home Screen menu asked for, if anything.
     ///
     /// The action is dropped whether or not it found a project. A menu entry
@@ -80,7 +108,7 @@ struct ContentView: View {
         guard !projectList.isLoading, let action = quickActions.pending else { return }
         quickActions.pending = nil
         guard let project = action.project(in: projectList.projects) else { return }
-        selectedProject = project
+        selectedProjectId = project.id
         openingDocuments = action.documentType
     }
 }
