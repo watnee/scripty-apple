@@ -11,7 +11,9 @@
 //  segmented capsule, and the typeface shows its short name, so the whole bar
 //  fits a phone without scrolling — two rows of chips above the keyboard is
 //  already as much of the screen as formatting deserves. Segment height
-//  matches ElementTypeBar's chips, so the two rows still read as one language.
+//  matches ElementTypeBar's chips, so the two rows still read as one language:
+//  the group's own 2pt inset plus a segment's 3pt comes to the 5pt a chip
+//  pads by, and both rows inset by the same 12/5.
 //
 //  Shown only when the block advertises an `update` link.
 //
@@ -29,13 +31,13 @@ struct FormatBar: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 segmented { styleSegments }
                 segmented { alignSegments }
                 fontMenu
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
         }
         // No background: `ScriptView` mounts the editing bars with
         // `.safeAreaBar`, so the strip is already floating on Liquid Glass.
@@ -86,8 +88,8 @@ struct FormatBar: View {
                 Image(systemName: "chevron.up.chevron.down").font(.caption2)
             }
             .font(.footnote.weight(.medium))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -141,7 +143,7 @@ struct FormatBar: View {
                 .font(.footnote.weight(.medium))
                 .frame(minWidth: 22)
                 .padding(.horizontal, 4)
-                .padding(.vertical, 5)
+                .padding(.vertical, 3)
         }
         .buttonStyle(.plain)
         .foregroundStyle(isOn ? Color.white : Color.primary)
