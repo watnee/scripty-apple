@@ -247,11 +247,18 @@ extension HelpTopic {
                 title: "Spelling",
                 systemImage: "textformat.abc.dottedunderline",
                 paragraphs: [
-                    "Check Spelling in the View menu underlines misspelled words as you "
-                    + "type, using the system checker and the system's own corrections.",
-                    "Ignored Words is the list of words to stop flagging. Because the "
-                    + "checker is the device's, a word added there stops being flagged "
-                    + "in other apps too."
+                    "Check Spelling underlines misspelled words as you type, using the "
+                    + "system checker and the system's own corrections. It is in the "
+                    + "View menu for a screenplay, and under Spelling in the toolbar of "
+                    + "a song, the all-songs workspace and a note.",
+                    "Touch and hold an underlined word and choose Ignore Spelling to "
+                    + "leave it alone from then on — a character's name, a place, a "
+                    + "dialect spelling in a lyric. The underline goes everywhere the "
+                    + "word appears, not just on the line you were on.",
+                    "Ignored Words is that list, and the place to add a word before it "
+                    + "is flagged or take one back off. Because the checker is the "
+                    + "device's, a word added there stops being flagged in other apps "
+                    + "too, and removing it takes it back out."
                 ],
                 keywords: ["spellcheck", "spell check", "dictionary", "misspelled",
                            "typo", "ignore"]),

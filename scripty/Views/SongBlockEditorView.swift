@@ -25,6 +25,7 @@ struct SongBlockEditorView: View {
     @State private var showingEditions = false
     @State private var showingVersions = false
     @State private var showingTrash = false
+    @State private var showingIgnoredWords = false
     @State private var searchText = ""
     /// Which lines the current search matched, by id.
     ///
@@ -178,6 +179,9 @@ struct SongBlockEditorView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showingIgnoredWords) {
+                SpellcheckWordsView()
+            }
             .sheet(isPresented: $showingTrash) {
                 if let trash = model.trashLink {
                     TrashView(app: model.app,
@@ -279,6 +283,13 @@ struct SongBlockEditorView: View {
             Toggle(isOn: wordCountBinding) {
                 Label("Word Count", systemImage: "number")
             }
+        }
+        // The same device-wide spelling controls the screenplay's View menu
+        // carries. A lyric is where they are needed most — invented words,
+        // dialect spellings and names by the verse — and this editor had no way
+        // to reach them at all.
+        ToolbarItem(placement: .secondaryAction) {
+            SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
         }
         // Text size, the web song editor's Tools-menu A−/A+. It drives the same
         // device-wide preference the screenplay editor changes, so a size set

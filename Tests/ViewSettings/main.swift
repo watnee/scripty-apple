@@ -122,6 +122,26 @@ func runIgnoredWords() {
     check("and survives a relaunch",
           SpellcheckDictionary(defaults: store).words, ["KESSLER", "MAYA"])
 
+    // The spellings taught to the device, which the uppercase list cannot
+    // reconstruct — the checker takes case at face value, so the word as
+    // written has to be remembered to be untaught later.
+    check("the written spelling is remembered too",
+          store.stringArray(forKey: "scripty-spell-learned") ?? [],
+          ["MAYA", "Maya", "KESSLER", "Kessler"])
+
+    // What the editors redraw on. Not the words themselves: a view that has
+    // already checked a line needs telling the answer changed.
+    let before = dictionary.revision
+    dictionary.add("Ondaatje")
+    check("adding moves the revision on", dictionary.revision, before + 1)
+    dictionary.add("Ondaatje")
+    check("but adding the same word again does not", dictionary.revision, before + 1)
+    dictionary.remove("ONDAATJE")
+    check("and removing moves it on again", dictionary.revision, before + 2)
+    check("removing takes the taught spellings with it",
+          store.stringArray(forKey: "scripty-spell-learned") ?? [],
+          ["MAYA", "Maya", "KESSLER", "Kessler"])
+
     dictionary.remove("MAYA")
     check("removing takes it off", dictionary.words, ["KESSLER"])
 
@@ -136,6 +156,52 @@ func runIgnoredWords() {
     broken.set("not json", forKey: "scripty-spell-ignored")
     check("unreadable storage reads as empty",
           SpellcheckDictionary(defaults: broken).words, [String]())
+
+    // An install from before the taught-spellings list existed, or a list
+    // synced from the browser, has only the uppercase words to go on.
+    let legacy = scratch("ignoredwords-legacy")
+    legacy.set(#"{"MAYA":true}"#, forKey: "scripty-spell-ignored")
+    let upgraded = SpellcheckDictionary(defaults: legacy)
+    check("an older list still reads", upgraded.words, ["MAYA"])
+    upgraded.add("Kessler")
+    check("and the uppercase words stand in as taught spellings",
+          legacy.stringArray(forKey: "scripty-spell-learned") ?? [],
+          ["MAYA", "KESSLER", "Kessler"])
+}
+
+@MainActor
+func runWordUnderSelection() {
+    print("")
+    print("The word to ignore")
+
+    func word(_ text: String, _ location: Int, _ length: Int = 0) -> String {
+        SpellcheckWord.word(in: text, around: NSRange(location: location, length: length)) ?? "—"
+    }
+
+    // A caret anywhere in the word, including either edge, means that word.
+    check("caret inside", word("Maya walks in.", 2), "Maya")
+    check("caret at the start", word("Maya walks in.", 0), "Maya")
+    check("caret at the end", word("Maya walks in.", 4), "Maya")
+    check("caret after the space belongs to the next word",
+          word("Maya walks in.", 5), "walks")
+
+    // A tap on an underlined word arrives as that word's range.
+    check("a selected word", word("Maya walks in.", 0, 4), "Maya")
+    check("punctuation at the edges is dropped", word("“Maya,” she says.", 0, 7), "Maya")
+    check("an apostrophe inside is not", word("Maya doesn't walk.", 5, 7), "doesn't")
+
+    // Two words is not a word, and neither is a comma on its own — offering to
+    // ignore either would teach the device something nonsensical.
+    check("two selected words are refused", word("Maya walks in.", 0, 10), "—")
+    check("punctuation alone is refused", word("Maya, walks.", 4, 1), "—")
+    check("empty text is refused", word("", 0), "—")
+
+    // Offsets past the end arrive from a text view mid-edit; they must not trap.
+    check("a location past the end clamps to the last word", word("Maya", 99), "Maya")
+    check("a length past the end still finds the word", word("Maya", 0, 99), "Maya")
+
+    // Digits are not part of a word: no dictionary was going to know "3D".
+    check("digits are left out", word("A 3D print.", 3), "D")
 }
 
 @MainActor
@@ -243,6 +309,7 @@ MainActor.assumeIsolated {
     runOutlineMode()
     runSpellcheck()
     runIgnoredWords()
+    runWordUnderSelection()
     runAppearance()
     runZoomAndTextSizeBounds()
     runFitToWidth()

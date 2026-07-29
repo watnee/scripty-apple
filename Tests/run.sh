@@ -176,6 +176,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/viewsettings" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/AppearanceSettings.swift" \
     "$SRC/State/SpellcheckDictionary.swift" \
+    "$SRC/Models/SpellcheckWord.swift" \
     "$SRC/Models/PageSetup.swift" \
     "$SRC/Models/ScreenplayLayout.swift" \
     "$SRC/Models/Block.swift" \

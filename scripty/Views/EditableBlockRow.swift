@@ -46,6 +46,7 @@ struct EditableBlockRow: View {
                       isFocused: model.focusedBlockId == block.id,
                       font: uiFont, alignment: nsAlignment, autocapitalize: capitalization,
                       spellChecks: spellChecks,
+                      spellcheckRevision: spellcheckRevision,
                       accessibilityLabel: accessibilityDescription)
             .equatable()
             .blockHighlight(block)
@@ -378,6 +379,12 @@ struct EditableBlockRow: View {
     /// visible row re-draw when one is switched.
     private var spellChecks: Bool {
         PresentationSettings.shared.isSpellcheckEnabled
+    }
+
+    /// Read for the same reason: ignoring a word from one element's menu has to
+    /// clear the underline under the same word everywhere else on the page.
+    private var spellcheckRevision: Int {
+        SpellcheckDictionary.shared.revision
     }
 
     private var uiFont: UIFont {

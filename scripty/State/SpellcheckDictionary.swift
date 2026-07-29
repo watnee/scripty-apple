@@ -17,6 +17,12 @@
 //  being flagged in other apps too — and removing it here takes it back out
 //  again, which is why removal unlearns rather than just forgetting.
 //
+//  That divergence is also why a second, private list sits beside the web's:
+//  the shared one is uppercased, and the checker takes case at face value.
+//  Learning only "MAYA" leaves "Maya" — the spelling that was actually
+//  underlined — flagged, so both are taught, and the spellings taught are
+//  remembered so removal can take out exactly what was put in.
+//
 
 import Foundation
 import Observation
@@ -33,15 +39,31 @@ final class SpellcheckDictionary {
     /// reshuffle itself between visits.
     private(set) var words: [String] = []
 
+    /// Bumped whenever the list changes.
+    ///
+    /// The editors watch this rather than the list itself: a word already
+    /// checked keeps its underline until something asks the checker to look
+    /// again, so without a signal to redraw on, ignoring a word reads as having
+    /// done nothing at all. See `SpellcheckingTextView.applySpellchecking`.
+    private(set) var revision = 0
+
+    /// The spellings actually taught to the device, as they were typed. Ours
+    /// alone — the web has no equivalent, because it never touches a device
+    /// dictionary — and needed because "McDonald" cannot be recovered from
+    /// "MCDONALD" by any amount of recasing.
+    private var learned: [String] = []
+
     private let defaults: UserDefaults
     private static let key = "scripty-spell-ignored"
+    private static let learnedKey = "scripty-spell-learned"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         words = Self.decode(defaults.string(forKey: Self.key))
+        learned = defaults.stringArray(forKey: Self.learnedKey) ?? words
         // Teach the checker everything already on the list: it is the device's
         // dictionary, so a reinstall or a new device starts out not knowing them.
-        for word in words { Self.learn(word) }
+        for word in learned { Self.learn(word) }
     }
 
     func contains(_ word: String) -> Bool {
@@ -56,8 +78,14 @@ final class SpellcheckDictionary {
         guard !entry.isEmpty, !words.contains(entry) else { return false }
         words.append(entry)
         words.sort()
+        // The uppercase entry for the web's sake, the word as written for the
+        // checker's: it is the written spelling that was underlined.
+        for spelling in [entry, trimmed(word)] where !learned.contains(spelling) {
+            learned.append(spelling)
+            Self.learn(spelling)
+        }
         save()
-        Self.learn(entry)
+        revision += 1
         return true
     }
 
@@ -65,23 +93,30 @@ final class SpellcheckDictionary {
         let entry = normalized(word)
         guard let index = words.firstIndex(of: entry) else { return }
         words.remove(at: index)
+        for spelling in learned where spelling.uppercased() == entry {
+            Self.unlearn(spelling)
+        }
+        learned.removeAll { $0.uppercased() == entry }
         save()
-        Self.unlearn(entry)
+        revision += 1
     }
 
-    func remove(atOffsets offsets: IndexSet) {
-        for word in offsets.map({ words[$0] }) { remove(word) }
+    /// Stripped of anything that is not part of a word, so "Maya," and "Maya"
+    /// are one entry, but left in the case it was written in.
+    private func trimmed(_ word: String) -> String {
+        word.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     }
 
-    /// Uppercased and stripped of anything that is not part of a word, so
-    /// "Maya," and "maya" are the same entry rather than three.
+    /// Uppercased on top of that, so "Maya," and "maya" are the same entry
+    /// rather than three.
     private func normalized(_ word: String) -> String {
-        word.trimmingCharacters(in: CharacterSet.alphanumerics.inverted).uppercased()
+        trimmed(word).uppercased()
     }
 
     // MARK: - Storage
 
     private func save() {
+        defaults.set(learned, forKey: Self.learnedKey)
         let object = Dictionary(uniqueKeysWithValues: words.map { ($0, true) })
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let json = String(data: data, encoding: .utf8) else { return }
