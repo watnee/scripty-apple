@@ -84,6 +84,40 @@ extension Array where Element == TextDocument {
             .prefix(limit)
             .map(\.0)
     }
+
+    /// The same list with `document` moved `delta` places among these rows, or
+    /// nil when it is not here or already at the end it is being sent to.
+    ///
+    /// The one-slot move the web's drag handle answers its arrow keys with: a
+    /// way to arrange a list without a pointer, which is also the only way on
+    /// touch, where a handle cannot be dragged at all.
+    func moving(_ document: TextDocument, by delta: Int) -> [TextDocument]? {
+        guard let at = firstIndex(where: { $0.id == document.id }) else { return nil }
+        let to = at + delta
+        guard to >= 0, to < count else { return nil }
+        var moved = self
+        moved.insert(moved.remove(at: at), at: to)
+        return moved
+    }
+
+    /// Puts a rearranged view of this list back into it, so the whole list can
+    /// be saved after a move made against a searched-down or re-sorted view of
+    /// it.
+    ///
+    /// `rearranged` is the rows that were on screen, in their new order. They
+    /// fill the slots those rows already held here, in turn, which leaves every
+    /// row the search hid exactly where it was — the same bargain the web
+    /// strikes when it drags a card past cards that are `hidden`. Anything in
+    /// `rearranged` that is not here is ignored, so a stale row cannot smuggle
+    /// itself into the saved order.
+    func merging(shown rearranged: [TextDocument]) -> [TextDocument] {
+        let here = Set(map(\.id))
+        var incoming = rearranged.filter { here.contains($0.id) }[...]
+        let onScreen = Set(incoming.map(\.id))
+        return map { row in
+            onScreen.contains(row.id) ? (incoming.popFirst() ?? row) : row
+        }
+    }
 }
 
 /// New song/note. `documentType` is the raw server value ("SONG" / "NOTES").

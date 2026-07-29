@@ -150,15 +150,14 @@ struct SongsView: View {
         return sortMode.applied(to: matching)
     }
 
-    /// Dragging rows is only meaningful while the list is showing the writer's
-    /// own order in full: `moveDocuments` sends the rows on screen as the new
-    /// order, so doing it to an alphabetized or searched-down list would save
-    /// an arrangement nobody asked for. The web reaches the same place from the
-    /// other side, flipping its sort back to "Custom order" after a drop.
-    private var canReorder: Bool {
-        model.canReorderDocuments && sortMode == .custom
-            && searchText.trimmingCharacters(in: .whitespaces).isEmpty
-    }
+    /// Rows can be put in a new order wherever the server advertised the link,
+    /// whatever the list is currently sorted or searched down to — as on the
+    /// web, where "cards can be reordered from any sort mode".
+    ///
+    /// What that costs is handled at the other end, in `save(_:)`: the rows on
+    /// screen are merged back into the full list before it is sent, and the
+    /// sort flips to "Custom order" so what was saved is what stays on screen.
+    private var canReorder: Bool { model.canReorderDocuments }
 
     /// Selecting several is a song affordance: the bulk delete is advertised
     /// only where there is a song to delete, and the songbook is the only
@@ -185,11 +184,10 @@ struct SongsView: View {
                     row(for: document)
                 }
                 .onMove { source, destination in
-                    // Guarded rather than conditionally attached — a plain
-                    // closure keeps the list's content type unambiguous, and
-                    // edit mode is reachable for selecting even when the list
-                    // is sorted or searched down and so cannot be rearranged.
-                    guard canReorder else { return }
+                    // Guarded inside rather than conditionally attached: a
+                    // plain closure keeps the list's content type unambiguous,
+                    // and a view-only collaborator reaches edit mode for the
+                    // selection without being able to rearrange anything.
                     moveDocuments(from: source, to: destination)
                 }
             } header: {
@@ -415,6 +413,26 @@ struct SongsView: View {
             }
         }
         .contextMenu {
+            // Ordering without a drag, which is what the web's arrow keys are
+            // for. Offered on the row itself rather than only in edit mode: a
+            // song that belongs one place higher is two taps from here, where
+            // dragging it means entering edit mode and holding it steady past
+            // the rows in between.
+            if canReorder, shown.count > 1 {
+                let at = shown.firstIndex { $0.id == document.id }
+                Button {
+                    move(document, by: -1)
+                } label: {
+                    Label("Move Up", systemImage: "arrow.up")
+                }
+                .disabled(at == 0)
+                Button {
+                    move(document, by: 1)
+                } label: {
+                    Label("Move Down", systemImage: "arrow.down")
+                }
+                .disabled(at == shown.count - 1)
+            }
             if document.hasLink(.insert) {
                 Button {
                     insert(document)
@@ -690,9 +708,34 @@ struct SongsView: View {
     }
 
     private func moveDocuments(from source: IndexSet, to destination: Int) {
-        var reordered = shown
-        reordered.move(fromOffsets: source, toOffset: destination)
-        Task { await model.reorderDocuments(reordered) }
+        var rearranged = shown
+        rearranged.move(fromOffsets: source, toOffset: destination)
+        save(rearranged)
+    }
+
+    /// One slot up or down — the arrow keys the web's drag handle answers, and
+    /// the route to an order that needs neither edit mode nor a steady drag.
+    private func move(_ document: TextDocument, by delta: Int) {
+        guard let rearranged = shown.moving(document, by: delta) else { return }
+        save(rearranged)
+    }
+
+    /// Saves the rows on screen as the writer's own order.
+    ///
+    /// Two things have to happen before the sequence is the whole truth. The
+    /// rows on screen may be a search narrowed down to a handful, so they are
+    /// merged back into the full list rather than sent as if the rest had gone
+    /// away. And the list may have been sorted by title or by date, in which
+    /// case the arrangement being saved is that sort with one row moved — so
+    /// the sort flips to "Custom order", exactly as the web's `<select>` does
+    /// after a drop, rather than leaving the list to snap back and hide what
+    /// was just saved.
+    private func save(_ rearranged: [TextDocument]) {
+        guard canReorder else { return }
+        let all = listType == .song ? model.songs : model.notes
+        let merged = sortMode.applied(to: all).merging(shown: rearranged)
+        sortBinding.wrappedValue = .custom
+        Task { await model.reorderDocuments(merged) }
     }
 
     private func exportSong(_ document: TextDocument, _ option: ScriptModel.ExportOption) {
