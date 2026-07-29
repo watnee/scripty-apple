@@ -237,6 +237,9 @@ func run() {
         options.rememberDocumentList("SONG")
         check("switching back overwrites",
               ScriptViewOptions(projectId: 7, defaults: store).rememberedDocumentList ?? "", "SONG")
+    }
+
+    print("")
     print("Last opened project")
     do {
         let store = scratch("lastproject")

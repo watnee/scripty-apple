@@ -255,7 +255,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/OfflineStore.swift" \

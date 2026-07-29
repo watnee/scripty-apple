@@ -251,7 +251,7 @@ struct ContentView: View {
         app.pendingBookmarkDestination = nil
         guard let project = projectList.projects.first(where: { $0.id == destination.projectId })
         else { return }
-        selectedProject = project
+        selectedProjectId = project.id
         openingBookmark = destination.blockId
     }
 }

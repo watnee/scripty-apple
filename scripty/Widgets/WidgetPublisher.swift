@@ -46,22 +46,20 @@ enum WidgetPublisher {
                                   isSong: document.kind == .song,
                                   updatedAt: updatedAt)
         }
-        // Only the widget whose rows actually changed is reloaded. Reloads are
-        // rationed by the system, and an afternoon spent on the songs leaves
-        // the Notes widget drawing exactly what it already drew.
-        for kind in SongsNotesWidgetStore.publish(rows, forProject: project.id) {
-            WidgetCenter.shared.reloadTimelines(ofKind: kind.widgetKind)
+        // Reloaded only when the rows actually changed. Reloads are rationed
+        // by the system, and an afternoon spent on one project's songs leaves
+        // the snapshot exactly as the widget already drew it.
+        if SongsNotesWidgetStore.publish(rows, forProject: project.id) {
+            WidgetCenter.shared.reloadTimelines(ofKind: SongsNotesWidgetStore.widgetKind)
         }
     }
 
-    /// Empties both widgets. Signing out goes through here: the next person to
+    /// Empties the widget. Signing out goes through here: the next person to
     /// pick up the phone should not be able to read the last writer's song
-    /// titles off the Home Screen.
+    /// titles off the Home Screen — whichever list it is configured to draw.
     static func clear() {
         SongsNotesWidgetStore.clear()
-        for kind in SongsNotesWidgetStore.widgetKinds {
-            WidgetCenter.shared.reloadTimelines(ofKind: kind)
-        }
+        WidgetCenter.shared.reloadTimelines(ofKind: SongsNotesWidgetStore.widgetKind)
     }
 }
 
