@@ -96,6 +96,13 @@ struct SongBlockEditorView: View {
                                     focusedLine: $focusedLine,
                                     isRearranging: editMode.isEditing)
                             .id(block.id)
+                            // No hairline between one lyric line and the next.
+                            // A plain list rules off every row, which turns a
+                            // verse into a table; the screenplay draws its
+                            // blocks in a LazyVStack with nothing between them,
+                            // and a lyric reads the same way. The tinted row
+                            // backgrounds still separate highlighted lines.
+                            .listRowSeparator(.hidden)
                     }
                     .onMove { source, destination in
                         // Guarded rather than conditionally attached: a plain
