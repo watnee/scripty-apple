@@ -1530,6 +1530,41 @@ struct ScriptView: View {
         // element does the same thing without a trip to the toolbar — so the
         // button only crowded the bar. The menu bar keeps ⌘N for the keyboard.
         ToolbarItemGroup(placement: .primaryAction) {
+            // Undo, up where it can be seen. The overflow was the wrong place
+            // for it twice over: undoing is the one thing a writer reaches for
+            // *while* mistyping, so a menu to open first is a menu in the way,
+            // and the "…" gave no sign of whether there was anything to undo —
+            // the greyed state that says "nothing yet" only showed after a tap.
+            //
+            // It leads this capsule rather than opening one of its own, and it
+            // comes up without redo. Both are the phone's bar talking: it is
+            // budgeted in capsules rather than buttons, so a capsule of its own
+            // took the whole allowance and dropped Search *and* the View menu
+            // into the "…" to pay for it, while the pair on the leading edge
+            // truncated an iPad's title to "The…" and pushed Notes back into
+            // the overflow a previous change had just got it out of. In here,
+            // alone, it costs one glyph — Search, on a phone, which keeps ⌘F
+            // and its place in the "…". Undo is the half worth that: it is
+            // reached for constantly and redo hardly at all, the same reason a
+            // keyboard keeps ⌘Z under a finger and hides redo behind a second
+            // modifier. Redo is in the overflow below.
+            //
+            // Ungated by focus mode, unlike everything else in this group: the
+            // mode is for writing without chrome, which is exactly when a
+            // mistyped line needs taking back.
+            //
+            // No keyboard shortcut here: ⌘Z belongs to the menu bar's replaced
+            // undo group, and a second claim on the same keys would be settled
+            // by responder order with one of the two silently dead.
+            if let undoRedo = model.undoRedo, !settings.isPageView {
+                Button {
+                    Task { await model.undo() }
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!(undoRedo.canUndo ?? false))
+            }
+
             if model.hasScriptContent && !settings.isFocusMode {
                 Button {
                     isSearching.toggle()
@@ -1603,7 +1638,9 @@ struct ScriptView: View {
         // whether the bar has the room to draw a title at all is iOS's
         // decision, and an affordance that exists only inside a menu that may
         // not appear is an affordance that may not be reachable.
-        // Focus mode clears the overflow out but for the history pair.
+        // Focus mode clears the overflow out but for redo, which the group
+        // below keeps: undo is up in the bar in every mode, and a redo with no
+        // way to reach it would strand a writer mid-correction.
         if !settings.isFocusMode {
             ToolbarItemGroup(placement: .secondaryAction) {
                 projectButtons
@@ -1628,15 +1665,11 @@ struct ScriptView: View {
             }
         }
 
+        // Redo, the half of the pair the bar had no room to draw. It stays in
+        // the overflow in focus mode too, where undo is still up in the bar —
+        // the two are useless apart.
         if let undoRedo = model.undoRedo, !settings.isPageView {
-            ToolbarItemGroup(placement: .secondaryAction) {
-                Button {
-                    Task { await model.undo() }
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(!(undoRedo.canUndo ?? false))
-
+            ToolbarItem(placement: .secondaryAction) {
                 Button {
                     Task { await model.redo() }
                 } label: {
