@@ -92,7 +92,7 @@
 
 	<!-- scripty://demo launches the offline demo (e.g. from a Shortcut);
 	     scripty://document?project=…&id=…&kind=… is a row tapped on the
-	     Songs & Notes widget, scripty://project?id=… one on the Screenplays
+	     Songs or Notes widget, scripty://project?id=… one on the Screenplays
 	     widget, and scripty://bookmark?project=…&block=… one on the Bookmarks
 	     widget. All four are read in scriptyApp's onOpenURL. -->
 	<key>CFBundleURLTypes</key>
