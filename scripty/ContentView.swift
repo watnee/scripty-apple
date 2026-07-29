@@ -49,11 +49,7 @@ struct ContentView: View {
         }
         .task {
             await projectList.refresh()
-            // The demo exists to show the screenplay, so open the sample
-            // script rather than parking on the empty detail pane.
-            if app.isDemo, selectedProject == nil {
-                selectedProject = projectList.projects.first
-            }
+            openLaunchProject()
             // A cold launch from the Home Screen menu lands here: the action was
             // taken before this view existed, so nothing has changed since to
             // announce it. A widget row tapped on a cold launch is in exactly
@@ -85,6 +81,20 @@ struct ContentView: View {
         // The app was already running when the widget row was tapped, so the
         // list is in hand and the only thing that changed is the request.
         .onChange(of: app.pendingWidgetDestination) { _, _ in openWidgetDestination() }
+    }
+
+    /// Opens the screenplay a launch opens on its own — the starred project, or
+    /// the demo's sample script — leaving the detail pane empty when there is
+    /// none. Runs once, from the load this view's own `task` performs: a writer
+    /// who has since gone back to the list is not dragged forward again by a
+    /// later refresh.
+    ///
+    /// A pending quick action outranks it. That tap named where to go, and
+    /// opening the star first would only show a screenplay nobody asked for
+    /// long enough to be replaced.
+    private func openLaunchProject() {
+        guard selectedProject == nil, quickActions.pending == nil else { return }
+        selectedProject = LaunchProject.opened(in: projectList.projects, isDemo: app.isDemo)
     }
 
     /// Opens what the Home Screen menu asked for, if anything.

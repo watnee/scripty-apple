@@ -31,6 +31,19 @@ struct Project: Decodable, Identifiable, Hashable, HALResource {
         return name.isEmpty ? "Untitled Project" : name
     }
 
+    /// Whether the writer has starred this as their default project. The flag
+    /// is optional because the server omits it for everyone but its owner, and
+    /// "not sent" means the same thing here as "sent false".
+    var isTheDefault: Bool { isDefault ?? false }
+
+    /// The starred project, if the writer has one — their own answer to "which
+    /// screenplay is mine". At most one project can carry the star (the server
+    /// keeps a single `defaultProjectId` per user), so the first match is the
+    /// only one.
+    static func starred(in projects: [Project]) -> Project? {
+        projects.first { $0.isTheDefault }
+    }
+
     /// Everything the sidebar's search box matches against. The web list filters
     /// on the title alone, but its row shows only the title; this row also shows
     /// the writers, the draft version and the teams, so a search that ignored

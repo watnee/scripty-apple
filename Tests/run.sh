@@ -160,6 +160,15 @@ swiftc "${FLAGS[@]}" -o "$BUILD/quickactions" \
 "$BUILD/quickactions" || status=1
 
 echo
+echo "== What a launch opens =="
+swiftc "${FLAGS[@]}" -o "$BUILD/launchproject" \
+    "$SRC/Models/Project.swift" \
+    "$SRC/Models/LaunchProject.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/LaunchProject/main.swift"
+"$BUILD/launchproject" || status=1
+
+echo
 echo "== Song shortcut ordering =="
 swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
     "$SRC/Models/TextDocument.swift" \
