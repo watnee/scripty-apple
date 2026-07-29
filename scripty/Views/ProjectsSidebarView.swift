@@ -668,11 +668,15 @@ struct ProjectsSidebarView: View {
     /// A cached list with the radio back on is neither of the plain answers:
     /// the rows on screen still came off the disk, but the refresh that
     /// replaces them is already running — so it wears the in-between state
-    /// until that lands and clears `offlineCopySavedAt`.
+    /// until that lands and clears `offlineCopySavedAt`. A running refresh
+    /// wears the same state on its own: while the server is being asked, the
+    /// list on screen is not yet its answer, and the pulsing cloud is the only
+    /// sign the sync is happening at all.
     private var cloudState: CloudSyncState? {
         guard !app.isDemo else { return nil }
         if !app.connectivity.isOnline { return .offline }
-        return model.isShowingOfflineCopy ? .holding : .synced
+        if model.isLoading || model.isShowingOfflineCopy { return .holding }
+        return .synced
     }
 
     /// The list's own words for each state — the badge's defaults are written
@@ -682,7 +686,11 @@ struct ProjectsSidebarView: View {
         case .synced:
             "Your screenplays are saved to the cloud."
         case .holding:
-            "Showing the screenplays saved on this device while the list refreshes."
+            // Two ways to be in between: stale rows waiting on a refresh, or
+            // the refresh itself running over rows that were never stale.
+            model.isShowingOfflineCopy
+                ? "Showing the screenplays saved on this device while the list refreshes."
+                : "Syncing your screenplays with the cloud."
         case .offline:
             "Offline. Showing the screenplays saved on this device."
         }
