@@ -92,6 +92,10 @@ struct ScriptView: View {
     /// than on every redraw — it walks the whole script.
     @State private var pages: [ScriptPage] = []
     @State private var currentPage = 1
+    /// The sheet the paper surface has been asked to scroll to, cleared once it
+    /// has. Page view's counterpart to the navigator's pending target, kept
+    /// local because nothing outside this view asks for a page.
+    @State private var pendingPageTarget: Int?
 
     /// The undo/redo confirmation currently on screen, if any, and the task
     /// that clears it. Kept in the view because how long it stays up is pure
@@ -204,7 +208,8 @@ struct ScriptView: View {
         .publishingSongsAndNotes(from: model)
         // Where the writer is, kept as they go rather than only on the way out:
         // a script left open and then killed should still reopen in the right
-        // place.
+        // place. Typing says it here; reading says it from the scroll spy on
+        // each surface, and whichever spoke last is where they were.
         .onChange(of: model.focusedBlockId) { _, id in options.rememberBlock(id) }
         .onChange(of: model.blocks) { _, _ in
             repaginate()
@@ -221,7 +226,17 @@ struct ScriptView: View {
         // switch changes this view's identity and re-runs the .task above,
         // which happens to repaginate — but that is incidental, and the sheets
         // would come up empty if the Group were ever restructured.
-        .onChange(of: settings.isPageView) { _, _ in repaginate() }
+        .onChange(of: settings.isPageView) { _, _ in
+            repaginate()
+            // Changing surface is not leaving the page: the paper opens on the
+            // sheet the column was showing, and the column comes back to the
+            // element the sheet started with. Both read the position the other
+            // has been keeping, so the switch is where it changes hands.
+            if let id = options.rememberedBlockId,
+               model.blocks.contains(where: { $0.id == id }) {
+                scroll(toRemembered: id)
+            }
+        }
         .sheet(item: $reader) { mode in
             ReadScriptView(
                 title: model.project.displayTitle,
@@ -509,18 +524,41 @@ struct ScriptView: View {
                             .id(block.id)
                     }
                 }
+                // Marks the rows as scroll targets, which is what lets the
+                // scroll spy below name them. No behaviour is attached, so
+                // nothing snaps — the column scrolls exactly as before.
+                .scrollTargetLayout()
                 .padding(.vertical, 12)
                 // Focus mode pulls the column in to a single measure and
                 // drops the surrounding chrome, as the web app does.
                 .frame(maxWidth: settings.isFocusMode ? 720 : .infinity)
                 .frame(maxWidth: .infinity)
             }
-            .onChange(of: navigator.pendingScrollTarget) { _, target in
+            // `initial` so a target set while the paper was on screen — the
+            // handoff when the writer switches back to the column — is not
+            // dropped by a scroll view that did not exist when it was set.
+            .onChange(of: navigator.pendingScrollTarget, initial: true) { _, target in
                 guard let target else { return }
-                withAnimation { proxy.scrollTo(target, anchor: .center) }
+                let anchor: UnitPoint =
+                    navigator.pendingPlacement == .atTop ? .top : .center
+                withAnimation { proxy.scrollTo(target, anchor: anchor) }
                 // Clearing the target is what lets the same block be jumped
                 // to twice in a row.
                 navigator.consumeScrollTarget()
+            }
+            // Reading is leaving a place too. Focus alone only knows where the
+            // writer last *typed*, so a script scrolled through and then closed
+            // reopened wherever the cursor had been left, which on a long read
+            // is nowhere near. The element at the top of the screen is the
+            // honest answer to "where was I", and it is the one restoring puts
+            // back at the top — record and restore agree, so reopening twice
+            // over lands in the same place rather than creeping up the script.
+            .onScrollTargetVisibilityChange(idType: Int.self) { visible in
+                // Not until the remembered position has had its turn: the first
+                // rows to appear are the top of the script, and recording those
+                // would overwrite the very thing being restored.
+                guard hasRestoredPosition, let top = visible.first else { return }
+                options.rememberBlock(top)
             }
         }
         .scrollDismissesKeyboard(.interactively)
@@ -723,8 +761,16 @@ struct ScriptView: View {
                 setup: settings.pageSetup,
                 zoomScale: settings.zoomScale,
                 isFitToWidth: settings.isPageZoomFit,
-                onVisiblePageChanged: { currentPage = $0 },
+                onVisiblePageChanged: { page in
+                    currentPage = page
+                    rememberPagePosition(page)
+                },
                 onFitZoomChanged: { settings.fitZoom = $0 })
+            .onChange(of: pendingPageTarget, initial: true) { _, page in
+                guard let page else { return }
+                proxy.scrollTo(page, anchor: .top)
+                pendingPageTarget = nil
+            }
             .overlay(alignment: .bottom) {
                 if pages.count > 0 {
                     PageNavigatorBar(
@@ -754,10 +800,8 @@ struct ScriptView: View {
     ///
     /// Driven off the blocks landing rather than off `.task`, because the
     /// remembered edition loads a second time and the position belongs to
-    /// whichever script ends up on screen. Routed through the navigator so it
-    /// uses the same scroll the outline and search already do; an element that
-    /// has since been deleted is not found and the script simply opens at the
-    /// top.
+    /// whichever script ends up on screen. An element that has since been
+    /// deleted is not found and the script simply opens at the top.
     private func restoreRememberedPosition() {
         guard !hasRestoredPosition, !model.blocks.isEmpty else { return }
         guard let id = options.rememberedBlockId else {
@@ -771,7 +815,37 @@ struct ScriptView: View {
         // was deleted is never found, so this quietly stops mattering.
         guard model.blocks.contains(where: { $0.id == id }) else { return }
         hasRestoredPosition = true
-        navigator.jump(to: id)
+        scroll(toRemembered: id)
+    }
+
+    /// Sends whichever surface is on screen to a remembered element: the column
+    /// scrolls the row to the top, the paper opens the sheet that element is
+    /// printed on.
+    ///
+    /// The column route goes through the navigator so it is the same scroll the
+    /// outline and search already do — only the placement differs, since the
+    /// element recorded was the one at the top of the screen and that is where
+    /// it belongs on the way back.
+    private func scroll(toRemembered id: Int) {
+        guard settings.isPageView else {
+            navigator.jump(to: id, placement: .atTop)
+            return
+        }
+        // Notes and outline scaffolding are never printed, so an element
+        // remembered from the column may be on no sheet at all. Nothing to do
+        // then: the paper opens at page one, as it did before.
+        guard let page = ScriptPagination.page(containing: id, in: pages) else { return }
+        currentPage = page
+        pendingPageTarget = page
+    }
+
+    /// Records where the paper is being read, in the same element ids the column
+    /// records — so the two surfaces hand the position back and forth rather
+    /// than each keeping a place of its own.
+    private func rememberPagePosition(_ page: Int) {
+        guard hasRestoredPosition,
+              let id = ScriptPagination.firstBlockId(onPage: page, in: pages) else { return }
+        options.rememberBlock(id)
     }
 
     /// Puts the writer back in the edition they were last reading, which is

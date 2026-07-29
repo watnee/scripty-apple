@@ -34,8 +34,13 @@ struct ContentView: View {
     /// already on screen changes no project, so there is no rebuild to carry an
     /// initial value in on.
     @State private var openingDocuments: DocumentsRequest?
+    /// Whether the reopen-what-was-open pass has had its turn. Until it has,
+    /// nothing is written back: a selection that is nil only because the list
+    /// is still loading must not be mistaken for one the writer cleared.
+    @State private var hasRestoredSelection = false
 
     private let quickActions = QuickActions.shared
+    private let lastOpened = LastOpenedProject()
 
     /// Watched only to refresh the menu on the way out — see the handler below.
     @Environment(\.scenePhase) private var scenePhase
@@ -74,7 +79,8 @@ struct ContentView: View {
             // A cold launch from the Home Screen menu lands here: the action was
             // taken before this view existed, so nothing has changed since to
             // announce it. A widget row tapped on a cold launch is in exactly
-            // the same position.
+            // the same position. It runs after the open above so a menu tap
+            // wins: the writer naming a screenplay outranks the one they left.
             performQuickAction()
             openWidgetDestination()
         }
@@ -121,21 +127,40 @@ struct ContentView: View {
         // The app was already running when the widget row was tapped, so the
         // list is in hand and the only thing that changed is the request.
         .onChange(of: app.pendingWidgetDestination) { _, _ in openWidgetDestination() }
+        // Where the app was left, kept as it changes rather than on the way
+        // out: a screenplay open when the app is killed should be the one that
+        // comes back. The demo is excluded — its sample project is chosen for
+        // it every run, and letting it overwrite the writer's own choice would
+        // mean a look at the demo lost their place.
+        .onChange(of: selectedProject) { _, project in
+            guard hasRestoredSelection, !app.isDemo else { return }
+            lastOpened.remember(project?.id)
+        }
     }
 
-    /// Opens the screenplay a launch opens on its own — the starred project, or
-    /// the demo's sample script — leaving the detail pane empty when there is
-    /// none. Runs once, from the load this view's own `task` performs: a writer
-    /// who has since gone back to the list is not dragged forward again by a
-    /// later refresh.
+    /// Opens the screenplay a launch opens on its own, leaving the detail pane
+    /// empty when there is none. Runs once, from the load this view's own
+    /// `task` performs: a writer who has since gone back to the list is not
+    /// dragged forward again by a later refresh.
     ///
-    /// A pending quick action outranks it. That tap named where to go, and
-    /// opening the star first would only show a screenplay nobody asked for
-    /// long enough to be replaced.
+    /// Where the writer was beats where they usually start. The screenplay the
+    /// app was last left in comes back first, so a relaunch carries on — and
+    /// `ScriptView` then does the same again inside the script, scrolling to
+    /// the element they were on. The starred project is the fallback, for a
+    /// first run, for a device that was left on the projects list, and for a
+    /// remembered screenplay since deleted or belonging to an account that has
+    /// signed out: that id is simply not in the list that came back.
+    ///
+    /// A pending quick action outranks all of it. That tap named where to go,
+    /// and opening anything else first would only show a screenplay nobody
+    /// asked for long enough to be replaced.
     private func openLaunchProject() {
+        defer { hasRestoredSelection = true }
         guard selectedProjectId == nil, quickActions.pending == nil else { return }
-        selectedProjectId = LaunchProject.opened(in: projectList.projects,
-                                                 isDemo: app.isDemo)?.id
+        let remembered = app.isDemo ? nil : lastOpened.projectId
+            .flatMap { id in projectList.projects.first { $0.id == id } }
+        selectedProjectId = (remembered ?? LaunchProject.opened(in: projectList.projects,
+                                                                isDemo: app.isDemo))?.id
     }
 
     /// Takes on a project the screenplay screen renamed or re-imported.

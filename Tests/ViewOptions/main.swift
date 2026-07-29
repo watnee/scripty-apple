@@ -237,6 +237,30 @@ func run() {
         options.rememberDocumentList("SONG")
         check("switching back overwrites",
               ScriptViewOptions(projectId: 7, defaults: store).rememberedDocumentList ?? "", "SONG")
+    print("Last opened project")
+    do {
+        let store = scratch("lastproject")
+        let last = LastOpenedProject(defaults: store)
+        // A first run has nothing open, and lands on the projects list.
+        check("nothing to reopen to begin with", last.projectId == nil, true)
+
+        last.remember(12)
+        check("the screenplay lands in this client's key",
+              store.object(forKey: "scripty-last-project") as? Int ?? -1, 12)
+        check("relaunching offers it back",
+              LastOpenedProject(defaults: store).projectId ?? -1, 12)
+
+        last.remember(13)
+        check("opening another replaces it",
+              LastOpenedProject(defaults: store).projectId ?? -1, 13)
+
+        // Going back to the projects list closes the script — the opposite of
+        // what losing focus means inside one, and deliberately so.
+        last.remember(nil)
+        check("going back to the list forgets",
+              LastOpenedProject(defaults: store).projectId == nil, true)
+        check("and leaves no key behind",
+              store.object(forKey: "scripty-last-project") == nil, true)
     }
 }
 
