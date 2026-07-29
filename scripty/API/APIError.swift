@@ -21,6 +21,12 @@ enum APIError: Error, LocalizedError {
     case timedOut
     /// Any other transport-level failure (TLS, DNS, a malformed response).
     case transport(String)
+    /// The API sent the request somewhere that isn't the API — in practice the
+    /// server's own web pages. An account locked to the change-password page is
+    /// the way this happens: the lock redirects every request, including the
+    /// ones from here. Refused rather than followed, so the writer gets this
+    /// instead of a decode failure against a page of HTML.
+    case redirectedOutOfAPI(String)
 
     var errorDescription: String? {
         switch self {
@@ -45,6 +51,8 @@ enum APIError: Error, LocalizedError {
             return "The server took too long to respond. Trying again shortly."
         case .transport(let detail):
             return "Couldn't reach the server (\(detail))."
+        case .redirectedOutOfAPI(let path):
+            return "The server sent this request to a web page (\(path)) instead of answering it. If your account has to set a new password, do that on the Scripty website, then sign in here again."
         }
     }
 
@@ -57,7 +65,8 @@ enum APIError: Error, LocalizedError {
             return true
         case .server(let status):
             return status >= 500
-        case .unauthorized, .forbidden, .notFound, .validation, .invalidLink:
+        case .unauthorized, .forbidden, .notFound, .validation, .invalidLink,
+             .redirectedOutOfAPI:
             return false
         }
     }
