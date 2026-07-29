@@ -1404,15 +1404,11 @@ struct ScriptView: View {
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
+        // No "add element" button here. An empty script offers "Start Writing",
+        // and in a script with anything in it a return at the end of the last
+        // element does the same thing without a trip to the toolbar — so the
+        // button only crowded the bar. The menu bar keeps ⌘N for the keyboard.
         ToolbarItemGroup(placement: .primaryAction) {
-            if !settings.isPageView && !options.isEditingLocked {
-                Button {
-                    Task { await model.appendBlock() }
-                } label: {
-                    Label("Add Element", systemImage: "plus")
-                }
-            }
-
             if model.hasScriptContent && !settings.isFocusMode {
                 Button {
                     isSearching.toggle()
@@ -1464,9 +1460,9 @@ struct ScriptView: View {
         // Only where the bar has the room, which on a phone it has not: measured
         // on a 402pt iPhone, the trailing side draws three controls and the "…"
         // always claims one of them, so two buttons are all that is ever visible
-        // and the View menu and Add Element are already those two. Adding Songs
-        // and Notes here would put them straight back in the overflow this
-        // change exists to get them out of. `documentsBar` carries them instead.
+        // and the View menu and Search are already those two. Adding Songs and
+        // Notes here would put them straight back in the overflow this change
+        // exists to get them out of. `documentsBar` carries them instead.
         //
         // Gated as a unit, spacer and all: gating the buttons inside a group
         // that is always present would leave a divider with nothing after it,
