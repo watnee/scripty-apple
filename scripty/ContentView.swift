@@ -55,6 +55,13 @@ struct ContentView: View {
 
     /// Watched only to refresh the menu on the way out — see the handler below.
     @Environment(\.scenePhase) private var scenePhase
+    /// Whether the split view is showing one column or two. Read *here* rather
+    /// than in the sidebar, which is the whole reason it is passed down: inside
+    /// a `NavigationSplitView` column the size class reads `.compact` even on
+    /// an iPad showing both columns, so a sidebar asking the environment itself
+    /// gets the iPhone answer everywhere. Above the split view it is the real
+    /// one.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     init(app: AppModel) {
         self.app = app
@@ -70,7 +77,9 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            ProjectsSidebarView(app: app, model: projectList, selection: $selectedProjectId)
+            ProjectsSidebarView(app: app, model: projectList,
+                                selection: $selectedProjectId,
+                                isCompact: horizontalSizeClass == .compact)
         } detail: {
             if let project = selectedProject {
                 ScriptView(app: app, project: project,

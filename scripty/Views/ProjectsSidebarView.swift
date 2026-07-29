@@ -43,6 +43,11 @@ struct ProjectsSidebarView: View {
     /// selection matched on the whole value does not survive a refresh — see
     /// `ContentView`.
     @Binding var selection: Int?
+    /// Whether the split view is showing this as its only column. Passed in
+    /// rather than read from the environment here — inside a split view column
+    /// the size class reads `.compact` on iPad too, so asking from in here
+    /// gives the iPhone answer everywhere. See `ContentView`.
+    let isCompact: Bool
 
     @State private var showingCreate = false
     @State private var showingImporter = false
@@ -73,6 +78,18 @@ struct ProjectsSidebarView: View {
     /// can drop the ticks along with the bar that acts on them.
     @State private var exportSelection = Set<Int>()
     @State private var editMode: EditMode = .inactive
+
+    /// Where the search field sits, and with it how tall the header is.
+    ///
+    /// On iPhone the field is left to the toolbar, where
+    /// `.searchToolbarBehavior(.minimize)` collapses it to a button and the
+    /// list starts directly under the title. On iPad it stays pinned open in
+    /// the navigation bar drawer: that column is short of *horizontal* room,
+    /// not vertical, and a fourth toolbar button in ~250pt truncates the title
+    /// to "Pr…" to buy back a band the sidebar was never short of.
+    private var searchPlacement: SearchFieldPlacement {
+        isCompact ? .automatic : .navigationBarDrawer(displayMode: .always)
+    }
 
     /// Light or dark, for the whole app rather than this list.
     private let appearance = AppearanceSettings.shared
@@ -120,17 +137,6 @@ struct ProjectsSidebarView: View {
                 return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedDescending
             }
         }
-    }
-
-    /// Web header subtitle: a screenplay count, or a tagline when empty. While a
-    /// search is narrowing the list it says so — a bare "12 screenplays" over
-    /// three visible rows reads as a list that has lost something.
-    private var countSubtitle: String {
-        let total = model.projects.count
-        guard total > 0 else { return "Your screenplays live here." }
-        let shown = displayedProjects.count
-        guard shown == total else { return "\(shown) of \(total) screenplays" }
-        return total == 1 ? "1 screenplay" : "\(total) screenplays"
     }
 
     /// Two menus rather than one overflow pile. Every entry used to be a
@@ -445,6 +451,17 @@ struct ProjectsSidebarView: View {
                 }
             }
         }
+        // The band of empty list a grouped style reserves above its first
+        // section — room for a header none of these sections has. Scoped to
+        // `.scrollContent` so only that inset moves and the bars keep the
+        // margins that hold them clear of the safe area.
+        //
+        // Compact only, and `nil` (the default) elsewhere, because this works
+        // only once the search field has left the scroll content: while the
+        // field is pinned to the drawer it is part of the same content, and
+        // zeroing the top margin strips the field's own background while
+        // leaving every row exactly where it was.
+        .contentMargins(.top, isCompact ? 0 : nil, for: .scrollContent)
         .onChange(of: editMode) { _, mode in
             if !mode.isEditing { exportSelection.removeAll() }
         }
@@ -474,8 +491,24 @@ struct ProjectsSidebarView: View {
             }
         }
         .navigationTitle("Projects")
-        .navigationSubtitle(countSubtitle)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
+        // Inline, and not left to `.automatic`: dropping the search drawer is
+        // what promotes this title to a large one, which spends the whole band
+        // the drawer was spending and leaves the first screenplay exactly where
+        // it started. Inline puts "Projects" on the same row as the toolbar.
+        .navigationBarTitleDisplayMode(isCompact ? .inline : .automatic)
+        // Nothing above the first screenplay but the title. The subtitle's
+        // screenplay count and, on iPhone, the always-drawn search field cost a
+        // fixed band at the top of every launch — lines standing between the
+        // writer and the list they came here for. The count is a fact the list
+        // itself already shows, and the search is a thing you go looking for
+        // rather than something that needs to be in the way until you do.
+        //
+        // `.minimize` only collapses a field that lives *in* the toolbar, so it
+        // is a silent no-op against the iPad's drawer placement — which is
+        // exactly what keeps that field expanded (see `SongBlockEditorView`,
+        // where the drawer is wanted and the minimise is deliberately absent).
+        .searchable(text: $searchText, placement: searchPlacement, prompt: "Search projects")
+        .searchToolbarBehavior(.minimize)
         .refreshable { await model.refresh() }
         .safeAreaBar(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
