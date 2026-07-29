@@ -11,11 +11,12 @@
 	<!-- The signing team, with its trailing dot, substituted at build time.
 	     macOS spells an App Group `TEAMID.group.…` where iOS spells it plain
 	     `group.…`, and the container can only be opened by the exact string the
-	     entitlement granted — so both widget stores have to be able to build the
-	     prefixed form, and this is where they read the prefix from. Substituted
-	     on a simulator build too, which is harmless: the plain spelling is tried
-	     first and always resolves on iOS. It comes through unexpanded only on a
-	     build that had no team at all, which both stores check for. -->
+	     entitlement granted — so all three widget stores have to be able to
+	     build the prefixed form, and this is where they read the prefix from.
+	     Substituted on a simulator build too, which is harmless: the plain
+	     spelling is tried first and always resolves on iOS. It comes through
+	     unexpanded only on a build that had no team at all, which every store
+	     checks for. -->
 	<key>TeamIdentifierPrefix</key>
 	<string>$(TeamIdentifierPrefix)</string>
 
@@ -77,8 +78,9 @@
 
 	<!-- scripty://demo launches the offline demo (e.g. from a Shortcut);
 	     scripty://document?project=…&id=…&kind=… is a row tapped on the
-	     Songs & Notes widget, and scripty://project?id=… one on the Screenplays
-	     widget. All three are read in scriptyApp's onOpenURL. -->
+	     Songs & Notes widget, scripty://project?id=… one on the Screenplays
+	     widget, and scripty://bookmark?project=…&block=… one on the Bookmarks
+	     widget. All four are read in scriptyApp's onOpenURL. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

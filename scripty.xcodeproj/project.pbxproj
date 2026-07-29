@@ -13,6 +13,9 @@
 		BB2000000000000000000003 /* ProjectsWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000002 /* ProjectsWidgetData.swift */; };
 		BB2000000000000000000004 /* ProjectsWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000002 /* ProjectsWidgetData.swift */; };
 		BB2000000000000000000010 /* ProjectsWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB2000000000000000000006 /* ProjectsWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC3000000000000000000003 /* BookmarksWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3000000000000000000002 /* BookmarksWidgetData.swift */; };
+		CC3000000000000000000004 /* BookmarksWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3000000000000000000002 /* BookmarksWidgetData.swift */; };
+		CC3000000000000000000010 /* BookmarksWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC3000000000000000000006 /* BookmarksWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -30,6 +33,13 @@
 			remoteGlobalIDString = BB2000000000000000000005;
 			remoteInfo = ProjectsWidget;
 		};
+		CC3000000000000000000012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DDBEC1F23005C5D900BF0514 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CC3000000000000000000005;
+			remoteInfo = BookmarksWidget;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -41,6 +51,7 @@
 			files = (
 				AA1000000000000000000010 /* SongsNotesWidget.appex in Embed Foundation Extensions */,
 				BB2000000000000000000010 /* ProjectsWidget.appex in Embed Foundation Extensions */,
+				CC3000000000000000000010 /* BookmarksWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -52,6 +63,8 @@
 		AA1000000000000000000006 /* SongsNotesWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SongsNotesWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB2000000000000000000002 /* ProjectsWidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsWidgetData.swift; sourceTree = "<group>"; };
 		BB2000000000000000000006 /* ProjectsWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC3000000000000000000002 /* BookmarksWidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksWidgetData.swift; sourceTree = "<group>"; };
+		CC3000000000000000000006 /* BookmarksWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BookmarksWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DDBEC1FA3005C5DA00BF0514 /* scripty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = scripty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -69,6 +82,13 @@
 				Info.plist,
 			);
 			target = BB2000000000000000000005 /* ProjectsWidget */;
+		};
+		CC3000000000000000000008 /* Exceptions for "BookmarksWidget" folder in "BookmarksWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = CC3000000000000000000005 /* BookmarksWidget */;
 		};
 		DDBEC2083005C5DB00BF0515 /* Exceptions for "scripty" folder in "scripty" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -96,6 +116,14 @@
 			path = ProjectsWidget;
 			sourceTree = "<group>";
 		};
+		CC3000000000000000000007 /* BookmarksWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CC3000000000000000000008 /* Exceptions for "BookmarksWidget" folder in "BookmarksWidget" target */,
+			);
+			path = BookmarksWidget;
+			sourceTree = "<group>";
+		};
 		DDBEC1FC3005C5DA00BF0514 /* scripty */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -121,6 +149,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CC300000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DDBEC1F73005C5D900BF0514 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -136,6 +171,7 @@
 			children = (
 				AA1000000000000000000002 /* SongsNotesWidgetData.swift */,
 				BB2000000000000000000002 /* ProjectsWidgetData.swift */,
+				CC3000000000000000000002 /* BookmarksWidgetData.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -146,6 +182,7 @@
 				DDBEC1FC3005C5DA00BF0514 /* scripty */,
 				AA1000000000000000000007 /* SongsNotesWidget */,
 				BB2000000000000000000007 /* ProjectsWidget */,
+				CC3000000000000000000007 /* BookmarksWidget */,
 				AA1000000000000000000001 /* Shared */,
 				DDBEC1FB3005C5DA00BF0514 /* Products */,
 			);
@@ -157,6 +194,7 @@
 				DDBEC1FA3005C5DA00BF0514 /* scripty.app */,
 				AA1000000000000000000006 /* SongsNotesWidget.appex */,
 				BB2000000000000000000006 /* ProjectsWidget.appex */,
+				CC3000000000000000000006 /* BookmarksWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -208,6 +246,28 @@
 			productReference = BB2000000000000000000006 /* ProjectsWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		CC3000000000000000000005 /* BookmarksWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC300000000000000000000C /* Build configuration list for PBXNativeTarget "BookmarksWidget" */;
+			buildPhases = (
+				CC3000000000000000000009 /* Sources */,
+				CC300000000000000000000A /* Frameworks */,
+				CC300000000000000000000B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CC3000000000000000000007 /* BookmarksWidget */,
+			);
+			name = BookmarksWidget;
+			packageProductDependencies = (
+			);
+			productName = BookmarksWidget;
+			productReference = CC3000000000000000000006 /* BookmarksWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		DDBEC1F93005C5D900BF0514 /* scripty */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = DDBEC2053005C5DB00BF0514 /* Build configuration list for PBXNativeTarget "scripty" */;
@@ -222,6 +282,7 @@
 			dependencies = (
 				AA1000000000000000000011 /* PBXTargetDependency */,
 				BB2000000000000000000011 /* PBXTargetDependency */,
+				CC3000000000000000000011 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				DDBEC1FC3005C5DA00BF0514 /* scripty */,
@@ -249,6 +310,9 @@
 					BB2000000000000000000005 = {
 						CreatedOnToolsVersion = 26.3;
 					};
+					CC3000000000000000000005 = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					DDBEC1F93005C5D900BF0514 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -271,6 +335,7 @@
 				DDBEC1F93005C5D900BF0514 /* scripty */,
 				AA1000000000000000000005 /* SongsNotesWidget */,
 				BB2000000000000000000005 /* ProjectsWidget */,
+				CC3000000000000000000005 /* BookmarksWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -284,6 +349,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		BB200000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC300000000000000000000B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -316,12 +388,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CC3000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC3000000000000000000004 /* BookmarksWidgetData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DDBEC1F63005C5D900BF0514 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				AA1000000000000000000003 /* SongsNotesWidgetData.swift in Sources */,
 				BB2000000000000000000003 /* ProjectsWidgetData.swift in Sources */,
+				CC3000000000000000000003 /* BookmarksWidgetData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -337,6 +418,11 @@
 			isa = PBXTargetDependency;
 			target = BB2000000000000000000005 /* ProjectsWidget */;
 			targetProxy = BB2000000000000000000012 /* PBXContainerItemProxy */;
+		};
+		CC3000000000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CC3000000000000000000005 /* BookmarksWidget */;
+			targetProxy = CC3000000000000000000012 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -664,6 +750,72 @@
 			};
 			name = Release;
 		};
+		CC300000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BookmarksWidget/BookmarksWidget.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "BookmarksWidget/BookmarksWidget-maccatalyst.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BookmarksWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Bookmarks;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = scripty.scripty.BookmarksWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CC300000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BookmarksWidget/BookmarksWidget.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "BookmarksWidget/BookmarksWidget-maccatalyst.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BookmarksWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Bookmarks;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = scripty.scripty.BookmarksWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -699,6 +851,15 @@
 			buildConfigurations = (
 				BB200000000000000000000D /* Debug */,
 				BB200000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC300000000000000000000C /* Build configuration list for PBXNativeTarget "BookmarksWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC300000000000000000000D /* Debug */,
+				CC300000000000000000000E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

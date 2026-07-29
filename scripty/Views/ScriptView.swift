@@ -15,6 +15,10 @@ struct ScriptView: View {
     /// opened. Written back to nil once it has been, so the sheet does not
     /// reopen every time this view is rebuilt.
     @Binding var openingDocuments: DocumentsRequest?
+    /// An element a tapped Bookmarks widget row asked for, waiting to be
+    /// scrolled to. Written back to nil once it has been taken, so it is not
+    /// re-taken every time this view is rebuilt.
+    @Binding var openingBookmark: Int?
 
     @State private var model: ScriptModel
     @State private var showingCharacters = false
@@ -81,6 +85,9 @@ struct ScriptView: View {
     /// (a restore from trash, a version rollback) must not yank the writer
     /// back to where they came in.
     @State private var hasRestoredPosition = false
+    /// An element a Bookmarks widget row asked for, held until the script it
+    /// belongs to has actually arrived. Nil the rest of the time.
+    @State private var pendingBookmarkBlockId: Int?
 
     /// How much room the writing column actually has, for full-width mode.
     /// Zero until the first layout, which reads as "use the printed measure".
@@ -102,8 +109,10 @@ struct ScriptView: View {
     /// outlive the app's execution time, and this is the writer's only copy.
     @Environment(\.scenePhase) private var scenePhase
 
-    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentsRequest?>) {
+    init(app: AppModel, project: Project, openingDocuments: Binding<DocumentsRequest?>,
+         openingBookmark: Binding<Int?>) {
         _openingDocuments = openingDocuments
+        _openingBookmark = openingBookmark
         let model = ScriptModel(app: app, project: project)
         _model = State(initialValue: model)
         _editions = State(initialValue: EditionsModel(app: app, project: project))
@@ -190,12 +199,22 @@ struct ScriptView: View {
         // that every path which changes the documents — creating, renaming,
         // deleting, importing, restoring from the trash — is covered once.
         .publishingSongsAndNotes(from: model)
+        // An element a tapped Bookmarks row named. Taken here and acted on
+        // below, once the script it belongs to has landed.
+        .openingBookmark($openingBookmark, perform: receiveBookmarkRequest)
         // Where the writer is, kept as they go rather than only on the way out:
         // a script left open and then killed should still reopen in the right
         // place.
         .onChange(of: model.focusedBlockId) { _, id in options.rememberBlock(id) }
         .onChange(of: model.blocks) { _, _ in
             repaginate()
+            // What the Bookmarks widget draws is whichever of these elements
+            // are flagged. Hung off this closure rather than given a modifier
+            // of its own, unlike the songs and notes above: the elements change
+            // far more often than the documents do — every commit, every sync
+            // poll — and this is the one pass that already watches them.
+            publishBookmarks()
+            openPendingBookmark()
             restoreRememberedPosition()
         }
         .onChange(of: settings.pageSetup) { _, _ in repaginate() }
@@ -703,6 +722,50 @@ struct ScriptView: View {
         // flag unset lets the next arrival try again. An element that really
         // was deleted is never found, so this quietly stops mattering.
         guard model.blocks.contains(where: { $0.id == id }) else { return }
+        hasRestoredPosition = true
+        navigator.jump(to: id)
+    }
+
+    /// Republishes this screenplay's half of the Bookmarks widget.
+    ///
+    /// Every call is cheap when nothing changed — the store compares what it
+    /// would write against what is already there and declines to spend a
+    /// WidgetKit reload — which is what makes it safe to hang off a change as
+    /// frequent as the elements landing.
+    private func publishBookmarks() {
+        BookmarksWidgetPublisher.publish(model.blocks, project: model.project,
+                                         isDemo: model.app.isDemo)
+    }
+
+    /// Takes down the element a tapped Bookmarks row asked for, and jumps to it
+    /// if the script is already in hand.
+    ///
+    /// Both halves are needed: a tap that opened this screenplay arrives before
+    /// its elements do, and a tap for the screenplay already on screen arrives
+    /// after — and nothing else would fire in that second case, since the
+    /// elements do not change for it.
+    private func receiveBookmarkRequest(_ blockId: Int) {
+        pendingBookmarkBlockId = blockId
+        openPendingBookmark()
+    }
+
+    /// Scrolls to the flagged element a widget row named, once its script has
+    /// arrived.
+    ///
+    /// The same shape as `restoreRememberedPosition`, and for the same reason:
+    /// not found yet is not the same as gone, so an element still on its way
+    /// (a remembered edition loading second) leaves the request standing and
+    /// tries again on the next arrival. An element really deleted is never
+    /// found, and the screenplay simply opens where it otherwise would.
+    ///
+    /// Where it differs is that this outranks the remembered position: the
+    /// writer asked for this line by tapping it, so the flag is set even though
+    /// the restore never ran.
+    private func openPendingBookmark() {
+        guard let id = pendingBookmarkBlockId,
+              model.blocks.contains(where: { $0.id == id })
+        else { return }
+        pendingBookmarkBlockId = nil
         hasRestoredPosition = true
         navigator.jump(to: id)
     }

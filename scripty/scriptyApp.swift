@@ -47,6 +47,13 @@ struct scriptyApp: App {
                         appModel.pendingWidgetDestination = destination
                         return
                     }
+                    // scripty://bookmark?project=…&block=… — a row on the
+                    // Bookmarks widget, which names an element as well as a
+                    // screenplay and so needs a request of its own.
+                    if let destination = BookmarkWidgetLink.destination(in: url) {
+                        appModel.pendingBookmarkDestination = destination
+                        return
+                    }
                     // scripty://project?id=… — a row on the Screenplays widget.
                     // Reusing the quick action rather than inventing a second
                     // kind of pending request: `.project(id:)` already means
@@ -125,8 +132,9 @@ struct RootView: View {
             // a cold launch is `.loading` while it finds out whether there is
             // one — so the drop waits for the answer rather than firing on the
             // way past. The named projects come off the menu at the same time,
-            // and both widgets' rows off the Home Screen: all of it is this
-            // writer's screenplay and song titles, readable by whoever picks
+            // and every widget's rows off the Home Screen: all of it is this
+            // writer's screenplay and song titles — and, on the Bookmarks
+            // widget, lines of the script itself — readable by whoever picks
             // the phone up next. The widgets need it more than the menu does —
             // the Home Screen keeps drawing whatever it was last given until
             // this app takes it back, and nobody else can.
@@ -135,8 +143,10 @@ struct RootView: View {
                 QuickActions.shared.pending = nil
                 QuickActions.shared.clearRecents()
                 app.pendingWidgetDestination = nil
+                app.pendingBookmarkDestination = nil
                 WidgetPublisher.clear()
                 ProjectsWidgetPublisher.clear()
+                BookmarksWidgetPublisher.clear()
             }
     }
 

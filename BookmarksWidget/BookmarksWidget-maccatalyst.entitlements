@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The Mac Catalyst build's entitlements for the widget, selected by
+	CODE_SIGN_ENTITLEMENTS[sdk=macosx*]. See the note in
+	scripty-maccatalyst.entitlements: the one difference from the iOS file is
+	the App Group's team-prefixed spelling, which macOS requires and iOS
+	rejects.
+-->
+<plist version="1.0">
+<dict>
+	<!-- App Sandbox is required of a Mac extension; ignored on iOS. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The one thing this extension can reach: the container the app writes
+	     the widget's rows into. No network client entitlement on purpose — the
+	     widget draws what the app already fetched and never asks the server
+	     anything itself. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(TeamIdentifierPrefix)group.scripty.scripty</string>
+	</array>
+</dict>
+</plist>
