@@ -24,7 +24,7 @@ struct ProjectsEntry: TimelineEntry {
     let snapshot: ProjectsSnapshot
 }
 
-struct ProjectsProvider: TimelineProvider {
+struct ProjectsProvider: AppIntentTimelineProvider {
     /// What the gallery and the redacted placeholder draw. Made up on purpose:
     /// the placeholder is shown before the widget has been added, when reading
     /// a real writer's titles would be showing them to whoever is browsing the
@@ -50,9 +50,13 @@ struct ProjectsProvider: TimelineProvider {
         ProjectsEntry(date: .now, snapshot: sample)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (ProjectsEntry) -> Void) {
-        let snapshot = context.isPreview ? sample : ProjectsWidgetStore.load()
-        completion(ProjectsEntry(date: .now, snapshot: snapshot))
+    func snapshot(for configuration: ProjectsWidgetConfigurationIntent,
+                  in context: Context) async -> ProjectsEntry {
+        // The gallery still draws made-up screenplays. This is the line that
+        // keeps a stranger browsing the widget gallery from reading the
+        // writer's titles, and it is the easiest thing to lose in a rewrite.
+        let stored = context.isPreview ? sample : ProjectsWidgetStore.load()
+        return ProjectsEntry(date: .now, snapshot: configured(stored, by: configuration))
     }
 
     /// One entry, and no schedule worth the name.
@@ -64,9 +68,24 @@ struct ProjectsProvider: TimelineProvider {
     ///
     /// It does earn its keep even when nothing changes, though: the rows carry
     /// relative dates, and "2 hours ago" is only redrawn when the timeline is.
-    func getTimeline(in context: Context, completion: @escaping (Timeline<ProjectsEntry>) -> Void) {
-        let entry = ProjectsEntry(date: .now, snapshot: ProjectsWidgetStore.load())
-        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(3600))))
+    func timeline(for configuration: ProjectsWidgetConfigurationIntent,
+                  in context: Context) async -> Timeline<ProjectsEntry> {
+        let stored = ProjectsWidgetStore.load()
+        let entry = ProjectsEntry(date: .now, snapshot: configured(stored, by: configuration))
+        return Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(3600)))
+    }
+
+    /// The configuration applied, still as a snapshot.
+    ///
+    /// Reordering here rather than in the view keeps the drawing exactly as
+    /// dumb as it was before there was anything to configure — `isEmpty` and
+    /// the family's own row count both still work off the entry, unchanged —
+    /// and puts the choice in a pure function the tests can reach.
+    private func configured(_ snapshot: ProjectsSnapshot,
+                            by configuration: ProjectsWidgetConfigurationIntent) -> ProjectsSnapshot {
+        ProjectsSnapshot(projects: snapshot.rows(starredFirst: configuration.scope == .starredFirst,
+                                                 limit: ProjectsWidgetStore.limit),
+                         savedAt: snapshot.savedAt)
     }
 }
 
@@ -74,8 +93,13 @@ struct ProjectsProvider: TimelineProvider {
 
 struct ProjectsWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: ProjectsWidgetStore.widgetKind,
-                            provider: ProjectsProvider()) { entry in
+        // The kind is unchanged on purpose: iOS finds an already-placed widget
+        // by that string, and swapping StaticConfiguration for this one under
+        // the same kind is the supported way to let existing widgets keep their
+        // place and simply gain an "Edit Widget" entry.
+        AppIntentConfiguration(kind: ProjectsWidgetStore.widgetKind,
+                               intent: ProjectsWidgetConfigurationIntent.self,
+                               provider: ProjectsProvider()) { entry in
             ProjectsWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }

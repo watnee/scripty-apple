@@ -14,8 +14,8 @@
 //
 //  Also deliberately separate from OfflineStore. That cache holds the server's
 //  own HAL payloads so the app can decode a whole script back; this holds four
-//  fields per row, is capped at a dozen entries, and is read by a process that
-//  must draw in milliseconds and cannot decode HAL at all.
+//  fields per row, is capped at a couple of dozen entries, and is read by a
+//  process that must draw in milliseconds and cannot decode HAL at all.
 //
 
 import Foundation
@@ -61,6 +61,26 @@ struct SongsNotesSnapshot: Codable, Sendable {
     var isEmpty: Bool { documents.isEmpty }
 }
 
+// MARK: - Choosing which rows to draw
+
+extension SongsNotesSnapshot {
+    /// The rows left after the widget's configuration has had its say.
+    ///
+    /// The stored list holds both halves interleaved, newest first, and a
+    /// configured widget wants one half of it. Filtering here rather than in the
+    /// extension's view keeps the drawing as dumb as it was before there was
+    /// anything to configure — and lets the choice be checked without a
+    /// simulator to draw it in.
+    ///
+    /// Asking for neither half answers with nothing rather than everything. It
+    /// is not a state the picker can produce, but "no" twice meaning "yes" is
+    /// the kind of thing that only shows up once it has shipped.
+    func rows(songs: Bool = true, notes: Bool = true, limit: Int) -> [WidgetDocument] {
+        let kept = documents.filter { songs && $0.isSong || notes && !$0.isSong }
+        return Array(kept.prefix(max(0, limit)))
+    }
+}
+
 // MARK: - The shared container
 
 enum SongsNotesWidgetStore {
@@ -96,12 +116,22 @@ enum SongsNotesWidgetStore {
 
     /// Matches the `kind` the widget declares, so `WidgetCenter` can be told
     /// to reload this one by name.
+    ///
+    /// Load-bearing across an app update: iOS finds an already-placed widget by
+    /// this string, so changing it would not rename the widget, it would orphan
+    /// every copy of it on every Home Screen.
     static let widgetKind = "SongsNotesWidget"
 
     /// How many rows are kept. The largest family draws six, and a couple
     /// spare means dropping one project's documents still leaves a full
     /// widget rather than a gap until the next load.
-    static let limit = 12
+    ///
+    /// Two dozen rather than a dozen because the widget can now be configured
+    /// to one half of the list: twelve rows that happen to be mostly notes
+    /// leave a songs-only widget short of the six it has room for. The rows are
+    /// six small fields and the file is written whole, so the extra costs
+    /// nothing worth counting.
+    static let limit = 24
 
     private static let fileName = "songs-notes-widget.json"
 
@@ -289,5 +319,99 @@ enum WidgetLink {
         return WidgetDestination(projectId: projectId,
                                  documentId: documentId,
                                  isSong: value(Key.kind) != Kind.notes)
+    }
+}
+
+// MARK: - What a Control Center button means
+
+/// The `scripty://` URLs that name a screen without naming a project.
+///
+/// `WidgetLink` and `ProjectWidgetLink` next door are built by rows that know
+/// exactly which document or screenplay they drew. A Control Center button
+/// knows nothing: it is a fixed tile on a Lock Screen, pressed by someone who
+/// has a line in their head and no time to pick anything. So these routes name
+/// only the screen, and the app settles which project on the far side — the
+/// starred screenplay, else the one edited last, which is the answer the Home
+/// Screen's own Songs and Notes entries already give.
+///
+/// A URL rather than a custom App Intent for a reason worth writing down: an
+/// intent's *type* has to compile into whatever references it, and an intent
+/// that could carry out a capture would have to reach AppModel and the HAL
+/// client — neither of which an extension can compile, let alone run. The
+/// system's own `OpenURLIntent` carries one of these instead, and the app's
+/// existing door in `scriptyApp.onOpenURL` opens it.
+enum ScriptyLink {
+    static let scheme = "scripty"
+
+    /// Where a control is asking the app to go.
+    enum Route: Equatable, Sendable {
+        /// The songs list of whichever screenplay the app settles on.
+        case songs
+        /// That same screenplay's notes.
+        case notes
+        /// A new, empty song or note there, with the composer already open.
+        case compose(isSong: Bool)
+        /// The screenplay itself.
+        case screenplay
+    }
+
+    private enum Host {
+        static let songs = "songs"
+        static let notes = "notes"
+        static let compose = "compose"
+        static let screenplay = "screenplay"
+    }
+
+    private static let kindKey = "kind"
+
+    private enum Kind {
+        static let song = "song"
+        static let notes = "notes"
+    }
+
+    static func url(for route: Route) -> URL {
+        var components = URLComponents()
+        components.scheme = scheme
+        switch route {
+        case .songs:
+            components.host = Host.songs
+        case .notes:
+            components.host = Host.notes
+        case .screenplay:
+            components.host = Host.screenplay
+        case .compose(let isSong):
+            components.host = Host.compose
+            components.queryItems = [URLQueryItem(name: kindKey,
+                                                  value: isSong ? Kind.song : Kind.notes)]
+        }
+        // Built here from fixed words, so this cannot fail — but a control is
+        // no better a place to trap than a widget is.
+        return components.url ?? URL(string: "\(scheme)://\(Host.screenplay)")!
+    }
+
+    /// Reads one back, or nil for any other `scripty://` URL — the demo link,
+    /// both widgets' rows and the password reset link all arrive at the same
+    /// door, and each of them is somebody else's to answer.
+    static func route(in url: URL) -> Route? {
+        guard url.scheme == scheme else { return nil }
+        switch url.host() {
+        case Host.songs: return .songs
+        case Host.notes: return .notes
+        case Host.screenplay: return .screenplay
+        case Host.compose:
+            let kind = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first { $0.name == kindKey }?
+                .value
+            // A kind that is present but is neither word is a malformed link,
+            // not a request for a note: dropping it beats opening the composer
+            // on the wrong half of the screen.
+            switch kind {
+            case Kind.song: return .compose(isSong: true)
+            case Kind.notes, nil: return .compose(isSong: false)
+            default: return nil
+            }
+        default: return nil
+        }
     }
 }

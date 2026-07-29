@@ -5,6 +5,10 @@
 //  Everything after that is a choice made here: which project a Songs or Notes
 //  tap opens, and which projects the menu names in the first place.
 //
+//  The Control Center buttons land in the same vocabulary — they arrive as a
+//  URL rather than a shortcut item, but what they resolve to is a QuickAction —
+//  so IntentRouting is checked here too rather than in a binary of its own.
+//
 //  Worth checking without a simulator because the failures are quiet ones. An
 //  entry that resolves to the wrong screenplay opens something plausible, and
 //  a recents list one longer than the menu can show simply loses its last
@@ -33,6 +37,9 @@ private func describe(_ action: QuickAction?) -> String {
     case .songs: "songs"
     case .notes: "notes"
     case .project(let id): "project \(id)"
+    case .preferredProject: "preferred project"
+    case .compose(let projectId, let type):
+        "compose \(type.rawValue) in \(projectId.map(String.init) ?? "whichever")"
     case nil: "none"
     }
 }
@@ -89,6 +96,68 @@ func runDecoding() {
     check("notes opens the notes list", describe(QuickAction.notes.documentType), "NOTES")
     check("a named project opens neither list",
           describe(QuickAction.project(id: 1).documentType), "none")
+    check("nor does an unnamed one",
+          describe(QuickAction.preferredProject.documentType), "none")
+    check("a new song opens the songs list",
+          describe(QuickAction.compose(projectId: nil, type: .song).documentType), "SONG")
+    check("a new note opens the notes list",
+          describe(QuickAction.compose(projectId: nil, type: .notes).documentType), "NOTES")
+
+    // Only a compose action opens the composer. Everything else lands on the
+    // list, which is where it has always landed.
+    check("a new song is a request to make something",
+          QuickAction.compose(projectId: nil, type: .song).isCreating, true)
+    check("a new note likewise",
+          QuickAction.compose(projectId: 3, type: .notes).isCreating, true)
+    for action in [QuickAction.songs, .notes, .project(id: 1), .preferredProject] {
+        check("\(describe(action)) is not", action.isCreating, false)
+    }
+}
+
+func runControlRouting() {
+    print("")
+    print("What a Control Center button resolves to")
+
+    func routed(_ raw: String) -> String {
+        guard let url = URL(string: raw), let route = ScriptyLink.route(in: url) else {
+            return "none"
+        }
+        return describe(IntentRouting.action(for: route))
+    }
+
+    check("the songs button opens the songs list", routed("scripty://songs"), "songs")
+    check("the notes button opens the notes list", routed("scripty://notes"), "notes")
+    // A fixed tile cannot know which screenplay it will be pressed for, so it
+    // asks for whichever the loaded list settles on rather than naming one.
+    check("the screenplay button names no project",
+          routed("scripty://screenplay"), "preferred project")
+    check("the new song button opens the composer",
+          routed("scripty://compose?kind=song"), "compose SONG in whichever")
+    check("the new note button likewise",
+          routed("scripty://compose?kind=notes"), "compose NOTES in whichever")
+
+    // A control's compose action never names a project, so it must resolve the
+    // same way Songs and Notes do — the starred screenplay, else the last one
+    // edited. A tile that landed somewhere else than the tile beside it would
+    // be a worse kind of wrong than one that landed nowhere.
+    let starred = project(id: 1, title: "Starred", lastEdited: daysAgo(30), isDefault: true)
+    let recent = project(id: 2, title: "Recent", lastEdited: daysAgo(1))
+    check("a new song lands where Songs lands",
+          id(QuickAction.compose(projectId: nil, type: .song).project(in: [recent, starred])),
+          id(QuickAction.songs.project(in: [recent, starred])))
+    check("and a named project is still honoured",
+          id(QuickAction.compose(projectId: 2, type: .song).project(in: [recent, starred])), "2")
+    // Same rule as a stale menu entry: a screenplay since deleted opens nothing
+    // rather than something arbitrary.
+    check("a compose naming a screenplay since deleted opens nothing",
+          id(QuickAction.compose(projectId: 99, type: .song).project(in: [recent, starred])),
+          "none")
+    check("an account with no projects composes nowhere",
+          id(QuickAction.compose(projectId: nil, type: .notes).project(in: [])), "none")
+    check("and the screenplay button lands nowhere too",
+          id(QuickAction.preferredProject.project(in: [])), "none")
+    check("but on the star when there is one",
+          id(QuickAction.preferredProject.project(in: [recent, starred])), "1")
 }
 
 func runPreferredProject() {
@@ -172,6 +241,7 @@ func runRecents() {
 
 print("== Home Screen quick actions ==")
 runDecoding()
+runControlRouting()
 runPreferredProject()
 runNamedProject()
 runRecents()

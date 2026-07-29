@@ -27,6 +27,11 @@ struct ScriptView: View {
     /// only a tapped widget row ever names. Cleared with the sheet's own state
     /// so the toolbar button never inherits it.
     @State private var songsOpeningId: Int?
+    /// Whether the Songs & Notes sheet opens with the composer already up,
+    /// which only a Control Center button ever asks for. Cleared with the
+    /// sheet's own state, like the id above, so the toolbar button never
+    /// inherits it and open a composer nobody asked for.
+    @State private var songsCreating = false
     /// The song or note opened straight from the script's Songs menu, without
     /// going through the Songs & Notes screen first.
     @State private var openingDocument: TextDocument?
@@ -285,7 +290,8 @@ struct ScriptView: View {
             CharactersView(model: model)
         }
         .sheet(isPresented: $showingSongs) {
-            SongsView(model: model, listType: songsListType, openingId: songsOpeningId)
+            SongsView(model: model, listType: songsListType,
+                      openingId: songsOpeningId, creating: songsCreating)
         }
         // A Songs or Notes quick action, now that the screenplay it settled on
         // is the one on screen. `initial` is what catches the tap that opened
@@ -301,6 +307,7 @@ struct ScriptView: View {
             guard model.canViewDocuments else { return }
             songsListType = requested.type
             songsOpeningId = requested.documentId
+            songsCreating = requested.creating
             showingSongs = true
         }
         // A song reached from the toolbar menu opens the same editor the songs
@@ -1036,6 +1043,7 @@ struct ScriptView: View {
     private func openSongsScreen() {
         songsListType = .song
         songsOpeningId = nil
+        songsCreating = false
         showingSongs = true
     }
 

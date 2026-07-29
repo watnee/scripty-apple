@@ -2,46 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- App Sandbox is required of a Mac app; ignored on iOS. -->
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
-	<!-- Reach the Scripty backend. Without this the sandbox blocks all networking. -->
-	<key>com.apple.security.network.client</key>
-	<true/>
-	<!-- Export writes files the writer picks; import reads them. -->
-	<key>com.apple.security.files.user-selected.read-write</key>
-	<true/>
-	<!-- Shared with both widget extensions, which have no other way to see
-	     anything: the app writes each widget's rows into this container and the
-	     extensions only read them. One group serves both — they keep separate
-	     files inside it. The identifier is spelled out in
-	     SongsNotesWidgetStore.appGroup, in ProjectsWidgetStore.appGroup and in
-	     each extension's own entitlements, and all of them have to agree — a
-	     mismatch builds cleanly and shows up only as a widget that is
-	     permanently empty.
-
-	     This is the iOS spelling. Mac Catalyst wants the team-prefixed form and
-	     is served by scripty-maccatalyst.entitlements next door; the two files
-	     exist only because that one difference cannot be expressed in one. -->
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.scripty.scripty</string>
-	</array>
-	<!-- Both claims are on the server's domain, validated by iOS against the
-	     apple-app-site-association the server serves at /.well-known/. A
-	     different base URL (localhost override, demo) matches neither.
-
-	     webcredentials: passkeys are bound to the domain, and iOS only offers
-	     them to this app once the file names it.
-
-	     applinks: the password reset link in a recovery email opens this app
-	     rather than a browser, which is what spares anyone typing a code out of
-	     the mail. The file claims only /forgot-password/reset?token=…, so every
-	     other page on the domain still opens in the browser. -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>webcredentials:web-production-ce5bc3.up.railway.app</string>
 		<string>applinks:web-production-ce5bc3.up.railway.app</string>
 	</array>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.scripty.scripty</string>
+	</array>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

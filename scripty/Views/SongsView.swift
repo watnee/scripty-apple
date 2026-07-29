@@ -77,10 +77,20 @@ struct SongsView: View {
     /// the load this screen opens with, and nothing on screen can set it.
     private let openingId: Int?
 
-    init(model: ScriptModel, listType: DocumentType = .song, openingId: Int? = nil) {
+    /// Opens the composer along with the list, rather than after a tap on New.
+    ///
+    /// Only a Control Center button asks for this. The tile is pressed by
+    /// someone with a line in their head and nowhere to type it, so landing
+    /// them on a list they then have to find a button on spends the moment the
+    /// tile exists for. Seeded rather than applied on appear: the sheet is
+    /// wanted from the first frame, and a second animation on the way in would
+    /// read as the screen changing its mind.
+    init(model: ScriptModel, listType: DocumentType = .song,
+         openingId: Int? = nil, creating: Bool = false) {
         self.model = model
         self.openingId = openingId
         _listType = State(initialValue: listType)
+        _creatingType = State(initialValue: creating ? listType : nil)
     }
 
     @State private var editingDocument: TextDocument?

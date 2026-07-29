@@ -99,6 +99,86 @@ func runOrdering() {
           ids(ProjectsWidgetStore.ordered(sameDay)), "7,6")
 }
 
+func runFiltering() {
+    print("")
+    print("Which screenplays a configured widget draws")
+
+    let stored = ProjectsSnapshot(projects: [
+        project(id: 1, title: "Newest", lastEdited: daysAgo(1)),
+        project(id: 2, title: "Starred", lastEdited: daysAgo(20), isDefault: true),
+        project(id: 3, title: "Middle", lastEdited: daysAgo(10)),
+    ], savedAt: now)
+
+    // The default has to reproduce exactly what the widget drew before it could
+    // be configured. iOS keeps an already-placed widget and instantiates the
+    // new configuration with its defaults, so anything but "unchanged" here is
+    // a widget that silently rearranged itself during an app update.
+    check("the default is the order it was stored in",
+          ids(stored.rows(limit: 6)), "1,2,3")
+    check("starred first floats the star", ids(stored.rows(starredFirst: true, limit: 6)), "2,1,3")
+    check("and disturbs nothing else", ids(stored.rows(starredFirst: true, limit: 6)).count,
+          ids(stored.rows(limit: 6)).count)
+
+    // The star is drawn on its row wherever it lands, so a snapshot with none
+    // is the ordinary case rather than an error.
+    let unstarred = ProjectsSnapshot(projects: [
+        project(id: 4, title: "One", lastEdited: daysAgo(1)),
+        project(id: 5, title: "Two", lastEdited: daysAgo(2)),
+    ], savedAt: now)
+    check("an account with no starred screenplay is left in date order",
+          ids(unstarred.rows(starredFirst: true, limit: 6)), "4,5")
+
+    check("the limit still applies once the star has moved",
+          ids(stored.rows(starredFirst: true, limit: 2)), "2,1")
+    check("a limit of none keeps none", ids(stored.rows(limit: 0)), "")
+    check("a negative limit is not a crash", ids(stored.rows(starredFirst: true, limit: -1)), "")
+    check("an empty snapshot filters to nothing rather than trapping",
+          ids(ProjectsSnapshot().rows(starredFirst: true, limit: 6)), "")
+}
+
+func runPicker() {
+    print("")
+    print("The screenplays a Shortcuts picker offers")
+
+    let stored = [project(id: 1, title: "Wide Awake", lastEdited: daysAgo(1)),
+                  project(id: 2, title: "Nightfall", lastEdited: daysAgo(9))]
+
+    check("the picker offers what the widget has",
+          ids(ProjectsWidgetStore.suggested(in: ProjectsSnapshot(projects: stored, savedAt: now))),
+          "1,2")
+
+    check("an id already chosen finds its screenplay",
+          ProjectsWidgetStore.pick(ids: [2], in: stored).first?.title ?? "none", "Nightfall")
+    // Pickers pair the answers back up against the ids they sent, so the order
+    // asked for is the order returned — not the order they happen to be stored.
+    check("and several come back in the order they were asked for",
+          ids(ProjectsWidgetStore.pick(ids: [2, 1], in: stored)), "2,1")
+
+    // The one that matters. Told nothing about a saved id, iOS does not ask
+    // again — it decides the widget needs reconfiguring and throws the writer's
+    // choice away. A screenplay missing from this device's last snapshot
+    // (signed out, in the demo, or a launch that happened to be offline) is not
+    // a screenplay that is gone.
+    check("an id the snapshot has never heard of still answers",
+          ProjectsWidgetStore.pick(ids: [99], in: stored).count, 1)
+    check("and answers under the id it was asked about",
+          ProjectsWidgetStore.pick(ids: [99], in: stored).first?.id ?? -1, 99)
+    check("with a placeholder rather than a blank",
+          ProjectsWidgetStore.pick(ids: [99], in: stored).first?.title.isEmpty ?? true, false)
+    check("an empty snapshot answers for every id rather than none",
+          ids(ProjectsWidgetStore.pick(ids: [1, 2], in: [])), "1,2")
+    check("asking about nothing answers nothing",
+          ids(ProjectsWidgetStore.pick(ids: [], in: stored)), "")
+
+    // The picker is the reason the cap was raised: at eight, a writer with
+    // twenty screenplays could only ever name the eight they touched last.
+    check("the cap is large enough to name more than the widget draws",
+          ProjectsWidgetStore.limit >= 24, true)
+    let many = (1...40).map { project(id: $0, title: "Script \($0)", lastEdited: daysAgo(Double($0))) }
+    check("and it is what a long list is trimmed to",
+          ProjectsWidgetStore.ordered(many).count, ProjectsWidgetStore.limit)
+}
+
 func runLinks() {
     print("")
     print("What a tapped row asks for")
@@ -210,6 +290,8 @@ func runNoSnapshotYet() {
 
 print("== Home Screen projects widget ==")
 runOrdering()
+runFiltering()
+runPicker()
 runLinks()
 runCoding()
 runNoSnapshotYet()

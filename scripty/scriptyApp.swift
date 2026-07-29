@@ -5,11 +5,12 @@
 //  Created by Clint Watnee on 7/13/26.
 //
 
+import AppIntents
 import SwiftUI
 
 @main
 struct scriptyApp: App {
-    @State private var appModel = AppModel()
+    @State private var appModel: AppModel
 
     /// Only reason for an app delegate: a Home Screen quick action is delivered
     /// through the scene delegate this one names, and SwiftUI gives no other
@@ -19,6 +20,21 @@ struct scriptyApp: App {
     /// Light, dark or the device's own — the whole app, so it is applied here
     /// rather than anywhere a script happens to be.
     private let appearance = AppearanceSettings.shared
+
+    /// The one thing this initialiser exists for: handing the session to the
+    /// App Intents dependency graph, so a capture intent has a signed-in
+    /// client to write through.
+    ///
+    /// Registered here rather than in a `.task` because of when an intent can
+    /// arrive. `openAppWhenRun` launches this process and dispatches into it,
+    /// and `App.init` is the only hook guaranteed to have run first — a scene's
+    /// `task` is not, and an intent resolving its dependency before this ran
+    /// would trap rather than fail politely.
+    init() {
+        let model = AppModel()
+        AppDependencyManager.shared.add(dependency: model)
+        _appModel = State(initialValue: model)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -55,6 +71,18 @@ struct scriptyApp: App {
                     // already built around it.
                     if let projectId = ProjectWidgetLink.projectId(in: url) {
                         QuickActions.shared.pending = .project(id: projectId)
+                        return
+                    }
+                    // scripty://songs, //notes, //compose?kind=…, //screenplay
+                    // — a Control Center button, or a Shortcut built by hand.
+                    // Neither names a project: a tile on a Lock Screen cannot
+                    // know which screenplay it will be pressed for, so it asks
+                    // for a screen and lets the loaded list settle the rest.
+                    //
+                    // Checked after the two widget links, which are more
+                    // specific, and before the demo one, which is not a route.
+                    if let route = ScriptyLink.route(in: url) {
+                        QuickActions.shared.pending = IntentRouting.action(for: route)
                         return
                     }
                     // scripty://demo — e.g. from a home-screen Shortcut —

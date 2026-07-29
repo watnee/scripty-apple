@@ -111,7 +111,9 @@ struct ContentView: View {
         quickActions.pending = nil
         guard let project = action.project(in: projectList.projects) else { return }
         selectedProject = project
-        openingDocuments = action.documentType.map { DocumentsRequest(type: $0) }
+        openingDocuments = action.documentType.map {
+            DocumentsRequest(type: $0, creating: action.isCreating)
+        }
     }
 
     /// Opens the song or note a widget row was tapped for.
