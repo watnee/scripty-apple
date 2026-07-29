@@ -101,10 +101,15 @@ enum ProjectsWidgetStore {
     /// reload this one by name.
     static let widgetKind = "ProjectsWidget"
 
-    /// How many rows are kept. The largest family draws six, and a couple spare
-    /// means the widget still fills after a project is deleted rather than
-    /// showing a gap until the next load.
-    static let limit = 8
+    /// How many rows are kept.
+    ///
+    /// Sized for the second reader rather than the first. The largest widget
+    /// family draws six, and eight was once ample for it — but this snapshot is
+    /// also the whole of what Siri and Spotlight can name (see scripty/Intents),
+    /// and there a cap is not a shorter list, it is "no such screenplay" for a
+    /// screenplay that plainly exists. Thirty-two is past any working writer's
+    /// shelf; the widget takes its six off the top as before.
+    static let limit = 32
 
     private static let fileName = "projects-widget.json"
 

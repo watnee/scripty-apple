@@ -33,34 +33,39 @@ struct scriptyApp: App {
                         appModel.passwordResetToken = token
                         return
                     }
-                    // A tapped Home Screen widget row. Both widgets park their
-                    // request rather than acting on it, for the reason the
-                    // long-press menu's entries do: the tap can be what launches
-                    // the app, and at that moment there is no signed-in session
-                    // and no project list to open anything against. ContentView
-                    // picks either one up once there is.
+                    // Everything else asking for a screen: a tapped widget row,
+                    // a Siri phrase, a Spotlight result, a shortcut someone
+                    // built by hand. All of them park their request rather than
+                    // acting on it, for the reason the long-press menu's entries
+                    // do: the tap or the phrase can be what launches the app, and
+                    // at that moment there is no signed-in session and no project
+                    // list to open anything against. ContentView picks whichever
+                    // one up once there is.
 
                     // scripty://document?project=…&id=…&kind=… — a row on the
-                    // Songs & Notes widget, which names a document as well as a
-                    // screenplay and so needs a request of its own.
+                    // Songs & Notes widget, or that same song asked for by name,
+                    // which names a document as well as a screenplay and so needs
+                    // a request of its own.
                     if let destination = WidgetLink.destination(in: url) {
                         appModel.pendingWidgetDestination = destination
                         return
                     }
-                    // scripty://project?id=… — a row on the Screenplays widget.
-                    // Reusing the quick action rather than inventing a second
-                    // kind of pending request: `.project(id:)` already means
-                    // exactly this, and the machinery that waits for a list,
-                    // opens the project and drops the request on sign-out is
-                    // already built around it.
-                    if let projectId = ProjectWidgetLink.projectId(in: url) {
-                        QuickActions.shared.pending = .project(id: projectId)
+                    // scripty://project?id=…, scripty://songs, scripty://notes —
+                    // a row on the Screenplays widget and the two fixed
+                    // destinations. Reusing the quick action rather than
+                    // inventing a second kind of pending request: these are
+                    // precisely what the long-press menu's three entries mean,
+                    // and the machinery that waits for a list, chooses the
+                    // writer's screenplay, opens it and drops the request on
+                    // sign-out is already built around them.
+                    if let action = ShortcutLink.action(in: url) {
+                        QuickActions.shared.pending = action
                         return
                     }
-                    // scripty://demo — e.g. from a home-screen Shortcut —
-                    // jumps straight into the offline demo.
-                    guard url.scheme == "scripty",
-                          url.host() == "demo" || url.path == "/demo" else { return }
+                    // scripty://demo — from "open the Scripty demo", or a
+                    // home-screen Shortcut — jumps straight into the offline
+                    // demo, which is the one destination needing no account.
+                    guard ShortcutLink.isDemo(url) else { return }
                     Task { await appModel.enterDemo() }
                 }
         }

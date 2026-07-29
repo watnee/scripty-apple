@@ -75,10 +75,15 @@
 		</dict>
 	</array>
 
-	<!-- scripty://demo launches the offline demo (e.g. from a Shortcut);
-	     scripty://document?project=…&id=…&kind=… is a row tapped on the
-	     Songs & Notes widget, and scripty://project?id=… one on the Screenplays
-	     widget. All three are read in scriptyApp's onOpenURL. -->
+	<!-- Every way into a screen from outside the app. scripty://demo launches
+	     the offline demo; scripty://document?project=…&id=…&kind=… is a row
+	     tapped on the Songs & Notes widget; scripty://project?id=… is one on the
+	     Screenplays widget, and scripty://project on its own is the list;
+	     scripty://songs and scripty://notes are the long-press menu's two fixed
+	     entries. All of them are read in scriptyApp's onOpenURL, and all of them
+	     are spelled in scripty/Intents/ShortcutLink.swift — which is also what
+	     the App Intents hand back, so a Shortcut built by hand can ask for
+	     exactly what Siri asks for. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

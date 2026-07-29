@@ -46,16 +46,29 @@ enum WidgetPublisher {
                                   isSong: document.kind == .song,
                                   updatedAt: updatedAt)
         }
+        // What was on the widget a moment ago, so the songs that have since left
+        // it can be taken out of Spotlight by name. Not just this project's:
+        // publishing one project's documents can push another's off the end of
+        // the snapshot, and those have to leave the index with them.
+        let before = SongsNotesWidgetStore.load().documents
         guard SongsNotesWidgetStore.publish(rows, forProject: project.id) else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: SongsNotesWidgetStore.widgetKind)
+        // Read back rather than recomputed: the store merges, orders and trims
+        // on the way in, and Spotlight should be told what is actually stored,
+        // not this file's second guess at it.
+        let stored = SongsNotesWidgetStore.load().documents
+        let gone = before.map(\.id).filter { id in !stored.contains { $0.id == id } }
+        SpotlightIndex.replace(stored.map(DocumentEntity.init), removing: gone)
     }
 
     /// Empties the widget. Signing out goes through here: the next person to
     /// pick up the phone should not be able to read the last writer's song
-    /// titles off the Home Screen.
+    /// titles off the Home Screen — nor, since the same titles are donated to
+    /// Spotlight, out of a search field.
     static func clear() {
         SongsNotesWidgetStore.clear()
         WidgetCenter.shared.reloadTimelines(ofKind: SongsNotesWidgetStore.widgetKind)
+        SpotlightIndex.clear()
     }
 }
 

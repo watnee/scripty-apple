@@ -21,12 +21,22 @@ struct ScriptView: View {
     @State private var showingSongs = false
     /// Which of the two lists the Songs & Notes sheet opens on. The toolbar
     /// button leaves it at songs, as the sheet has always opened; a Notes quick
-    /// action is the only thing that says otherwise.
+    /// action, or one asked for by name, says otherwise.
     @State private var songsListType: DocumentType = .song
-    /// A song or note for the Songs & Notes sheet to open straight into, which
-    /// only a tapped widget row ever names. Cleared with the sheet's own state
-    /// so the toolbar button never inherits it.
+    /// A song or note for the Songs & Notes sheet to open straight into, named
+    /// by a tapped widget row or a spoken request. Cleared with the sheet's own
+    /// state so the toolbar button never inherits it.
     @State private var songsOpeningId: Int?
+    /// Bumped by every request to open that sheet, and used as the content's
+    /// identity.
+    ///
+    /// The sheet seeds its own state from what it is handed and then owns it, so
+    /// that a writer switching from Songs to Notes inside it is not overruled on
+    /// the next redraw. That is right while one request is being answered and
+    /// wrong across two: asking for Notes while the sheet is already up on Songs
+    /// would otherwise change nothing at all, which from the outside is a
+    /// request that did nothing. A new identity re-seeds it without closing it.
+    @State private var songsRequest = 0
     /// The song or note opened straight from the script's Songs menu, without
     /// going through the Songs & Notes screen first.
     @State private var openingDocument: TextDocument?
@@ -284,11 +294,13 @@ struct ScriptView: View {
         }
         .sheet(isPresented: $showingSongs) {
             SongsView(model: model, listType: songsListType, openingId: songsOpeningId)
+                .id(songsRequest)
         }
         // A Songs or Notes quick action, now that the screenplay it settled on
-        // is the one on screen. `initial` is what catches the tap that opened
-        // this project — that was decided before this view existed — while the
-        // change itself catches a tap for the screenplay already open.
+        // is the one on screen — or the same thing asked for by name, from Siri
+        // or a Spotlight result. `initial` is what catches the request that
+        // opened this project — that was decided before this view existed —
+        // while the change itself catches one for the screenplay already open.
         //
         // A project whose links offer no documents drops the request rather
         // than opening an empty sheet; the toolbar hides the button on the
@@ -299,6 +311,7 @@ struct ScriptView: View {
             guard model.canViewDocuments else { return }
             songsListType = requested.type
             songsOpeningId = requested.documentId
+            songsRequest += 1
             showingSongs = true
         }
         // A song reached from the toolbar menu opens the same editor the songs
@@ -990,6 +1003,7 @@ struct ScriptView: View {
     private func openSongsScreen() {
         songsListType = .song
         songsOpeningId = nil
+        songsRequest += 1
         showingSongs = true
     }
 

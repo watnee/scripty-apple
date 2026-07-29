@@ -101,7 +101,14 @@ func runLimit() {
     print("")
     print("How many rows are kept")
 
-    let many = (1...20).map { document($0, title: "Song \($0)", edited: hoursAgo(Double($0))) }
+    // Sized off the limit rather than at a round number, so this goes on
+    // checking that the cap is applied when the cap changes — it has already
+    // grown once, when Siri became a second reader of the same snapshot, and a
+    // fixture shorter than the limit quietly stops testing anything.
+    let overflowing = SongsNotesWidgetStore.limit + 5
+    let many = (1...overflowing).map {
+        document($0, title: "Song \($0)", edited: hoursAgo(Double($0)))
+    }
     let kept = SongsNotesWidgetStore.merging(many, forProject: 1, into: [])
     check("capped at the store's limit", kept.count, SongsNotesWidgetStore.limit)
     check("and it is the most recent that are kept", ids(kept.prefix(3).map { $0 }), "1,2,3")

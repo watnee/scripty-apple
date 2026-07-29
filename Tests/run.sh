@@ -168,6 +168,23 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
 "$BUILD/songshortcuts" || status=1
 
 echo
+echo "== App Intents routing =="
+# The entities and intents themselves are not here: they import AppIntents and
+# want a running system to be asked anything. Everything they delegate to is —
+# which is all of the decisions and none of the framework.
+swiftc "${FLAGS[@]}" -o "$BUILD/appintents" \
+    "$SRC/Models/Project.swift" \
+    "$SRC/Models/TextDocument.swift" \
+    "$SRC/Models/QuickAction.swift" \
+    "$SRC/Intents/ShortcutLink.swift" \
+    "$SRC/Intents/IntentTargets.swift" \
+    "$ROOT/Shared/ProjectsWidgetData.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/AppIntents/main.swift"
+"$BUILD/appintents" || status=1
+
+echo
 echo "== Songs & Notes widget =="
 # The half of the widget the extension and the app share. WidgetPublisher next
 # door is not here: it imports WidgetKit and only exists to call these.
