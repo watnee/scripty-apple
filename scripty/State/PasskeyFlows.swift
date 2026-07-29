@@ -15,8 +15,8 @@ import UIKit
 /// Starts from the `passkeyLogin` link the 401 challenge advertised; a verified
 /// assertion answers a bearer token, which AppModel adopts as the session.
 ///
-/// The system sheet lists the Passwords app's saved passwords for this domain
-/// alongside the passkeys, so this flow also has to handle being handed a plain
+/// The Passwords app's saved passwords for this domain are reachable from the
+/// same screen, under their own button, so this flow also answers with a plain
 /// username and password — that one skips WebAuthn entirely and signs in the
 /// ordinary way.
 @MainActor
@@ -31,10 +31,31 @@ struct PasskeySignInFlow {
         case failed(String)
     }
 
-    /// From the button: a sheet listing everything saved for this domain.
+    /// From the passkey button: a sheet listing this domain's passkeys.
     func signIn(using optionsLink: HALLink) async -> Outcome {
         await run(using: optionsLink, coordinator: PasskeyCoordinator()) { coordinator, options in
             try await coordinator.signIn(options: options)
+        }
+    }
+
+    /// From the password button: a sheet listing the passwords the Passwords
+    /// app saved for this domain. No options are fetched — there is no ceremony
+    /// to challenge, so there is no challenge to mint.
+    func signInWithSavedPassword() async -> Outcome {
+        do {
+            switch try await PasskeyCoordinator().signInWithSavedPassword() {
+            case .password(let username, let password):
+                return await adopt(username: username, password: password)
+            case .passkey:
+                // A password request cannot answer with one; belt and braces.
+                return .failed("That saved sign-in could not be used.")
+            }
+        } catch PasskeyCeremonyError.canceled {
+            return .canceled
+        } catch PasskeyCeremonyError.failed(let message) {
+            return .failed(message)
+        } catch {
+            return .failed(error.localizedDescription)
         }
     }
 
@@ -69,13 +90,11 @@ struct PasskeySignInFlow {
             }
             switch try await ceremony(coordinator, options) {
             case .password(let username, let password):
-                // Nothing WebAuthn about this one: the Passwords app handed
-                // back the two strings the form asks for, so it takes the same
-                // path typing them would. The challenge just minted goes
-                // unspent and expires on its own.
-                await app.signIn(username: username, password: password)
-                if let error = app.signInError { return .failed(error) }
-                return .signedIn
+                // Unreachable as things stand — both ceremonies `run` drives
+                // ask for assertions only, and the QuickType bar's saved
+                // passwords go into the fields themselves, not through here.
+                // Handled anyway, the same way the password button does it.
+                return await adopt(username: username, password: password)
             case .passkey(let credential):
                 // Past here the writer has picked something and is waiting on
                 // an answer, so failures are theirs to see even in the silent
@@ -105,6 +124,14 @@ struct PasskeySignInFlow {
         } catch {
             return silently ? .canceled : .failed(error.localizedDescription)
         }
+    }
+
+    /// A username and password out of the Passwords app takes the same path
+    /// typing them into the form would.
+    private func adopt(username: String, password: String) async -> Outcome {
+        await app.signIn(username: username, password: password)
+        if let error = app.signInError { return .failed(error) }
+        return .signedIn
     }
 }
 

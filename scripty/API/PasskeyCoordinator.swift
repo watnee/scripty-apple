@@ -16,9 +16,10 @@
 //  fails with a platform error, which surfaces as an ordinary alert.
 //
 //  That same association is what puts this app and the Passwords app on the
-//  same domain, so a sign-in sheet here lists both the passkeys and the saved
-//  passwords the Passwords app holds for it. Sign-in therefore answers with
-//  either kind of credential, not only a passkey.
+//  same domain, so the saved passwords it holds are reachable from here too.
+//  They are asked for separately: a controller offers exactly the kinds of
+//  credential its requests name, so one request per kind is one sheet per kind,
+//  and the writer picks which before the sheet opens rather than inside it.
 //
 
 import AuthenticationServices
@@ -77,17 +78,22 @@ final class PasskeyCoordinator: NSObject {
                             attestationObject: attestation)
     }
 
-    /// Signs in with something already saved on this device. No credential
-    /// list is passed: this is the discoverable flow, where the system offers
-    /// the accounts it holds passkeys for — and, because a password request
-    /// rides along, the passwords the Passwords app has saved for the same
-    /// domain. One sheet, both kinds, whichever the writer has.
+    /// Signs in with a passkey already saved on this device. No credential list
+    /// is passed: this is the discoverable flow, where the system offers the
+    /// accounts it holds passkeys for and nothing else.
     func signIn(options: PasskeyCeremonyOptions) async throws -> SavedCredential {
-        let requests: [ASAuthorizationRequest] = [
-            try assertionRequest(from: options),
-            ASAuthorizationPasswordProvider().createRequest(),
-        ]
-        return try credential(from: try await perform(requests))
+        let request = try assertionRequest(from: options)
+        return try credential(from: try await perform(request))
+    }
+
+    /// Signs in with a password the Passwords app saved for this domain.
+    ///
+    /// Nothing WebAuthn about it, so it takes no options and spends no
+    /// challenge — the sheet hands back the same two strings the sign-in form
+    /// asks for, and the ordinary sign-in takes them from there.
+    func signInWithSavedPassword() async throws -> SavedCredential {
+        let request = ASAuthorizationPasswordProvider().createRequest()
+        return try credential(from: try await perform(request))
     }
 
     /// The same sign-in, offered without a button: the system folds this

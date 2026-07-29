@@ -91,20 +91,33 @@ struct LoginView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canSubmit)
 
+            // Both buttons are gated on the passkey link, which is the only
+            // signal this screen has that it is talking to the server this app
+            // is associated with — and without that association neither sheet
+            // has anything to list.
             if let passkeyLink {
-                Button {
-                    signInWithSavedCredential(using: passkeyLink)
-                } label: {
-                    // The sheet lists this domain's passkeys and the passwords
-                    // the Passwords app has saved for it, so the button can't
-                    // promise only one of them.
-                    Label("Use a Saved Passkey or Password",
-                          systemImage: "person.badge.key")
-                        .frame(maxWidth: 360)
-                        .padding(.vertical, 6)
+                VStack(spacing: 10) {
+                    Button {
+                        signInWithPasskey(using: passkeyLink)
+                    } label: {
+                        Label("Sign In with a Passkey",
+                              systemImage: "person.badge.key")
+                            .frame(maxWidth: 360)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSigningIn)
+
+                    Button {
+                        signInWithSavedPassword(restarting: passkeyLink)
+                    } label: {
+                        Label("Use a Saved Password", systemImage: "key.fill")
+                            .frame(maxWidth: 360)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSigningIn)
                 }
-                .buttonStyle(.bordered)
-                .disabled(isSigningIn)
             }
 
             if let recoveryLink {
@@ -176,15 +189,30 @@ struct LoginView: View {
         }
     }
 
-    /// Opens the system sheet. The keyboard's standing offer has to come down
+    private func signInWithPasskey(using link: HALLink) {
+        openSystemSheet(restarting: link) {
+            await PasskeySignInFlow(app: app).signIn(using: link)
+        }
+    }
+
+    /// The password sheet needs no options of its own, but it still has to put
+    /// the keyboard's offer back up afterwards — hence the link.
+    private func signInWithSavedPassword(restarting link: HALLink) {
+        openSystemSheet(restarting: link) {
+            await PasskeySignInFlow(app: app).signInWithSavedPassword()
+        }
+    }
+
+    /// Opens a system sheet. The keyboard's standing offer has to come down
     /// first — the platform runs one authorization request at a time — and goes
     /// back up if this attempt didn't end in a session.
-    private func signInWithSavedCredential(using link: HALLink) {
+    private func openSystemSheet(restarting link: HALLink,
+                                 attempt: @escaping () async -> PasskeySignInFlow.Outcome) {
         focusedField = nil
         isSigningIn = true
         autoFill.cancel()
         Task {
-            switch await PasskeySignInFlow(app: app).signIn(using: link) {
+            switch await attempt() {
             case .signedIn:
                 break
             case .canceled:
