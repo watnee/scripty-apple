@@ -85,8 +85,9 @@ struct ProjectsSidebarView: View {
     /// `.searchToolbarBehavior(.minimize)` collapses it to a button and the
     /// list starts directly under the title. On iPad it stays pinned open in
     /// the navigation bar drawer: that column is short of *horizontal* room,
-    /// not vertical, and a fourth toolbar button in ~250pt truncates the title
-    /// to "Pr…" to buy back a band the sidebar was never short of.
+    /// not vertical, and one more toolbar button in ~250pt was enough to
+    /// truncate the title to "Pr…" — buying back a band the sidebar was never
+    /// short of.
     private var searchPlacement: SearchFieldPlacement {
         isCompact ? .automatic : .navigationBarDrawer(displayMode: .always)
     }
