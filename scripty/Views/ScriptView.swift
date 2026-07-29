@@ -19,10 +19,10 @@ struct ScriptView: View {
     @State private var model: ScriptModel
     @State private var showingCharacters = false
     @State private var showingSongs = false
-    /// Which of the two lists the Songs & Notes sheet opens on. The toolbar
-    /// button leaves it at songs, as the sheet has always opened; a Notes quick
-    /// action is the only thing that says otherwise.
-    @State private var songsListType: DocumentType = .song
+    /// Which of the two lists the Songs & Notes sheet opens on, or nil for
+    /// whichever it was last left on. The toolbar button leaves it nil; a Songs
+    /// or Notes quick action is the only thing that names one.
+    @State private var songsListType: DocumentType?
     /// The song or note opened straight from the script's Songs menu, without
     /// going through the Songs & Notes screen first.
     @State private var openingDocument: TextDocument?
@@ -274,7 +274,7 @@ struct ScriptView: View {
             CharactersView(model: model)
         }
         .sheet(isPresented: $showingSongs) {
-            SongsView(model: model, listType: songsListType)
+            SongsView(model: model, options: options, listType: songsListType)
         }
         // A Songs or Notes quick action, now that the screenplay it settled on
         // is the one on screen. `initial` is what catches the tap that opened
@@ -848,12 +848,13 @@ struct ScriptView: View {
         }
         actions.ignoredWords = { showingIgnoredWords = true }
         actions.pageSetup = { showingPageSetup = true }
-        // The songs the menu bar can reach: the screen itself, and the handful
-        // last edited, which open without going through it — the toolbar menu's
-        // contents, for a writer whose hands are on a keyboard.
+        // What the menu bar can reach: the screen itself, and the handful last
+        // edited of each kind, which open without going through it — the toolbar
+        // menu's contents, for a writer whose hands are on a keyboard.
         if model.canViewDocuments {
             actions.songsAndNotes = { openSongsScreen() }
             actions.recentSongs = model.songs.mostRecentlyEdited(limit: Self.quickSongCount)
+            actions.recentNotes = model.notes.mostRecentlyEdited(limit: Self.quickNoteCount)
             actions.openDocument = { document in openingDocument = document }
         }
         actions.exporter = model.exportOptions.isEmpty ? nil : exporter
@@ -946,18 +947,28 @@ struct ScriptView: View {
     /// with its search is the better tool and is one item away.
     private static let quickSongCount = 5
 
-    /// Songs & Notes, with the songs themselves hanging off it.
+    /// And how many notes. Fewer, because the two sections share one menu and
+    /// the count is what keeps it a glance: three is the same handful the notes
+    /// list's own shortcut strip offers, so the two agree on what "recent"
+    /// shows there.
+    private static let quickNoteCount = 3
+
+    /// Songs & Notes, with the documents themselves hanging off it.
     ///
     /// Tapping still opens the full screen, as the plain button always did.
-    /// Holding (or the arrow, on a Mac) drops the handful of songs last edited,
-    /// which go straight to the lyric editor — the screen, the search and the
-    /// row-tap in between were three steps to reach a song the writer already
-    /// knew the name of. It stays a plain button until there is a dated song to
-    /// list, so a project that has none shows no empty menu.
+    /// Holding (or the arrow, on a Mac) drops the handful last edited of each
+    /// kind, which go straight to their editor — the screen, the picker, the
+    /// search and the row-tap in between were four steps to reach something the
+    /// writer already knew the name of. Notes are here for the same reason songs
+    /// are: this button has said "Songs & Notes" all along while only ever
+    /// shortcutting the songs, which left the notes the slowest thing in the
+    /// project to reach. It stays a plain button until there is a dated document
+    /// to list, so a project with none shows no empty menu.
     @ViewBuilder
     private var songsButton: some View {
-        let recent = model.songs.mostRecentlyEdited(limit: Self.quickSongCount)
-        if recent.isEmpty {
+        let songs = model.songs.mostRecentlyEdited(limit: Self.quickSongCount)
+        let notes = model.notes.mostRecentlyEdited(limit: Self.quickNoteCount)
+        if songs.isEmpty && notes.isEmpty {
             Button {
                 openSongsScreen()
             } label: {
@@ -970,15 +981,12 @@ struct ScriptView: View {
                 } label: {
                     Label("All Songs & Notes…", systemImage: "music.note.list")
                 }
-                Section("Recently Edited") {
-                    ForEach(recent) { song in
-                        Button {
-                            openingDocument = song
-                        } label: {
-                            Label(song.displayTitle, systemImage: "music.note")
-                        }
-                    }
-                }
+                // Named by kind rather than pooled under one "Recently Edited":
+                // the two are different work, and a writer looking for the note
+                // should not have to read past the songs to find out whether it
+                // made the cut.
+                recentSection("Recent Songs", songs, icon: "music.note")
+                recentSection("Recent Notes", notes, icon: "note.text")
             } label: {
                 Label("Songs & Notes", systemImage: "music.note.list")
             } primaryAction: {
@@ -987,12 +995,32 @@ struct ScriptView: View {
         }
     }
 
-    /// Opens the Songs & Notes screen on the songs list — where this button has
-    /// always opened it, whatever list a Home Screen quick action last asked
-    /// for. Every route that reaches the whole screen goes through here; the
-    /// recent songs beside them skip it for the editor itself.
+    /// One kind's shortcuts, dropped entirely when there are none — a project of
+    /// songs alone should show no empty Notes heading.
+    @ViewBuilder
+    private func recentSection(_ title: String,
+                               _ documents: [TextDocument],
+                               icon: String) -> some View {
+        if !documents.isEmpty {
+            Section(title) {
+                ForEach(documents) { document in
+                    Button {
+                        openingDocument = document
+                    } label: {
+                        Label(document.displayTitle, systemImage: icon)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Opens the Songs & Notes screen on the list this project was last left on,
+    /// which the screen itself remembers. Naming no list is what asks for that —
+    /// only a Home Screen quick action names one. Every route that reaches the
+    /// whole screen goes through here; the recent documents beside them skip it
+    /// for the editor itself.
     private func openSongsScreen() {
-        songsListType = .song
+        songsListType = nil
         showingSongs = true
     }
 

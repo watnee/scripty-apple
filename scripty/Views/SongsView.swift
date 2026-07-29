@@ -67,14 +67,22 @@ enum DocumentSort: String, CaseIterable, Identifiable {
 struct SongsView: View {
     let model: ScriptModel
 
+    /// Where the choice of list is remembered between visits.
+    private let options: ScriptViewOptions
+
     @Environment(\.dismiss) private var dismiss
-    /// Which list the picker starts on. Songs unless asked otherwise, which
-    /// only the Home Screen's Notes quick action does.
+    /// Which list the picker starts on.
     @State private var listType: DocumentType
 
-    init(model: ScriptModel, listType: DocumentType = .song) {
+    /// Opens on the list named, and otherwise on the one this project was last
+    /// left on — Songs the first time. Only a route that means a particular
+    /// list names one: the Home Screen's two quick actions, and a document
+    /// changing kind under us.
+    init(model: ScriptModel, options: ScriptViewOptions, listType: DocumentType? = nil) {
         self.model = model
-        _listType = State(initialValue: listType)
+        self.options = options
+        let remembered = options.rememberedDocumentList.flatMap(DocumentType.init(rawValue:))
+        _listType = State(initialValue: listType ?? remembered ?? .song)
     }
 
     @State private var editingDocument: TextDocument?
@@ -260,17 +268,25 @@ struct SongsView: View {
             .navigationTitle("Songs & Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .task { await reload() }
+            .task {
+                // A list a quick action named is as much a statement of intent
+                // as one the picker was tapped over to, so it is remembered the
+                // same way — the picker's own change never fires for it.
+                options.rememberDocumentList(listType.rawValue)
+                await reload()
+            }
             .refreshable { await reload() }
             .searchable(text: $searchText,
                         placement: .navigationBarDrawer(displayMode: .always),
                         prompt: listType == .song ? "Search songs" : "Search notes")
             // Songs and notes are two lists, so a selection made in one has no
             // meaning in the other — nor does a search for a title that only
-            // exists in the one being left.
-            .onChange(of: listType) { _, _ in
+            // exists in the one being left. The choice itself is kept, so the
+            // next trip to this screen opens where this one ended.
+            .onChange(of: listType) { _, type in
                 selection.removeAll()
                 searchText = ""
+                options.rememberDocumentList(type.rawValue)
             }
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }

@@ -211,6 +211,33 @@ func run() {
         check("it is remembered per project",
               ScriptViewOptions(projectId: 8, defaults: store).rememberedOutlineTab == nil, true)
     }
+
+    print("")
+    print("Remembered Songs & Notes list")
+    do {
+        let store = scratch("documentlist")
+        let options = ScriptViewOptions(projectId: 7, defaults: store)
+        // Nothing remembered means Songs, which the screen supplies by treating
+        // nil as the default — the same contract the outline tab has.
+        check("nothing remembered to begin with", options.rememberedDocumentList == nil, true)
+
+        // The server's own spelling for the type, so what lands in storage is
+        // the value the screen decodes back into a list rather than a label.
+        options.rememberDocumentList("NOTES")
+        check("the chosen list lands in this client's key",
+              store.string(forKey: "scripty-document-list-project-7") ?? "", "NOTES")
+        check("it reads back on reopen",
+              ScriptViewOptions(projectId: 7, defaults: store).rememberedDocumentList ?? "", "NOTES")
+
+        // A writer with a musical and a drama open should not have the one
+        // teach the other which half of the screen they work in.
+        check("it is remembered per project",
+              ScriptViewOptions(projectId: 8, defaults: store).rememberedDocumentList == nil, true)
+
+        options.rememberDocumentList("SONG")
+        check("switching back overwrites",
+              ScriptViewOptions(projectId: 7, defaults: store).rememberedDocumentList ?? "", "SONG")
+    }
 }
 
 MainActor.assumeIsolated { run() }
