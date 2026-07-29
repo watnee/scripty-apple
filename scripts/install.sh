@@ -325,6 +325,9 @@ fi
 # Ask the build system for the bundle id and the .app path rather than
 # hardcoding them, so renaming the target can't silently break the shortcut.
 # Both move when the bundle id does, so this is read again after that changes.
+# This needs the destination as much as the build does, so it fails for the same
+# reasons — it reports rather than exits, and every caller handles it like a
+# build that didn't work out.
 settle() {
     # The device-registration flag covers a phone this Apple ID has never seen:
     # without it the build stops at "isn't registered in your developer account"
@@ -332,23 +335,33 @@ settle() {
     OVERRIDES=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration
         "DEVELOPMENT_TEAM=$TEAM")
     [ -n "$BUNDLE_OVERRIDE" ] && OVERRIDES+=("PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_OVERRIDE")
-    local settings
+    local settings status=0
+    # Keep the stderr instead of dropping it, in the same file the build writes:
+    # a device Xcode can't reach and a scheme that is genuinely broken both end
+    # up here with nothing on stdout, and the reason xcodebuild gives is the only
+    # thing that tells them apart.
     settings=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
         -destination "$DESTINATION" -configuration Debug "${OVERRIDES[@]}" \
-        -showBuildSettings 2>/dev/null |
+        -showBuildSettings 2>"$BUILD_LOG" |
         awk -F' = ' '
             # Whole-name matches only: DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER
             # sorts before PRODUCT_BUNDLE_IDENTIFIER and its value is "NO".
             !id  && $1 ~ /^ *PRODUCT_BUNDLE_IDENTIFIER$/ { id = $2 }
             !dir && $1 ~ /^ *TARGET_BUILD_DIR$/          { dir = $2 }
             !app && $1 ~ /^ *WRAPPER_NAME$/              { app = $2 }
-            END { print id; print dir "/" app }')
+            END { print id; print dir "/" app }') || status=$?
     BUNDLE_ID=$(sed -n 1p <<<"$settings")
     APP_PATH=$(sed -n 2p <<<"$settings")
-    if [ -z "$BUNDLE_ID" ] || [ "$APP_PATH" = "/" ]; then
-        echo "Could not read build settings for scheme '$SCHEME'." >&2
-        exit 1
-    fi
+    [ "$status" -eq 0 ] && [ -n "$BUNDLE_ID" ] && [ "$APP_PATH" != "/" ]
+}
+
+# What settle ran into, when it wasn't the locked screen locked_out recognises.
+# Without xcodebuild's own words there is nothing here to act on: the exit code
+# alone is the silence this used to fail with.
+say_unreadable() {
+    echo "Could not read build settings for scheme '$SCHEME' with $BUILD_FOR as the" >&2
+    echo "destination. xcodebuild said:" >&2
+    sed -n '1,20p' "$BUILD_LOG" >&2
 }
 
 build() {
@@ -383,35 +396,45 @@ expires_at() {
 }
 
 # A locked device can still be installed on, but xcodebuild will not build
-# against one: it waits for a destination that never becomes ready and then
-# reports a timeout, with the reason a line further down.
+# against one, or even describe the build: it waits for a destination that never
+# becomes ready and then reports a timeout, with the reason a line further down.
+# A device that hasn't been unlocked since it was plugged in words that reason as
+# a disk image it could not mount, which is the same screen and the same answer.
 locked_out() {
-    grep -qE 'may need to be unlocked|Timed out waiting for all destinations' "$BUILD_LOG"
+    grep -qE 'may need to be unlocked|Timed out waiting for all destinations|developer disk image could not be mounted' "$BUILD_LOG"
 }
 
 # The build needs one device to aim at, and every device the profile covers can
 # receive what comes out — so a locked screen is a reason to aim somewhere else
-# rather than a reason to stop.
+# rather than a reason to stop. Reading the settings hits that screen before the
+# build does, so both take this route and only the last device gives up.
 BUILT=0
 LAST=$(( ${#DEVICES[@]} - 1 ))
 for INDEX in $(seq 0 "$LAST"); do
     record_of "${DEVICES[$INDEX]}"
     BUILD_FOR="$DEVICE_NAME"
     DESTINATION="platform=iOS,id=$DEVICE_UDID"
-    settle
-    if build; then BUILT=1; break; fi
-
-    # The default bundle id is registered to this project's team, so everyone
-    # else meets this on their first run. A team id is unique and already
-    # theirs, which makes it the one name the script can pick without asking.
-    if [ -z "$BUNDLE_OVERRIDE" ] &&
-        grep -qEi 'bundle identifier|no profiles for|is not available' "$BUILD_LOG"; then
-        BUNDLE_OVERRIDE="com.$(tr '[:upper:]' '[:lower:]' <<<"$TEAM").scripty"
-        echo
-        echo "'$BUNDLE_ID' belongs to another team, so this build takes an identifier"
-        echo "of its own: $BUNDLE_OVERRIDE"
-        settle
+    SETTLED=1
+    if settle; then
         if build; then BUILT=1; break; fi
+
+        # The default bundle id is registered to this project's team, so everyone
+        # else meets this on their first run. A team id is unique and already
+        # theirs, which makes it the one name the script can pick without asking.
+        if [ -z "$BUNDLE_OVERRIDE" ] &&
+            grep -qEi 'bundle identifier|no profiles for|is not available' "$BUILD_LOG"; then
+            BUNDLE_OVERRIDE="com.$(tr '[:upper:]' '[:lower:]' <<<"$TEAM").scripty"
+            echo
+            echo "'$BUNDLE_ID' belongs to another team, so this build takes an identifier"
+            echo "of its own: $BUNDLE_OVERRIDE"
+            if settle && build; then BUILT=1; break; fi
+        fi
+    else
+        SETTLED=0
+        if ! locked_out; then
+            echo >&2
+            say_unreadable
+        fi
     fi
 
     if locked_out; then
@@ -424,12 +447,22 @@ for INDEX in $(seq 0 "$LAST"); do
         fi
         echo "$BUILD_FOR is locked. Installing works either way, but Xcode has to reach" >&2
         echo "the device to build at all$THEN" >&2
+        # Waiting is the whole of the workaround: `xcrun devicectl device install
+        # app` against a locked device fails the same way it does here
+        # (kAMDMobileImageMounterDeviceLocked), so there is nothing to route
+        # round — same shape as keep_trying below, on the build not the launch.
         if interactive; then
             for _ in $(seq 12); do
                 sleep 5
-                if build; then BUILT=1; break 2; fi
+                if settle && build; then BUILT=1; break 2; fi
             done
         fi
+    elif [ "$SETTLED" -eq 0 ] && [ "$INDEX" -lt "$LAST" ]; then
+        # Whatever xcodebuild couldn't do, it couldn't do with this device as the
+        # destination — worth asking the next one before calling the run over.
+        record_of "${DEVICES[$(( INDEX + 1 ))]}"
+        echo "Building against $DEVICE_NAME instead." >&2
+        continue
     fi
     exit 1
 done
@@ -530,7 +563,15 @@ for RECORD in "${DEVICES[@]}"; do
         echo "registered…"
         BUILD_FOR="$DEVICE_NAME"
         DESTINATION="platform=iOS,id=$DEVICE_UDID"
-        settle
+        if ! settle; then
+            if locked_out; then
+                echo "$DEVICE_NAME is locked, so Xcode can't build against it. Unlock it and" >&2
+                echo "rerun to get it registered." >&2
+            else
+                say_unreadable
+            fi
+            FAILED=1; continue
+        fi
         build || { FAILED=1; continue; }
     fi
     install_app || { FAILED=1; continue; }
