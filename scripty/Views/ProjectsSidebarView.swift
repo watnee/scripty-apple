@@ -181,6 +181,15 @@ struct ProjectsSidebarView: View {
                 .disabled(isExportingProjects)
             }
         }
+        // The minimised search field, pushed off centre — and declared last so
+        // the spacer has Export on its far side to push against. Search lives
+        // in the bottom bar on iPhone and will not be moved: a `.topBarTrailing`
+        // placement, on this item or on a spacer, is accepted and silently
+        // ignored. Centred under the New Project pill it read as a second,
+        // nameless action belonging to that bar; against the trailing edge it
+        // reads as its own control, and sits under the thumb.
+        ToolbarSpacer(.flexible, placement: .bottomBar)
+        DefaultToolbarItem(kind: .search, placement: .bottomBar)
     }
 
     /// What you can do to the list itself: bring screenplays in, take them out,
@@ -469,7 +478,18 @@ struct ProjectsSidebarView: View {
         }
         .navigationTitle("Projects")
         .navigationSubtitle(countSubtitle)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
+        // A button rather than a bar: the drawer's `.always` field spent a row
+        // of every screen on a control most openings of this list never touch,
+        // and pushed the first screenplay down with it. Minimised, it is a
+        // magnifying glass that expands into a field when tapped and collapses
+        // back when dismissed, so the row is only spent while it is being used.
+        //
+        // Both modifiers are needed and no others work. `.minimize` without
+        // `.toolbar` placement does nothing. A drawer placement keeps the field
+        // installed once it has been opened, so the bar comes back for good
+        // after the first search — which is the thing being removed here.
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search projects")
+        .searchToolbarBehavior(.minimize)
         .refreshable { await model.refresh() }
         .safeAreaBar(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
