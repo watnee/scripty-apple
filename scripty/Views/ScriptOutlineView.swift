@@ -3,7 +3,8 @@
 //  scripty
 //
 //  The web app's outline sidebars — outline, characters, locations, songs,
-//  bookmarks and pins — collapsed into one sheet with a segmented picker.
+//  bookmarks and pins — collapsed into one sheet with a segmented picker, plus
+//  a list of the elements people have commented on.
 //  Tapping any row dismisses and sends the script page to that block.
 //
 
@@ -30,7 +31,7 @@ struct ScriptOutlineView: View {
     }
 
     enum Tab: String, CaseIterable, Identifiable {
-        case outline, characters, locations, songs, bookmarks, pins
+        case outline, characters, locations, songs, bookmarks, pins, comments
 
         var id: String { rawValue }
 
@@ -42,6 +43,7 @@ struct ScriptOutlineView: View {
             case .songs: return "Songs"
             case .bookmarks: return "Bookmarks"
             case .pins: return "Pins"
+            case .comments: return "Comments"
             }
         }
 
@@ -53,6 +55,7 @@ struct ScriptOutlineView: View {
             case .songs: return "music.note.list"
             case .bookmarks: return "bookmark"
             case .pins: return "pin"
+            case .comments: return "bubble.left.and.bubble.right"
             }
         }
 
@@ -64,6 +67,7 @@ struct ScriptOutlineView: View {
             case .songs: return "No lyrics in the screenplay yet."
             case .bookmarks: return "Bookmark an element to find it again quickly."
             case .pins: return "Pin an element to keep it close at hand."
+            case .comments: return "Notes people leave on an element are collected here."
             }
         }
     }
@@ -165,23 +169,117 @@ struct ScriptOutlineView: View {
             }
 
         case .bookmarks:
-            rows(model.bookmarkedBlocks, empty: tab.emptyMessage) { block in
-                jumpRow(to: block.id) { blockLabel(block) }
+            let marked = model.bookmarkedBlocks
+            let scenes = sceneContexts(for: marked)
+            rows(marked, empty: tab.emptyMessage) { block in
+                jumpRow(to: block.id) {
+                    blockLabel(block, icon: "bookmark.fill", scene: scenes[block.id])
+                }
+                .swipeActions(edge: .trailing) {
+                    unmark(block, rel: .toggleBookmark,
+                           title: "Remove", systemImage: "bookmark.slash") {
+                        await model.toggleBookmark(block)
+                    }
+                }
             }
 
         case .pins:
-            rows(model.pinnedBlocks, empty: tab.emptyMessage) { block in
-                jumpRow(to: block.id) { blockLabel(block) }
+            let marked = model.pinnedBlocks
+            let scenes = sceneContexts(for: marked)
+            rows(marked, empty: tab.emptyMessage) { block in
+                jumpRow(to: block.id) {
+                    blockLabel(block, icon: "pin.fill", scene: scenes[block.id])
+                }
+                .swipeActions(edge: .trailing) {
+                    unmark(block, rel: .togglePinned,
+                           title: "Unpin", systemImage: "pin.slash") {
+                        await model.togglePinned(block)
+                    }
+                }
+            }
+
+        case .comments:
+            let commented = model.commentedBlocks
+            let scenes = sceneContexts(for: commented)
+            rows(commented, empty: tab.emptyMessage) { block in
+                jumpRow(to: block.id) {
+                    blockLabel(block, icon: "bubble.left.fill", tint: .secondary,
+                               scene: scenes[block.id],
+                               trailing: model.commentCount(for: block))
+                }
             }
         }
     }
 
-    private func blockLabel(_ block: Block) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(ScriptOutline.preview(block.content ?? ""))
-            Text(block.blockType.label)
+    private func sceneContexts(for blocks: [Block]) -> [Int: OutlineSceneContext] {
+        ScriptOutline.sceneContexts(for: Set(blocks.map(\.id)), in: model.blocks)
+    }
+
+    /// Cues carry the speaker's name as their text, but one linked to a
+    /// character record may carry none — fall back to the name the script row
+    /// shows in its place, rather than calling the line untitled.
+    private func previewText(_ block: Block) -> String {
+        let content = block.content ?? ""
+        if content.isEmpty, block.blockType.isCharacterCue, let name = block.personName {
+            return name
+        }
+        return content
+    }
+
+    /// "Dialogue · Scene 2 · EXT. STUDIO PARKING LOT - NIGHT" — what kind of
+    /// line it is and where in the script it sits.
+    ///
+    /// A scene heading is its own answer to "where": it says only which scene
+    /// it is, rather than naming itself twice over.
+    private func context(_ block: Block, scene: OutlineSceneContext?) -> String {
+        guard let scene else { return block.blockType.label }
+        if block.blockType == .scene { return "Scene \(scene.number)" }
+        return "\(block.blockType.label) · Scene \(scene.number) · \(scene.heading)"
+    }
+
+    /// A marked element: what it says, what kind of element it is, and — the
+    /// part a preview of the line alone never tells you — which scene it is in.
+    private func blockLabel(_ block: Block,
+                            icon: String,
+                            tint: Color = .orange,
+                            scene: OutlineSceneContext?,
+                            trailing count: Int? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tint)
+                .frame(width: 16)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ScriptOutline.preview(previewText(block)))
+                Text(context(block, scene: scene))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if let count, count > 0 {
+                Text(count, format: .number)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Taking a mark off from the list it appears in — the counterpart of the
+    /// element menu's Unpin/Remove Bookmark, so a writer clearing out old marks
+    /// doesn't have to visit each line to do it. Offered only where the server
+    /// says the element can be marked at all.
+    @ViewBuilder
+    private func unmark(_ block: Block, rel: Rel, title: String, systemImage: String,
+                        action: @escaping () async -> Void) -> some View {
+        if block.hasLink(rel) {
+            Button {
+                Task { await action() }
+            } label: {
+                Label(title, systemImage: systemImage)
+            }
+            .tint(.orange)
         }
     }
 

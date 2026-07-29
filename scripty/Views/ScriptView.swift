@@ -551,22 +551,52 @@ struct ScriptView: View {
         // bleed, indistinguishable from action.
         chrome.columnWidth = min(chrome.columnWidth, max(280, usable))
 
-        // The badges sit in the margin beyond the column, so full width leaves
+        // The marks sit in the margin beyond the column, so full width leaves
         // them room rather than running the text underneath them.
         if settings.isFullWidth {
-            chrome.columnWidth = max(320, usable - 48)
+            chrome.columnWidth = max(320, usable - BlockMarkerBadges.gutter)
             chrome.isFullWidth = true
         }
-        // The labels hang off the left of the column, so the column gives up
-        // the room when the window has none to spare — without this they print
-        // straight over the scene headings, which start at the margin.
-        if options.showsElementLabels {
-            let margin = (usable - chrome.columnWidth) / 2
-            if margin < ElementLabelTag.gutter {
-                chrome.columnWidth = max(280, usable - 2 * ElementLabelTag.gutter)
-            }
+
+        // Both margins now have something in them: the element labels hang off
+        // the left of the column, the marks off the right. Where the centred
+        // column already leaves margin enough, they live in it and the page
+        // stays centred. Where it doesn't — a phone, a split-view slice — the
+        // column gives up exactly the room they need, because a lopsided page
+        // is better than a label printed over a scene heading or an action line
+        // running under a bookmark.
+        let leading = options.showsElementLabels ? ElementLabelTag.gutter : 0
+        let trailing = hasVisibleMarks ? BlockMarkerBadges.gutter : 0
+        let margin = (usable - chrome.columnWidth) / 2
+        if margin >= max(leading, trailing) {
+            // Room enough already: the marks sit in the margin the centred
+            // column leaves, and the same room on the left keeps the page where
+            // it was rather than nudging it off centre.
+            chrome.leadingGutter = min(BlockMarkerBadges.gutter, margin)
+            chrome.trailingGutter = chrome.leadingGutter
+        } else {
+            // Not room enough: the column gives it up — but never so much that
+            // there is nothing left to write in, so a window that cannot pay
+            // for both margins hands each a share of what it has.
+            let wanted = leading + trailing
+            let affordable = min(wanted, max(0, usable - 280))
+            let share = wanted > 0 ? affordable / wanted : 0
+            chrome.leadingGutter = leading * share
+            chrome.trailingGutter = trailing * share
+            chrome.columnWidth = usable - chrome.leadingGutter - chrome.trailingGutter
         }
         return chrome
+    }
+
+    /// Whether anything on screen is marked at all — usually nothing is. Most
+    /// scripts carry a handful of marks and plenty carry none, and an empty
+    /// gutter is column width thrown away, so the room is only taken once there
+    /// is something to put in it.
+    private var hasVisibleMarks: Bool {
+        if !model.commentCounts.isEmpty { return true }
+        return visibleBlocks.contains {
+            ($0.isPinned && options.showsPins) || ($0.isBookmarked && options.showsBookmarks)
+        }
     }
 
     /// The transient confirmation after an undo/redo, as the web editor shows.
@@ -751,7 +781,12 @@ struct ScriptView: View {
                 commentTarget = commented
             }
         } else {
-            BlockRowView(block: block, commentCount: model.commentCount(for: block))
+            // A locked or read-only element has no context menu, so the bubble
+            // is the only way in to its thread — and commenting needs no more
+            // than read access.
+            BlockRowView(block: block,
+                         commentCount: model.commentCount(for: block),
+                         onComment: block.hasLink(.comments) ? { commentTarget = block } : nil)
                 .padding(.vertical, 4)
         }
     }

@@ -3767,9 +3767,11 @@ actor DemoBackend {
             ("SYNOPSIS", "Juniper discovers the town isn't abandoned - it's hiding.", nil, false),
         ])
 
-        // Arrive with a bookmark and a tag already set, so those affordances
-        // are visible in the script without the user having to add them first.
+        // Arrive with a bookmark, a pin and a tag already set, so those
+        // affordances are visible in the script — and in the outline's marked
+        // lists — without the user having to add them first.
         flag(project: lastTake, order: 17, bookmarked: true, tags: "vfx, rain")
+        flag(project: lastTake, order: 23, pinned: true)
         flag(project: dustAndNeon, order: 1, bookmarked: true)
 
         // A song and a note per project so the Songs & Notes screen isn't empty.
@@ -3836,7 +3838,9 @@ actor DemoBackend {
                        summary: "Created the screenplay", minutesAgo: 1_500)
 
         // A short thread already in place, so the comments screen shows a
-        // conversation rather than an empty state.
+        // conversation rather than an empty state — and a second one further
+        // down the script, so the outline's Comments list has somewhere to
+        // navigate to.
         if let commented = (blocks[lastTake.id] ?? []).first(where: { $0.type == "ACTION" }) {
             seedComment(commented.id, author: "Rosa Delgado",
                         body: "Can we lose the second half of this? It plays long.",
@@ -3844,6 +3848,11 @@ actor DemoBackend {
             seedComment(commented.id, author: "You",
                         body: "Agreed — trimming after the table read.",
                         minutesAgo: 55, mine: true)
+        }
+        if let commented = (blocks[lastTake.id] ?? []).first(where: { $0.order == 20 }) {
+            seedComment(commented.id, author: "Priya Anand",
+                        body: "Dev's line lands better if he's already running.",
+                        minutesAgo: 90, mine: false)
         }
 
         // One of each kind of access, so the share screen shows the distinction
@@ -3893,9 +3902,11 @@ actor DemoBackend {
     }
 
     private func flag(project: DemoProject, order: Int,
-                      bookmarked: Bool = false, tags: String? = nil) {
+                      bookmarked: Bool = false, pinned: Bool = false,
+                      tags: String? = nil) {
         guard let index = blocks[project.id]?.firstIndex(where: { $0.order == order }) else { return }
         blocks[project.id]?[index].bookmarked = bookmarked
+        blocks[project.id]?[index].pinned = pinned
         blocks[project.id]?[index].tags = tags
     }
 

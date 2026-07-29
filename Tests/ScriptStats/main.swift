@@ -85,6 +85,22 @@ check("locations", outline.locations.map(\.name), ["SOUNDSTAGE 7", "STUDIO PARKI
 check("adjacent LYRICS group into one song", outline.songs.count, 1)
 check("song line count", outline.songs.first?.lineCount ?? -1, 2)
 
+// Where a marked element sits, which the marked lists show beside it. Ids are
+// the seeding order above: 4 is MAYA's first speech (scene 1), 11 the rain
+// action (scene 2), 1 the first scene heading itself.
+let scenes = ScriptOutline.sceneContexts(for: [1, 4, 11], in: blocks)
+check("a line takes the scene it falls under", scenes[4]?.number ?? -1, 1)
+check("and its heading", scenes[4]?.heading ?? "", "INT. SOUNDSTAGE 7 - NIGHT")
+check("a later line takes the later scene", scenes[11]?.number ?? -1, 2)
+check("a heading is in its own scene", scenes[1]?.number ?? -1, 1)
+check("only what was asked for comes back", scenes.count, 3)
+check("nothing asked, nothing walked", ScriptOutline.sceneContexts(for: [], in: blocks).isEmpty, true)
+// A block before the first scene heading is in no scene at all, rather than in
+// a made-up scene zero.
+let headless = [makeBlock(1, "ACTION", "Cold open, no heading.")]
+check("an element before any heading has no scene",
+      ScriptOutline.sceneContexts(for: [1], in: headless).isEmpty, true)
+
 print("\nScriptWordCount")
 // The running readout counts what the stats call script content — structure
 // (sections, synopses, notes) is left out of both, so the number in the corner
