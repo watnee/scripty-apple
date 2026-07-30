@@ -36,6 +36,10 @@ final class OfflineStore {
         case blocks(projectId: Int)
         case characters(projectId: Int)
         case documents(projectId: Int)
+        /// One song's lyric lines (the default edition only, like `blocks`).
+        /// Lives inside the project's directory, so pruning the project takes
+        /// its songs with it.
+        case songBlocks(projectId: Int, documentId: Int)
     }
 
     private let root: URL
@@ -77,6 +81,8 @@ final class OfflineStore {
             return projectDirectory(id).appendingPathComponent("characters.json")
         case .documents(let id):
             return projectDirectory(id).appendingPathComponent("documents.json")
+        case .songBlocks(let projectId, let documentId):
+            return projectDirectory(projectId).appendingPathComponent("song-\(documentId).json")
         }
     }
 

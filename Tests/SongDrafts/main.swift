@@ -221,6 +221,65 @@ func run() async {
     }
 
     print()
+    print("== A lyric the network can't fetch opens from the copy on this device ==")
+    do {
+        let directory = scratchDirectory("lyric-cache")
+        let store = OfflineStore(scope: "server|alice", directory: directory)
+        let cachedSong = decode(TextDocument.self, """
+        {"id": 7, "projectId": 1, "title": "Test Song", "documentType": "SONG",
+         "_links": {"songBlocks": {"href": "/api/documents/7/song-blocks"}}}
+        """)
+        // What a live load would have saved: the collection's raw bytes.
+        store.save(Data("""
+        {
+          "_embedded": {
+            "songBlockResourceList": [
+              {"id": 40, "order": 1, "content": "First verse.",
+               "_links": {"update": {"href": "/api/song-blocks/40"}}},
+              {"id": 41, "order": 2, "content": "Second verse.",
+               "_links": {"update": {"href": "/api/song-blocks/41"}}}
+            ]
+          },
+          "_links": {"self": {"href": "/api/documents/7/song-blocks"}}
+        }
+        """.utf8), .songBlocks(projectId: 1, documentId: 7))
+
+        // Held words from an earlier run lay on top of the cached copy.
+        let draftDirectory = scratchDirectory("lyric-cache-drafts")
+        let drafts = UnsavedDraftStore(scope: "server|alice", directory: draftDirectory)
+        drafts.save(UnsavedDraft(blockId: 40, text: "Rewritten offline.",
+                                 baseText: "First verse.", savedAt: .now),
+                    projectId: 7)
+
+        let model = SongBlockModel(app: AppModel(), document: cachedSong,
+                                   draftStore: drafts, offlineStore: store)
+        await model.load()
+
+        checkEqual("the cached lines are on screen", model.blocks.count, 2)
+        check("and marked as the offline copy", model.isShowingOfflineCopy)
+        check("with no alert raised", model.errorMessage == nil)
+        checkEqual("the held draft is the newest thing on screen",
+                   model.blocks.first.map { model.currentText($0) }, "Rewritten offline.")
+        check("and flagged unsaved", model.unsavedBlockIds.contains(40))
+    }
+
+    print()
+    print("== A lyric never cached still reports the failure ==")
+    do {
+        let directory = scratchDirectory("lyric-uncached")
+        let store = OfflineStore(scope: "server|alice", directory: directory)
+        let unseenSong = decode(TextDocument.self, """
+        {"id": 8, "projectId": 1, "title": "Never Opened", "documentType": "SONG",
+         "_links": {"songBlocks": {"href": "/api/documents/8/song-blocks"}}}
+        """)
+        let model = SongBlockModel(app: AppModel(), document: unseenSong, offlineStore: store)
+        await model.load()
+        check("the lyric stays empty", model.blocks.isEmpty)
+        check("nothing claims to be an offline copy", !model.isShowingOfflineCopy)
+        check("and the failure is reported", model.errorMessage != nil)
+    }
+
+    print()
     await checkNoteDraftStore()
     print()
     await checkHeldNoteSave()

@@ -125,7 +125,12 @@ struct SongBlockEditorView: View {
                 }
             }
             .overlay { emptyState }
-            .safeAreaInset(edge: .top, spacing: 0) { editionBanner }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    editionBanner
+                    offlineCopyBanner
+                }
+            }
             .safeAreaBar(edge: .bottom, spacing: 0) { wordCountBar }
             .navigationTitle(model.document.displayTitle)
             #if !os(macOS)
@@ -239,6 +244,36 @@ struct SongBlockEditorView: View {
         // fix itself is the one the badge must name.
         if model.hasFailedSaves { return .failed }
         return model.hasUnsavedChanges ? .holding : .synced
+    }
+
+    /// Says the lyric on screen is the copy saved on this device, and how old
+    /// it is — an out-of-date lyric should not look current. Only shown when
+    /// the fallback actually happened, not merely because the radio is off;
+    /// the same rule the projects sidebar follows.
+    @ViewBuilder
+    private var offlineCopyBanner: some View {
+        if let savedAt = model.offlineCopySavedAt {
+            HStack(spacing: 6) {
+                Image(systemName: "wifi.slash")
+                    .font(.caption)
+                Text("Offline — lyrics saved "
+                     + savedAt.formatted(.relative(presentation: .named)))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(.orange.opacity(0.10))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(.separator).frame(height: 0.5)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Offline. Showing the lyrics saved on this device "
+                                + savedAt.formatted(.relative(presentation: .named)) + ".")
+        }
     }
 
     /// Says which edition is open, but only when it is not the default —

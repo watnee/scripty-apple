@@ -413,7 +413,9 @@ extension HelpTopic {
                     + "the connection returns, even across a relaunch. The same "
                     + "promise the screenplay editor makes. A note that changed "
                     + "elsewhere in the meantime is set aside rather than overwritten, "
-                    + "and the editor says when that happens."
+                    + "and the editor says when that happens. A song opened offline "
+                    + "shows the lyrics saved on this device last time it loaded, "
+                    + "with a banner saying how old that copy is."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",

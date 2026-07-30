@@ -93,6 +93,17 @@ final class SongBlockModel {
     /// survive this session only, as before.
     @ObservationIgnored private let draftStore: UnsavedDraftStore?
 
+    /// The offline copies of this account's lyrics, refreshed on every
+    /// successful default-edition load and read back when a load fails for
+    /// want of a connection — the same fallback the screenplay's elements
+    /// have. Nil exactly when the draft store is (signed out, demo).
+    @ObservationIgnored private let offlineStore: OfflineStore?
+
+    /// Set when the lyric on screen is the offline copy rather than the
+    /// server's answer, with when that copy was saved.
+    private(set) var offlineCopySavedAt: Date?
+    var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
+
     var canAddLine: Bool { links.contains(.create) }
 
     /// The song's snapshot history, when the server keeps one. Advertised on
@@ -114,11 +125,13 @@ final class SongBlockModel {
     var canRedo: Bool { undoRedo?.canRedo ?? false }
     var hasUndoStack: Bool { links.contains(.undoRedoStatus) }
 
-    init(app: AppModel, document: TextDocument, draftStore: UnsavedDraftStore? = nil) {
+    init(app: AppModel, document: TextDocument, draftStore: UnsavedDraftStore? = nil,
+         offlineStore: OfflineStore? = nil) {
         self.app = app
         self.document = document
         self.draftStore = draftStore
             ?? app.draftScope.map { UnsavedDraftStore(scope: $0, folder: "SongDrafts") }
+        self.offlineStore = offlineStore ?? app.offlineStore
     }
 
     // MARK: - Loading
@@ -127,13 +140,35 @@ final class SongBlockModel {
         guard let link = editionBlocksLink ?? document.link(.songBlocks) else { return }
         isLoading = true
         defer { isLoading = false }
+        // Only the default edition is cached (and only it falls back), for the
+        // screenplay's reason: a chosen edition travels as a link that means
+        // nothing offline, and edition A's copy under edition B's banner is
+        // worse than saying the switch needs a connection.
+        let cacheKind: OfflineStore.Kind? = (editionBlocksLink == nil)
+            ? document.projectId.map { .songBlocks(projectId: $0, documentId: document.id) }
+            : nil
         do {
-            let collection: HALCollection<SongBlock> = try await app.client.fetch(from: link)
+            let data = try await app.client.data(for: link)
+            let collection: HALCollection<SongBlock> = try app.client.decode(from: data)
             adopt(collection)
+            offlineCopySavedAt = nil
             errorMessage = nil
             adoptPersistedDrafts()
+            if let cacheKind { offlineStore?.save(data, cacheKind) }
         } catch {
-            report(error)
+            // The network failed — fall back to the copy saved last time this
+            // lyric loaded. Held drafts lay on top exactly as on a live load,
+            // so words typed offline stay the newest thing on screen.
+            if let cacheKind, error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(cacheKind),
+               let collection: HALCollection<SongBlock> = try? app.client.decode(from: snapshot.data) {
+                adopt(collection)
+                offlineCopySavedAt = snapshot.savedAt
+                errorMessage = nil
+                adoptPersistedDrafts()
+            } else {
+                report(error)
+            }
         }
         // After adopt, so the status link this round advertised is the one used.
         await refreshUndoRedo()
@@ -326,6 +361,9 @@ final class SongBlockModel {
             retryAttempts[id] = nil
             await commit(line)
         }
+        // The route is back and the lyric on screen may be the old copy: a
+        // successful load replaces it and takes the banner down with it.
+        if isShowingOfflineCopy { await load() }
     }
 
     // MARK: - Structure
