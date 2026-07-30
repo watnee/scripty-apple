@@ -34,6 +34,12 @@ final class ScriptModel {
     /// the rel, so a deployment that doesn't simply shows no badges.
     private(set) var commentCounts: [Int: Int] = [:]
     private(set) var undoRedo: UndoRedoStatus?
+
+    /// Undo/redo for the changes the server never saw — see `LocalHistory`.
+    /// Non-empty exactly while offline work is on screen; cleared the moment
+    /// the sync lands and server history speaks for those changes instead.
+    private(set) var localHistory = LocalHistory()
+
     private(set) var isLoading = false
     var errorMessage: String?
 
@@ -187,6 +193,9 @@ final class ScriptModel {
     var editionBlocksLink: HALLink? {
         didSet {
             guard editionBlocksLink != oldValue else { return }
+            // Another edition's script is about to be on screen; steps
+            // recorded against this one must not be applied to it.
+            localHistory.clear()
             Task { await loadBlocks() }
         }
     }
@@ -358,9 +367,10 @@ final class ScriptModel {
     func deleteBlock(_ block: Block) async {
         // An element that only ever existed on this device is deleted by
         // forgetting it — there is nothing to ask the server to remove, and
-        // anything the writer anchored to it goes the same way.
+        // anything the writer anchored to it goes the same way. Recorded, so
+        // the one delete that CAN be taken back offline can be.
         if block.isLocal {
-            if let queue = createQueue { dropPendingCreate(block.id, from: queue) }
+            if let queue = createQueue { removeRecordingHistory(block.id, from: queue) }
             errorMessage = nil
             return
         }
@@ -490,6 +500,10 @@ final class ScriptModel {
         // carries the newest version — and it stays flagged unsaved, because
         // it genuinely is. Returning the block lets Return chain off it.
         if block.isLocal {
+            if let change = localHistory.textChange(blockId: id, to: text,
+                                                    lastSaved: block.content ?? "") {
+                localHistory.record([change])
+            }
             createQueue?.updateContent(tempId: id, to: text, projectId: project.id)
             var updated = block
             updated.content = text
@@ -558,6 +572,7 @@ final class ScriptModel {
 
     /// The server has this block's text; the live copy is no longer precious.
     private func markSaved(_ id: Int) {
+        localHistory.noteSaved(blockId: id)
         unsavedBlockIds.remove(id)
         retryTasks[id]?.cancel()
         retryTasks[id] = nil
@@ -568,7 +583,19 @@ final class ScriptModel {
     /// A write failed. Flag the block so its live text is held, and — when the
     /// failure was the kind that might clear up by itself — try again on a
     /// backoff rather than making the writer notice and retype.
+    ///
+    /// This is also where an edit to a real element enters the local history:
+    /// a write the server refused is a change only this device knows, which is
+    /// exactly what local undo exists to take back. `textChange` returns nil
+    /// when nothing moved since the last record, so the retries that land back
+    /// here every backoff never duplicate a step.
     private func markUnsaved(_ id: Int, after error: Error) {
+        if let text = liveText[id],
+           let change = localHistory.textChange(
+               blockId: id, to: text,
+               lastSaved: blocks.first(where: { $0.id == id })?.content ?? "") {
+            localHistory.record([change])
+        }
         unsavedBlockIds.insert(id)
         persistDraft(id)
         guard error.isRetryableAPIError else { return }
@@ -651,13 +678,14 @@ final class ScriptModel {
                                 order: anchor?.order, content: content,
                                 type: type, personId: personId)
         blocks.insert(block, at: insertAt)
-        queue.enqueue(PendingBlockCreate(tempId: tempId,
-                                         anchorId: anchor?.id ?? PendingBlockCreate.appendAnchor,
-                                         type: type.rawValue,
-                                         content: content,
-                                         personId: personId,
-                                         createdAt: .now),
-                      projectId: project.id)
+        let entry = PendingBlockCreate(tempId: tempId,
+                                       anchorId: anchor?.id ?? PendingBlockCreate.appendAnchor,
+                                       type: type.rawValue,
+                                       content: content,
+                                       personId: personId,
+                                       createdAt: .now)
+        queue.enqueue(entry, projectId: project.id)
+        localHistory.record([.create(row: LocalHistory.Row(entry: entry, index: insertAt))])
         // Counted as unsaved work so the banner speaks for it, and so the
         // reconnect sweep has a reason to look.
         unsavedBlockIds.insert(tempId)
@@ -705,6 +733,12 @@ final class ScriptModel {
     private func replayPendingCreates() async {
         guard let queue = createQueue else { return }
         var droppedAny = false
+        var resolvedAny = false
+        // Once anything here lands or is given up on, the local steps describe
+        // elements that no longer exist under their temp identities — history
+        // belongs to the server again. Cleared on the way out, whatever mix of
+        // successes the drain managed.
+        defer { if resolvedAny || droppedAny { localHistory.clear() } }
         while let entry = queue.pending(projectId: project.id).first {
             // Resolve the anchor: a temp anchor has by now been sent and
             // mapped, since the queue is drained in order.
@@ -735,6 +769,7 @@ final class ScriptModel {
                                              personId: entry.personId,
                                              type: entry.type))
                 queue.resolve(tempId: entry.tempId, realId: created.id, projectId: project.id)
+                resolvedAny = true
                 // Swap the real element in where the stand-in stood, rather
                 // than just dropping it. The next entry in the queue may be
                 // anchored to this one, and it resolves that anchor by looking
@@ -772,13 +807,16 @@ final class ScriptModel {
     }
 
     /// Abandon a queued element and anything anchored to it, on screen as well
-    /// as on disk.
-    private func dropPendingCreate(_ tempId: Int, from queue: OfflineBlockQueue) {
-        for dropped in queue.drop(tempId: tempId, projectId: project.id) {
-            blocks.removeAll { $0.id == dropped }
-            liveText[dropped] = nil
-            markSaved(dropped)
+    /// as on disk. Returns what went, for the callers that record the removal.
+    @discardableResult
+    private func dropPendingCreate(_ tempId: Int, from queue: OfflineBlockQueue) -> [Int] {
+        let dropped = queue.drop(tempId: tempId, projectId: project.id)
+        for id in dropped {
+            blocks.removeAll { $0.id == id }
+            liveText[id] = nil
+            markSaved(id)
         }
+        return dropped
     }
 
     /// Flush every pending debounced commit right now — the app is heading to
@@ -813,11 +851,21 @@ final class ScriptModel {
         if !pending.isEmpty, unsavedBlockIds.isEmpty {
             presentToast("All offline changes synced")
         }
+        // Everything made it: those changes are the server's history now, and
+        // ⌘Z should walk that rather than replay the offline session locally.
+        // A drain that fell short keeps its steps — the writer is still
+        // effectively offline, and they are still the only undo there is.
+        if unsavedBlockIds.isEmpty { localHistory.clear() }
     }
 
     /// Give up on a speculative write (a merge that couldn't be persisted) and
-    /// put the block's live text back the way it was.
+    /// put the block's live text back the way it was. The failed write already
+    /// recorded itself as a local step (see `markUnsaved`); the screen is
+    /// being rolled back, so the record has to go with it.
     private func rollback(_ id: Int, to previous: String?) {
+        if let attempted = liveText[id] {
+            localHistory.unrecordText(blockId: id, after: attempted)
+        }
         liveText[id] = previous
         if previous == nil { markSaved(id) }
     }
@@ -861,12 +909,16 @@ final class ScriptModel {
         let source: Block
         if currentType != block.blockType {
             guard let retyped = await retype(block, to: currentType, content: before) else {
+                // The failed write recorded itself (see markUnsaved); the
+                // split is being abandoned, so the record goes too.
+                localHistory.unrecordText(blockId: block.id, after: before)
                 liveText[block.id] = full
                 return
             }
             source = retyped
         } else {
             guard let committed = await commit(block.id) else {
+                localHistory.unrecordText(blockId: block.id, after: before)
                 liveText[block.id] = full
                 return
             }
@@ -971,7 +1023,9 @@ final class ScriptModel {
             // Nothing to delete on the server: the absorbed element only ever
             // existed here, so dropping its queued create is the whole of it.
             // Done before the reload so the stand-in doesn't come back.
-            if let queue = createQueue { dropPendingCreate(block.id, from: queue) }
+            // Recorded as its own step behind the text one — undoing a merge
+            // offline is two presses, the same two changes it was made of.
+            if let queue = createQueue { removeRecordingHistory(block.id, from: queue) }
             liveText[block.id] = nil
             await loadBlocks()
             await refreshUndoRedo()
@@ -1013,6 +1067,20 @@ final class ScriptModel {
         // so Tab cycling and the element-type bar work offline on the line the
         // writer is actually typing.
         if block.isLocal {
+            // One step for the whole gesture: a split that retypes the line
+            // carries text and type together, and one undo should too.
+            var changes: [LocalChange] = []
+            if let content,
+               let change = localHistory.textChange(blockId: block.id, to: content,
+                                                    lastSaved: block.content ?? "") {
+                changes.append(change)
+            }
+            if block.type != type.rawValue {
+                changes.append(.retype(blockId: block.id,
+                                       before: block.type ?? BlockType.action.rawValue,
+                                       after: type.rawValue))
+            }
+            localHistory.record(changes)
             createQueue?.updateType(tempId: block.id, to: type.rawValue, projectId: project.id)
             if let content {
                 liveText[block.id] = content
@@ -1157,11 +1225,37 @@ final class ScriptModel {
         }
     }
 
+    /// Whether there is anything to undo right now. Local steps count whatever
+    /// the route says — they need no server. The server's own history only
+    /// counts while a request could plausibly reach it (the demo backend
+    /// always can); offline, a button armed by a stale status would just be a
+    /// button that raises an alert.
+    var canUndo: Bool {
+        localHistory.canUndo ||
+            ((app.connectivity.isOnline || app.isDemo) && undoRedo?.canUndo == true)
+    }
+
+    var canRedo: Bool {
+        localHistory.canRedo ||
+            ((app.connectivity.isOnline || app.isDemo) && undoRedo?.canRedo == true)
+    }
+
+    /// Whether the undo/redo pair belongs in the toolbar at all: the server
+    /// advertised its history, or this device is holding steps of its own.
+    /// Without the second half, a script opened offline (its status never
+    /// fetched) would hide the pair exactly when the local steps exist.
+    var offersUndoRedo: Bool { undoRedo != nil || !localHistory.isEmpty }
+
+    /// Local steps first: they are strictly newer than anything in the server's
+    /// history — they exist precisely because they never reached it — so they
+    /// are what "undo the last change" means while any of them stand.
     func undo() async {
+        if applyLocalStep(.undo) { return }
         await performUndoRedo(rel: .undo)
     }
 
     func redo() async {
+        if applyLocalStep(.redo) { return }
         await performUndoRedo(rel: .redo)
     }
 
@@ -1174,11 +1268,160 @@ final class ScriptModel {
         do {
             undoRedo = try await app.client.fetch(UndoRedoStatus.self, from: link, method: "POST")
             await loadBlocks()
+            // The reload rewrote the script under any local steps (only the
+            // redo side can still hold them here — undo drains local first).
+            localHistory.clear()
             errorMessage = nil
             presentHistoryToast(rel: rel, delta: blocks.count - before)
         } catch {
             report(error)
         }
+    }
+
+    // MARK: - Local history (undoing what the server never saw)
+
+    private enum HistoryDirection { case undo, redo }
+
+    /// Pop and apply one local step. Returns false when that side of the
+    /// history is empty and the caller should try the server instead.
+    private func applyLocalStep(_ direction: HistoryDirection) -> Bool {
+        let popped = direction == .undo ? localHistory.popUndo() : localHistory.popRedo()
+        guard let step = popped else { return false }
+        let countBefore = blocks.count
+        // A step's changes were recorded in the order they happened, so undo
+        // walks them backwards and redo forwards. Applying hands back a
+        // refreshed copy of each change: a queued element's words keep moving
+        // after its create was recorded, and the snapshot that crosses to the
+        // other stack has to be the words as they stand now.
+        let ordered = direction == .undo ? step.changes.reversed() : step.changes
+        let applied = ordered.map { apply($0, direction) }
+        let refreshed = LocalStep(changes: direction == .undo ? applied.reversed() : applied)
+        if direction == .undo {
+            localHistory.pushUndone(refreshed)
+        } else {
+            localHistory.pushRedone(refreshed)
+        }
+        presentHistoryToast(rel: direction == .undo ? .undo : .redo,
+                            delta: blocks.count - countBefore)
+        return true
+    }
+
+    /// Apply one side of one change, returning the change refreshed with the
+    /// state it just captured off the screen (see `applyLocalStep`).
+    private func apply(_ change: LocalChange, _ direction: HistoryDirection) -> LocalChange {
+        switch change {
+        case .text(let blockId, let before, let after):
+            applyText(blockId, to: direction == .undo ? before : after)
+            return change
+        case .retype(let blockId, let before, let after):
+            applyType(blockId, to: direction == .undo ? before : after)
+            return change
+        case .create(var row):
+            if direction == .undo {
+                row = refreshedRow(row)
+                removePendingRows([row])
+            } else {
+                restorePendingRows([row])
+            }
+            return .create(row: row)
+        case .remove(var rows):
+            if direction == .undo {
+                restorePendingRows(rows)
+            } else {
+                rows = rows.map(refreshedRow)
+                removePendingRows(rows)
+            }
+            return .remove(rows: rows)
+        }
+    }
+
+    /// Put `text` back on a block, through the same channels the words
+    /// originally travelled: a queued element's entry is updated in place, a
+    /// real element's text becomes the live copy and re-arms the ordinary
+    /// debounced save — which succeeds, retries or queues exactly as typing
+    /// the restoration by hand would have.
+    private func applyText(_ blockId: Int, to text: String) {
+        guard let block = blocks.first(where: { $0.id == blockId }) else { return }
+        localHistory.noteApplied(blockId: blockId, text: text)
+        if block.isLocal {
+            createQueue?.updateContent(tempId: blockId, to: text, projectId: project.id)
+            var updated = block
+            updated.content = text
+            replace(updated)
+            liveText[blockId] = text
+            unsavedBlockIds.insert(blockId)
+        } else {
+            liveEdit(block, text: text)
+        }
+    }
+
+    /// Retype steps are only ever recorded for queued elements (a real
+    /// element's retype needs the server and fails cleanly offline), so a
+    /// block that is no longer local has nothing to apply to.
+    private func applyType(_ blockId: Int, to raw: String) {
+        guard let block = blocks.first(where: { $0.id == blockId }), block.isLocal else { return }
+        createQueue?.updateType(tempId: blockId, to: raw, projectId: project.id)
+        var updated = block
+        updated.type = raw
+        replace(updated)
+    }
+
+    /// The row as it stands right now — freshest queued words, current screen
+    /// position — for the copy that crosses to the other stack.
+    private func refreshedRow(_ row: LocalHistory.Row) -> LocalHistory.Row {
+        var row = row
+        if let live = createQueue?.pending(projectId: project.id)
+            .first(where: { $0.tempId == row.entry.tempId }) {
+            row.entry = live
+        }
+        if let index = blocks.firstIndex(where: { $0.id == row.entry.tempId }) {
+            row.index = index
+        }
+        return row
+    }
+
+    private func removePendingRows(_ rows: [LocalHistory.Row]) {
+        guard let queue = createQueue else { return }
+        for row in rows { dropPendingCreate(row.entry.tempId, from: queue) }
+    }
+
+    /// Re-materialise removed rows: entries back in the outbox in the order
+    /// they were first written (a later one may be anchored to an earlier
+    /// one), stand-ins back on screen by position, exactly as
+    /// `adoptPendingCreates` rebuilds them after a reload.
+    private func restorePendingRows(_ rows: [LocalHistory.Row]) {
+        guard let queue = createQueue else { return }
+        for row in rows
+        where !queue.pending(projectId: project.id).contains(where: { $0.tempId == row.entry.tempId }) {
+            queue.enqueue(row.entry, projectId: project.id)
+        }
+        for row in rows.sorted(by: { $0.index < $1.index }) {
+            let tempId = row.entry.tempId
+            guard !blocks.contains(where: { $0.id == tempId }) else { continue }
+            let at = min(max(row.index, 0), blocks.count)
+            let precedingOrder = at > 0 ? blocks[at - 1].order : nil
+            blocks.insert(Block.local(tempId: tempId, projectId: project.id,
+                                      order: precedingOrder,
+                                      content: row.entry.content,
+                                      type: BlockType(rawValue: row.entry.type) ?? .action,
+                                      personId: row.entry.personId),
+                          at: at)
+            unsavedBlockIds.insert(tempId)
+            localHistory.noteApplied(blockId: tempId, text: row.entry.content)
+        }
+    }
+
+    /// Drop a pending element (with its anchored chain, as always) and record
+    /// the removal, so the deletion a writer asked for can be undone.
+    private func removeRecordingHistory(_ tempId: Int, from queue: OfflineBlockQueue) {
+        let pendingBefore = queue.pending(projectId: project.id)
+        let indices = Dictionary(uniqueKeysWithValues: blocks.enumerated().map { ($1.id, $0) })
+        let dropped = Set(dropPendingCreate(tempId, from: queue))
+        let rows = pendingBefore
+            .filter { dropped.contains($0.tempId) }
+            .map { LocalHistory.Row(entry: $0, index: indices[$0.tempId] ?? blocks.count) }
+        guard !rows.isEmpty else { return }
+        localHistory.record([.remove(rows: rows)])
     }
 
     /// Mirrors the web's `historyToastMessage`: a positive delta means the step

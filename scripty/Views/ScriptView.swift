@@ -1301,8 +1301,8 @@ struct ScriptView: View {
     private var menuActions: ScriptActions {
         var actions = ScriptActions(title: model.project.displayTitle)
 
-        actions.canUndo = model.undoRedo?.canUndo ?? false
-        actions.canRedo = model.undoRedo?.canRedo ?? false
+        actions.canUndo = model.canUndo
+        actions.canRedo = model.canRedo
         actions.undo = { Task { await model.undo() } }
         actions.redo = { Task { await model.redo() } }
 
@@ -1581,13 +1581,16 @@ struct ScriptView: View {
             // No keyboard shortcut here: ⌘Z belongs to the menu bar's replaced
             // undo group, and a second claim on the same keys would be settled
             // by responder order with one of the two silently dead.
-            if let undoRedo = model.undoRedo, !settings.isPageView {
+            // `offersUndoRedo` rather than the server status alone: a script
+            // opened offline never fetched its status, and hiding the button
+            // then would hide it exactly when the local steps exist.
+            if model.offersUndoRedo, !settings.isPageView {
                 Button {
                     Task { await model.undo() }
                 } label: {
                     Label("Undo", systemImage: "arrow.uturn.backward")
                 }
-                .disabled(!(undoRedo.canUndo ?? false))
+                .disabled(!model.canUndo)
             }
 
             if model.hasScriptContent && !settings.isFocusMode {
@@ -1693,14 +1696,14 @@ struct ScriptView: View {
         // Redo, the half of the pair the bar had no room to draw. It stays in
         // the overflow in focus mode too, where undo is still up in the bar —
         // the two are useless apart.
-        if let undoRedo = model.undoRedo, !settings.isPageView {
+        if model.offersUndoRedo, !settings.isPageView {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     Task { await model.redo() }
                 } label: {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
-                .disabled(!(undoRedo.canRedo ?? false))
+                .disabled(!model.canRedo)
             }
         }
     }
