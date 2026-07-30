@@ -838,7 +838,11 @@ struct ScriptView: View {
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
     @ViewBuilder
     private var documentsBar: some View {
-        if isCompact && !isChromeHidden && model.canViewDocuments && !settings.isFocusMode {
+        // Not while elements are being selected: the selection bar already
+        // takes two rows of the phone's bottom edge, and songs and notes are
+        // exactly the errand the writer is not on.
+        if isCompact && !isChromeHidden && model.canViewDocuments && !settings.isFocusMode
+            && !selection.isSelecting {
             HStack(spacing: 8) {
                 songsButton
                 notesButton
