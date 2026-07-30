@@ -1274,7 +1274,6 @@ final class ScriptModel {
     /// Local steps first: they are strictly newer than anything in the server's
     /// history — they exist precisely because they never reached it — so they
     /// are what "undo the last change" means while any of them stand.
->>>>>>> claude/offline-undo-support-39f8e5
     func undo() async {
         if applyLocalStep(.undo) { return }
         await performUndoRedo(rel: .undo)
