@@ -32,10 +32,6 @@ struct SongLineRow: View {
     /// this points at it and reports back when the writer taps it directly, so
     /// the shared value stays the single source of truth across both hosts.
     @FocusState.Binding var focusedLine: Int?
-    /// True while the list this row is in is being rearranged. The line stops
-    /// taking text for as long as that lasts: a tap meant for a drag handle
-    /// that opens the keyboard instead is the whole mode undone.
-    var isRearranging = false
     /// Whether the row has a number in the margin. The all-songs workspace
     /// turns it off — a page of every song is read as lyrics, not discussed
     /// by line — and with it goes the per-line menu the number anchors:
@@ -70,26 +66,19 @@ struct SongLineRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if showsLineNumber {
-                if isRearranging {
-                    // No menu while rearranging: Move Up and Move Down are what
-                    // the drag handle is now for, and the rest would be a menu
-                    // opened by a tap aimed at a row about to be dragged.
+                Menu {
+                    lineMenu
+                } label: {
                     lineNumber
-                } else {
-                    Menu {
-                        lineMenu
-                    } label: {
-                        lineNumber
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .accessibilityLabel("Line \(block.order ?? 0) actions")
                 }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityLabel("Line \(block.order ?? 0) actions")
             }
 
             SongLineField(text: text,
                           isFocused: isFocused,
-                          isEditable: block.isEditable && !isRearranging,
+                          isEditable: block.isEditable,
                           fontSize: Self.baseLineSize * textScale,
                           spellChecks: spellChecks,
                           spellcheckRevision: spellcheckRevision,
@@ -153,8 +142,7 @@ struct SongLineRow: View {
     /// view here claims it with `.focused()`, since the field grants itself
     /// first responder.
     private var isFocused: Bool {
-        guard !isRearranging else { return false }
-        return focusedLine == block.id || model.focusRequest == block.id
+        focusedLine == block.id || model.focusRequest == block.id
     }
 
     private var text: Binding<String> {

@@ -36,10 +36,6 @@ struct SongBlockEditorView: View {
     /// or the lyric is reloaded, which is exactly when the web re-runs its own
     /// filter.
     @State private var matchedLines: Set<Int> = []
-    /// Held here rather than left to the environment so leaving it can put the
-    /// lines back to being typed into — the same reason the songs list keeps
-    /// its own.
-    @State private var editMode: EditMode = .inactive
 
     init(app: AppModel, document: TextDocument) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
@@ -67,26 +63,6 @@ struct SongBlockEditorView: View {
             model.blocks.filter { $0.text.lowercased().contains(needle) }.map(\.id))
     }
 
-    /// Dragging is only meaningful over the whole lyric: a drop is sent as an
-    /// absolute position, so rearranging a list searched down to three lines
-    /// would move them somewhere nobody pointed at. The same rule, for the same
-    /// reason, that the songs list applies to its own drags.
-    private var canReorder: Bool {
-        query.isEmpty && model.blocks.count > 1
-            && model.blocks.contains { $0.hasLink(.move) }
-    }
-
-    /// Sends a drop as the absolute index the line landed on.
-    private func moveLines(from source: IndexSet, to destination: Int) {
-        guard let from = source.first, model.blocks.indices.contains(from) else { return }
-        let block = model.blocks[from]
-        // SwiftUI reports the gap the row was dropped into, which counts the
-        // row itself while it is still above the gap — so a downward move is
-        // one further along than the index it becomes.
-        let to = destination > from ? destination - 1 : destination
-        Task { await model.move(block, to: to) }
-    }
-
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
@@ -94,8 +70,7 @@ struct SongBlockEditorView: View {
                     ForEach(shownBlocks) { block in
                         SongLineRow(model: model,
                                     block: block,
-                                    focusedLine: $focusedLine,
-                                    isRearranging: editMode.isEditing)
+                                    focusedLine: $focusedLine)
                             .id(block.id)
                             // No hairline between one lyric line and the next.
                             // A plain list rules off every row, which turns a
@@ -105,15 +80,8 @@ struct SongBlockEditorView: View {
                             // backgrounds still separate highlighted lines.
                             .listRowSeparator(.hidden)
                     }
-                    .onMove { source, destination in
-                        // Guarded rather than conditionally attached: a plain
-                        // closure keeps the list's content type unambiguous.
-                        guard canReorder else { return }
-                        moveLines(from: source, to: destination)
-                    }
                 }
                 .listStyle(.plain)
-                .environment(\.editMode, $editMode)
                 // One device-wide type size scales the lyric here, the way it
                 // scales the screenplay — the web reuses its global text-size
                 // preference for song lines for the same reason.
@@ -140,20 +108,6 @@ struct SongBlockEditorView: View {
                         prompt: "Search lyrics")
             .onChange(of: searchText) { _, _ in
                 runSearch()
-                // A drop is an absolute position, so rearranging a filtered
-                // list is not offered — leave the mode rather than sit in one
-                // whose handles no longer do anything.
-                if !query.isEmpty { editMode = .inactive }
-            }
-            // Rearranging puts the lines beyond typing, so flush whatever was
-            // half-typed before the keyboard goes away with it.
-            .onChange(of: editMode) { _, mode in
-                guard mode.isEditing else { return }
-                focusedLine = nil
-                // Or a line the model was still pointing at would take the
-                // keyboard back the moment the list redraws for the drag.
-                model.focusRequest = nil
-                Task { await model.commitAll() }
             }
             .task {
                 await model.load()
@@ -322,20 +276,6 @@ struct SongBlockEditorView: View {
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            // Not an `EditButton`: its label is "Edit", which beside the sheet's
-            // own "Done" reads as though the lyric were not already editable.
-            // What this mode actually offers is rearranging.
-            if canReorder || editMode.isEditing {
-                Button {
-                    withAnimation {
-                        editMode = editMode.isEditing ? .inactive : .active
-                    }
-                } label: {
-                    Label(editMode.isEditing ? "Finish Rearranging" : "Rearrange Lines",
-                          systemImage: editMode.isEditing
-                              ? "checkmark" : "arrow.up.arrow.down")
-                }
-            }
             if model.trashLink != nil {
                 Button {
                     showingTrash = true
