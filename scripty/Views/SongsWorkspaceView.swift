@@ -63,6 +63,7 @@ struct SongsWorkspaceView: View {
                     } header: {
                         header(song)
                     }
+                    .listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain)
