@@ -36,6 +36,11 @@ struct SongLineRow: View {
     /// taking text for as long as that lasts: a tap meant for a drag handle
     /// that opens the keyboard instead is the whole mode undone.
     var isRearranging = false
+    /// Whether the row has a number in the margin. The all-songs workspace
+    /// turns it off — a page of every song is read as lyrics, not discussed
+    /// by line — and with it goes the per-line menu the number anchors:
+    /// there, the lyric fills the row and Delete survives as a swipe.
+    var showsLineNumber = true
 
     @Environment(\.colorScheme) private var colorScheme
     /// The writer's chosen type size, shared with the screenplay through the
@@ -64,20 +69,22 @@ struct SongLineRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if isRearranging {
-                // No menu while rearranging: Move Up and Move Down are what the
-                // drag handle is now for, and the rest would be a menu opened
-                // by a tap aimed at a row that is about to be dragged.
-                lineNumber
-            } else {
-                Menu {
-                    lineMenu
-                } label: {
+            if showsLineNumber {
+                if isRearranging {
+                    // No menu while rearranging: Move Up and Move Down are what
+                    // the drag handle is now for, and the rest would be a menu
+                    // opened by a tap aimed at a row about to be dragged.
                     lineNumber
+                } else {
+                    Menu {
+                        lineMenu
+                    } label: {
+                        lineNumber
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityLabel("Line \(block.order ?? 0) actions")
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .accessibilityLabel("Line \(block.order ?? 0) actions")
             }
 
             SongLineField(text: text,
