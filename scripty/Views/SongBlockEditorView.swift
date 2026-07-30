@@ -16,6 +16,15 @@ import SwiftUI
 struct SongBlockEditorView: View {
     @State private var model: SongBlockModel
     @State private var editions: EditionsModel
+    /// The screenplay behind this sheet, so the song can be sent into it from
+    /// here — the list's context menu carries the same action, but the writer
+    /// who has just finished polishing a verse is standing in this editor, not
+    /// over a row.
+    private let scriptModel: ScriptModel
+    /// Told when the song has landed in the script, so whoever presented this
+    /// sheet can clear the way to the screenplay — from the songs list that
+    /// means the list dismissing too, as it does for its own insert.
+    private let onInserted: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedLine: Int?
@@ -33,6 +42,12 @@ struct SongBlockEditorView: View {
     /// the ordinary state. The screenplay's search is a toolbar button for the
     /// same reason.
     @State private var isSearching = false
+    /// In flight to the screenplay. Guards the button rather than showing a
+    /// spinner: the send is one POST and a reload, over in a beat.
+    @State private var isInserting = false
+    /// What an insert that put nothing in the script has to say for itself —
+    /// an empty song, or a send the server refused.
+    @State private var insertMessage: String?
     @State private var searchText = ""
     /// Which lines the current search matched, by id.
     ///
@@ -44,9 +59,12 @@ struct SongBlockEditorView: View {
     /// filter.
     @State private var matchedLines: Set<Int> = []
 
-    init(app: AppModel, document: TextDocument) {
+    init(app: AppModel, document: TextDocument, scriptModel: ScriptModel,
+         onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
+        self.scriptModel = scriptModel
+        self.onInserted = onInserted
     }
 
     private var query: String {
@@ -167,6 +185,33 @@ struct SongBlockEditorView: View {
             } message: {
                 Text(model.errorMessage ?? "")
             }
+            .alert("Insert into Script", isPresented: insertMessageBinding) {
+                Button("OK", role: .cancel) { insertMessage = nil }
+            } message: {
+                Text(insertMessage ?? "")
+            }
+        }
+    }
+
+    /// Sends the song into the screenplay as Lyrics blocks, at the end of the
+    /// script — the same call the list's context menu makes. Half-typed lines
+    /// are flushed first, so what lands is what is on screen; a song that
+    /// landed dismisses down to the screenplay it just changed.
+    private func insert() {
+        isInserting = true
+        Task {
+            await model.commitAll()
+            let count = await scriptModel.insertDocument(model.document)
+            isInserting = false
+            if let count, count > 0 {
+                dismiss()
+                onInserted?()
+            } else if count == 0 {
+                insertMessage = "Nothing to insert from \"\(model.document.displayTitle)\"."
+            } else {
+                insertMessage = scriptModel.errorMessage
+                    ?? "Could not insert into the script."
+            }
         }
     }
 
@@ -241,6 +286,19 @@ struct SongBlockEditorView: View {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
                 .disabled(!model.canRedo)
+            }
+        }
+        // The list's context-menu action, reachable without leaving the song.
+        // Same gate — the server advertised an `insert` link on this document —
+        // and the same landing: the end of the script.
+        if model.document.hasLink(.insert) {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    insert()
+                } label: {
+                    Label("Insert into Script", systemImage: "text.insert")
+                }
+                .disabled(isInserting)
             }
         }
         ToolbarItem(placement: .secondaryAction) {
@@ -377,6 +435,11 @@ struct SongBlockEditorView: View {
     private var errorBinding: Binding<Bool> {
         Binding(get: { model.errorMessage != nil },
                 set: { if !$0 { model.errorMessage = nil } })
+    }
+
+    private var insertMessageBinding: Binding<Bool> {
+        Binding(get: { insertMessage != nil },
+                set: { if !$0 { insertMessage = nil } })
     }
 }
 
