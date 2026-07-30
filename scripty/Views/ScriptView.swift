@@ -270,10 +270,14 @@ struct ScriptView: View {
         // whatever changed elsewhere. Mirrors the web's sync-on-reconnect.
         .onChange(of: model.app.connectivity.isOnline) { _, online in
             guard online else { return }
-            Task { await model.connectionRestored() }
+            Task { await model.syncHeldWork() }
         }
         // Backgrounding flushes the debounced commit immediately — and stops
         // the 5s sync poll from hitting the network while nobody is looking.
+        // Coming back is a second chance for anything still held: retry
+        // backoffs may have run out while the app slept, and the monitor only
+        // speaks on a *change* of route, so the foreground is the one moment
+        // that reliably arrives with both a route and the writer's attention.
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background, .inactive:
@@ -281,6 +285,9 @@ struct ScriptView: View {
                 Task { await model.flushPendingCommits() }
             case .active:
                 model.startSyncPolling()
+                if model.hasHeldWork, model.app.connectivity.isOnline {
+                    Task { await model.syncHeldWork() }
+                }
             @unknown default:
                 break
             }
@@ -517,6 +524,9 @@ struct ScriptView: View {
     private var cloudState: CloudSyncState? {
         guard !model.app.isDemo else { return nil }
         if !model.app.connectivity.isOnline { return .offline }
+        // Refused beats retrying: with both on screen, the one that will not
+        // fix itself is the one the badge must name.
+        if model.hasFailedSaves { return .failed }
         return model.hasUnsavedChanges ? .holding : .synced
     }
 
@@ -545,6 +555,21 @@ struct ScriptView: View {
                       + " kept on this device and will sync when you're back online."
                     : "You're offline. Edits are kept on this device and sync when "
                       + "you're back online.")
+        } else if model.hasFailedSaves {
+            // Refused, not late: the promise the other two banners make —
+            // that patience or a connection will finish the job — would be a
+            // lie here, so this one says what happened and what still helps.
+            let failedCount = model.failedBlockIds.count
+            heldWorkBanner(
+                icon: "exclamationmark.triangle",
+                title: "Couldn't save",
+                detail: "· \(failedCount) \(noun(failedCount)) the server wouldn't take",
+                count: count,
+                accessibility:
+                    "\(failedCount) " + (failedCount == 1 ? "element" : "elements")
+                    + " couldn't be saved to the server. Your words are kept on "
+                    + "this device; editing the line tries again.",
+                tint: .red)
         } else if model.hasUnsavedChanges {
             heldWorkBanner(
                 icon: "arrow.trianglehead.2.clockwise.rotate.90",
@@ -558,10 +583,12 @@ struct ScriptView: View {
         }
     }
 
-    /// The one look both banner states share: a quiet amber strip under the
-    /// toolbar. Which state is on it is just words and an icon.
+    /// The one look the banner states share: a quiet strip under the toolbar,
+    /// amber for the held states, red for the refused one. Which state is on
+    /// it is just words, an icon and the tint.
     private func heldWorkBanner(icon: String, title: String, detail: String,
-                                count: Int, accessibility: String) -> some View {
+                                count: Int, accessibility: String,
+                                tint: Color = .orange) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.caption)
@@ -573,11 +600,11 @@ struct ScriptView: View {
             Spacer(minLength: 0)
         }
         .font(.footnote)
-        .foregroundStyle(.orange)
+        .foregroundStyle(tint)
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity)
-        .background(.orange.opacity(0.12))
+        .background(tint.opacity(0.12))
         .overlay(alignment: .bottom) { Divider() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibility)

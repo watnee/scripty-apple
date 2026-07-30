@@ -22,6 +22,10 @@ enum CloudSyncState: Equatable {
     case holding
     /// No route to the network at all; nothing can leave this device yet.
     case offline
+    /// The server refused some of the writing — a failure no retry is going
+    /// to fix on its own. Distinct from `holding` because the honest verbs
+    /// differ: holding is "saving", this is "couldn't save".
+    case failed
 }
 
 /// The cloud in the corner: a standing answer to "is my work saved?".
@@ -70,11 +74,18 @@ struct CloudSyncBadge: View {
         // The same arrows the "Not saved yet" banner wears, on a cloud.
         case .holding: "arrow.trianglehead.2.clockwise.rotate.90.icloud"
         case .offline: "icloud.slash"
+        case .failed: "exclamationmark.icloud"
         }
     }
 
     private var tint: Color {
-        state == .synced ? .secondary : .orange
+        switch state {
+        case .synced: .secondary
+        case .holding, .offline: .orange
+        // Red, alone among the states: amber means patience will fix it,
+        // and here it will not.
+        case .failed: .red
+        }
     }
 
     /// What VoiceOver reads and what the pointer's tooltip shows on the Mac.
@@ -96,6 +107,10 @@ struct CloudSyncBadge: View {
             return heldCount > 0
                 ? "Offline. \(held) and will sync when you're back online."
                 : "Offline. Edits are kept on this device and sync when you're back online."
+        case .failed:
+            return heldCount > 0
+                ? "Some changes couldn't be saved. \(held)."
+                : "Some changes couldn't be saved. They are kept on this device."
         }
     }
 }
@@ -105,6 +120,7 @@ struct CloudSyncBadge: View {
         CloudSyncBadge(state: .synced)
         CloudSyncBadge(state: .holding, heldCount: 3)
         CloudSyncBadge(state: .offline, heldCount: 3)
+        CloudSyncBadge(state: .failed, heldCount: 1)
     }
     .padding()
 }

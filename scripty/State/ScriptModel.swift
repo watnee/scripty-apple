@@ -77,6 +77,18 @@ final class ScriptModel {
     /// True while any element is holding text the server hasn't accepted.
     var hasUnsavedChanges: Bool { !unsavedBlockIds.isEmpty }
 
+    /// Blocks whose latest write the server *refused* — a failure no retry
+    /// fixes, as opposed to one that clears up when the route returns. Their
+    /// words are still held (they are in `unsavedBlockIds` too, and the
+    /// reconnect sweep retries them in case the refusal was about access that
+    /// has since been restored), but the badge must stop saying "saving":
+    /// nothing is in flight, and a writer who reads "saving" walks away.
+    private(set) var failedBlockIds: Set<Int> = []
+
+    /// True when something on screen needs the writer's attention rather than
+    /// patience.
+    var hasFailedSaves: Bool { !failedBlockIds.isEmpty }
+
     private var commitTasks: [Int: Task<Void, Never>] = [:]
     private static let commitDebounce: Duration = .milliseconds(600)
 
@@ -162,6 +174,12 @@ final class ScriptModel {
             // Started here rather than in the view, so a screenplay whose open
             // was interrupted still has the one thing that keeps it current.
             startSyncPolling()
+            // Work held by an earlier run must not wait for the network to
+            // flap — before this, a queue written yesterday sat on disk until
+            // connectivity happened to change with the script on screen. If
+            // there is a route now, send it now; offline, the writes fail
+            // fast at the client's own gate and stay held exactly as saved.
+            if app.connectivity.isOnline, hasHeldWork { await syncHeldWork() }
         }
         openTask = task
         await task.value
@@ -220,8 +238,6 @@ final class ScriptModel {
             let collection: HALCollection<Block> = try app.client.decode(from: data)
             guard generation == blockLoadGeneration else { return }
             adopt(collection)
-            adoptPersistedDrafts()
-            adoptPendingCreates()
             offlineCopySavedAt = nil
             errorMessage = nil
             wasAbandoned = false
@@ -232,15 +248,14 @@ final class ScriptModel {
         } catch {
             guard generation == blockLoadGeneration else { return }
             // The network failed — fall back to the copy saved last time the
-            // script loaded. Persisted drafts are adopted on top exactly as
-            // they are on a live load, so words typed offline stay the newest
-            // thing on screen and the retry machinery keeps holding them.
+            // script loaded. `adopt` lays persisted drafts and queued creates
+            // on top exactly as it does on a live load, so words typed offline
+            // stay the newest thing on screen and the retry machinery keeps
+            // holding them.
             if isDefaultEdition, error.isRetryableAPIError,
                let snapshot = offlineStore?.load(.blocks(projectId: project.id)),
                let collection: HALCollection<Block> = try? app.client.decode(from: snapshot.data) {
                 adopt(collection)
-                adoptPersistedDrafts()
-                adoptPendingCreates()
                 offlineCopySavedAt = snapshot.savedAt
                 errorMessage = nil
                 wasAbandoned = false
@@ -291,6 +306,15 @@ final class ScriptModel {
     func adopt(_ collection: HALCollection<Block>) {
         blocks = collection.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
         blocksLinks = collection.links
+        // Every wholesale replacement threatens the same two things: text not
+        // yet accepted, and elements the server has never seen. Re-applied
+        // here rather than only on the loads that remembered to, so a bulk
+        // retype answering with the fresh collection no longer wipes the
+        // offline-written rows off the screen (they stayed queued on disk,
+        // but invisible). Both are idempotent — work already on screen, or a
+        // block already being edited, is left alone.
+        adoptPersistedDrafts()
+        adoptPendingCreates()
     }
 
     func loadCharacters() async {
@@ -458,8 +482,10 @@ final class ScriptModel {
     func liveEdit(_ block: Block, text: String) {
         liveText[block.id] = text
         // Fresh typing earns a fresh set of retries: the backoff having run
-        // out ten minutes ago shouldn't leave this keystroke with none.
+        // out ten minutes ago shouldn't leave this keystroke with none. A
+        // refusal is re-judged the same way — new words are a new write.
         retryAttempts[block.id] = nil
+        failedBlockIds.remove(block.id)
         scheduleCommit(block.id)
     }
 
@@ -549,6 +575,11 @@ final class ScriptModel {
             markSaved(id)
             return .saved(block)
         }
+        // Snapshot before the attempt, not only after a failure: between here
+        // and the response the words exist nowhere but this process, and a
+        // kill mid-flight (or right after the debounce fired) used to be the
+        // end of them. Success removes the draft again in `markSaved`.
+        persistDraft(id)
         do {
             let updated: Block = try await app.client.fetch(
                 from: link, method: "PUT",
@@ -618,6 +649,7 @@ final class ScriptModel {
     private func markSaved(_ id: Int) {
         localHistory.noteSaved(blockId: id)
         unsavedBlockIds.remove(id)
+        failedBlockIds.remove(id)
         retryTasks[id]?.cancel()
         retryTasks[id] = nil
         retryAttempts[id] = nil
@@ -642,7 +674,14 @@ final class ScriptModel {
         }
         unsavedBlockIds.insert(id)
         persistDraft(id)
-        guard error.isRetryableAPIError else { return }
+        guard error.isRetryableAPIError else {
+            // Refused, not delayed. The words stay held — they are still the
+            // only copy — but nothing is retrying on a timer, and the badge
+            // has to say so rather than pulse "saving" forever.
+            failedBlockIds.insert(id)
+            return
+        }
+        failedBlockIds.remove(id)
         let attempt = retryAttempts[id] ?? 0
         guard attempt < Self.retryDelays.count else { return }
         retryAttempts[id] = attempt + 1
@@ -785,16 +824,18 @@ final class ScriptModel {
     /// earlier one, so each create has to land (and have its real id recorded)
     /// before the next can name it. A failure that could clear up stops the
     /// drain and leaves the rest queued; one that never will drops that element
-    /// and everything hanging off it, rather than blocking the queue forever.
+    /// alone — anything anchored to it re-anchors one link up and still lands —
+    /// rather than blocking the queue forever or, worse, taking a night's
+    /// writing with it.
     private func replayPendingCreates() async {
         guard let queue = createQueue else { return }
-        var droppedAny = false
+        var refused: [String] = []
         var resolvedAny = false
         // Once anything here lands or is given up on, the local steps describe
         // elements that no longer exist under their temp identities — history
         // belongs to the server again. Cleared on the way out, whatever mix of
         // successes the drain managed.
-        defer { if resolvedAny || droppedAny { localHistory.clear() } }
+        defer { if resolvedAny || !refused.isEmpty { localHistory.clear() } }
         while let entry = queue.pending(projectId: project.id).first {
             // Resolve the anchor: a temp anchor has by now been sent and
             // mapped, since the queue is drained in order.
@@ -811,8 +852,7 @@ final class ScriptModel {
             guard let link = source?.link(.createBelow) ?? blocksLinks[.createInitial] else {
                 // Nothing on this script can take a new element: no edit
                 // access any more, or an empty script with no seed link.
-                dropPendingCreate(entry.tempId, from: queue)
-                droppedAny = true
+                refused.append(dropRefusedCreate(entry, from: queue))
                 continue
             }
             // The words as they stand now, not as they stood when the line was
@@ -850,16 +890,46 @@ final class ScriptModel {
                     // Still no usable connection. Everything stays queued.
                     return
                 }
-                dropPendingCreate(entry.tempId, from: queue)
-                droppedAny = true
+                refused.append(dropRefusedCreate(entry, from: queue))
             }
         }
-        if droppedAny {
+        if !refused.isEmpty {
             // Not `report`: this is not a failure the writer can retry, it is
             // news about work that could not be placed. The banner and the
             // alert both belong to things still in flight.
-            presentToast("Some elements written offline couldn't be added")
+            presentToast(refusalToast(for: refused))
         }
+    }
+
+    /// Abandon one element the server refused: off the queue (its dependents
+    /// re-anchor one link up and stay queued), off the screen, out of the
+    /// bookkeeping. Returns the words it was holding, so the toast can quote
+    /// what was lost rather than just admit that something was.
+    private func dropRefusedCreate(_ entry: PendingBlockCreate,
+                                   from queue: OfflineBlockQueue) -> String {
+        let words = liveText[entry.tempId] ?? entry.content
+        queue.dropSingle(tempId: entry.tempId, projectId: project.id)
+        blocks.removeAll { $0.id == entry.tempId }
+        liveText[entry.tempId] = nil
+        markSaved(entry.tempId)
+        return words
+    }
+
+    /// One refused line quotes itself — those words exist nowhere else any
+    /// more, and a writer shown *which* line went missing can retype it.
+    /// Several fall back to the count; a toast can't hold a scene.
+    private func refusalToast(for refused: [String]) -> String {
+        if refused.count == 1 {
+            let words = refused[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !words.isEmpty else {
+                return "An element written offline couldn't be added"
+            }
+            let snippet = words.count > 60
+                ? words.prefix(60).trimmingCharacters(in: .whitespaces) + "…"
+                : words
+            return "This line couldn't be added: “\(snippet)”"
+        }
+        return "\(refused.count) elements written offline couldn't be added"
     }
 
     /// Abandon a queued element and anything anchored to it, on screen as well
@@ -885,17 +955,51 @@ final class ScriptModel {
         for id in pending { await commit(id) }
     }
 
-    /// The connection is back: push every element still holding unsaved words
-    /// right now rather than waiting out whatever backoff each is on — in
-    /// session the live copy is authoritative, exactly as the retry loop
-    /// treats it — then pull whatever changed elsewhere while we were away.
+    /// Whether anything is waiting to be sent — the question the opportunistic
+    /// sync triggers ask before starting a drain, so a script with nothing
+    /// held doesn't reload itself on every trip to the foreground.
+    var hasHeldWork: Bool {
+        hasUnsavedChanges || createQueue?.hasPending(projectId: project.id) == true
+    }
+
+    /// Push everything held on this device right now — unsaved text first,
+    /// then the queued creates — rather than waiting out whatever backoff each
+    /// element is on, then pull whatever changed elsewhere while we were away.
     /// Mirrors the web client's sync-on-reconnect, including its confirmation
     /// once everything lands.
-    func connectionRestored() async {
+    ///
+    /// This used to run only when the connection flapped with the script on
+    /// screen, which left a queue written yesterday waiting for the network to
+    /// change its mind: opening the app online never sent it. Now every moment
+    /// that could make sending possible lands here — the online edge, the app
+    /// coming to the foreground, the script being opened with held work on
+    /// disk — and the single-flight join keeps two of those coinciding (an
+    /// online edge firing under a foreground sweep, say) from double-posting a
+    /// queued create: the second caller waits out the first drain instead of
+    /// starting its own beside it.
+    func syncHeldWork() async {
+        if let heldWorkSync { return await heldWorkSync.value }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.drainHeldWork()
+        }
+        heldWorkSync = task
+        await task.value
+        heldWorkSync = nil
+    }
+
+    private var heldWorkSync: Task<Void, Never>?
+
+    private func drainHeldWork() async {
         let pending = unsavedBlockIds.sorted()
         // Existing elements first: a queued create is anchored to one of them,
         // and its own words ride on the create rather than on a PUT.
-        for id in pending where id > 0 { await commit(id) }
+        for id in pending where id > 0 {
+            // The sweep is a fresh chance, not a continuation: whatever
+            // backoff an element had run out of, it earns a new budget here.
+            retryAttempts[id] = nil
+            await commit(id)
+        }
         await replayPendingCreates()
         // Not over active typing — the sync poll reloads after the writer
         // blurs (the commits above bumped the revision), clearing the

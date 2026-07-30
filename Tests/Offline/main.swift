@@ -290,7 +290,7 @@ func checkReconnectHoldsWork() async {
     // one request in the file that really goes out — the case is about a
     // failure the monitor cannot see, so it has to be a real one.
     monitor.adopt(true)
-    await model.connectionRestored()
+    await model.syncHeldWork()
     checkEqual("the words are still on screen",
                model.currentText(model.blocks[0]), "Typed while offline.")
     check("and still flagged unsaved", model.unsavedBlockIds.contains(10))
@@ -374,6 +374,35 @@ func checkQueueArithmetic() async {
     checkEqual("the whole chain is dropped, however deep", Set(dropped), Set([a, b, c]))
     checkEqual("and only the chain — the queue drains rather than blocking",
                chain.pending(projectId: 1).map(\.tempId), [loose])
+
+    print()
+    print("== A refusal drops one entry; its dependents re-anchor and survive ==")
+    // `drop`'s cascade is for a deliberate delete. A create the *server*
+    // refused takes only itself: what hung off it re-anchors one link up, so
+    // the rest of a night's writing still lands — one line short, not gone.
+    let refusal = OfflineBlockQueue(scope: "server|dave", directory: directory)
+    let x = refusal.nextTempId(projectId: 1)
+    refusal.enqueue(PendingBlockCreate(tempId: x, anchorId: 10, type: "ACTION",
+                                       content: "X", personId: nil, createdAt: .now),
+                    projectId: 1)
+    let y = refusal.nextTempId(projectId: 1)
+    refusal.enqueue(PendingBlockCreate(tempId: y, anchorId: x, type: "ACTION",
+                                       content: "Y", personId: nil, createdAt: .now),
+                    projectId: 1)
+    let z = refusal.nextTempId(projectId: 1)
+    refusal.enqueue(PendingBlockCreate(tempId: z, anchorId: y, type: "ACTION",
+                                       content: "Z", personId: nil, createdAt: .now),
+                    projectId: 1)
+    refusal.dropSingle(tempId: x, projectId: 1)
+    checkEqual("only the refused entry leaves the queue",
+               refusal.pending(projectId: 1).map(\.tempId), [y, z])
+    checkEqual("its dependent re-anchors to what the refused one hung off",
+               refusal.pending(projectId: 1).first?.anchorId, 10)
+    checkEqual("the deeper chain is untouched",
+               refusal.pending(projectId: 1).last?.anchorId, y)
+    let refusalReopened = OfflineBlockQueue(scope: "server|dave", directory: directory)
+    checkEqual("and the re-anchoring is on disk, not just in memory",
+               refusalReopened.pending(projectId: 1).first?.anchorId, 10)
 }
 
 /// The point of the whole feature: with no connection, Return still starts a
@@ -487,7 +516,7 @@ func checkWritingNewElementsOffline() async {
     // The route returns but the server is still refusing (the closed port).
     // Nothing may be dropped: the create is retryable, so it stays queued.
     monitor.adopt(true)
-    await relaunched.connectionRestored()
+    await relaunched.syncHeldWork()
     checkEqual("a replay that can't reach the server keeps the element",
                relaunched.pendingCreateCount, 1)
     checkEqual("and keeps it queued",

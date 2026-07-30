@@ -83,7 +83,7 @@ final class APIClient {
         // wait. The writer on a train is covered better by the app's own
         // machinery — `offlineCheck` below refuses a request the moment the
         // route is gone, the words are flagged unsaved and written to disk,
-        // a backoff retries them, and `connectionRestored()` pushes the lot
+        // a backoff retries them, and `syncHeldWork()` pushes the lot
         // the instant the route is back. Waiting here only hides that from
         // the writer.
         //
