@@ -501,13 +501,34 @@ final class ScriptModel {
         }
     }
 
+    /// How a write of a block's text ended up — the distinction the callers
+    /// that build on a write (Return's split, Backspace's merge) need and a
+    /// plain `Block?` cannot carry: a write that was *refused* is not the
+    /// same thing as a write that couldn't get out but left the words safe.
+    private enum WriteOutcome {
+        /// The server stored it — or a queued local create absorbed it, which
+        /// is as stored as an offline element gets. Safe to build on.
+        case saved(Block)
+        /// The write couldn't get out, but the words are held on this device:
+        /// flagged unsaved, snapshotted as a draft, and retrying. Offline, in
+        /// practice — the footing every line written offline stands on.
+        case held(Block)
+        /// Refused for a reason a retry won't fix, or nothing to write with.
+        case failed
+    }
+
     /// PUT the block's live text if it differs from what the server has.
     @discardableResult
     private func commit(_ id: Int) async -> Block? {
+        if case .saved(let block) = await commitOutcome(id) { return block }
+        return nil
+    }
+
+    private func commitOutcome(_ id: Int) async -> WriteOutcome {
         commitTasks[id]?.cancel()
         commitTasks[id] = nil
         guard let text = liveText[id],
-              let block = blocks.first(where: { $0.id == id }) else { return nil }
+              let block = blocks.first(where: { $0.id == id }) else { return .failed }
         // An element written offline has nothing to PUT to. Its words go into
         // the queue entry instead, so the create that eventually goes out
         // carries the newest version — and it stays flagged unsaved, because
@@ -522,11 +543,11 @@ final class ScriptModel {
             updated.content = text
             replace(updated)
             unsavedBlockIds.insert(id)
-            return updated
+            return .saved(updated)
         }
         guard text != (block.content ?? ""), let link = block.link(.update) else {
             markSaved(id)
-            return block
+            return .saved(block)
         }
         do {
             let updated: Block = try await app.client.fetch(
@@ -536,11 +557,11 @@ final class ScriptModel {
             markSaved(id)
             refreshUndoRedoSoon()
             errorMessage = nil
-            return updated
+            return .saved(updated)
         } catch {
             markUnsaved(id, after: error)
             reportUnlessRetrying(error)
-            return nil
+            return error.isRetryableAPIError ? .held(block) : .failed
         }
     }
 
@@ -576,7 +597,17 @@ final class ScriptModel {
             errorMessage = nil
             return updated
         } catch {
-            report(error)
+            // The PUT carried the block's freshest words, and the debounced
+            // commit that would have saved them was cancelled above — so when
+            // the failure is the kind that clears up by itself, hold them
+            // exactly as a failed auto-save would. Only the tag change is
+            // dropped. A pure tag edit (no live text) has no words to hold.
+            if liveText[block.id] != nil, error.isRetryableAPIError {
+                markUnsaved(block.id, after: error)
+                reportUnlessRetrying(error)
+            } else {
+                report(error)
+            }
             return nil
         }
     }
@@ -645,6 +676,7 @@ final class ScriptModel {
     /// last-write-wins, so pushing the old draft would clobber newer words.
     func adoptPersistedDrafts() {
         guard let store = draftStore else { return }
+        var setAside = 0
         for (id, draft) in store.drafts(projectId: project.id) {
             guard liveText[id] == nil, !unsavedBlockIds.contains(id) else { continue }
             guard let block = blocks.first(where: { $0.id == id }) else {
@@ -658,12 +690,23 @@ final class ScriptModel {
                 continue
             }
             guard draft.baseText == nil || draft.baseText == server else {
+                // Someone edited this element elsewhere since the save failed,
+                // and the server is last-write-wins: pushing the draft would
+                // clobber the newer words. The draft goes — but these are
+                // words the writer typed and never saw land, so it must not
+                // go silently.
                 store.remove(blockId: id, projectId: project.id)
+                setAside += 1
                 continue
             }
             liveText[id] = draft.text
             unsavedBlockIds.insert(id)
             scheduleCommit(id)
+        }
+        if setAside > 0 {
+            presentToast(setAside == 1
+                ? "An offline edit was set aside — that line changed elsewhere"
+                : "\(setAside) offline edits were set aside — those lines changed elsewhere")
         }
     }
 
@@ -913,29 +956,42 @@ final class ScriptModel {
 
         // Persist the (possibly retyped, possibly trimmed) current block.
         //
-        // If that write fails, abandon the split rather than pressing on: the
-        // text after the caret only belongs in a new element once the text
-        // before it is safely stored. `before` stays in `liveText` (flagged
-        // unsaved) and `after` stays on screen as part of this block, so the
-        // writer's line is intact and Return can simply be pressed again.
+        // If that write is refused, abandon the split rather than pressing
+        // on: the text after the caret only belongs in a new element once the
+        // text before it is safely stored. `before` stays in `liveText`
+        // (flagged unsaved) and `after` stays on screen as part of this
+        // block, so the writer's line is intact and Return can simply be
+        // pressed again.
         liveText[block.id] = before
+        let outcome = currentType != block.blockType
+            ? await retypeOutcome(block, to: currentType, content: before)
+            : await commitOutcome(block.id)
         let source: Block
-        if currentType != block.blockType {
-            guard let retyped = await retype(block, to: currentType, content: before) else {
-                // The failed write recorded itself (see markUnsaved); the
-                // split is being abandoned, so the record goes too.
+        switch outcome {
+        case .saved(let updated):
+            source = updated
+        case .held(let heldBlock):
+            // The head couldn't be written, but its words are held on this
+            // device and retrying — the same footing every line written
+            // offline stands on, so Return keeps working: the tail becomes a
+            // queued element behind the held head, and `before` stays live.
+            // Only when there is nowhere to queue the tail does the split
+            // back out whole, exactly as a refused write does.
+            if let created = createLocalBlock(below: heldBlock,
+                                              type: currentType.followingType,
+                                              content: after, personId: nil) {
+                focus(created.id, caret: 0)
+            } else {
                 localHistory.unrecordText(blockId: block.id, after: before)
                 liveText[block.id] = full
-                return
             }
-            source = retyped
-        } else {
-            guard let committed = await commit(block.id) else {
-                localHistory.unrecordText(blockId: block.id, after: before)
-                liveText[block.id] = full
-                return
-            }
-            source = committed
+            return
+        case .failed:
+            // The failed write recorded itself (see markUnsaved); the split
+            // is being abandoned, so the record goes too.
+            localHistory.unrecordText(blockId: block.id, after: before)
+            liveText[block.id] = full
+            return
         }
         liveText[block.id] = nil
 
@@ -1016,8 +1072,12 @@ final class ScriptModel {
     /// Backspace at offset 0: merge this block into the previous editable one
     /// and place the caret at the seam.
     func mergeIntoPrevious(_ block: Block) async {
+        // `isEditable`, not `hasLink(.update)`: a line written offline has no
+        // links at all, but it is exactly the line Backspace should merge into
+        // — skipping it would splice this block's text into an earlier,
+        // wrong element.
         guard let index = blocks.firstIndex(where: { $0.id == block.id }), index > 0,
-              let previous = blocks[..<index].last(where: { $0.hasLink(.update) }) else { return }
+              let previous = blocks[..<index].last(where: { $0.isEditable }) else { return }
         let previousText = currentText(previous)
         let seam = previousText.count
         let merged = previousText + currentText(block)
@@ -1026,11 +1086,27 @@ final class ScriptModel {
         // they were — half a merge would show the writer their own words twice.
         let restore = liveText[previous.id]
         liveText[previous.id] = merged
-        guard let updatedPrevious = await commit(previous.id) else {
+        let updatedPrevious: Block
+        switch await commitOutcome(previous.id) {
+        case .saved(let updated):
+            updatedPrevious = updated
+            liveText[previous.id] = nil   // model value is now authoritative for the merged row
+        case .held(let heldBlock):
+            // The merged words are held on this device and retrying — footing
+            // enough when the absorbed element is one the server has never
+            // seen, because taking it off screen needs no DELETE. A server
+            // element does need one, and a held merge over a failed delete
+            // would show the words twice, so that case backs out whole. The
+            // merged text stays in `liveText`: it is the writer's only copy.
+            guard block.isLocal else {
+                rollback(previous.id, to: restore)
+                return
+            }
+            updatedPrevious = heldBlock
+        case .failed:
             rollback(previous.id, to: restore)
             return
         }
-        liveText[previous.id] = nil   // model value is now authoritative for the merged row
 
         if block.isLocal {
             // Nothing to delete on the server: the absorbed element only ever
@@ -1081,6 +1157,14 @@ final class ScriptModel {
 
     @discardableResult
     private func retype(_ block: Block, to type: BlockType, content: String?) async -> Block? {
+        if case .saved(let updated) = await retypeOutcome(block, to: type, content: content) {
+            return updated
+        }
+        return nil
+    }
+
+    private func retypeOutcome(_ block: Block, to type: BlockType,
+                               content: String?) async -> WriteOutcome {
         // A local element's type is just another field of its queued create,
         // so Tab cycling and the element-type bar work offline on the line the
         // writer is actually typing.
@@ -1108,12 +1192,12 @@ final class ScriptModel {
             updated.type = type.rawValue
             if let content { updated.content = content }
             replace(updated)
-            return updated
+            return .saved(updated)
         }
         guard let link = block.link(.setType) else {
             // Server without setType: fall back to a content-only commit.
-            if let content { liveText[block.id] = content; return await commit(block.id) }
-            return block
+            if let content { liveText[block.id] = content; return await commitOutcome(block.id) }
+            return .saved(block)
         }
         do {
             let updated: Block = try await app.client.fetch(
@@ -1123,7 +1207,7 @@ final class ScriptModel {
             adoptRewritten(updated)
             refreshUndoRedoSoon()
             errorMessage = nil
-            return updated
+            return .saved(updated)
         } catch {
             // The retype carried the writer's text with it, so a failure here
             // loses words just as a failed commit would. Hold the live copy
@@ -1132,10 +1216,10 @@ final class ScriptModel {
             if content != nil {
                 markUnsaved(block.id, after: error)
                 reportUnlessRetrying(error)
-            } else {
-                report(error)
+                return error.isRetryableAPIError ? .held(block) : .failed
             }
-            return nil
+            report(error)
+            return .failed
         }
     }
 
@@ -1147,6 +1231,13 @@ final class ScriptModel {
     /// carried, so typing straight through a `.INT` never loses the letters
     /// typed after the marker.
     func retypeLive(_ block: Block, to type: BlockType) async {
+        // A line written offline reflows the same way: its type is a field of
+        // its queued create, so the force marker works mid-keystroke there
+        // too, instead of dying on the missing server link below.
+        if block.isLocal {
+            _ = await retype(block, to: type, content: liveText[block.id])
+            return
+        }
         guard let link = block.link(.setType) else { return }
         // The keystroke that triggered this already armed a content commit;
         // cancel it so it does not race the retype with a type-less write.

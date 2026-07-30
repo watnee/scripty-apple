@@ -100,6 +100,8 @@ func run() async {
     print()
     await checkWritingNewElementsOffline()
     print()
+    await checkStructuralEditsOffline()
+    print()
     await checkUndoOffline()
 
     print()
@@ -493,6 +495,123 @@ func checkWritingNewElementsOffline() async {
     checkEqual("with the words intact",
                relaunched.currentText(relaunched.blocks[1]), "Survives a relaunch.")
     check("and says nothing about having synced", relaunched.historyToast == nil)
+}
+
+/// The structural edits — Return mid-line, Backspace at the seam — keep
+/// working offline on lines the server already has. The half that needs a PUT
+/// is held on this device exactly as plain typing is; the half that needs a
+/// new element rides the outbox.
+@MainActor
+func checkStructuralEditsOffline() async {
+    print("== Return splits an edited line even with no connection ==")
+    let editableBlocksJSON = """
+    {
+      "_embedded": {
+        "blockResourceList": [
+          {
+            "id": 10, "order": 1, "type": "ACTION", "content": "First line.",
+            "_links": {
+              "update": {"href": "/api/blocks/10"},
+              "delete": {"href": "/api/blocks/10"},
+              "createBelow": {"href": "/api/blocks/10/below"}
+            }
+          },
+          {
+            "id": 11, "order": 2, "type": "ACTION", "content": "Second line.",
+            "_links": {
+              "update": {"href": "/api/blocks/11"},
+              "delete": {"href": "/api/blocks/11"},
+              "createBelow": {"href": "/api/blocks/11/below"}
+            }
+          }
+        ]
+      },
+      "_links": {"self": {"href": "/api/projects/1/blocks"}}
+    }
+    """
+    let directory = scratchDirectory("structural")
+    let store = OfflineStore(scope: "server|alice", directory: directory)
+    store.save(Data(editableBlocksJSON.utf8), .blocks(projectId: 1))
+    let queue = OfflineBlockQueue(scope: "server|alice",
+                                  directory: directory.appendingPathComponent("queue"))
+
+    let monitor = ConnectivityMonitor(startMonitoring: false)
+    monitor.adopt(false)
+    let model = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                            draftStore: nil, offlineStore: store, createQueue: queue)
+    await model.loadBlocks()
+
+    // The line is reworded, then Return is pressed mid-line. The PUT of the
+    // head cannot get out — the split must go ahead on this device anyway,
+    // not silently swallow the keystroke.
+    model.liveEdit(model.blocks[0], text: "First line, rewritten offline.")
+    await model.splitBlock(model.blocks[0], caret: 11)
+    checkEqual("the line is split on screen", model.blocks.count, 3)
+    checkEqual("the head keeps the words before the caret",
+               model.currentText(model.blocks[0]), "First line,")
+    check("and is flagged unsaved for the retry", model.unsavedBlockIds.contains(10))
+    check("the tail is an element held on this device", model.blocks[1].isLocal)
+    checkEqual("carrying the words after the caret",
+               model.currentText(model.blocks[1]), " rewritten offline.")
+    checkEqual("queued behind the server's own line",
+               queue.pending(projectId: 1).first?.anchorId, 10)
+    checkEqual("the caret lands in the tail", model.focusedBlockId, model.blocks[1].id)
+
+    print()
+    print("== Backspace merges the tail back even with no connection ==")
+    // Backspace at the start of the tail: the merged head can't be PUT either,
+    // but its words are held, and the absorbed element only ever existed here.
+    await model.mergeIntoPrevious(model.blocks[1])
+    checkEqual("the line is whole again", model.blocks.count, 2)
+    checkEqual("with all the words in the head",
+               model.currentText(model.blocks[0]), "First line, rewritten offline.")
+    check("still flagged unsaved", model.unsavedBlockIds.contains(10))
+    checkEqual("and nothing left queued", queue.pending(projectId: 1).count, 0)
+
+    print()
+    print("== Backspace merges into the line written offline, not past it ==")
+    // Two lines written offline in a row: Backspace on the second must fold
+    // it into the first — the nearest editable line — not skip the pending
+    // line (which advertises no links) and splice into the server line above.
+    await model.insertBlock(below: model.blocks[1], type: .action)
+    model.liveEdit(model.blocks[2], text: "Written offline.")
+    await model.blur(model.blocks[2])
+    await model.splitBlock(model.blocks[2], caret: 16)
+    model.liveEdit(model.blocks[3], text: " And more.")
+    await model.blur(model.blocks[3])
+    await model.mergeIntoPrevious(model.blocks[3])
+    checkEqual("the two offline lines fold into one",
+               model.currentText(model.blocks[2]), "Written offline. And more.")
+    checkEqual("the server line above them is untouched",
+               model.currentText(model.blocks[1]), "Second line.")
+    checkEqual("one queued element remains", queue.pending(projectId: 1).count, 1)
+
+    print()
+    print("== A force marker retypes a line written offline ==")
+    model.liveEdit(model.blocks[2], text: ".INT KITCHEN")
+    await model.retypeLive(model.blocks[2], to: .scene)
+    checkEqual("the row reflows mid-keystroke", model.blocks[2].blockType, .scene)
+    checkEqual("and the queued create carries the new type",
+               queue.pending(projectId: 1).first?.type, "SCENE")
+
+    print()
+    print("== A draft whose line changed elsewhere is set aside, but never silently ==")
+    let conflictDirectory = scratchDirectory("conflict")
+    let conflictStore = OfflineStore(scope: "server|alice", directory: conflictDirectory)
+    conflictStore.save(Data(blocksJSON.utf8), .blocks(projectId: 1))
+    let drafts = UnsavedDraftStore(scope: "server|alice",
+                                   directory: conflictDirectory.appendingPathComponent("drafts"))
+    drafts.save(UnsavedDraft(blockId: 10, text: "Words typed offline.",
+                             baseText: "An older line.", savedAt: .now),
+                projectId: 1)
+    let conflicted = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                                 draftStore: drafts, offlineStore: conflictStore)
+    await conflicted.loadBlocks()
+    checkEqual("the stale draft is not pushed over the newer words",
+               conflicted.currentText(conflicted.blocks[0]), "First line.")
+    check("and is off the disk", drafts.drafts(projectId: 1).isEmpty)
+    check("but the writer is told",
+          conflicted.historyToast?.text.contains("set aside") == true)
 }
 
 /// Undo with no connection: the changes held on this device — text kept for
