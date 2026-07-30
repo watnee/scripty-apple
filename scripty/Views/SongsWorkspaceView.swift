@@ -67,6 +67,10 @@ struct SongsWorkspaceView: View {
                 }
             }
             .listStyle(.plain)
+            // Same single-spacing rule as the song editor: without this the
+            // list pads every lyric line up to its default minimum row height,
+            // and a verse reads double-spaced.
+            .environment(\.defaultMinListRowHeight, 1)
             .environment(\.scriptTextScale, settings.textScale)
             .searchable(text: $filter, prompt: "Filter songs")
             .overlay { emptyState }

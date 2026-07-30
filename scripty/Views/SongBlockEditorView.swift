@@ -113,6 +113,11 @@ struct SongBlockEditorView: View {
                     }
                 }
                 .listStyle(.plain)
+                // The list pads every row up to its default minimum height,
+                // which reads as double spacing between lyric lines. A verse
+                // is single-spaced: let each line be exactly as tall as its
+                // text, the way the web's song editor draws them near-flush.
+                .environment(\.defaultMinListRowHeight, 1)
                 .environment(\.editMode, $editMode)
                 // One device-wide type size scales the lyric here, the way it
                 // scales the screenplay — the web reuses its global text-size

@@ -131,6 +131,12 @@ struct SongLineRow: View {
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 4)
+        // The list's own row insets would put a blank line's worth of air
+        // between one lyric line and the next, which reads as double spacing.
+        // A verse is single-spaced: the 2pt row padding above is the only
+        // vertical gap, matching the near-flush lines of the web's song
+        // editor. Horizontal stays at the plain list's usual 16pt.
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowBackground(rowBackground)
         .swipeActions(edge: .trailing) {
             if block.hasLink(.delete) {
