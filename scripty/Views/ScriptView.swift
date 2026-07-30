@@ -1742,13 +1742,34 @@ struct ScriptView: View {
             // `offersUndoRedo` rather than the server status alone: a script
             // opened offline never fetched its status, and hiding the button
             // then would hide it exactly when the local steps exist.
+            //
+            // A menu rather than a plain button so a long press offers Redo —
+            // the same hold-for-the-other-half gesture Safari's back button
+            // taught. That puts redo one gesture from undo instead of a trip
+            // into the "…", without spending the capsule budget a second
+            // button would (see above). The overflow keeps its Redo item too:
+            // a hold is not discoverable, so the menu is the fast path for
+            // those who know it, not the only path.
+            //
+            // The control greys out only when *both* halves are empty. Undo
+            // alone running dry must not take redo down with it — undoing back
+            // to the start is exactly the moment redo is wanted — so a tap
+            // with nothing to undo guards itself instead.
             if model.offersUndoRedo, !settings.isPageView {
-                Button {
-                    Task { await model.undo() }
+                Menu {
+                    Button {
+                        Task { await model.redo() }
+                    } label: {
+                        Label("Redo", systemImage: "arrow.uturn.forward")
+                    }
+                    .disabled(!model.canRedo)
                 } label: {
                     Label("Undo", systemImage: "arrow.uturn.backward")
+                } primaryAction: {
+                    guard model.canUndo else { return }
+                    Task { await model.undo() }
                 }
-                .disabled(!model.canUndo)
+                .disabled(!model.canUndo && !model.canRedo)
             }
 
             if model.hasScriptContent && !settings.isFocusMode {
@@ -1864,9 +1885,11 @@ struct ScriptView: View {
             }
         }
 
-        // Redo, the half of the pair the bar had no room to draw. It stays in
-        // the overflow in focus mode too, where undo is still up in the bar —
-        // the two are useless apart.
+        // Redo, the half of the pair the bar had no room to draw. A long press
+        // on Undo reaches it too, but a hold is not a gesture anyone is told
+        // about, so this stays as the visible path. It stays in the overflow
+        // in focus mode too, where undo is still up in the bar — the two are
+        // useless apart.
         if model.offersUndoRedo, !settings.isPageView {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
