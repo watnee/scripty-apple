@@ -2,13 +2,16 @@
 //  main.swift
 //  Tests/SongDrafts
 //
-//  What happens to a lyric line's words when a save doesn't land.
+//  What happens to a lyric line's — or a note's — words when a save doesn't
+//  land.
 //
 //  The screenplay editor has held unsaved words since the offline work landed;
-//  this suite pins the same promises onto the song editor, which used to show
-//  an alert and keep the words in memory only. Every case drives a real
-//  SongBlockModel against a real APIClient pointed at a closed port, so the
-//  failures are genuine transport failures travelling the genuine error path.
+//  this suite pins the same promises onto the song and note editors, which
+//  used to keep the words in memory only. The failure cases drive real models
+//  against a real APIClient pointed at a closed port, so the failures are
+//  genuine transport failures travelling the genuine error path; the drain
+//  cases run against the in-process demo backend, so the PUT that finally
+//  lands really lands.
 //
 //  Run via Tests/run.sh.
 //
@@ -218,11 +221,126 @@ func run() async {
     }
 
     print()
+    await checkNoteDraftStore()
+    print()
+    await checkHeldNoteSave()
+    print()
+    await checkNoteDraftDrain()
+
+    print()
     if failures == 0 {
         print("ALL CHECKS PASSED")
     } else {
         print("\(failures) CHECK(S) FAILED")
     }
+}
+
+// MARK: - Note drafts
+
+@MainActor
+func checkNoteDraftStore() async {
+    print("== Note drafts survive the store being reopened ==")
+    let directory = scratchDirectory("note-roundtrip")
+    let store = UnsavedDocumentStore(scope: "server|alice", directory: directory)
+    store.save(UnsavedDocumentDraft(documentId: 9, title: "Ideas", content: "Kept words.",
+                                    baseTitle: "Ideas", baseContent: "Old words.", savedAt: .now),
+               projectId: 1)
+
+    let reopened = UnsavedDocumentStore(scope: "server|alice", directory: directory)
+    let draft = reopened.draft(documentId: 9, projectId: 1)
+    checkEqual("the content survives", draft?.content, "Kept words.")
+    checkEqual("the base survives", draft?.baseContent, "Old words.")
+    check("the other scope sees nothing",
+          UnsavedDocumentStore(scope: "server|bob", directory: directory)
+              .drafts(projectId: 1).isEmpty)
+
+    reopened.remove(documentId: 9, projectId: 1)
+    check("a removed draft stays removed",
+          UnsavedDocumentStore(scope: "server|alice", directory: directory)
+              .drafts(projectId: 1).isEmpty)
+}
+
+@MainActor
+func checkHeldNoteSave() async {
+    print("== A note save that cannot get out is held, on disk, quietly ==")
+    let directory = scratchDirectory("note-hold")
+    let store = UnsavedDocumentStore(scope: "server|alice", directory: directory)
+    let project = decode(Project.self, #"{"id": 1, "title": "Test Script"}"#)
+    let note = decode(TextDocument.self, """
+    {"id": 9, "title": "Ideas", "documentType": "NOTE", "content": "First thoughts.",
+     "_links": {"self": {"href": "/api/documents/9"}, "update": {"href": "/api/documents/9"}}}
+    """)
+    let model = ScriptModel(app: AppModel(), project: project, documentDrafts: store)
+
+    let outcome = await model.saveDocumentOutcome(
+        note, title: "Ideas", content: "Rewritten on a train.",
+        baseTitle: "Ideas", baseContent: "First thoughts.")
+    check("the outcome is held, not failed", outcome == .held)
+    check("the model flags the document", model.heldDocumentIds.contains(9))
+    check("held work is reported", model.hasHeldWork)
+
+    let onDisk = UnsavedDocumentStore(scope: "server|alice", directory: directory)
+        .draft(documentId: 9, projectId: 1)
+    checkEqual("the words are on disk", onDisk?.content, "Rewritten on a train.")
+    checkEqual("with the server's content as the base", onDisk?.baseContent, "First thoughts.")
+
+    // A second hold keeps the original base — divergence began there.
+    _ = await model.saveDocumentOutcome(
+        note, title: "Ideas", content: "Rewritten twice.",
+        baseTitle: "Ideas", baseContent: "Rewritten on a train.")
+    checkEqual("a later hold keeps the newest words",
+               store.draft(documentId: 9, projectId: 1)?.content, "Rewritten twice.")
+    checkEqual("but the original base",
+               store.draft(documentId: 9, projectId: 1)?.baseContent, "First thoughts.")
+
+    model.discardDocumentDraft(for: 9)
+    check("a discard drops the draft", store.drafts(projectId: 1).isEmpty)
+    check("and the flag", !model.heldDocumentIds.contains(9))
+}
+
+@MainActor
+func checkNoteDraftDrain() async {
+    print("== The reconnect sweep sends held notes — but never over newer words ==")
+    let app = AppModel()
+    await app.enterDemo()
+    guard let projectsLink = app.apiRoot?.link(.projects),
+          let projects: HALCollection<Project> = try? await app.client.fetch(from: projectsLink),
+          let project = projects.items.first else {
+        check("the demo has a project", false)
+        return
+    }
+    let directory = scratchDirectory("note-drain")
+    let store = UnsavedDocumentStore(scope: "demo", directory: directory)
+    let model = ScriptModel(app: app, project: project, documentDrafts: store)
+    await model.loadDocuments()
+    guard let note = model.documents.first(where: { $0.hasLink(.update) }),
+          let full = await model.fetchDocument(note) else {
+        check("the demo has an editable document", false)
+        return
+    }
+
+    // A draft whose base matches the server: the sweep sends it.
+    store.save(UnsavedDocumentDraft(documentId: note.id,
+                                    title: full.title ?? "", content: "Written on the train.",
+                                    baseTitle: full.title, baseContent: full.content ?? "",
+                                    savedAt: .now),
+               projectId: project.id)
+    await model.syncHeldWork()
+    check("the sent draft leaves the store", store.drafts(projectId: project.id).isEmpty)
+    let after = await model.fetchDocument(note)
+    checkEqual("and the server now says it", after?.content, "Written on the train.")
+
+    // A draft whose base no longer matches: someone edited elsewhere, so the
+    // sweep sets it aside rather than clobbering their words.
+    store.save(UnsavedDocumentDraft(documentId: note.id,
+                                    title: full.title ?? "", content: "Stale offline words.",
+                                    baseTitle: full.title, baseContent: "Not what the server says.",
+                                    savedAt: .now),
+               projectId: project.id)
+    await model.syncHeldWork()
+    check("the stale draft is set aside", store.drafts(projectId: project.id).isEmpty)
+    let unchanged = await model.fetchDocument(note)
+    checkEqual("and the server's words stand", unchanged?.content, "Written on the train.")
 }
 
 await run()

@@ -551,7 +551,9 @@ struct ScriptView: View {
         // Refused beats retrying: with both on screen, the one that will not
         // fix itself is the one the badge must name.
         if model.hasFailedSaves { return .failed }
-        return model.hasUnsavedChanges ? .holding : .synced
+        // Held notes count too — a note written offline is being carried by
+        // this script's sweep even with its sheet long closed.
+        return model.hasHeldWork ? .holding : .synced
     }
 
     @ViewBuilder
@@ -1745,7 +1747,8 @@ struct ScriptView: View {
         // look at, and whether their words are safe is not that.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
-                CloudSyncBadge(state: cloud, heldCount: model.unsavedBlockIds.count)
+                CloudSyncBadge(state: cloud,
+                               heldCount: model.unsavedBlockIds.count + model.heldDocumentIds.count)
             }
             .sharedBackgroundVisibility(.hidden)
         }

@@ -407,10 +407,13 @@ extension HelpTopic {
                     + "straight to its lyrics or its text. The lists repeat those same "
                     + "few at the top, so a long one needs no scrolling to reach them. "
                     + "An element's own menu inserts a song below it.",
-                    "A lyric line edited without a connection is kept on this device — "
-                    + "the cloud in the corner of the song editor says so — and is "
-                    + "saved by itself when the connection returns, even across a "
-                    + "relaunch. The same promise the screenplay editor makes."
+                    "A lyric line or a note edited without a connection is kept on "
+                    + "this device — the song editor's corner cloud and the note "
+                    + "editor's status line both say so — and is saved by itself when "
+                    + "the connection returns, even across a relaunch. The same "
+                    + "promise the screenplay editor makes. A note that changed "
+                    + "elsewhere in the meantime is set aside rather than overwritten, "
+                    + "and the editor says when that happens."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",

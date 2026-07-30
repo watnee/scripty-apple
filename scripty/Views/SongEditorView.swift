@@ -101,6 +101,10 @@ struct SongEditorView: View {
     private enum SaveStatus: Equatable {
         case saving
         case saved
+        /// The save couldn't get out, but the words are on disk on this
+        /// device and the reconnect sweep will send them — leaving loses
+        /// nothing. The screenplay's "held" state, in a note.
+        case held
         /// The save was refused. Sticky: this is the one state the writer has
         /// to see, because it is the one where leaving loses something.
         case failed(String)
@@ -168,8 +172,10 @@ struct SongEditorView: View {
                                 titleVisibility: .visible) {
                 Button("Discard", role: .destructive) {
                     // Before dismissing, or the parting save below would send
-                    // the very words the writer just chose to throw away.
+                    // the very words the writer just chose to throw away —
+                    // and the held draft would push them on the next sweep.
                     discarding = true
+                    if let document { model.discardDocumentDraft(for: document.id) }
                     dismiss()
                 }
                 Button("Keep Editing", role: .cancel) {}
@@ -270,6 +276,13 @@ struct SongEditorView: View {
                     Image(systemName: "checkmark.circle")
                         .foregroundStyle(.secondary)
                     Text("Saved").foregroundStyle(.secondary)
+                case .held:
+                    Image(systemName: "icloud.slash")
+                        .foregroundStyle(.orange)
+                    Text("Kept on this device — saves when you're back online")
+                        .foregroundStyle(.secondary)
+                    Button("Retry") { Task { await saveNow() } }
+                        .font(.footnote.weight(.medium))
                 case .failed(let message):
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -376,7 +389,8 @@ struct SongEditorView: View {
         didLoad = true
         isLoading = true
         defer { isLoading = false }
-        if let full = await model.fetchDocument(document) {
+        let full = await model.fetchDocument(document)
+        if let full {
             title = full.title ?? title
             content = full.content ?? ""
         }
@@ -385,6 +399,42 @@ struct SongEditorView: View {
         // server holds.
         savedTitle = title
         savedContent = content
+        adoptHeldDraft(for: document, sawServerCopy: full != nil)
+    }
+
+    /// Words a previous run couldn't send take the screen back — unless the
+    /// note moved on elsewhere in the meantime, in which case the server is
+    /// last-write-wins and the draft is set aside, never silently.
+    private func adoptHeldDraft(for document: TextDocument, sawServerCopy: Bool) {
+        guard canEdit, let draft = model.heldDocumentDraft(for: document) else { return }
+        guard sawServerCopy else {
+            // No server copy to judge staleness against — the list row's
+            // preview is truncated and would fail the comparison falsely.
+            // Adopt; the reconnect sweep re-checks with the real thing.
+            title = draft.title
+            content = draft.content
+            saveStatus = .held
+            return
+        }
+        if draft.title == savedTitle && draft.content == savedContent {
+            // Finished business — the server already says this.
+            model.discardDocumentDraft(for: document.id)
+            return
+        }
+        let baseMatches = (draft.baseContent == nil && draft.baseTitle == nil)
+            || (draft.baseContent == savedContent && (draft.baseTitle ?? savedTitle) == savedTitle)
+        guard baseMatches else {
+            model.discardDocumentDraft(for: document.id)
+            errorMessage = "An offline edit was set aside — this "
+                + (type == .song ? "song" : "note") + " changed elsewhere."
+            return
+        }
+        title = draft.title
+        content = draft.content
+        saveStatus = .held
+        // The ordinary machinery takes it from here: the debounce fires, the
+        // save lands or holds again.
+        scheduleAutosave()
     }
 
     // MARK: - Autosave
@@ -433,18 +483,25 @@ struct SongEditorView: View {
         let sentContent = content
         isSaving = true
         saveStatus = .saving
-        let succeeded = await model.saveDocument(document, title: trimmedTitle, content: sentContent)
+        let outcome = await model.saveDocumentOutcome(
+            document, title: trimmedTitle, content: sentContent,
+            baseTitle: savedTitle, baseContent: savedContent)
         isSaving = false
-        guard succeeded else {
+        switch outcome {
+        case .saved:
+            savedTitle = sentTitle
+            savedContent = sentContent
+            saveStatus = .saved
+            errorMessage = nil
+            // Typed into while that was in flight: those words have not been
+            // sent.
+            if hasUnsavedChanges { scheduleAutosave() }
+        case .held:
+            // On disk, retried by the reconnect sweep: not saved, not lost.
+            saveStatus = .held
+        case .failed:
             saveStatus = .failed(model.errorMessage ?? "Not saved.")
-            return
         }
-        savedTitle = sentTitle
-        savedContent = sentContent
-        saveStatus = .saved
-        errorMessage = nil
-        // Typed into while that was in flight: those words have not been sent.
-        if hasUnsavedChanges { scheduleAutosave() }
     }
 
     /// Sends whatever is unsent without waiting out the debounce, on a task
@@ -460,10 +517,16 @@ struct SongEditorView: View {
         guard dirty || saveStatus != nil else { return }
         let sentTitle = trimmedTitle
         let sentContent = content
+        let baseTitle = savedTitle
+        let baseContent = savedContent
         let model = model
         Task { @MainActor in
             if dirty {
-                await model.saveDocument(document, title: sentTitle, content: sentContent)
+                // The outcome path holds the words on failure, so a sheet
+                // dismissed on a train still delivers its last paragraph on
+                // the next reconnect sweep.
+                await model.saveDocumentOutcome(document, title: sentTitle, content: sentContent,
+                                                baseTitle: baseTitle, baseContent: baseContent)
             }
             await model.refreshAfterDocumentEdit()
         }

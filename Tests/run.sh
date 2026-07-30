@@ -279,6 +279,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
@@ -308,6 +309,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
@@ -382,6 +384,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
@@ -408,6 +411,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
@@ -437,6 +441,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
