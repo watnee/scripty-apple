@@ -155,8 +155,11 @@ final class SongBlockModel {
             replace(updated)
             errorMessage = nil
             // The edit left a checkpoint behind it, so there is now somewhere
-            // to step back to even though the list did not reload.
-            await refreshUndoRedo()
+            // to step back to even though the list did not reload. Refreshed
+            // without making the caller wait: the status only feeds the
+            // toolbar buttons, and Return awaits this commit before it can
+            // make its line — a keystroke should never queue behind a status.
+            refreshUndoRedoSoon()
             return true
         } catch {
             report(error)
@@ -192,20 +195,41 @@ final class SongBlockModel {
     func addLine(below block: SongBlock) async -> Int? {
         guard let link = block.link(.createBelow) else { return nil }
         await commit(block)
-        return await create(from: link)
+        return await create(from: link, below: block)
     }
 
-    private func create(from link: HALLink, content: String = "") async -> Int? {
+    private func create(from link: HALLink, below anchor: SongBlock? = nil,
+                        content: String = "") async -> Int? {
         do {
             let created: SongBlock = try await app.client.fetch(
                 from: link, method: "POST", body: CreateSongBlockCommand(content: content))
-            await load()
+            insert(created, below: anchor)
             errorMessage = nil
             focusRequest = created.id
+            refreshUndoRedoSoon()
             return created.id
         } catch {
             report(error)
             return nil
+        }
+    }
+
+    /// Put a line the server just created on screen below its anchor — at the
+    /// end, when there is none. The create answers with the one new line, not
+    /// the renumbered collection, so this shows the reply without the full
+    /// reload the caret would have to wait behind: Return has to feel like a
+    /// keystroke, not a request. The margin numbers are kept right locally —
+    /// the anchor's plus one, everything after bumped along — rather than
+    /// trusted from the reply, since the server numbers the collection after
+    /// answering.
+    private func insert(_ created: SongBlock, below anchor: SongBlock?) {
+        guard !blocks.contains(where: { $0.id == created.id }) else { return }
+        let index = anchor.flatMap { self.index(of: $0) }.map { $0 + 1 } ?? blocks.count
+        var block = created
+        block.order = index > 0 ? (blocks[index - 1].order ?? index) + 1 : 1
+        blocks.insert(block, at: index)
+        for following in blocks.indices.dropFirst(index + 1) {
+            blocks[following].order = (blocks[following].order ?? following) + 1
         }
     }
 
@@ -265,9 +289,14 @@ final class SongBlockModel {
         commitTasks[block.id]?.cancel()
         liveText[block.id] = nil
         do {
-            let _: HALCollection<SongBlock> = try await app.client.fetch(from: link, method: "DELETE")
-            await load()
+            // The delete answers with the renumbered collection, so adopting
+            // it is the reload — fetching the same list again only made the
+            // caret wait twice, which Backspace-at-the-seam felt.
+            let collection: HALCollection<SongBlock> = try await app.client.fetch(
+                from: link, method: "DELETE")
+            adopt(collection)
             errorMessage = nil
+            refreshUndoRedoSoon()
             return true
         } catch {
             report(error)
@@ -333,6 +362,13 @@ final class SongBlockModel {
     func refreshUndoRedo() async {
         guard let link = links[.undoRedoStatus] else { return }
         undoRedo = try? await app.client.fetch(UndoRedoStatus.self, from: link)
+    }
+
+    /// The same refresh without making the caller wait for the round trip —
+    /// for the typing path, where the caret must not queue behind a status.
+    /// `ScriptModel.refreshUndoRedoSoon` is the same seam for the screenplay.
+    private func refreshUndoRedoSoon() {
+        Task { await refreshUndoRedo() }
     }
 
     func undo() async { await step(.undo) }

@@ -153,6 +153,35 @@ func run() async {
         checkEqual("with the caret back at its end",
                    model.caretRequests[above.id], aboveText.count)
     }
+
+    print("")
+    print("Return puts its line on screen without a reload")
+    do {
+        // The create answers with the one new line, and the model shows that
+        // reply rather than fetching the collection again — so the line must
+        // land in the right place with the right margin number, not wherever
+        // the reply's own (unrenumbered) order would sort it.
+        let anchor = model.blocks[0]
+        guard let created = await model.addLine(below: anchor) else {
+            check("the demo song takes a new line", false)
+            return
+        }
+
+        checkEqual("the new line sits directly below the one Return was pressed in",
+                   model.blocks.indices.contains(1) ? model.blocks[1].id : nil, created)
+        checkEqual("the caret is asked into it", model.focusRequest, created)
+        checkEqual("and the margin numbers still count 1, 2, 3…",
+                   model.blocks.map { $0.order ?? 0 },
+                   Array(1...model.blocks.count))
+
+        // A reload adopts the server's own numbering; nothing should move.
+        let shown = model.blocks.map { [$0.id, $0.order ?? 0] }
+        await model.load()
+        checkEqual("which is the numbering the server confirms on the next load",
+                   model.blocks.map { [$0.id, $0.order ?? 0] }, shown)
+
+        _ = await model.mergeIntoPrevious(model.blocks[1])
+    }
 }
 
 await run()
