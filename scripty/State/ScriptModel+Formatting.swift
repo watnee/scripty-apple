@@ -145,32 +145,3 @@ extension ScriptModel {
         }
     }
 }
-
-// MARK: - Tolerant decoding of the server's formatting strings
-
-extension TextAlign {
-    /// The server has used both `left` and `LEFT` over the years; accept either.
-    init?(serverValue: String?) {
-        guard let serverValue, !serverValue.isEmpty else { return nil }
-        self.init(rawValue: serverValue.lowercased())
-    }
-}
-
-extension ScriptFont {
-    /// Accepts either the display name (`Times New Roman`) or the enum-style
-    /// name (`TIMES_NEW_ROMAN`) the server may report.
-    init?(serverValue: String?) {
-        guard let serverValue, !serverValue.isEmpty else { return nil }
-        if let exact = ScriptFont(rawValue: serverValue) {
-            self = exact
-            return
-        }
-        let key = serverValue.uppercased().replacingOccurrences(of: " ", with: "_")
-        switch key {
-        case "ARIAL": self = .arial
-        case "TIMES_NEW_ROMAN", "TIMES": self = .timesNewRoman
-        case "COURIER_PRIME", "COURIER", "COURIER_NEW": self = .courierPrime
-        default: return nil
-        }
-    }
-}

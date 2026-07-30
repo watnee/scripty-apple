@@ -100,6 +100,24 @@ swiftc "${FLAGS[@]}" -o "$BUILD/pagination" \
 run_suite "$BUILD/pagination" || status=1
 
 echo
+echo "== Offline print PDF =="
+# Core Text and Core Graphics, not UIKit, so the renderer the offline print
+# fallback draws with stays checkable here. ScriptTypeface imports SwiftUI for
+# the sheet view's font type; only its names and ratios are used in this suite.
+swiftc "${FLAGS[@]}" -o "$BUILD/printpdf" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/Project.swift" \
+    "$SRC/Models/ScreenplayLayout.swift" \
+    "$SRC/Models/PageSetup.swift" \
+    "$SRC/Models/ScriptPagination.swift" \
+    "$SRC/Models/ScreenplayCover.swift" \
+    "$SRC/Models/ScriptTypeface.swift" \
+    "$SRC/Models/ScreenplayPDF.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Print/main.swift"
+run_suite "$BUILD/printpdf" || status=1
+
+echo
 echo "== Element clipboard =="
 swiftc "${FLAGS[@]}" -o "$BUILD/clipboard" \
     "$SRC/Models/Block.swift" \

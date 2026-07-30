@@ -208,32 +208,43 @@ enum ScriptPagination {
     /// occupies its line, and an over-long word is broken rather than allowed
     /// to overhang the column.
     static func wrappedLineCount(_ text: String, columns: Int) -> Int {
-        guard columns > 0 else { return 1 }
-        var total = 0
+        wrappedLines(text, columns: columns).count
+    }
+
+    /// The wrap itself, line by line. The count above is what the paginator
+    /// charges a row and the offline print PDF draws these very lines, one per
+    /// 12pt line of paper — a single wrap, so the two can never disagree.
+    static func wrappedLines(_ text: String, columns: Int) -> [String] {
+        guard columns > 0 else { return [text] }
+        var result: [String] = []
         // Hard newlines inside an element start a new line of their own.
         for paragraph in text.components(separatedBy: .newlines) {
-            var lines = 1
-            var used = 0
+            var current = ""
             for word in paragraph.split(separator: " ", omittingEmptySubsequences: true) {
                 let length = word.count
                 if length > columns {
-                    // Break the oversized word across as many lines as it needs.
-                    if used > 0 { lines += 1; used = 0 }
-                    let full = (length - 1) / columns
-                    lines += full
-                    used = length - full * columns
-                } else if used == 0 {
-                    used = length
-                } else if used + 1 + length <= columns {
-                    used += 1 + length
+                    // Break the oversized word across as many lines as it
+                    // needs. The remainder is never empty, so the line it
+                    // starts is never lost.
+                    if !current.isEmpty { result.append(current); current = "" }
+                    var rest = word[...]
+                    while rest.count > columns {
+                        result.append(String(rest.prefix(columns)))
+                        rest = rest.dropFirst(columns)
+                    }
+                    current = String(rest)
+                } else if current.isEmpty {
+                    current = String(word)
+                } else if current.count + 1 + length <= columns {
+                    current += " " + word
                 } else {
-                    lines += 1
-                    used = length
+                    result.append(current)
+                    current = String(word)
                 }
             }
-            total += lines
+            result.append(current)
         }
-        return max(1, total)
+        return result
     }
 
     // MARK: - Atoms

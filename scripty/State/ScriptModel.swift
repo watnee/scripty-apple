@@ -2019,6 +2019,9 @@ final class ScriptModel {
     /// Printing goes through the PDF export rather than drawing the blocks
     /// again on the device, so the paper coming out of the printer is the same
     /// document the writer would have exported — one pagination, not two.
+    /// Offline is the exception: with no route to the server, the exporter
+    /// falls back to ScreenplayPDF, which shares the paginator's arithmetic
+    /// precisely so that the fallback stays the same document too.
     var printableOption: ExportOption? {
         exportOptions.first { $0.rel == .exportPdf }
     }
@@ -2086,13 +2089,20 @@ final class ScriptModel {
             ? option.link.addingQuery(PresentationSettings.shared.pageSetup.exportQuery)
             : option.link
         let data = try await app.client.data(for: link)
+        let url = shareableFileURL(named: baseName, fileExtension: option.fileExtension)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    /// Where a shareable file goes, named after whatever is being exported
+    /// with the characters no filename can carry stripped out. Shared with the
+    /// offline print path, which writes a PDF nobody downloaded.
+    func shareableFileURL(named baseName: String, fileExtension: String) -> URL {
         let safeTitle = baseName
             .components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>"))
             .joined()
-        let name = (safeTitle.isEmpty ? "export" : safeTitle) + "." + option.fileExtension
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        try data.write(to: url, options: .atomic)
-        return url
+        let name = (safeTitle.isEmpty ? "export" : safeTitle) + "." + fileExtension
+        return FileManager.default.temporaryDirectory.appendingPathComponent(name)
     }
 
     /// The script export, named after the project.
