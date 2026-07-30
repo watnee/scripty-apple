@@ -170,7 +170,8 @@ struct SongsWorkspaceView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(lyric.blocks) { block in
-                SongLineRow(model: lyric, block: block, focusedLine: $focusedLine)
+                SongLineRow(model: lyric, block: block, focusedLine: $focusedLine,
+                            showsLineNumber: false)
             }
             if lyric.canAddLine {
                 Button {
