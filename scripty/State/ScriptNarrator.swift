@@ -259,6 +259,31 @@ final class ScriptNarrator {
         speak(from: currentIndex ?? 0)
     }
 
+    /// Starts from the first readable element at or after the one named — for
+    /// a caller naming a *place* rather than an element, like the script
+    /// screen starting from wherever the writer is: the element in view may
+    /// itself be one the reading skips (a note, a synopsis, a page break).
+    func play(atOrAfter blockId: Int) {
+        guard hasSomethingToRead else { return }
+        guard let start = blocks.firstIndex(where: { $0.id == blockId }) else {
+            play()
+            return
+        }
+        var firstCue: [Int: Int] = [:]
+        for cue in cues where firstCue[cue.blockId] == nil {
+            firstCue[cue.blockId] = cue.index
+        }
+        for block in blocks[start...] {
+            if let index = firstCue[block.id] {
+                speak(from: index)
+                return
+            }
+        }
+        // Nothing readable from here down — the place named was the tail end,
+        // so the reading starts over rather than declining to start.
+        play()
+    }
+
     func togglePlayPause() {
         switch playback {
         case .speaking: pause()

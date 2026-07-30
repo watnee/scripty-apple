@@ -30,8 +30,7 @@ struct ScriptView: View {
     /// The request is the sheet's item rather than a set of flags beside an
     /// `isPresented` — a sheet raised that way reads the rest of the view as it
     /// stood *before* the button ran, so a list chosen in the same tap arrives
-    /// stale and "All Notes…" opens on songs. The reader below carries its mode
-    /// for the same reason.
+    /// stale and "All Notes…" opens on songs.
     @State private var documentsSheet: DocumentsRequest?
     /// The song or note opened straight from the script's Songs menu, without
     /// going through the Songs & Notes screen first.
@@ -45,15 +44,15 @@ struct ScriptView: View {
     /// errand, and each session should start with the screen it saves.
     @State private var showingFormatBar = false
     @State private var isSearching = false
-    /// Which way the reader was opened, and whether it is open at all.
-    ///
-    /// Read Script and Read Aloud are the same sheet — one of them arrives
-    /// with the voice already running — but the difference cannot be a second
-    /// flag beside an `isPresented`: a sheet presented that way reads the rest
-    /// of the view as it stood *before* the button ran, so a flag set in the
-    /// same tap arrives stale and the reader opens silent. Carrying the mode
-    /// as the sheet's item is what makes it arrive at all.
-    @State private var reader: ReaderMode?
+    /// Whether the reader sheet — the script as prose, for reading silently —
+    /// is up. Reading *aloud* no longer opens it: the voice runs right here,
+    /// with a transport bar at the bottom and the element being read
+    /// spotlighted in the column, so listening costs no screen at all.
+    @State private var showingReader = false
+    /// The voice that reads the script out loud, owned by the script screen
+    /// so a reading survives the reader sheet opening and closing. The
+    /// preferences it carries are stored, so voice and speed outlive it.
+    @State private var narrator = ScriptNarrator()
     @State private var showingPageSetup = false
     @State private var showingVersions = false
     /// Drives the screenplay file picker. Set by the toolbar's Import button
@@ -198,6 +197,11 @@ struct ScriptView: View {
         // Mounted after the readout, so it settles below it — the buttons are
         // the thing being reached for, and the count is a thing being read.
         .safeAreaBar(edge: .bottom) { documentsBar }
+        // Last of the strips, so the transport sits nearest the thumb while a
+        // reading runs. Deliberately not folded with the chrome: it is the
+        // only handle on live audio, and someone scrolling while the script
+        // is read to them has not stopped listening.
+        .safeAreaBar(edge: .bottom) { narrationBar }
         // Floated after the word-count inset, so it settles just above the bar
         // (or the bottom safe area when the bar is off) rather than over it.
         .overlay(alignment: .bottom) { historyToastOverlay }
@@ -253,7 +257,14 @@ struct ScriptView: View {
             await editions.load()
             await reopenRememberedEdition()
         }
-        .onDisappear { model.stopSyncPolling() }
+        .onDisappear {
+            model.stopSyncPolling()
+            // Leaving the screenplay ends its reading — the voice belongs to
+            // this script, and the transport goes down with the screen.
+            // Backgrounding the app is not leaving: no `onDisappear` fires
+            // there, which is what keeps the lock-screen reading alive.
+            narrator.stop()
+        }
         // The connection came back: push the words held on this device right
         // away rather than waiting out each block's retry backoff, then pull
         // whatever changed elsewhere. Mirrors the web's sync-on-reconnect.
@@ -300,6 +311,13 @@ struct ScriptView: View {
             publishBookmarks()
             openPendingBookmark()
             restoreRememberedPosition()
+            // A reading in progress follows the script it is reading — an
+            // edit, a sync, a restore all reshape the run, and the narrator
+            // keeps its place across the rebuild. Idle, there is nothing to
+            // keep in step; the run is built fresh when reading starts.
+            if narrator.isActive {
+                narrator.prepare(model.blocks, title: model.project.displayTitle)
+            }
         }
         .onChange(of: settings.pageSetup) { _, _ in repaginate() }
         // Hidden notes are hidden on paper too — otherwise the page count in
@@ -330,12 +348,12 @@ struct ScriptView: View {
     /// exists.
     private func presentations(over content: some View) -> some View {
         content
-        .sheet(item: $reader) { mode in
+        .sheet(isPresented: $showingReader) {
             ReadScriptView(
                 title: model.project.displayTitle,
                 blocks: model.blocks,
                 textScale: settings.textScale,
-                startsSpeaking: mode == .aloud)
+                narrator: narrator)
         }
         .sheet(isPresented: $showingPageSetup) {
             PageSetupSheet(settings: settings)
@@ -631,6 +649,10 @@ struct ScriptView: View {
                     ForEach(visibleBlocks) { block in
                         row(for: block)
                             .padding(.horizontal, 24)
+                            // The element being read aloud, marked without
+                            // moving anything: the wash is inset outwards, so
+                            // switching it on cannot reflow the column.
+                            .background(alignment: .center) { spotlight(block) }
                             .id(block.id)
                     }
                 }
@@ -655,6 +677,17 @@ struct ScriptView: View {
                 // Clearing the target is what lets the same block be jumped
                 // to twice in a row.
                 navigator.consumeScrollTarget()
+            }
+            // Follow the voice, as the reader sheet does. Centred rather than
+            // at the top, because a line read at the very top of the screen
+            // has no context above it and the next one is always a jump. The
+            // scroll spy drops programmatic moves, so following cannot fold
+            // the chrome away.
+            .onChange(of: narrator.currentBlockId) { _, id in
+                guard let id else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
             }
             // Reading is leaving a place too. Focus alone only knows where the
             // writer last *typed*, so a script scrolled through and then closed
@@ -957,6 +990,16 @@ struct ScriptView: View {
                 proxy.scrollTo(page, anchor: .top)
                 pendingPageTarget = nil
             }
+            // The paper follows the voice by the sheet: no per-element
+            // highlight here — the pages draw themselves — but the page being
+            // read is the one on screen.
+            .onChange(of: narrator.currentBlockId) { _, id in
+                guard let id,
+                      let page = ScriptPagination.page(containing: id, in: pages),
+                      page != currentPage else { return }
+                currentPage = page
+                withAnimation { proxy.scrollTo(page, anchor: .top) }
+            }
             .overlay(alignment: .bottom) {
                 if pages.count > 0 {
                     PageNavigatorBar(
@@ -1032,6 +1075,59 @@ struct ScriptView: View {
         guard hasRestoredPosition,
               let id = ScriptPagination.firstBlockId(onPage: page, in: pages) else { return }
         options.rememberBlock(id)
+    }
+
+    // MARK: - Reading aloud
+
+    /// Starts the script reading itself out loud, right here — no sheet, no
+    /// second screen: the transport bar comes up at the bottom and the column
+    /// follows the voice. Reaching for it while a reading runs pauses and
+    /// resumes, so the one menu item is the whole errand.
+    private func toggleReadAloud() {
+        if narrator.isActive {
+            narrator.togglePlayPause()
+            return
+        }
+        narrator.prepare(model.blocks, title: model.project.displayTitle)
+        if let id = readAloudStart {
+            narrator.play(atOrAfter: id)
+        } else {
+            narrator.play()
+        }
+    }
+
+    /// Where a reading should begin: the element being typed into if there is
+    /// one, otherwise the element at the top of the screen — the same answer
+    /// the position restore gives to "where was I". Nil means the top, which
+    /// is where a script nobody has a place in should start.
+    private var readAloudStart: Int? {
+        if let id = model.focusedBlockId,
+           model.blocks.contains(where: { $0.id == id }) { return id }
+        if let id = options.rememberedBlockId,
+           model.blocks.contains(where: { $0.id == id }) { return id }
+        return nil
+    }
+
+    /// The read-aloud transport, up only while a reading is loaded. It rides
+    /// this screen rather than a sheet, so listening leaves the script — and
+    /// the writing — exactly where they were.
+    @ViewBuilder
+    private var narrationBar: some View {
+        if narrator.isActive {
+            NarrationTransportBar(narrator: narrator, showsOptions: true)
+        }
+    }
+
+    /// The element being read, marked without moving anything: the wash is
+    /// inset outwards so switching it on cannot reflow the column.
+    @ViewBuilder
+    private func spotlight(_ block: Block) -> some View {
+        if narrator.currentBlockId == block.id {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.16))
+                .padding(.horizontal, -10)
+                .padding(.vertical, -2)
+        }
     }
 
     /// Republishes this screenplay's half of the Bookmarks widget.
@@ -1396,8 +1492,8 @@ struct ScriptView: View {
             }
             actions.outline = { showingOutline = true }
             actions.stats = { showingStats = true }
-            actions.readScript = { reader = .silent }
-            actions.readAloud = { reader = .aloud }
+            actions.readScript = { showingReader = true }
+            actions.readAloud = { toggleReadAloud() }
         }
 
         if model.project.hasLink(.versions) {
@@ -1785,16 +1881,21 @@ struct ScriptView: View {
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
                 Button {
-                    reader = .silent
+                    showingReader = true
                 } label: {
                     Label("Read Script", systemImage: "book")
                 }
                 .disabled(!model.hasScriptContent)
 
+                // Reading aloud happens on this very screen — the voice
+                // starts from wherever the writer is and the transport bar
+                // comes up at the bottom — so while it runs, this item is the
+                // pause it will be reached for as.
                 Button {
-                    reader = .aloud
+                    toggleReadAloud()
                 } label: {
-                    Label("Read Aloud", systemImage: "speaker.wave.2")
+                    Label(narrator.isSpeaking ? "Pause Reading" : "Read Aloud",
+                          systemImage: narrator.isSpeaking ? "pause.fill" : "speaker.wave.2")
                 }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(!model.hasScriptContent)
