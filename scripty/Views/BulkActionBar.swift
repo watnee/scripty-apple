@@ -21,6 +21,7 @@ struct SelectableBlockRow: View {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.title3)
                 .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                .contentTransition(.symbolEffect(.replace))
                 .padding(.top, 2)
 
             BlockRowView(block: block)
@@ -32,6 +33,7 @@ struct SelectableBlockRow: View {
             in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        .animation(.snappy(duration: 0.15), value: isSelected)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -48,36 +50,25 @@ struct BulkActionBar: View {
     let selectableIds: [Int]
     let isFiltered: Bool
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     @State private var isTagging = false
     @State private var tagText = ""
     @State private var confirmDelete = false
     @State private var isWorking = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text(countLabel)
-                    .font(.subheadline.weight(.medium))
-                    .monospacedDigit()
-                    .foregroundStyle(selection.isEmpty ? .secondary : .primary)
-
-                selectAllButton
-
-                Spacer(minLength: 0)
-
-                if isWorking {
-                    ProgressView().controlSize(.small)
-                } else {
-                    actions
-                }
-
-                Button("Done") {
-                    selection.isSelecting = false
-                }
-                .font(.body.weight(.medium))
+        // A phone cannot hold the count, six actions and Done on one line —
+        // squeezed that far, every label wraps to letter fragments — so
+        // compact widths split the bar in two: what is selected on top, what
+        // can be done to it below. Regular widths keep the web toolbar's
+        // single labelled row.
+        Group {
+            if sizeClass == .compact {
+                compactBar
+            } else {
+                regularBar
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
         }
         // No background of its own: the host mounts it with `.safeAreaBar`,
         // which supplies the Liquid Glass and the separation from the script.
@@ -108,6 +99,93 @@ struct BulkActionBar: View {
         }
     }
 
+    /// Count and mode controls above, actions below. The actions drop their
+    /// titles — six icons share a phone's width evenly, the way a toolbar
+    /// spreads its items — and each `Label` keeps its title for VoiceOver.
+    private var compactBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                countText
+                selectAllButton
+                Spacer(minLength: 8)
+                doneButton
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+
+            HStack(spacing: 0) {
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Group { actions }
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .labelStyle(.iconOnly)
+            .font(.title3)
+            .frame(minHeight: 44)
+            .padding(.horizontal, 4)
+        }
+        .padding(.bottom, 2)
+    }
+
+    /// The one-line form: everything the compact bar shows, side by side.
+    ///
+    /// Regular width is not the same as room: with the sidebar open, an iPad's
+    /// script pane can be too narrow for six titled actions, and the titles
+    /// wrap to fragments. So the titled row is offered first and the icon-only
+    /// row stands in wherever it will not fit.
+    private var regularBar: some View {
+        ViewThatFits(in: .horizontal) {
+            regularRow(iconOnly: false)
+            regularRow(iconOnly: true)
+        }
+    }
+
+    private func regularRow(iconOnly: Bool) -> some View {
+        HStack(spacing: 12) {
+            countText
+            selectAllButton
+
+            Spacer(minLength: 12)
+
+            if isWorking {
+                ProgressView().controlSize(.small)
+            } else if iconOnly {
+                HStack(spacing: 22) { actions }
+                    .labelStyle(.iconOnly)
+                    .font(.title3)
+            } else {
+                HStack(spacing: 12) { actions }
+                    .fixedSize()
+            }
+
+            doneButton
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var countText: some View {
+        Text(countLabel)
+            .font(.subheadline.weight(.medium))
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .animation(.snappy(duration: 0.2), value: selection.count)
+            .foregroundStyle(selection.isEmpty ? .secondary : .primary)
+            .lineLimit(1)
+    }
+
+    private var doneButton: some View {
+        Button("Done") {
+            selection.isSelecting = false
+        }
+        .font(.body.weight(.medium))
+        .fixedSize()
+    }
+
     /// One button rather than a separate Select All and Deselect All: once
     /// everything is selected the only useful move is to start over, and a
     /// disabled button there would just be dead weight in a crowded bar.
@@ -122,6 +200,8 @@ struct BulkActionBar: View {
                 }
             }
             .font(.subheadline)
+            .lineLimit(1)
+            .fixedSize()
         }
     }
 

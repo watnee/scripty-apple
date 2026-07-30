@@ -876,8 +876,12 @@ struct ScriptView: View {
     /// bar suits best: a thumb on the bottom edge, not a reach for the corner.
     @ViewBuilder
     private var documentsBar: some View {
+        // Not while elements are being selected: the selection bar already
+        // takes two rows of the phone's bottom edge, and songs, notes, and
+        // listening are exactly the errand the writer is not on.
         if isCompact && !isChromeHidden && !settings.isFocusMode
-            && (model.canViewDocuments || model.hasScriptContent) {
+            && (model.canViewDocuments || model.hasScriptContent)
+            && !selection.isSelecting {
             HStack(spacing: 8) {
                 if model.canViewDocuments {
                     songsButton
