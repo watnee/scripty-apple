@@ -982,12 +982,11 @@ final class ScriptModel {
 
         if block.isLocal {
             // Nothing to delete on the server: the absorbed element only ever
-            // existed here, so dropping its queued create is the whole of it.
-            // Done before the reload so the stand-in doesn't come back.
+            // existed here, so dropping its queued create is the whole of it —
+            // it takes the stand-in off screen too.
             if let queue = createQueue { dropPendingCreate(block.id, from: queue) }
             liveText[block.id] = nil
-            await loadBlocks()
-            await refreshUndoRedo()
+            refreshUndoRedoSoon()
             focus(updatedPrevious.id, caret: seam)
             return
         }
@@ -1004,9 +1003,15 @@ final class ScriptModel {
                 return
             }
         }
+        // The merged row was already swapped in by the commit above, so the
+        // absorbed element just comes off screen — no reload the caret would
+        // have to wait behind. Backspace at the seam has to feel like a
+        // keystroke, exactly as Return does; the server's renumbering is
+        // adopted by the next full load (the sync poll, once focus leaves).
+        blocks.removeAll { $0.id == block.id }
         liveText[block.id] = nil
-        await loadBlocks()
-        await refreshUndoRedo()
+        markSaved(block.id)
+        refreshUndoRedoSoon()
         focus(updatedPrevious.id, caret: seam)
     }
 
