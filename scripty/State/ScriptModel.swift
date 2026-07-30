@@ -126,6 +126,14 @@ final class ScriptModel {
     /// offline anyway, so nothing there ever needs queueing.
     @ObservationIgnored private let createQueue: OfflineBlockQueue?
 
+    /// Where a note's unsaved title and content wait out a lost connection.
+    /// Nil exactly when the draft store is (signed out, demo).
+    @ObservationIgnored private let documentDrafts: UnsavedDocumentStore?
+
+    /// Documents whose latest save is held on this device — the note editor's
+    /// status bar and the reconnect sweep both read this.
+    private(set) var heldDocumentIds: Set<Int> = []
+
     /// Set when the script on screen is the offline copy rather than the
     /// server's answer, with when that copy was saved.
     private(set) var offlineCopySavedAt: Date?
@@ -136,12 +144,17 @@ final class ScriptModel {
     var pendingCreateCount: Int { blocks.filter(\.isLocal).count }
 
     init(app: AppModel, project: Project, draftStore: UnsavedDraftStore? = nil,
-         offlineStore: OfflineStore? = nil, createQueue: OfflineBlockQueue? = nil) {
+         offlineStore: OfflineStore? = nil, createQueue: OfflineBlockQueue? = nil,
+         documentDrafts: UnsavedDocumentStore? = nil) {
         self.app = app
         self.project = project
         self.draftStore = draftStore ?? app.draftScope.map { UnsavedDraftStore(scope: $0) }
         self.offlineStore = offlineStore ?? app.offlineStore
         self.createQueue = createQueue ?? app.draftScope.map { OfflineBlockQueue(scope: $0) }
+        self.documentDrafts = documentDrafts ?? app.draftScope.map { UnsavedDocumentStore(scope: $0) }
+        // Left by an earlier run; the sweep's flags come up with the model so
+        // the badge never claims "synced" over words still only on this device.
+        heldDocumentIds = Set(self.documentDrafts?.drafts(projectId: project.id).keys.map { $0 } ?? [])
     }
 
     // MARK: - Loading
@@ -959,7 +972,8 @@ final class ScriptModel {
     /// sync triggers ask before starting a drain, so a script with nothing
     /// held doesn't reload itself on every trip to the foreground.
     var hasHeldWork: Bool {
-        hasUnsavedChanges || createQueue?.hasPending(projectId: project.id) == true
+        hasUnsavedChanges || !heldDocumentIds.isEmpty
+            || createQueue?.hasPending(projectId: project.id) == true
     }
 
     /// Push everything held on this device right now — unsaved text first,
@@ -1001,6 +1015,10 @@ final class ScriptModel {
             await commit(id)
         }
         await replayPendingCreates()
+        // Held notes ride the same sweep — their store outlives the editor
+        // sheet, so a note written offline yesterday sends today with the
+        // sheet long closed.
+        await drainDocumentDrafts()
         // Not over active typing — the sync poll reloads after the writer
         // blurs (the commits above bumped the revision), clearing the
         // offline-copy flag with it.
@@ -1844,6 +1862,18 @@ final class ScriptModel {
         }
     }
 
+    /// What became of a document save. The note editor's status bar needs the
+    /// middle case: "held" is not "failed" — the words are on disk and the
+    /// sweep will send them, so leaving the sheet loses nothing.
+    enum DocumentSaveOutcome {
+        case saved
+        /// The write couldn't get out, but the title and content are on this
+        /// device and the reconnect sweep will push them.
+        case held
+        /// Refused for a reason a retry won't fix, or nothing to write with.
+        case failed
+    }
+
     /// Writes a document and disturbs nothing else. What the note editor's
     /// autosave uses: a save every second of typing cannot also pull the
     /// documents list and the script's blocks down each time, and while the
@@ -1851,18 +1881,118 @@ final class ScriptModel {
     /// for that refresh once, on its way out.
     @discardableResult
     func saveDocument(_ document: TextDocument, title: String, content: String) async -> Bool {
-        guard let link = document.link(.update) else { return false }
+        await saveDocumentOutcome(document, title: title, content: content) == .saved
+    }
+
+    /// The outcome-shaped save. `baseTitle`/`baseContent` are what the caller
+    /// last saw the server hold — the staleness evidence a held draft carries
+    /// so a later restore or drain can refuse to clobber newer words. A draft
+    /// already held for this document keeps its original base: the divergence
+    /// began there, not at the latest keystroke.
+    @discardableResult
+    func saveDocumentOutcome(_ document: TextDocument, title: String, content: String,
+                             baseTitle: String? = nil, baseContent: String? = nil)
+        async -> DocumentSaveOutcome {
+        guard let link = document.link(.update) else { return .failed }
+        // Snapshot before the attempt, like the block path: between here and
+        // the response the words exist nowhere but this process.
+        holdDocument(document.id, title: title, content: content,
+                     baseTitle: baseTitle, baseContent: baseContent)
         do {
             let _: TextDocument = try await app.client.fetch(
                 from: link, method: "PUT",
                 body: EditDocumentCommand(projectId: project.id, title: title,
                                           documentType: document.kind.rawValue, content: content))
+            documentDrafts?.remove(documentId: document.id, projectId: project.id)
+            heldDocumentIds.remove(document.id)
             errorMessage = nil
-            return true
+            return .saved
         } catch {
-            report(error)
-            return false
+            // An abandoned request is not a failed one — whatever superseded
+            // it will write the words again; the pre-flight snapshot already
+            // covers a kill.
+            guard !error.isCancelledRequest else { return .failed }
+            guard error.isRetryableAPIError else {
+                // Refused. The draft stays on disk — the words are still the
+                // writer's only copy — but the sheet must say "couldn't save",
+                // and the alert is earned.
+                report(error)
+                return .failed
+            }
+            // Held, quietly: the sheet's own status line says where the words
+            // are, and an alert per debounced autosave would bury the writer.
+            return .held
         }
+    }
+
+    /// Record a document's words as held on this device. Keeps an existing
+    /// draft's base — the server state when divergence began — over the one
+    /// passed now.
+    private func holdDocument(_ id: Int, title: String, content: String,
+                              baseTitle: String?, baseContent: String?) {
+        heldDocumentIds.insert(id)
+        guard let store = documentDrafts else { return }
+        let existing = store.draft(documentId: id, projectId: project.id)
+        store.save(UnsavedDocumentDraft(documentId: id, title: title, content: content,
+                                        baseTitle: existing?.baseTitle ?? baseTitle,
+                                        baseContent: existing?.baseContent ?? baseContent,
+                                        savedAt: .now),
+                   projectId: project.id)
+    }
+
+    /// The held words for a document, if any — what the editor sheet opens
+    /// with instead of the server's copy, so a relaunch resumes the writing
+    /// rather than silently showing the words the writer already replaced.
+    func heldDocumentDraft(for document: TextDocument) -> UnsavedDocumentDraft? {
+        documentDrafts?.draft(documentId: document.id, projectId: project.id)
+    }
+
+    /// Drop a document's held words — the editor adopting a draft found stale,
+    /// or a writer discarding their own edits.
+    func discardDocumentDraft(for id: Int) {
+        documentDrafts?.remove(documentId: id, projectId: project.id)
+        heldDocumentIds.remove(id)
+    }
+
+    /// Send every held document now. Runs inside the reconnect sweep, after
+    /// the blocks: same promise, different store.
+    ///
+    /// The staleness gate needs the server's current copy (the list carries
+    /// only a preview), fetched quietly — a sweep that still can't reach the
+    /// server must leave the drafts held, not raise alerts.
+    private func drainDocumentDrafts() async {
+        guard let store = documentDrafts else { return }
+        var landed = false
+        for draft in store.drafts(projectId: project.id).values.sorted(by: { $0.documentId < $1.documentId }) {
+            guard let document = documents.first(where: { $0.id == draft.documentId }),
+                  let link = document.link(.selfRel) else {
+                // Not in this project's list (deleted elsewhere, or the list
+                // never loaded). Left on disk for a drain that knows more.
+                continue
+            }
+            guard let full: TextDocument = try? await app.client.fetch(from: link) else { continue }
+            let serverTitle = full.title ?? ""
+            let serverContent = full.content ?? ""
+            if draft.title == serverTitle && draft.content == serverContent {
+                // Finished business — the server already says this.
+                discardDocumentDraft(for: draft.documentId)
+                continue
+            }
+            let baseMatches = (draft.baseContent == nil && draft.baseTitle == nil)
+                || (draft.baseContent == serverContent && (draft.baseTitle ?? serverTitle) == serverTitle)
+            guard baseMatches else {
+                // Someone edited this note elsewhere since the save failed,
+                // and the server is last-write-wins: pushing the draft would
+                // clobber the newer words. It goes — never silently.
+                discardDocumentDraft(for: draft.documentId)
+                presentToast("An offline edit to “\(draft.title)” was set aside — it changed elsewhere")
+                continue
+            }
+            if await saveDocumentOutcome(full, title: draft.title, content: draft.content) == .saved {
+                landed = true
+            }
+        }
+        if landed { await loadDocuments() }
     }
 
     /// Writes a document and brings everything that shows it back into step.

@@ -42,11 +42,16 @@ final class UnsavedDraftStore {
     /// accounts on one device can never see or replay each other's words.
     /// `directory` is injectable for tests; the default lives in Application
     /// Support next to the app's other files.
-    init(scope: String, directory: URL? = nil) {
+    ///
+    /// `folder` separates one kind of draft from another: screenplay drafts
+    /// key files by project id, song drafts by document id, and the two id
+    /// spaces have nothing to do with each other — under one folder a song
+    /// could silently shadow a screenplay's file.
+    init(scope: String, directory: URL? = nil, folder: String = "Drafts") {
         let base = directory ?? FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "scripty", isDirectory: true)
-            .appendingPathComponent("Drafts", isDirectory: true)
+            .appendingPathComponent(folder, isDirectory: true)
         root = base.appendingPathComponent(Self.scopeKey(scope), isDirectory: true)
     }
 

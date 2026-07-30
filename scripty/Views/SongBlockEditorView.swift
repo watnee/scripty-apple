@@ -27,6 +27,7 @@ struct SongBlockEditorView: View {
     private let onInserted: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedLine: Int?
 
     /// The same device-wide readout preference the screenplay honours.
@@ -122,7 +123,12 @@ struct SongBlockEditorView: View {
                 }
             }
             .overlay { emptyState }
-            .safeAreaInset(edge: .top, spacing: 0) { editionBanner }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    editionBanner
+                    offlineCopyBanner
+                }
+            }
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     searchBar
@@ -190,6 +196,28 @@ struct SongBlockEditorView: View {
             } message: {
                 Text(insertMessage ?? "")
             }
+            // The connection came back: push the lines held on this device
+            // right away rather than waiting out each one's retry backoff —
+            // the same sweep the screenplay editor runs.
+            .onChange(of: model.app.connectivity.isOnline) { _, online in
+                guard online else { return }
+                Task { await model.syncHeldWork() }
+            }
+            // Backgrounding flushes the debounced commit immediately; coming
+            // back is a second chance for anything still held, since the retry
+            // backoffs may have run out while the app slept.
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background, .inactive:
+                    Task { await model.commitAll() }
+                case .active:
+                    if model.hasUnsavedChanges, model.app.connectivity.isOnline {
+                        Task { await model.syncHeldWork() }
+                    }
+                @unknown default:
+                    break
+                }
+            }
         }
     }
 
@@ -212,6 +240,48 @@ struct SongBlockEditorView: View {
                 insertMessage = scriptModel.errorMessage
                     ?? "Could not insert into the script."
             }
+        }
+    }
+
+    /// The same standing answer the screenplay shows: where do the words on
+    /// this screen currently live? Nil in demo, where there is no cloud to be
+    /// honest about.
+    private var cloudState: CloudSyncState? {
+        guard !model.app.isDemo else { return nil }
+        if !model.app.connectivity.isOnline { return .offline }
+        // Refused beats retrying: with both on screen, the one that will not
+        // fix itself is the one the badge must name.
+        if model.hasFailedSaves { return .failed }
+        return model.hasUnsavedChanges ? .holding : .synced
+    }
+
+    /// Says the lyric on screen is the copy saved on this device, and how old
+    /// it is — an out-of-date lyric should not look current. Only shown when
+    /// the fallback actually happened, not merely because the radio is off;
+    /// the same rule the projects sidebar follows.
+    @ViewBuilder
+    private var offlineCopyBanner: some View {
+        if let savedAt = model.offlineCopySavedAt {
+            HStack(spacing: 6) {
+                Image(systemName: "wifi.slash")
+                    .font(.caption)
+                Text("Offline — lyrics saved "
+                     + savedAt.formatted(.relative(presentation: .named)))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(.orange.opacity(0.10))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(.separator).frame(height: 0.5)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Offline. Showing the lyrics saved on this device "
+                                + savedAt.formatted(.relative(presentation: .named)) + ".")
         }
     }
 
@@ -259,6 +329,14 @@ struct SongBlockEditorView: View {
                     dismiss()
                 }
             }
+        }
+        // Beside the way out, where the screenplay keeps it: leaving is the
+        // moment a writer wonders whether their words are anywhere but here.
+        if let cloud = cloudState {
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncBadge(state: cloud, heldCount: model.unsavedBlockIds.count)
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
         // Undo sits on the leading edge, where the screenplay editor puts it,
         // and only appears where the server keeps a stack for this song.

@@ -279,6 +279,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
@@ -287,6 +288,36 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "${SHARED[@]}" \
     "$ROOT/Tests/SongLines/main.swift"
 "$BUILD/songlines" || status=1
+
+echo
+echo "== Song drafts survive a failed save =="
+# The same closed-port failures the UnsavedWork suite drives, aimed at the
+# lyric editor: held words, drafts on disk, restore on relaunch.
+swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/LocalHistory.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/SongBlockModel.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/SongDrafts/main.swift"
+run_suite "$BUILD/songdrafts" || status=1
 
 echo
 echo "== Songs and Notes widgets =="
@@ -353,6 +384,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
@@ -379,6 +411,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
@@ -408,6 +441,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \

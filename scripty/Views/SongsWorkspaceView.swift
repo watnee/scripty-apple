@@ -94,6 +94,17 @@ struct SongsWorkspaceView: View {
                 guard didRestore else { return }
                 openStore.save(ids)
             }
+            // The connection came back: every open lyric may be holding lines
+            // written while it was down. Push them now rather than waiting out
+            // each line's retry backoff.
+            .onChange(of: app.connectivity.isOnline) { _, online in
+                guard online else { return }
+                Task {
+                    for lyric in lyrics.values where lyric.hasUnsavedChanges {
+                        await lyric.syncHeldWork()
+                    }
+                }
+            }
         }
     }
 

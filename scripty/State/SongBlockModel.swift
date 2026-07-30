@@ -9,6 +9,12 @@
 //  shields the line being typed into from a reload landing underneath it, and
 //  every affordance waits on a link the server advertised.
 //
+//  A line whose save cannot get out is *held*, the same way a screenplay
+//  element is: the words stay live on screen, go to disk so a relaunch keeps
+//  them, retry on a backoff, and are pushed the moment the connection returns.
+//  Only edits get this treatment — creating, deleting and reordering lines
+//  still need the server, exactly as the lyric structure always has.
+//
 //  Which edition's lyric is being read travels as a link rather than an id the
 //  client assembles — the editions collection hands over the `songBlocks` link
 //  for each one.
@@ -62,6 +68,42 @@ final class SongBlockModel {
     private var commitTasks: [Int: Task<Void, Never>] = [:]
     private static let commitDebounce: Duration = .milliseconds(600)
 
+    /// Lines whose latest text failed to reach the server. Their entry in
+    /// `liveText` is the *only* copy of those words, so it is held rather than
+    /// cleared until a retry lands — the same rule the screenplay follows.
+    private(set) var unsavedBlockIds: Set<Int> = []
+    var hasUnsavedChanges: Bool { !unsavedBlockIds.isEmpty }
+
+    /// Lines whose latest write the server *refused* — a failure no retry
+    /// fixes. Their words are still held, but nothing is in flight, and any
+    /// badge must stop saying "saving".
+    private(set) var failedBlockIds: Set<Int> = []
+    var hasFailedSaves: Bool { !failedBlockIds.isEmpty }
+
+    private var retryTasks: [Int: Task<Void, Never>] = [:]
+    private var retryAttempts: [Int: Int] = [:]
+    /// The screenplay's backoff, unchanged: past the last delay the words stay
+    /// held and the next keystroke — or the reconnect sweep — re-arms it.
+    private static let retryDelays: [Duration] =
+        [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+
+    /// Where held lyric text is kept across a relaunch. Keyed by *document* id,
+    /// in a folder of its own — song line drafts and screenplay block drafts
+    /// live in different id spaces. Nil (signed out, demo) means held words
+    /// survive this session only, as before.
+    @ObservationIgnored private let draftStore: UnsavedDraftStore?
+
+    /// The offline copies of this account's lyrics, refreshed on every
+    /// successful default-edition load and read back when a load fails for
+    /// want of a connection — the same fallback the screenplay's elements
+    /// have. Nil exactly when the draft store is (signed out, demo).
+    @ObservationIgnored private let offlineStore: OfflineStore?
+
+    /// Set when the lyric on screen is the offline copy rather than the
+    /// server's answer, with when that copy was saved.
+    private(set) var offlineCopySavedAt: Date?
+    var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
+
     var canAddLine: Bool { links.contains(.create) }
 
     /// The song's snapshot history, when the server keeps one. Advertised on
@@ -83,9 +125,13 @@ final class SongBlockModel {
     var canRedo: Bool { undoRedo?.canRedo ?? false }
     var hasUndoStack: Bool { links.contains(.undoRedoStatus) }
 
-    init(app: AppModel, document: TextDocument) {
+    init(app: AppModel, document: TextDocument, draftStore: UnsavedDraftStore? = nil,
+         offlineStore: OfflineStore? = nil) {
         self.app = app
         self.document = document
+        self.draftStore = draftStore
+            ?? app.draftScope.map { UnsavedDraftStore(scope: $0, folder: "SongDrafts") }
+        self.offlineStore = offlineStore ?? app.offlineStore
     }
 
     // MARK: - Loading
@@ -94,18 +140,43 @@ final class SongBlockModel {
         guard let link = editionBlocksLink ?? document.link(.songBlocks) else { return }
         isLoading = true
         defer { isLoading = false }
+        // Only the default edition is cached (and only it falls back), for the
+        // screenplay's reason: a chosen edition travels as a link that means
+        // nothing offline, and edition A's copy under edition B's banner is
+        // worse than saying the switch needs a connection.
+        let cacheKind: OfflineStore.Kind? = (editionBlocksLink == nil)
+            ? document.projectId.map { .songBlocks(projectId: $0, documentId: document.id) }
+            : nil
         do {
-            let collection: HALCollection<SongBlock> = try await app.client.fetch(from: link)
+            let data = try await app.client.data(for: link)
+            let collection: HALCollection<SongBlock> = try app.client.decode(from: data)
             adopt(collection)
+            offlineCopySavedAt = nil
             errorMessage = nil
+            adoptPersistedDrafts()
+            if let cacheKind { offlineStore?.save(data, cacheKind) }
         } catch {
-            report(error)
+            // The network failed — fall back to the copy saved last time this
+            // lyric loaded. Held drafts lay on top exactly as on a live load,
+            // so words typed offline stay the newest thing on screen.
+            if let cacheKind, error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(cacheKind),
+               let collection: HALCollection<SongBlock> = try? app.client.decode(from: snapshot.data) {
+                adopt(collection)
+                offlineCopySavedAt = snapshot.savedAt
+                errorMessage = nil
+                adoptPersistedDrafts()
+            } else {
+                report(error)
+            }
         }
         // After adopt, so the status link this round advertised is the one used.
         await refreshUndoRedo()
     }
 
-    private func adopt(_ collection: HALCollection<SongBlock>) {
+    /// Internal, like `ScriptModel.adopt`, so the logic suites can seed a
+    /// lyric without a server.
+    func adopt(_ collection: HALCollection<SongBlock>) {
         blocks = collection.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
         links = collection.links
     }
@@ -122,15 +193,22 @@ final class SongBlockModel {
     /// is what makes this a debounce rather than a request per character.
     func edit(_ block: SongBlock, text: String) {
         liveText[block.id] = text
-        commitTasks[block.id]?.cancel()
-        commitTasks[block.id] = Task { [weak self] in
+        scheduleCommit(block.id)
+    }
+
+    private func scheduleCommit(_ id: Int) {
+        commitTasks[id]?.cancel()
+        commitTasks[id] = Task { [weak self] in
             try? await Task.sleep(for: Self.commitDebounce)
             guard !Task.isCancelled else { return }
             // The slot goes back before the save, not after: `commit` cancels
             // whatever is in it to supersede a debounce still counting down,
             // and that is this task. See `ScriptModel.scheduleCommit`.
-            self?.commitTasks[block.id] = nil
-            await self?.commit(block)
+            self?.commitTasks[id] = nil
+            // By id at fire time, not a block captured at key time: the line's
+            // links may have been replaced by a reload in between.
+            guard let self, let line = self.block(id) else { return }
+            await self.commit(line)
         }
     }
 
@@ -146,13 +224,20 @@ final class SongBlockModel {
         guard let pending = liveText[block.id], let link = block.link(.update) else { return true }
         guard pending != block.text else {
             liveText[block.id] = nil
+            markSaved(block.id)
             return true
         }
+        // Snapshot before the attempt, not only after a failure: between here
+        // and the response the words exist nowhere but this process, and a
+        // kill mid-flight would otherwise be the end of them. Success removes
+        // the draft again in `markSaved`.
+        persistDraft(block.id)
         do {
             let updated: SongBlock = try await app.client.fetch(
                 from: link, method: "PUT", body: EditSongBlockCommand(content: pending))
             liveText[block.id] = nil
             replace(updated)
+            markSaved(block.id)
             errorMessage = nil
             // The edit left a checkpoint behind it, so there is now somewhere
             // to step back to even though the list did not reload. Refreshed
@@ -162,7 +247,7 @@ final class SongBlockModel {
             refreshUndoRedoSoon()
             return true
         } catch {
-            report(error)
+            markUnsaved(block.id, after: error)
             return false
         }
     }
@@ -173,6 +258,115 @@ final class SongBlockModel {
         for block in blocks where liveText[block.id] != nil {
             await commit(block)
         }
+    }
+
+    // MARK: - Held work
+
+    /// The server has this line's text; the live copy is no longer precious.
+    private func markSaved(_ id: Int) {
+        unsavedBlockIds.remove(id)
+        failedBlockIds.remove(id)
+        retryTasks[id]?.cancel()
+        retryTasks[id] = nil
+        retryAttempts[id] = nil
+        draftStore?.remove(blockId: id, projectId: document.id)
+    }
+
+    /// A write failed. Hold the line's words — flagged unsaved, snapshotted to
+    /// disk — and, when the failure is the kind that clears up by itself, try
+    /// again on a backoff rather than making the writer notice and retype.
+    /// Only a *refusal* is worth an alert; a lost route has the badge.
+    private func markUnsaved(_ id: Int, after error: Error) {
+        unsavedBlockIds.insert(id)
+        persistDraft(id)
+        // An abandoned request is not a failed one: the debounce was
+        // superseded or the screen was left, and whatever did that will
+        // write the words again. See `isCancelledRequest`.
+        guard !error.isCancelledRequest else { return }
+        guard error.isRetryableAPIError else {
+            failedBlockIds.insert(id)
+            report(error)
+            return
+        }
+        failedBlockIds.remove(id)
+        let attempt = retryAttempts[id] ?? 0
+        guard attempt < Self.retryDelays.count else { return }
+        retryAttempts[id] = attempt + 1
+        let delay = Self.retryDelays[attempt]
+        retryTasks[id]?.cancel()
+        retryTasks[id] = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            guard let self, let line = self.block(id) else { return }
+            await self.commit(line)
+        }
+    }
+
+    /// Snapshot a line's live text to disk, with the server's current content
+    /// as the base — the restore path's evidence of whether the draft is still
+    /// the newest thing anyone wrote.
+    private func persistDraft(_ id: Int) {
+        guard let store = draftStore, let text = liveText[id] else { return }
+        store.save(UnsavedDraft(blockId: id, text: text,
+                                baseText: block(id)?.content,
+                                savedAt: .now),
+                   projectId: document.id)
+    }
+
+    /// Pick up whatever drafts a previous run left behind: re-adopt each as
+    /// live text and arm the ordinary debounced commit, so the retry machinery
+    /// takes over. Idempotent — a line already being edited is left alone.
+    ///
+    /// A draft whose base no longer matches the server is *dropped*: someone
+    /// edited that line elsewhere since the save failed, and the server is
+    /// last-write-wins, so pushing the old draft would clobber newer words.
+    func adoptPersistedDrafts() {
+        guard let store = draftStore else { return }
+        var setAside = 0
+        for (id, draft) in store.drafts(projectId: document.id) {
+            guard liveText[id] == nil, !unsavedBlockIds.contains(id) else { continue }
+            guard let line = block(id) else {
+                // Not in this collection — possibly another edition's line.
+                // Left on disk for the load that can see it.
+                continue
+            }
+            let server = line.content ?? ""
+            if draft.text == server {
+                store.remove(blockId: id, projectId: document.id)
+                continue
+            }
+            guard draft.baseText == nil || draft.baseText == server else {
+                store.remove(blockId: id, projectId: document.id)
+                setAside += 1
+                continue
+            }
+            liveText[id] = draft.text
+            unsavedBlockIds.insert(id)
+            scheduleCommit(id)
+        }
+        if setAside > 0 {
+            // These are words the writer typed and never saw land, so they
+            // must not go silently. The editor's error alert is the only
+            // mouth this model has.
+            errorMessage = setAside == 1
+                ? "An offline edit was set aside — that line changed elsewhere"
+                : "\(setAside) offline edits were set aside — those lines changed elsewhere"
+        }
+    }
+
+    /// Push every held line right now — the connection is back, or the editor
+    /// has come to the foreground with work still on this device. Restarts
+    /// each line's backoff: this push is prompted by a route returning, not by
+    /// a timer that has already run its course.
+    func syncHeldWork() async {
+        for id in unsavedBlockIds.sorted() {
+            guard let line = block(id) else { continue }
+            retryAttempts[id] = nil
+            await commit(line)
+        }
+        // The route is back and the lyric on screen may be the old copy: a
+        // successful load replaces it and takes the banner down with it.
+        if isShowingOfflineCopy { await load() }
     }
 
     // MARK: - Structure
@@ -261,7 +455,7 @@ final class SongBlockModel {
         let restore = liveText[previous.id]
         liveText[previous.id] = merged
         guard await commit(previous) else {
-            liveText[previous.id] = restore
+            unmerge(previous.id, restoring: restore)
             return nil
         }
 
@@ -283,11 +477,34 @@ final class SongBlockModel {
         return previous.id
     }
 
+    /// A merge whose PUT did not land must leave the line above exactly as it
+    /// was — including the held-work bookkeeping `commit`'s failure just wrote
+    /// for the *merged* text, which is not something the writer typed and must
+    /// not survive as a draft. What they had typed before the merge, if
+    /// anything, goes back to being held on its own.
+    private func unmerge(_ id: Int, restoring text: String?) {
+        liveText[id] = text
+        retryTasks[id]?.cancel()
+        retryTasks[id] = nil
+        retryAttempts[id] = nil
+        failedBlockIds.remove(id)
+        if text == nil {
+            unsavedBlockIds.remove(id)
+            draftStore?.remove(blockId: id, projectId: document.id)
+        } else {
+            persistDraft(id)
+            scheduleCommit(id)
+        }
+    }
+
     @discardableResult
     func delete(_ block: SongBlock) async -> Bool {
         guard let link = block.link(.delete) else { return false }
         commitTasks[block.id]?.cancel()
         liveText[block.id] = nil
+        // Deleting a line means dropping the words typed into it — the held
+        // copy and its retry go with them, whatever the request then does.
+        markSaved(block.id)
         do {
             // The delete answers with the renumbered collection, so adopting
             // it is the reload — fetching the same list again only made the
