@@ -36,11 +36,9 @@ struct SongLineRow: View {
     /// taking text for as long as that lasts: a tap meant for a drag handle
     /// that opens the keyboard instead is the whole mode undone.
     var isRearranging = false
-    /// Whether the row has a number in the margin. The all-songs workspace
-    /// turns it off — a page of every song is read as lyrics, not discussed
-    /// by line — and with it goes the per-line menu the number anchors:
-    /// there, the lyric fills the row and Delete survives as a swipe.
-    var showsLineNumber = true
+
+    /// Whether the highlight swipe is showing its colours.
+    @State private var pickingHighlight = false
 
     @Environment(\.colorScheme) private var colorScheme
     /// The writer's chosen type size, shared with the screenplay through the
@@ -68,67 +66,47 @@ struct SongLineRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            if showsLineNumber {
-                if isRearranging {
-                    // No menu while rearranging: Move Up and Move Down are what
-                    // the drag handle is now for, and the rest would be a menu
-                    // opened by a tap aimed at a row about to be dragged.
-                    lineNumber
-                } else {
-                    Menu {
-                        lineMenu
-                    } label: {
-                        lineNumber
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .accessibilityLabel("Line \(block.order ?? 0) actions")
-                }
-            }
-
-            SongLineField(text: text,
-                          isFocused: isFocused,
-                          isEditable: block.isEditable && !isRearranging,
-                          fontSize: Self.baseLineSize * textScale,
-                          spellChecks: spellChecks,
-                          spellcheckRevision: spellcheckRevision,
-                          accessibilityLabel: "Lyric line \(block.order ?? 0)",
-                          caret: model.caretRequests[block.id],
-                          onCaretApplied: { model.caretRequests[block.id] = nil },
-                          onBeginEditing: {
-                              focusedLine = block.id
-                              // Taken: the model has no further say over where
-                              // the caret goes until it asks again.
-                              if model.focusRequest == block.id { model.focusRequest = nil }
-                          },
-                          onEndEditing: {
-                              // Save on the way out rather than waiting for the
-                              // debounce, and release the shared focus only if it
-                              // still points here — a tap on another line has
-                              // already moved it on by the time this fires.
-                              if focusedLine == block.id { focusedLine = nil }
-                              Task { await model.commit(block) }
-                          },
-                          onReturn: {
-                              Task {
-                                  if let created = await model.addLine(below: block) {
-                                      focusedLine = created
-                                  }
+        SongLineField(text: text,
+                      isFocused: isFocused,
+                      isEditable: block.isEditable && !isRearranging,
+                      fontSize: Self.baseLineSize * textScale,
+                      spellChecks: spellChecks,
+                      spellcheckRevision: spellcheckRevision,
+                      accessibilityLabel: "Lyric line \(block.order ?? 0)",
+                      caret: model.caretRequests[block.id],
+                      onCaretApplied: { model.caretRequests[block.id] = nil },
+                      onBeginEditing: {
+                          focusedLine = block.id
+                          // Taken: the model has no further say over where
+                          // the caret goes until it asks again.
+                          if model.focusRequest == block.id { model.focusRequest = nil }
+                      },
+                      onEndEditing: {
+                          // Save on the way out rather than waiting for the
+                          // debounce, and release the shared focus only if it
+                          // still points here — a tap on another line has
+                          // already moved it on by the time this fires.
+                          if focusedLine == block.id { focusedLine = nil }
+                          Task { await model.commit(block) }
+                      },
+                      onReturn: {
+                          Task {
+                              if let created = await model.addLine(below: block) {
+                                  focusedLine = created
                               }
-                          },
-                          onBackspaceAtStart: {
-                              // Backspace with nothing behind the caret folds
-                              // the line into the one above, the way it does in
-                              // the screenplay. The model puts the caret at the
-                              // seam; all this has to do is follow it there.
-                              Task {
-                                  if let target = await model.mergeIntoPrevious(block) {
-                                      focusedLine = target
-                                  }
+                          }
+                      },
+                      onBackspaceAtStart: {
+                          // Backspace with nothing behind the caret folds
+                          // the line into the one above, the way it does in
+                          // the screenplay. The model puts the caret at the
+                          // seam; all this has to do is follow it there.
+                          Task {
+                              if let target = await model.mergeIntoPrevious(block) {
+                                  focusedLine = target
                               }
-                          })
-        }
+                          }
+                      })
         .padding(.vertical, 2)
         .padding(.horizontal, 4)
         .listRowBackground(rowBackground)
@@ -140,6 +118,35 @@ struct SongLineRow: View {
                     Label("Delete", systemImage: "trash")
                 }
             }
+        }
+        // Highlight used to live in a menu behind the line number. The number
+        // is gone — lyrics read as lyrics, in the editor as in the workspace —
+        // and a long press cannot replace the menu because the text field
+        // swallows it, so the tint rides the same gesture Delete already uses.
+        .swipeActions(edge: .leading) {
+            if block.hasLink(.setHighlight) {
+                Button {
+                    pickingHighlight = true
+                } label: {
+                    Label("Highlight", systemImage: "highlighter")
+                }
+                .tint(.orange)
+            }
+        }
+        .confirmationDialog("Highlight Line",
+                            isPresented: $pickingHighlight,
+                            titleVisibility: .visible) {
+            ForEach(BlockHighlight.allCases) { colour in
+                Button(colour.label) {
+                    Task { await model.setHighlight(block, to: colour) }
+                }
+            }
+            if block.tint != nil {
+                Button("Remove Highlight", role: .destructive) {
+                    Task { await model.setHighlight(block, to: nil) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -162,81 +169,12 @@ struct SongLineRow: View {
                 set: { model.edit(block, text: $0) })
     }
 
-    /// The line's tint, as something a Picker can drive. Reads the block, and
-    /// writes through the server — there is no local copy to keep in step.
-    private var highlight: Binding<BlockHighlight?> {
-        Binding(get: { block.tint },
-                set: { colour in
-                    guard colour != block.tint else { return }
-                    Task { await model.setHighlight(block, to: colour) }
-                })
-    }
-
-    /// The number in the margin. Worth having on its own account — lyrics get
-    /// discussed by line — and it doubles as the target for the row's menu.
-    private var lineNumber: some View {
-        Text("\(block.order ?? 0)")
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(.tertiary)
-            .frame(width: 22, alignment: .trailing)
-            .contentShape(Rectangle())
-    }
-
     @ViewBuilder
     private var rowBackground: some View {
         if let tint = block.tint {
             tint.color(for: colorScheme)
         } else {
             Color.clear
-        }
-    }
-
-    /// The per-line actions hang off the number in the margin rather than off a
-    /// context menu on the row. The text field fills the row and swallows a
-    /// long press, so a row-level menu is simply unreachable — which is how the
-    /// first version of this shipped, with Move, Highlight and Delete visible
-    /// in the code and unusable in the app. The number is also worth having:
-    /// lyrics get discussed by line.
-    @ViewBuilder
-    private var lineMenu: some View {
-        if model.canMoveUp(block) {
-            Button {
-                Task { await model.move(block, by: -1) }
-            } label: {
-                Label("Move Up", systemImage: "arrow.up")
-            }
-        }
-        if model.canMoveDown(block) {
-            Button {
-                Task { await model.move(block, by: 1) }
-            } label: {
-                Label("Move Down", systemImage: "arrow.down")
-            }
-        }
-        if block.hasLink(.setHighlight) {
-            // A Picker rather than a list of buttons, so the colour already on
-            // the line is ticked. The tint is behind the row, which says the
-            // line is highlighted but not which of two neighbouring yellows it
-            // is wearing — and the writer who set it is the one most likely to
-            // want it changed.
-            Picker(selection: highlight) {
-                Text("None").tag(BlockHighlight?.none)
-                ForEach(BlockHighlight.allCases) { colour in
-                    Text(colour.label).tag(BlockHighlight?.some(colour))
-                }
-            } label: {
-                Label("Highlight", systemImage: "highlighter")
-            }
-            // Explicit, or the picker flattens into the row's menu and the six
-            // colour names sit there unlabelled among Move and Delete.
-            .pickerStyle(.menu)
-        }
-        if block.hasLink(.delete) {
-            Button(role: .destructive) {
-                Task { await model.delete(block) }
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
         }
     }
 }
