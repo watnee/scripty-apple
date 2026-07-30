@@ -544,13 +544,36 @@ struct SongsView: View {
     }
 
     private var picker: some View {
-        Picker("Type", selection: $listType) {
-            Text("Songs").tag(DocumentType.song)
-            Text("Notes").tag(DocumentType.notes)
+        VStack(spacing: 0) {
+            Picker("Type", selection: $listType) {
+                Text("Songs").tag(DocumentType.song)
+                Text("Notes").tag(DocumentType.notes)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            // The web list's "Edit all on one page" button, kept beside the
+            // list's own controls as the web keeps it beside search and sort.
+            // The same door exists in the toolbar's overflow, but a button
+            // folded behind "…" is one most writers never meet. In the bar
+            // rather than a List row: a section whose presence hangs on the
+            // song count proved to come and go unreliably as the list diffed
+            // itself, and the bar is rebuilt whole every time.
+            //
+            // Same gate as the toolbar item: only where the songs are, and
+            // only with more than one — a workspace of one song is the editor
+            // with extra steps.
+            if listType == .song, model.songs.count > 1 {
+                Button {
+                    showingWorkspace = true
+                } label: {
+                    Label("Edit All on One Page", systemImage: "rectangle.stack")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderless)
+                .padding(.bottom, 8)
+            }
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal)
-        .padding(.vertical, 8)
         // No background: mounted with `.safeAreaBar`, which supplies the glass.
     }
 
