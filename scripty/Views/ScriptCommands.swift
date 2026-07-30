@@ -82,10 +82,13 @@ struct ScriptActions {
     var titlePage: (() -> Void)?
     var stats: (() -> Void)?
     var pageSetup: (() -> Void)?
+    /// Flips the script screen into (and out of) reading mode — the script
+    /// as prose, in place, not a screen of its own. The flag drives the
+    /// menu item's label.
     var readScript: (() -> Void)?
-    /// The voice, not a screen: reading aloud runs on the script screen
-    /// itself, transport bar and all — unlike `readScript`, which opens the
-    /// reader sheet. Pauses and resumes a reading already running.
+    var isReadingScript = false
+    /// The voice, not a mode: reading aloud runs on whatever surface is up,
+    /// transport bar and all. Pauses and resumes a reading already running.
     var readAloud: (() -> Void)?
     var versions: (() -> Void)?
     /// Open the editions browser — the web's ⌘⇧J "new version". Nil unless the
@@ -443,9 +446,13 @@ struct ScriptCommands: Commands {
             .keyboardShortcut("o", modifiers: [.command, .option])
             .disabled(actions?.outline == nil)
 
-        Button("Read Script") { actions?.readScript?() }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(actions?.readScript == nil)
+        // A mode toggle like the ones above it, so the item names the way out
+        // while the mode is on.
+        Button(actions?.isReadingScript == true ? "Exit Read Mode" : "Read Script") {
+            actions?.readScript?()
+        }
+        .keyboardShortcut("r", modifiers: [.command, .shift])
+        .disabled(actions?.readScript == nil)
 
         // The voice, in place on the script screen. ⌘⇧A rather than anything
         // nearer ⌘⇧R: R is taken by the reader itself, and every other letter

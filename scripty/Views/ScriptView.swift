@@ -44,13 +44,15 @@ struct ScriptView: View {
     /// errand, and each session should start with the screen it saves.
     @State private var showingFormatBar = false
     @State private var isSearching = false
-    /// Whether the reader sheet — the script as prose, for reading silently —
-    /// is up. Reading *aloud* no longer opens it: the voice runs right here,
-    /// with a transport bar at the bottom and the element being read
-    /// spotlighted in the column, so listening costs no screen at all.
-    @State private var showingReader = false
+    /// Whether the script is up as prose for reading silently — a surface of
+    /// this screen, like page view, not a screen of its own: the mode swaps
+    /// the writing column for the reader in place, and the toolbar and the
+    /// reading position stay put. Session state rather than a stored
+    /// preference, because reading is a posture entered and left, not how a
+    /// script should reopen tomorrow.
+    @State private var isReading = false
     /// The voice that reads the script out loud, owned by the script screen
-    /// so a reading survives the reader sheet opening and closing. The
+    /// so a reading survives the reading mode coming and going. The
     /// preferences it carries are stored, so voice and speed outlive it.
     @State private var narrator = ScriptNarrator()
     @State private var showingPageSetup = false
@@ -168,16 +170,20 @@ struct ScriptView: View {
     }
 
     var body: some View {
-        presentations(over: scriptSurface)
+        presentations(over: lifecycle(over: scriptSurface))
     }
 
-    /// The script with its chrome, banners and lifecycle hooks — everything
-    /// short of the sheets, which `presentations` carries. Split because one
-    /// expression carrying every modifier is more than the type-checker will
-    /// finish in reasonable time.
+    /// The script with its chrome and banners — the sheets ride on
+    /// `presentations` and the load/sync/mode hooks on `lifecycle`. Split three
+    /// ways because one expression carrying every modifier is more than the
+    /// type-checker will finish in reasonable time.
     private var scriptSurface: some View {
         Group {
-            if settings.isPageView {
+            // Reading wins while it is on; page view and the column wait
+            // underneath and come back exactly as they were left.
+            if isReading {
+                reader
+            } else if settings.isPageView {
                 pageView
             } else {
                 editor
@@ -236,6 +242,12 @@ struct ScriptView: View {
         }
         .exportPresentation(exporter)
         .focusedSceneValue(\.scriptActions, menuActions)
+    }
+
+    /// The load, sync and mode-change hooks — `scriptSurface`'s other half;
+    /// see its header for why the split exists.
+    private func lifecycle(over content: some View) -> some View {
+        content
         .refreshable {
             await model.loadBlocks()
             await model.refreshUndoRedo()
@@ -332,10 +344,29 @@ struct ScriptView: View {
         // would come up empty if the Group were ever restructured.
         .onChange(of: settings.isPageView) { _, _ in
             repaginate()
+            // Asking for paper (or the column) is asking to leave the reader:
+            // a Page View toggle that visibly did nothing because reading sat
+            // on top of it would read as broken.
+            isReading = false
             // Changing surface is not leaving the page: the paper opens on the
             // sheet the column was showing, and the column comes back to the
             // element the sheet started with. Both read the position the other
             // has been keeping, so the switch is where it changes hands.
+            if let id = options.rememberedBlockId,
+               model.blocks.contains(where: { $0.id == id }) {
+                scroll(toRemembered: id)
+            }
+        }
+        // Outline mode is a request for the editor, narrowed — leave the
+        // reader for it, as the page-view toggle above does.
+        .onChange(of: settings.isOutlineMode) { _, on in
+            if on { isReading = false }
+        }
+        // Leaving the reader sends the returning surface to where the reading
+        // got to — the same handoff the column and the paper already make.
+        // Entering needs nothing here: the reader restores the position itself.
+        .onChange(of: isReading) { _, reading in
+            guard !reading else { return }
             if let id = options.rememberedBlockId,
                model.blocks.contains(where: { $0.id == id }) {
                 scroll(toRemembered: id)
@@ -348,13 +379,6 @@ struct ScriptView: View {
     /// exists.
     private func presentations(over content: some View) -> some View {
         content
-        .sheet(isPresented: $showingReader) {
-            ReadScriptView(
-                title: model.project.displayTitle,
-                blocks: model.blocks,
-                textScale: settings.textScale,
-                narrator: narrator)
-        }
         .sheet(isPresented: $showingPageSetup) {
             PageSetupSheet(settings: settings)
         }
@@ -678,7 +702,7 @@ struct ScriptView: View {
                 // to twice in a row.
                 navigator.consumeScrollTarget()
             }
-            // Follow the voice, as the reader sheet does. Centred rather than
+            // Follow the voice, as the reader surface does. Centred rather than
             // at the top, because a line read at the very top of the screen
             // has no context above it and the next one is always a jump. The
             // scroll spy drops programmatic moves, so following cannot fold
@@ -989,6 +1013,26 @@ struct ScriptView: View {
         return visibleBlocks.map(\.id).filter { hits.contains($0) }
     }
 
+    /// The reading surface: the script as prose, in place of the column. It
+    /// borrows this screen's narrator for the spotlight and its navigator for
+    /// outline jumps, and trades positions through the same remembered element
+    /// the column and the paper trade through.
+    private var reader: some View {
+        ReadScriptView(
+            title: model.project.displayTitle,
+            blocks: model.blocks,
+            textScale: settings.textScale,
+            narrator: narrator,
+            navigator: navigator,
+            initialBlockId: options.rememberedBlockId,
+            onTopVisibleBlock: { options.rememberBlock($0) },
+            onReadFrom: { id in
+                narrator.prepare(model.blocks, title: model.project.displayTitle)
+                narrator.play(from: id)
+            },
+            onUserScroll: respondToScroll)
+    }
+
     /// The paper surface: read-only sheets with a pager.
     private var pageView: some View {
         ScrollViewReader { proxy in
@@ -1133,7 +1177,7 @@ struct ScriptView: View {
     @ViewBuilder
     private var narrationBar: some View {
         if narrator.isActive {
-            NarrationTransportBar(narrator: narrator, showsOptions: true)
+            NarrationTransportBar(narrator: narrator)
         }
     }
 
@@ -1506,13 +1550,23 @@ struct ScriptView: View {
         }
 
         if model.hasScriptContent {
-            actions.find = {
-                isSearching = true
+            // Search draws its bar on the editing column, which reading mode
+            // has swapped out — no offer where there is nowhere to show it.
+            if !isReading {
+                actions.find = {
+                    isSearching = true
+                }
             }
             actions.outline = { showingOutline = true }
             actions.stats = { showingStats = true }
-            actions.readScript = { showingReader = true }
             actions.readAloud = { toggleReadAloud() }
+        }
+
+        // Offered while reading even if the script has emptied under the mode,
+        // so the menu bar always has the way back out.
+        if model.hasScriptContent || isReading {
+            actions.readScript = { isReading.toggle() }
+            actions.isReadingScript = isReading
         }
 
         if model.project.hasLink(.versions) {
@@ -1715,7 +1769,7 @@ struct ScriptView: View {
             // `offersUndoRedo` rather than the server status alone: a script
             // opened offline never fetched its status, and hiding the button
             // then would hide it exactly when the local steps exist.
-            if model.offersUndoRedo, !settings.isPageView {
+            if model.offersUndoRedo, !settings.isPageView, !isReading {
                 Button {
                     Task { await model.undo() }
                 } label: {
@@ -1737,13 +1791,17 @@ struct ScriptView: View {
                 readAloudButton
                     .keyboardShortcut("a", modifiers: [.command, .shift])
 
-                Button {
-                    isSearching.toggle()
-                    if !isSearching { search.clear() }
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
+                // Not while reading: the search bar rides the editing column,
+                // which the reader has swapped out.
+                if !isReading {
+                    Button {
+                        isSearching.toggle()
+                        if !isSearching { search.clear() }
+                    } label: {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                    .keyboardShortcut("f", modifiers: .command)
                 }
-                .keyboardShortcut("f", modifiers: .command)
 
                 Button {
                     showingOutline = true
@@ -1756,7 +1814,7 @@ struct ScriptView: View {
                 // did nothing.
                 .keyboardShortcut("o", modifiers: [.command, .option])
 
-                if model.canSelectBlocks && !settings.isPageView {
+                if model.canSelectBlocks && !settings.isPageView && !isReading {
                     Button {
                         selection.isSelecting.toggle()
                     } label: {
@@ -1930,22 +1988,21 @@ struct ScriptView: View {
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
-                // Read Aloud is not beside it: that one is a button out in the
-                // bar now, and the silent reader keeps its seat here because
-                // its play button reaches the voice anyway — one tap inside
-                // the same sheet, which is also what keeps the voice reachable
-                // in focus mode after the bar button bows out.
-                Button {
-                    showingReader = true
-                } label: {
+                // A mode among the modes, not a screen: the toggle swaps the
+                // column for the prose reader in place, and toggling it off —
+                // or asking for page or outline mode — puts the writing back.
+                // Read Aloud is not beside it: that one is a button out in
+                // the bar, and reading aloud never needs this mode.
+                Toggle(isOn: $isReading) {
                     Label("Read Script", systemImage: "book")
                 }
-                .disabled(!model.hasScriptContent)
+                .disabled(!model.hasScriptContent && !isReading)
             }
 
             // Only offered where it changes anything: the page view lays the
-            // script out on paper, which has a width of its own.
-            if !settings.isPageView {
+            // script out on paper, which has a width of its own, and the
+            // reader holds to its own measure.
+            if !settings.isPageView && !isReading {
                 Section {
                     Toggle(isOn: fullWidthBinding) {
                         Label("Full Page Width", systemImage: "arrow.left.and.right")

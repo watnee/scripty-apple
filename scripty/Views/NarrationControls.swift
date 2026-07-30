@@ -2,10 +2,10 @@
 //  NarrationControls.swift
 //  scripty
 //
-//  The read-aloud transport and its options menu, shared by the two places a
-//  reading is listened to: the script screen itself and the reader sheet. One
-//  narrator drives both, so these are the same controls wherever they are
-//  mounted — pausing in one is paused in the other.
+//  The read-aloud transport and its options menu. The script screen mounts
+//  the transport once, outside its surface switch, so the same bar rides the
+//  writing column, the paper and the prose reader alike — one narrator, one
+//  set of controls, whatever is on screen.
 //
 
 // The voice picker names the installed voices, which is an AVFoundation type
@@ -18,10 +18,6 @@ import SwiftUI
 /// control otherwise.
 struct NarrationTransportBar: View {
     var narrator: ScriptNarrator
-    /// The script screen mounts the options menu here, in the bar — its
-    /// toolbar belongs to writing. The reader sheet keeps the menu in its own
-    /// toolbar and leaves this off.
-    var showsOptions = false
 
     var body: some View {
         HStack(spacing: 20) {
@@ -52,9 +48,7 @@ struct NarrationTransportBar: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Now reading: \(narrator.nowReading)")
 
-            if showsOptions {
-                NarrationOptionsMenu(narrator: narrator)
-            }
+            NarrationOptionsMenu(narrator: narrator)
 
             Button {
                 narrator.stop()
