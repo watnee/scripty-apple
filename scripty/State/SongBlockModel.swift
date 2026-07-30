@@ -221,7 +221,17 @@ final class SongBlockModel {
     func commit(_ block: SongBlock) async -> Bool {
         commitTasks[block.id]?.cancel()
         commitTasks[block.id] = nil
-        guard let pending = liveText[block.id], let link = block.link(.update) else { return true }
+        // No live words means nothing is held, whatever the flags say — a
+        // failure that raced a success can leave the unsaved flag set with
+        // the text already landed and cleared, and this is where that flag
+        // gets put right rather than pulsing "saving" forever.
+        guard let pending = liveText[block.id] else {
+            markSaved(block.id)
+            return true
+        }
+        // No link is different from no words: the words are still precious,
+        // so the flags and the draft stay — a reload may bring the link back.
+        guard let link = block.link(.update) else { return true }
         guard pending != block.text else {
             liveText[block.id] = nil
             markSaved(block.id)
@@ -255,6 +265,17 @@ final class SongBlockModel {
         for block in blocks where liveText[block.id] != nil {
             await commit(block)
         }
+    }
+
+    /// The backgrounding flush: every line's words go to disk *before* any
+    /// commit is awaited, so even the commits the system never lets run are
+    /// covered by the restore path on next launch — `commit` persists only
+    /// as each PUT starts, and a process killed mid-flush would take every
+    /// line after the first with it. Same shape as the screenplay's
+    /// `flushPendingCommits`.
+    func flushPendingCommits() async {
+        for id in liveText.keys { persistDraft(id) }
+        await commitAll()
     }
 
     // MARK: - Held work
@@ -317,6 +338,15 @@ final class SongBlockModel {
     /// A draft whose base no longer matches the server is *dropped*: someone
     /// edited that line elsewhere since the save failed, and the server is
     /// last-write-wins, so pushing the old draft would clobber newer words.
+    ///
+    /// That gate needs the server's word for what a line says, so it is only
+    /// applied over a live load. Over the *offline copy* the comparison would
+    /// be against however old that copy is — a line whose save landed after
+    /// the cache was written reads as "changed elsewhere", and the draft is
+    /// the writer's own newer words being thrown away for it. There every
+    /// draft whose line exists is adopted and nothing is removed; the words
+    /// stay held, and the reconnect push is last-write-wins, the same
+    /// in-session rule the screenplay's reconnect deliberately follows.
     func adoptPersistedDrafts() {
         guard let store = draftStore else { return }
         var setAside = 0
@@ -325,6 +355,12 @@ final class SongBlockModel {
             guard let line = block(id) else {
                 // Not in this collection — possibly another edition's line.
                 // Left on disk for the load that can see it.
+                continue
+            }
+            if isShowingOfflineCopy {
+                liveText[id] = draft.text
+                unsavedBlockIds.insert(id)
+                scheduleCommit(id)
                 continue
             }
             let server = line.content ?? ""
@@ -355,7 +391,25 @@ final class SongBlockModel {
     /// has come to the foreground with work still on this device. Restarts
     /// each line's backoff: this push is prompted by a route returning, not by
     /// a timer that has already run its course.
+    ///
+    /// Single-flight, like the screenplay's sweep and for the same reason: the
+    /// online edge and the foreground often fire together, and the second
+    /// caller must join the drain already running rather than PUT every held
+    /// line a second time beside it.
     func syncHeldWork() async {
+        if let heldWorkSync { return await heldWorkSync.value }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.drainHeldWork()
+        }
+        heldWorkSync = task
+        await task.value
+        heldWorkSync = nil
+    }
+
+    private var heldWorkSync: Task<Void, Never>?
+
+    private func drainHeldWork() async {
         for id in unsavedBlockIds.sorted() {
             guard let line = block(id) else { continue }
             retryAttempts[id] = nil
