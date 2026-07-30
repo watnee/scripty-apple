@@ -14,8 +14,8 @@ import AVFoundation
 import SwiftUI
 
 /// The transport row: previous, play/pause, next, whose line is being read,
-/// and stop. Callers show it only while a reading is loaded — nothing to
-/// control otherwise.
+/// and a close that ends the reading and takes the bar with it. Callers show
+/// it only while a reading is loaded — nothing to control otherwise.
 struct NarrationTransportBar: View {
     var narrator: ScriptNarrator
 
@@ -50,10 +50,12 @@ struct NarrationTransportBar: View {
 
             NarrationOptionsMenu(narrator: narrator)
 
+            // An X rather than a transport "stop": stopping is also how the
+            // bar is put away, and a stop glyph promises the controls stay.
             Button {
                 narrator.stop()
             } label: {
-                Label("Stop", systemImage: "stop.fill")
+                Label("Close", systemImage: "xmark")
             }
         }
         .labelStyle(.iconOnly)
