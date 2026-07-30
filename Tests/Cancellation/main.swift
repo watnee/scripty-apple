@@ -127,10 +127,13 @@ final class TestServer: @unchecked Sendable {
     var baseURL: String { "http://127.0.0.1:\(port)" }
 
     private func serve(_ client: Int32) {
-        var buffer = [UInt8](repeating: 0, count: 8192)
-        let count = read(client, &buffer, buffer.count)
-        guard count > 0 else { close(client); return }
-        let text = String(decoding: buffer[0..<count], as: UTF8.self)
+        // Writes to a socket the far side has already abandoned must not
+        // become a signal: SIGPIPE takes the whole suite down, and abandoned
+        // requests are this suite's subject matter.
+        var yes: Int32 = 1
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
+
+        guard let text = readRequest(client) else { close(client); return }
         if let line = text.split(separator: "\r\n").first {
             let parts = line.split(separator: " ")
             if parts.count >= 2 {
@@ -159,7 +162,68 @@ final class TestServer: @unchecked Sendable {
         """
         _ = Data(head.utf8).withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
         _ = body.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+        // Half-close, then wait for the client to hang up before the socket
+        // goes away. close() straight after write() races the client's read
+        // of the answer — and if anything it sent is still unread on this
+        // side, becomes a reset that destroys the answer in flight. The
+        // client sees "the network connection was lost" over a server that
+        // answered, once in a few hundred requests, only under load: the
+        // shape of every flake this suite has had. The timeout keeps a
+        // client that never hangs up from pinning this thread.
+        shutdown(client, SHUT_WR)
+        var linger = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &linger, socklen_t(MemoryLayout<timeval>.size))
+        var drain = [UInt8](repeating: 0, count: 1024)
+        while read(client, &drain, drain.count) > 0 {}
         close(client)
+    }
+
+    /// Reads the whole request: line, headers, and as much body as the
+    /// headers promise. The single read() this used to be answered whatever
+    /// fit in the first segment — usually everything, but a request split
+    /// across segments (a PUT's body travels separately from its headers)
+    /// was answered half-read, and the bytes still in the socket turned the
+    /// close below into a reset. Nil when the connection opened and died
+    /// without a byte, which URLSession's speculative connections do.
+    private func readRequest(_ client: Int32) -> String? {
+        var received = [UInt8]()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        var headerLength: Int?
+        var bodyLength = 0
+        while true {
+            if let headerLength, received.count >= headerLength + bodyLength { break }
+            let count = read(client, &buffer, buffer.count)
+            if count <= 0 { break }
+            received.append(contentsOf: buffer[0..<count])
+            if headerLength == nil, let end = headerEnd(in: received) {
+                headerLength = end
+                bodyLength = contentLength(in: received[0..<end]) ?? 0
+            }
+        }
+        guard !received.isEmpty else { return nil }
+        return String(decoding: received, as: UTF8.self)
+    }
+
+    /// The index just past the blank line ending the headers, if it has
+    /// arrived yet.
+    private func headerEnd(in bytes: [UInt8]) -> Int? {
+        guard bytes.count >= 4 else { return nil }
+        for i in 0...(bytes.count - 4)
+        where bytes[i] == 13 && bytes[i + 1] == 10 && bytes[i + 2] == 13 && bytes[i + 3] == 10 {
+            return i + 4
+        }
+        return nil
+    }
+
+    private func contentLength(in header: ArraySlice<UInt8>) -> Int? {
+        let head = String(decoding: header, as: UTF8.self)
+        for line in head.split(separator: "\r\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2,
+                  parts[0].lowercased() == "content-length" else { continue }
+            return Int(parts[1].trimmingCharacters(in: .whitespaces))
+        }
+        return nil
     }
 
     /// One block for a PUT, the collection for anything else. Enough for the
@@ -206,6 +270,18 @@ let project: Project = decode(Project.self, """
 @MainActor
 func makeModel() -> ScriptModel {
     ScriptModel(app: AppModel(), project: project)
+}
+
+/// The load a case stands on, not the behavior it checks: fetches the script
+/// and hands back its first block. A script that failed to arrive is recorded
+/// as its own FAIL and the case is skipped — subscripting the empty array
+/// instead was how one flaked transport used to crash the binary and take
+/// the rest of the suite's cases down with it.
+@MainActor
+func firstBlock(of model: ScriptModel) async -> Block? {
+    await model.loadBlocks()
+    check("the script loaded before the case began", !model.blocks.isEmpty)
+    return model.blocks.first
 }
 
 // MARK: - Cases
@@ -339,11 +415,10 @@ func run() async {
 
     print()
     print("== The debounced save actually goes out ==")
-    do {
+    debounced: do {
         server.reset()
         let model = makeModel()
-        await model.loadBlocks()
-        let first = model.blocks[0]
+        guard let first = await firstBlock(of: model) else { break debounced }
         server.reset()
 
         model.liveEdit(first, text: "First line, rewritten.")
@@ -363,11 +438,10 @@ func run() async {
 
     print()
     print("== A superseded debounce is still not an error ==")
-    do {
+    superseded: do {
         server.reset()
         let model = makeModel()
-        await model.loadBlocks()
-        let first = model.blocks[0]
+        guard let first = await firstBlock(of: model) else { break superseded }
         server.reset()
 
         // Typing on: each keystroke replaces the save the last one armed.
