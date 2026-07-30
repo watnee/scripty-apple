@@ -18,8 +18,8 @@
 //     queue and consulted on every replay, so a half-finished run resumes.
 //  2. The web's queue blocks at the head on an op that can never succeed (the
 //     anchor was deleted by a collaborator, say). Here a create that fails
-//     *permanently* is dropped along with anything anchored to it, and the
-//     rest of the queue drains.
+//     *permanently* is dropped alone — its dependents are re-anchored to
+//     whatever it hung off — and the rest of the queue drains.
 //  3. Neither implementation can be perfectly idempotent without a server-side
 //     client token: a create whose response is lost in flight may be replayed
 //     and duplicate. The window is one request wide and the mapping is
@@ -197,6 +197,25 @@ final class OfflineBlockQueue {
         for id in doomed { s.idMap.removeValue(forKey: String(id)) }
         commit(s, projectId: projectId)
         return doomed.sorted(by: >)
+    }
+
+    /// Give up on one entry without taking its dependents with it: anything
+    /// anchored to the refused element is re-anchored to whatever the refused
+    /// one hung off, so the rest of a chain still lands where it was written —
+    /// one line short instead of gone.
+    ///
+    /// This is for a create the *server* refused. The cascade in `drop` is for
+    /// a deliberate delete, where the writer removing an element means to take
+    /// its chain along; a refusal earns only its own removal.
+    func dropSingle(tempId: Int, projectId: Int) {
+        var s = stored(projectId: projectId)
+        guard let index = s.pending.firstIndex(where: { $0.tempId == tempId }) else { return }
+        let removed = s.pending.remove(at: index)
+        for i in s.pending.indices where s.pending[i].anchorId == tempId {
+            s.pending[i].anchorId = removed.anchorId
+        }
+        s.idMap.removeValue(forKey: String(tempId))
+        commit(s, projectId: projectId)
     }
 
     func removeAll(projectId: Int) {
