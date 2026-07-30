@@ -312,13 +312,15 @@ extension HelpTopic {
                 paragraphs: [
                     "Read Script sets the screenplay as prose in a serif face, with the "
                     + "editing controls and the working annotations — synopses and notes "
-                    + "— left out. It is for reading on a screen; page view is the one "
-                    + "for reading it as paper.",
-                    "Read Aloud (⌘⇧A) opens the same reader with the script being "
-                    + "spoken. The element being read is highlighted and scrolls itself "
-                    + "into view, and the controls at the foot of the sheet step back "
-                    + "and forward an element at a time; hold an element for “Read Aloud "
-                    + "From Here”.",
+                    + "— left out. It swaps in on the script screen itself, opening at "
+                    + "the place you were writing; choose it again in the View menu to "
+                    + "put the writing back. It is for reading on a screen; page view is "
+                    + "the one for reading it as paper.",
+                    "Read Aloud (⌘⇧A) speaks the script from wherever you are, on "
+                    + "whichever surface is up. The element being read is highlighted "
+                    + "and scrolls itself into view, and the transport at the foot of "
+                    + "the screen steps back and forward an element at a time; hold an "
+                    + "element for “Read Aloud From Here”.",
                     "The speaker menu sets the speed and the voice, and what gets read: "
                     + "character names, action and headings, and parentheticals can each "
                     + "be left out — dialogue alone is how you run lines. “A Voice Each” "

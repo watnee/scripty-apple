@@ -10,13 +10,11 @@
 //  Deliberately not a page-accurate view; that is what page view is for. This
 //  one optimises for reading on a screen.
 //
-//  The script can also be read *aloud* from here, which is the same job done
-//  by ear: the narrator (`ScriptNarrator`) speaks the run and this view
-//  follows it, highlighting the element being read and scrolling it into
-//  view, so the page and the voice stay together. The narrator belongs to the
-//  script screen — reading aloud lives there, transport bar and all — so a
-//  reading started in either place carries on in the other, and closing this
-//  sheet hands the voice back rather than silencing it.
+//  Not a screen of its own: this is one of the script screen's surfaces, the
+//  way page view is — the mode swaps the writing column for this one in place,
+//  and the toolbar, the View menu and the reading position all stay put. The
+//  screen it is embedded in owns the narrator and the transport bar, so a
+//  reading aloud carries straight across the mode change in both directions.
 //
 
 import SwiftUI
@@ -25,17 +23,34 @@ struct ReadScriptView: View {
     let title: String
     let blocks: [Block]
     let textScale: Double
-    /// The script screen's narrator, borrowed for the visit — see the header.
+    /// The script screen's narrator, watched so the element being read is
+    /// spotlighted and kept on screen. Playing is asked for through
+    /// `onReadFrom`, so preparing the run stays the owner's job.
     var narrator: ScriptNarrator
-
-    @Environment(\.dismiss) private var dismiss
+    /// The script screen's navigator, listened to the way the editor listens:
+    /// an outline tap should land here too. Jumps to elements the reader
+    /// leaves out — synopses, notes — find no row and quietly do nothing.
+    var navigator: ScriptNavigator
+    /// Where to open: the element the writer was at on the surface this mode
+    /// replaced. Nil opens at the top.
+    var initialBlockId: Int?
+    /// Reports the element at the top of the screen as the reading scrolls,
+    /// so the surfaces keep handing one position back and forth.
+    var onTopVisibleBlock: (Int) -> Void = { _ in }
+    /// The context menu's "Read Aloud From Here". A closure rather than a call
+    /// on the narrator, because starting a reading means preparing the run
+    /// first and the blocks belong to the screen that owns the voice.
+    var onReadFrom: (Int) -> Void = { _ in }
+    /// Reports finger-driven scrolling, for the same chrome fold the editor
+    /// and the paper have — reading is the posture the fold exists for.
+    var onUserScroll: (_ delta: CGFloat, _ fromTop: CGFloat) -> Void = { _, _ in }
 
     /// The reader's measure: roughly the 40rem column the web app uses.
     ///
     /// Scaled with the type, because a measure is a count of characters before
     /// it is a width. Held at a fixed 640 points it was the right line length
     /// at the default size and a narrower and narrower ribbon above it — worst
-    /// exactly where the extra room the bigger sheet brings should be going.
+    /// exactly where the extra room a bigger window brings should be going.
     private var measure: CGFloat { 640 * scale }
 
     /// The OS text-size setting, as a multiplier.
@@ -50,109 +65,117 @@ struct ReadScriptView: View {
 
     private var scale: CGFloat { CGFloat(textScale) * dynamicTypeScale }
 
+    /// Whether the remembered position has been restored. Until it has, the
+    /// scroll spy stays quiet — the first rows to appear are the top of the
+    /// script, and recording those would overwrite the very thing being
+    /// restored. State rather than a constant because the blocks may land
+    /// after the mode is entered, and the restore has to wait for them.
+    @State private var hasRestoredPosition = false
+
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    // Walked once per redraw rather than once per row: the
-                    // first-element test below needs the head of the list, and
-                    // asking `readableBlocks` for it inside the ForEach would
-                    // re-filter the whole script for every line it drew.
-                    let readable = readableBlocks
-                    let firstId = readable.first?.id
-                    // Lazy for the same reason the editor and the page view
-                    // are: reading aloud republishes `currentBlockId` on every
-                    // line, and each one rebuilds this body. Eagerly stacked,
-                    // that re-laid-out every element of a feature-length script
-                    // per spoken line — for a highlight the reader can only see
-                    // one of. Lazily, only the elements on screen are built at
-                    // all, so the cost per line is the window rather than the
-                    // script, and opening the sheet no longer typesets an hour
-                    // of screenplay before showing the first page of it.
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        Text(title.isEmpty ? "Untitled Project" : title)
-                            .font(.system(size: 28 * scale, weight: .bold, design: .serif))
-                            .padding(.bottom, 24)
+        ScrollViewReader { proxy in
+            ScrollView {
+                // Walked once per redraw rather than once per row: the
+                // first-element test below needs the head of the list, and
+                // asking `readableBlocks` for it inside the ForEach would
+                // re-filter the whole script for every line it drew.
+                let readable = readableBlocks
+                let firstId = readable.first?.id
+                // Lazy for the same reason the editor and the page view
+                // are: reading aloud republishes `currentBlockId` on every
+                // line, and each one rebuilds this body. Eagerly stacked,
+                // that re-laid-out every element of a feature-length script
+                // per spoken line — for a highlight the reader can only see
+                // one of. Lazily, only the elements on screen are built at
+                // all, so the cost per line is the window rather than the
+                // script, and entering the mode no longer typesets an hour
+                // of screenplay before showing the first page of it.
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    Text(title.isEmpty ? "Untitled Project" : title)
+                        .font(.system(size: 28 * scale, weight: .bold, design: .serif))
+                        .padding(.bottom, 24)
 
-                        ForEach(readable) { block in
-                            row(block, isFirst: block.id == firstId)
-                                .background(alignment: .center) { spotlight(block) }
-                                .id(block.id)
-                                .contextMenu {
-                                    Button("Read Aloud From Here", systemImage: "play") {
-                                        narrator.play(from: block.id)
-                                    }
+                    ForEach(readable) { block in
+                        row(block, isFirst: block.id == firstId)
+                            .background(alignment: .center) { spotlight(block) }
+                            .id(block.id)
+                            .contextMenu {
+                                Button("Read Aloud From Here", systemImage: "play") {
+                                    onReadFrom(block.id)
                                 }
-                        }
-                    }
-                    // Take the whole measure rather than settling on the
-                    // widest element. A lazy stack is only as wide as the rows
-                    // it has actually built, so without this the column's width
-                    // — and, being centred, its left edge — would shift as
-                    // scrolling brought a longer line into the window.
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(maxWidth: measure, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 24)
-                    .textSelection(.enabled)
-                }
-                // Follow the voice. Centred rather than at the top, because a
-                // line read at the very top of the screen has no context above
-                // it and the next one is always a jump.
-                .onChange(of: narrator.currentBlockId) { _, id in
-                    guard let id else { return }
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(id, anchor: .center)
+                            }
                     }
                 }
+                // Marks the rows as scroll targets so the spy below can name
+                // the one at the top. No behaviour is attached — nothing snaps.
+                .scrollTargetLayout()
+                // Take the whole measure rather than settling on the
+                // widest element. A lazy stack is only as wide as the rows
+                // it has actually built, so without this the column's width
+                // — and, being centred, its left edge — would shift as
+                // scrolling brought a longer line into the window.
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: measure, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+                .textSelection(.enabled)
             }
-            .overlay { emptyState }
-            // `.safeAreaBar` rather than `.safeAreaInset`: the transport is a
-            // bar, so it takes the system's Liquid Glass and the script scrolls
-            // under it instead of stopping at a slab.
-            .safeAreaBar(edge: .bottom) { transportBar }
-            .navigationTitle("Read Script")
-            #if !os(macOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItemGroup(placement: .navigation) {
-                    Button {
-                        narrator.togglePlayPause()
-                    } label: {
-                        Label(narrator.isSpeaking ? "Pause" : "Read Aloud",
-                              systemImage: narrator.isSpeaking ? "pause.fill" : "play.fill")
-                    }
-                    .disabled(!narrator.hasSomethingToRead)
-
-                    NarrationOptionsMenu(narrator: narrator)
-                        .disabled(!narrator.hasSomethingToRead)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+            // Follow the voice. Centred rather than at the top, because a
+            // line read at the very top of the screen has no context above
+            // it and the next one is always a jump.
+            .onChange(of: narrator.currentBlockId) { _, id in
+                guard let id else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo(id, anchor: .center)
                 }
             }
-            .task {
-                narrator.prepare(blocks, title: title)
+            // An outline tap lands here the way it lands in the editor. The
+            // `initial` catches a target set while another surface was up —
+            // the handoff when the mode is entered mid-jump.
+            .onChange(of: navigator.pendingScrollTarget, initial: true) { _, target in
+                guard let target else { return }
+                let anchor: UnitPoint =
+                    navigator.pendingPlacement == .atTop ? .top : .center
+                withAnimation { proxy.scrollTo(target, anchor: anchor) }
+                navigator.consumeScrollTarget()
             }
-            .onChange(of: blocks) { _, updated in
-                narrator.prepare(updated, title: title)
+            // Reading opens where the writing left off, and the blocks may
+            // arrive after the mode does — `initial` covers the usual case
+            // where they were here all along.
+            .onChange(of: blocks, initial: true) { _, _ in
+                restorePosition(with: proxy)
             }
-            // Deliberately no stop on the way out: the narrator is the script
-            // screen's, and that screen shows its own transport while a
-            // reading runs — closing the sheet is closing a view of the
-            // reading, not the reading.
+            // Where the reading is, in the same element ids the other
+            // surfaces record — the element at the top of the screen is the
+            // honest answer to "where was I".
+            .onScrollTargetVisibilityChange(idType: Int.self) { visible in
+                guard hasRestoredPosition, let top = visible.first else { return }
+                onTopVisibleBlock(top)
+            }
+            .onUserScroll(onUserScroll)
         }
-        // Reading wants the screen. A sheet defaults to the small centred form
-        // size on iPad and the Mac, which left the reader showing half a dozen
-        // elements at a time — little enough that following the voice was most
-        // of a page of scrolling per scene, and the surrounding script it was
-        // covering had more of the window than the reading did. The page size
-        // is the largest a sheet offers, and still a sheet: swipe-down and the
-        // dimmed script behind it both survive. On iPhone this changes
-        // nothing, the sheet being full height there already.
-        .presentationSizing(.page)
+        .overlay { emptyState }
+    }
+
+    /// Scrolls to the element the mode was entered at, once, as soon as there
+    /// is a script to scroll. Without animation: the surface should come up
+    /// already in place, as the paper does, not travel there.
+    private func restorePosition(with proxy: ScrollViewProxy) {
+        guard !hasRestoredPosition, !blocks.isEmpty else { return }
+        hasRestoredPosition = true
+        guard let id = initialBlockId,
+              let target = readableBlock(atOrAfter: id) else { return }
+        proxy.scrollTo(target, anchor: .top)
+    }
+
+    /// The first element the reader actually shows at or after the one named —
+    /// the position may have been recorded on a note or a synopsis, which this
+    /// surface leaves out.
+    private func readableBlock(atOrAfter id: Int) -> Int? {
+        guard let start = blocks.firstIndex(where: { $0.id == id }) else { return nil }
+        let readable = Set(readableBlocks.map(\.id))
+        return blocks[start...].first { readable.contains($0.id) }?.id
     }
 
     // MARK: - Reading aloud
@@ -166,16 +189,6 @@ struct ReadScriptView: View {
                 .fill(Color.accentColor.opacity(0.16))
                 .padding(.horizontal, -10)
                 .padding(.vertical, -2)
-        }
-    }
-
-    /// The transport, shown only while a reading is loaded — nothing to
-    /// control otherwise, and the reader is for reading. Options stay in the
-    /// toolbar here, so the shared bar leaves them off.
-    @ViewBuilder
-    private var transportBar: some View {
-        if narrator.isActive {
-            NarrationTransportBar(narrator: narrator)
         }
     }
 
