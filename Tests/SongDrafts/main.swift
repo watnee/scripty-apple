@@ -244,11 +244,18 @@ func run() async {
         }
         """.utf8), .songBlocks(projectId: 1, documentId: 7))
 
-        // Held words from an earlier run lay on top of the cached copy.
+        // Held words from an earlier run lay on top of the cached copy. The
+        // second draft's base doesn't match the cache — because the cache is
+        // old, not because anyone edited elsewhere: its save landed after the
+        // cache was written. The staleness gate must not fire against a copy
+        // that stale; over the offline copy every draft is adopted and kept.
         let draftDirectory = scratchDirectory("lyric-cache-drafts")
         let drafts = UnsavedDraftStore(scope: "server|alice", directory: draftDirectory)
         drafts.save(UnsavedDraft(blockId: 40, text: "Rewritten offline.",
                                  baseText: "First verse.", savedAt: .now),
+                    projectId: 7)
+        drafts.save(UnsavedDraft(blockId: 41, text: "Newer than the cache.",
+                                 baseText: "What the server had after the cache", savedAt: .now),
                     projectId: 7)
 
         let model = SongBlockModel(app: AppModel(), document: cachedSong,
@@ -261,6 +268,10 @@ func run() async {
         checkEqual("the held draft is the newest thing on screen",
                    model.blocks.first.map { model.currentText($0) }, "Rewritten offline.")
         check("and flagged unsaved", model.unsavedBlockIds.contains(40))
+        checkEqual("a draft the stale cache can't judge is adopted, not set aside",
+                   model.blocks.last.map { model.currentText($0) }, "Newer than the cache.")
+        check("and stays on disk for the live load to judge",
+              drafts.drafts(projectId: 7)[41] != nil)
     }
 
     print()
@@ -400,6 +411,16 @@ func checkNoteDraftDrain() async {
     check("the stale draft is set aside", store.drafts(projectId: project.id).isEmpty)
     let unchanged = await model.fetchDocument(note)
     checkEqual("and the server's words stand", unchanged?.content, "Written on the train.")
+
+    // A draft for a note that no longer exists: with the list loaded, the
+    // sweep sets it aside rather than counting a ghost in the badge forever.
+    store.save(UnsavedDocumentDraft(documentId: 987654,
+                                    title: "Gone", content: "Held for a deleted note.",
+                                    baseTitle: nil, baseContent: nil, savedAt: .now),
+               projectId: project.id)
+    await model.syncHeldWork()
+    check("a draft for a deleted note is set aside",
+          store.drafts(projectId: project.id).isEmpty)
 }
 
 await run()

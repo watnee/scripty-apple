@@ -76,6 +76,14 @@ struct SongEditorView: View {
     @State private var savedTitle: String
     @State private var savedContent: String
 
+    /// Whether `savedTitle`/`savedContent` are the server's actual words —
+    /// the full fetch landed, or a save did. Opened offline, they are the list
+    /// row's truncated preview, and passing *that* as a held draft's base
+    /// would guarantee the staleness gate later reads the writer's own words
+    /// as "changed elsewhere" and throws them away. No baseline → nil base →
+    /// the draft restores and drains ungated, which loses nothing.
+    @State private var haveServerBaseline = false
+
     private let settings = PresentationSettings.shared
 
     init(model: ScriptModel, document: TextDocument?, type: DocumentType,
@@ -430,11 +438,13 @@ struct SongEditorView: View {
             title = full.title ?? title
             content = full.content ?? ""
         }
-        // Whatever landed is the baseline — including a load that failed and
-        // left what the list row already had, since that is still what the
-        // server holds.
+        // Whatever landed is the baseline for "has anything been typed" —
+        // including a load that failed and left the list row's preview. But
+        // only a real fetch makes it *base evidence* for held drafts; see
+        // `haveServerBaseline`.
         savedTitle = title
         savedContent = content
+        haveServerBaseline = full != nil
         adoptHeldDraft(for: document, sawServerCopy: full != nil)
     }
 
@@ -521,12 +531,16 @@ struct SongEditorView: View {
         saveStatus = .saving
         let outcome = await model.saveDocumentOutcome(
             document, title: trimmedTitle, content: sentContent,
-            baseTitle: savedTitle, baseContent: savedContent)
+            baseTitle: haveServerBaseline ? savedTitle : nil,
+            baseContent: haveServerBaseline ? savedContent : nil)
         isSaving = false
         switch outcome {
         case .saved:
             savedTitle = sentTitle
             savedContent = sentContent
+            // The server just accepted these words, which makes them as good
+            // a baseline as a fetch.
+            haveServerBaseline = true
             saveStatus = .saved
             errorMessage = nil
             // Typed into while that was in flight: those words have not been
@@ -553,8 +567,8 @@ struct SongEditorView: View {
         guard dirty || saveStatus != nil else { return }
         let sentTitle = trimmedTitle
         let sentContent = content
-        let baseTitle = savedTitle
-        let baseContent = savedContent
+        let baseTitle = haveServerBaseline ? savedTitle : nil
+        let baseContent = haveServerBaseline ? savedContent : nil
         let model = model
         Task { @MainActor in
             if dirty {

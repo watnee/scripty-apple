@@ -209,7 +209,8 @@ struct SongBlockEditorView: View {
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
                 case .background, .inactive:
-                    Task { await model.commitAll() }
+                    // Persist-first: the system may not let the commits run.
+                    Task { await model.flushPendingCommits() }
                 case .active:
                     if model.hasUnsavedChanges, model.app.connectivity.isOnline {
                         Task { await model.syncHeldWork() }

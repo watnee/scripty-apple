@@ -1908,10 +1908,11 @@ final class ScriptModel {
             errorMessage = nil
             return .saved
         } catch {
-            // An abandoned request is not a failed one — whatever superseded
-            // it will write the words again; the pre-flight snapshot already
-            // covers a kill.
-            guard !error.isCancelledRequest else { return .failed }
+            // An abandoned request is not a failed one, and it must not read
+            // as a refusal either — the drain sets refused drafts aside for
+            // good. The pre-flight snapshot is on disk, which is exactly what
+            // held means.
+            guard !error.isCancelledRequest else { return .held }
             guard error.isRetryableAPIError else {
                 // Refused. The draft stays on disk — the words are still the
                 // writer's only copy — but the sheet must say "couldn't save",
@@ -1963,11 +1964,23 @@ final class ScriptModel {
     private func drainDocumentDrafts() async {
         guard let store = documentDrafts else { return }
         var landed = false
+        // The list is what the drain judges "deleted" against, so it must be
+        // a loaded one: before the first load every draft would read as a
+        // ghost. `open()` loads documents before the sweep runs, but a sweep
+        // can also arrive from a connectivity flap on a screen that never
+        // needed the list.
+        let listIsLoaded = documentsLinks[.selfRel] != nil || !documents.isEmpty
         for draft in store.drafts(projectId: project.id).values.sorted(by: { $0.documentId < $1.documentId }) {
             guard let document = documents.first(where: { $0.id == draft.documentId }),
                   let link = document.link(.selfRel) else {
-                // Not in this project's list (deleted elsewhere, or the list
-                // never loaded). Left on disk for a drain that knows more.
+                if listIsLoaded {
+                    // The note is gone — deleted here or elsewhere. Held
+                    // words for a document that no longer exists cannot ever
+                    // land; carrying them means a badge that counts a ghost
+                    // forever. They go, and not silently.
+                    discardDocumentDraft(for: draft.documentId)
+                    presentToast("An offline edit to “\(draft.title)” was set aside — that note was deleted")
+                }
                 continue
             }
             guard let full: TextDocument = try? await app.client.fetch(from: link) else { continue }
@@ -1988,8 +2001,17 @@ final class ScriptModel {
                 presentToast("An offline edit to “\(draft.title)” was set aside — it changed elsewhere")
                 continue
             }
-            if await saveDocumentOutcome(full, title: draft.title, content: draft.content) == .saved {
+            switch await saveDocumentOutcome(full, title: draft.title, content: draft.content) {
+            case .saved:
                 landed = true
+            case .failed:
+                // Refused — a failure no sweep will fix, and a draft that
+                // stays would re-raise the same alert on every reconnect.
+                // Set it aside, and say so.
+                discardDocumentDraft(for: draft.documentId)
+                presentToast("An offline edit to “\(draft.title)” couldn't be saved and was set aside")
+            case .held:
+                break
             }
         }
         if landed { await loadDocuments() }
@@ -2095,6 +2117,10 @@ final class ScriptModel {
         do {
             try await app.client.data(for: link, method: "DELETE")
             documents.removeAll { $0.id == document.id }
+            // Deleting the note means dropping the words held for it —
+            // otherwise the badge counts a ghost forever and the sweep keeps
+            // trying to write to a document that is gone.
+            discardDocumentDraft(for: document.id)
             errorMessage = nil
         } catch {
             report(error)
@@ -2118,6 +2144,10 @@ final class ScriptModel {
                 from: link, method: "POST", body: BulkDeleteDocumentsCommand(ids: ids))
             documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
             documentsLinks = collection.links
+            // Only the ones the server actually removed: a note caught in the
+            // selection is skipped by the server and keeps its held words.
+            let kept = Set(documents.map(\.id))
+            for id in ids where !kept.contains(id) { discardDocumentDraft(for: id) }
             errorMessage = nil
             return true
         } catch {

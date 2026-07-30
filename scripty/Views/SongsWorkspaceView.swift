@@ -23,6 +23,7 @@ struct SongsWorkspaceView: View {
     let model: ScriptModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedLine: Int?
 
     /// The device-wide type size, so lyrics in the workspace read at the same
@@ -95,16 +96,38 @@ struct SongsWorkspaceView: View {
                 openStore.save(ids)
             }
             // The connection came back: every open lyric may be holding lines
-            // written while it was down. Push them now rather than waiting out
-            // each line's retry backoff.
+            // written while it was down, or showing the offline copy — the
+            // sweep pushes the one and replaces the other.
             .onChange(of: app.connectivity.isOnline) { _, online in
                 guard online else { return }
-                Task {
-                    for lyric in lyrics.values where lyric.hasUnsavedChanges {
-                        await lyric.syncHeldWork()
+                Task { await syncOpenLyrics() }
+            }
+            // Backgrounding persists every half-typed line before the system
+            // decides how much longer this process runs; the foreground is a
+            // second chance for anything still held.
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background, .inactive:
+                    Task {
+                        for lyric in lyrics.values {
+                            await lyric.flushPendingCommits()
+                        }
                     }
+                case .active:
+                    if app.connectivity.isOnline {
+                        Task { await syncOpenLyrics() }
+                    }
+                @unknown default:
+                    break
                 }
             }
+        }
+    }
+
+    private func syncOpenLyrics() async {
+        for lyric in lyrics.values
+        where lyric.hasUnsavedChanges || lyric.isShowingOfflineCopy {
+            await lyric.syncHeldWork()
         }
     }
 
@@ -180,6 +203,15 @@ struct SongsWorkspaceView: View {
     @ViewBuilder
     private func lines(for song: TextDocument) -> some View {
         if let lyric = lyrics[song.id] {
+            // The same honesty the song editor's banner gives: an out-of-date
+            // lyric must not look current.
+            if let savedAt = lyric.offlineCopySavedAt {
+                Label("Offline — lyrics saved "
+                      + savedAt.formatted(.relative(presentation: .named)),
+                      systemImage: "wifi.slash")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             if lyric.blocks.isEmpty {
                 Text(lyric.isLoading ? "Loading…" : "No lines yet.")
                     .font(.callout)
