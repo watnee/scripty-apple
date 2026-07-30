@@ -235,6 +235,20 @@ final class TestServer: @unchecked Sendable {
     func reset() {
         lock.lock(); _requests = []; lock.unlock()
     }
+
+    /// Suspends until at least `count` requests have arrived, or gives up at
+    /// the deadline. A fixed sleep here is a bet on machine load: a request
+    /// crosses the loopback in milliseconds on a quiet machine and in whole
+    /// tenths of a second on a busy one, so the cases wait on the arrival
+    /// itself and keep a ceiling only for a request that truly never comes.
+    func received(_ count: Int, within deadline: TimeInterval = 10) async -> Bool {
+        let cutoff = Date().addingTimeInterval(deadline)
+        while requests.count < count {
+            if Date() >= cutoff { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
 }
 
 // MARK: - Fixtures
@@ -321,8 +335,7 @@ func run() async {
         // The script view's `.task`, and what happens to it when the writer
         // leaves the screen: the load is abandoned with the request open.
         let load = Task { await model.loadBlocks() }
-        try? await Task.sleep(for: .milliseconds(300))
-        checkEqual("the request did reach the server", server.requests.count, 1)
+        check("the request did reach the server", await server.received(1))
         load.cancel()
         await load.value
 
@@ -345,8 +358,9 @@ func run() async {
         // is open — the model outlives this one, so anything it reports lands
         // on a screen the writer is still looking at.
         server.hangs = true
+        server.reset()
         let poll = Task { await model.loadBlocks() }
-        try? await Task.sleep(for: .milliseconds(300))
+        check("the reload reached the server", await server.received(1))
         poll.cancel()
         await poll.value
 
@@ -368,8 +382,7 @@ func run() async {
         // the `.task` the first one started, with the script still on the wire.
         // Nothing awaits it after that, so the load has to land on its own.
         let opening = Task { await model.open() }
-        try? await Task.sleep(for: .milliseconds(150))
-        checkEqual("the request did reach the server", server.requests.count, 1)
+        check("the request did reach the server", await server.received(1))
         opening.cancel()
 
         // Deliberately not `await opening.value`: the screen that started this
@@ -397,7 +410,7 @@ func run() async {
         // nothing, by design; what it must not do is settle as an empty script
         // that only a second pull would fix.
         let abandoned = Task { await model.loadBlocks() }
-        try? await Task.sleep(for: .milliseconds(300))
+        check("the pull reached the server", await server.received(1))
         abandoned.cancel()
         await abandoned.value
         check("nothing is on screen yet", model.blocks.isEmpty)
