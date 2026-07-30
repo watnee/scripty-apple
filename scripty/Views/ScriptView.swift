@@ -869,12 +869,23 @@ struct ScriptView: View {
     ///
     /// It draws no background of its own — the `.safeAreaBar` already floats it
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
+    ///
+    /// Read Aloud rides along for the same reason the documents do: it has a
+    /// toolbar button now, and on a phone that button is always the overflow's
+    /// — the very menu it just moved out of. Listening is also the posture this
+    /// bar suits best: a thumb on the bottom edge, not a reach for the corner.
     @ViewBuilder
     private var documentsBar: some View {
-        if isCompact && !isChromeHidden && model.canViewDocuments && !settings.isFocusMode {
+        if isCompact && !isChromeHidden && !settings.isFocusMode
+            && (model.canViewDocuments || model.hasScriptContent) {
             HStack(spacing: 8) {
-                songsButton
-                notesButton
+                if model.canViewDocuments {
+                    songsButton
+                    notesButton
+                }
+                if model.hasScriptContent {
+                    readAloudButton
+                }
             }
             .buttonStyle(.bordered)
             .labelStyle(.iconOnly)
@@ -1531,6 +1542,22 @@ struct ScriptView: View {
                        recents: model.notes)
     }
 
+    /// One definition for its two homes — the toolbar capsule where an iPad
+    /// or a Mac has the width, and the phone's bottom bar — so the two cannot
+    /// drift. Reading happens on this very screen: the voice starts from
+    /// wherever the writer is and the transport bar comes up at the bottom,
+    /// so while it runs the button is the pause it will be reached for as.
+    /// The ⌘⇧A shortcut is the toolbar's alone; a second claim from the
+    /// bottom bar would leave one of them silently dead.
+    private var readAloudButton: some View {
+        Button {
+            toggleReadAloud()
+        } label: {
+            Label(narrator.isSpeaking ? "Pause Reading" : "Read Aloud",
+                  systemImage: narrator.isSpeaking ? "pause.fill" : "speaker.wave.2")
+        }
+    }
+
     /// One kind's door, with the handful last edited hanging off it.
     ///
     /// Songs and notes each get their own button rather than sharing one. The
@@ -1690,6 +1717,18 @@ struct ScriptView: View {
             }
 
             if model.hasScriptContent && !settings.isFocusMode {
+                // Out of the View menu, where it was a listening feature filed
+                // under presentation toggles and cost a menu trip every time.
+                // It joins this capsule rather than opening one of its own for
+                // the reason undo does, and sits where an iPad and a Mac will
+                // draw it as a button. A phone will not — everything past Undo
+                // is the "…"'s — so `documentsBar` gives the phone a real one
+                // down under the thumb, which is also why the shortcut lives
+                // here and not there: two live claims on ⌘⇧A would be settled
+                // by responder order with one of them silently dead.
+                readAloudButton
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
+
                 Button {
                     isSearching.toggle()
                     if !isSearching { search.clear() }
@@ -1883,24 +1922,16 @@ struct ScriptView: View {
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
+                // Read Aloud is not beside it: that one is a button out in the
+                // bar now, and the silent reader keeps its seat here because
+                // its play button reaches the voice anyway — one tap inside
+                // the same sheet, which is also what keeps the voice reachable
+                // in focus mode after the bar button bows out.
                 Button {
                     showingReader = true
                 } label: {
                     Label("Read Script", systemImage: "book")
                 }
-                .disabled(!model.hasScriptContent)
-
-                // Reading aloud happens on this very screen — the voice
-                // starts from wherever the writer is and the transport bar
-                // comes up at the bottom — so while it runs, this item is the
-                // pause it will be reached for as.
-                Button {
-                    toggleReadAloud()
-                } label: {
-                    Label(narrator.isSpeaking ? "Pause Reading" : "Read Aloud",
-                          systemImage: narrator.isSpeaking ? "pause.fill" : "speaker.wave.2")
-                }
-                .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(!model.hasScriptContent)
             }
 
