@@ -357,20 +357,6 @@ struct SongBlockEditorView: View {
                     Label("Version History", systemImage: "clock.arrow.circlepath")
                 }
             }
-            if model.canAddLine {
-                Button {
-                    // A new line is blank, so it matches no search — drop the
-                    // filter rather than adding a line the writer cannot see.
-                    searchText = ""
-                    Task {
-                        if let created = await model.appendLine() {
-                            focusedLine = created
-                        }
-                    }
-                } label: {
-                    Label("Add Line", systemImage: "plus")
-                }
-            }
         }
     }
 
