@@ -418,12 +418,16 @@ extension HelpTopic {
                     + "elsewhere in the meantime is set aside rather than overwritten, "
                     + "and the editor says when that happens. A song opened offline "
                     + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a banner saying how old that copy is."
+                    + "with a banner saying how old that copy is. Undo and Redo keep "
+                    + "working there: with no connection they walk back the lyric "
+                    + "edits still held on this device, and hand over to the song's "
+                    + "own history once those have been saved."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
-                           "offline", "unsaved", "sync", "cloud", "badge"]),
+                           "offline", "unsaved", "sync", "cloud", "badge",
+                           "undo", "redo"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

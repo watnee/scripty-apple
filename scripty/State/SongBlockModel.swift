@@ -13,7 +13,9 @@
 //  element is: the words stay live on screen, go to disk so a relaunch keeps
 //  them, retry on a backoff, and are pushed the moment the connection returns.
 //  Only edits get this treatment — creating, deleting and reordering lines
-//  still need the server, exactly as the lyric structure always has.
+//  still need the server, exactly as the lyric structure always has. Undo and
+//  Redo cover those held edits too: the server's history is unreachable with
+//  no connection, so `localHistory` walks back what it never saw.
 //
 //  Which edition's lyric is being read travels as a link rather than an id the
 //  client assembles — the editions collection hands over the `songBlocks` link
@@ -61,6 +63,9 @@ final class SongBlockModel {
     var editionBlocksLink: HALLink? {
         didSet {
             guard editionBlocksLink != oldValue else { return }
+            // Another edition's lyric is about to be on screen; steps recorded
+            // against this one must not be applied to it.
+            localHistory.clear()
             Task { await load() }
         }
     }
@@ -121,9 +126,34 @@ final class SongBlockModel {
     /// their own edits.
     private(set) var undoRedo: UndoRedoStatus?
 
-    var canUndo: Bool { undoRedo?.canUndo ?? false }
-    var canRedo: Bool { undoRedo?.canRedo ?? false }
-    var hasUndoStack: Bool { links.contains(.undoRedoStatus) }
+    /// Undo/redo for the lyric edits the server never saw — `LocalHistory`,
+    /// which the screenplay editor keeps for the same reason: with no
+    /// connection the server's `undo` link is unreachable, which used to leave
+    /// ⌘Z dead exactly when the writer was most on their own.
+    ///
+    /// Only text steps are ever recorded here. A lyric's structure — new
+    /// lines, deletes, moves — needs the server and fails cleanly offline, so
+    /// held words are the only change this device can be holding to take back.
+    private(set) var localHistory = LocalHistory()
+
+    /// Local steps first: they are strictly newer than anything in the
+    /// server's history — they exist precisely because they never reached it —
+    /// so they are what "undo the last change" means while any of them stand.
+    var canUndo: Bool {
+        localHistory.canUndo ||
+            ((app.connectivity.isOnline || app.isDemo) && undoRedo?.canUndo == true)
+    }
+
+    var canRedo: Bool {
+        localHistory.canRedo ||
+            ((app.connectivity.isOnline || app.isDemo) && undoRedo?.canRedo == true)
+    }
+
+    /// Whether the pair belongs in the toolbar at all. Without the second
+    /// half, a lyric opened offline — its status never fetched, from a cached
+    /// collection that may predate the link — would hide the buttons exactly
+    /// when the local steps exist.
+    var hasUndoStack: Bool { links.contains(.undoRedoStatus) || !localHistory.isEmpty }
 
     init(app: AppModel, document: TextDocument, draftStore: UnsavedDraftStore? = nil,
          offlineStore: OfflineStore? = nil) {
@@ -285,6 +315,7 @@ final class SongBlockModel {
 
     /// The server has this line's text; the live copy is no longer precious.
     private func markSaved(_ id: Int) {
+        localHistory.noteSaved(blockId: id)
         unsavedBlockIds.remove(id)
         failedBlockIds.remove(id)
         retryTasks[id]?.cancel()
@@ -304,6 +335,15 @@ final class SongBlockModel {
         // superseded or the screen was left, and whatever did that will
         // write the words again. See `isCancelledRequest`.
         guard !error.isCancelledRequest else { return }
+        // A write the server never took is a change only this device knows,
+        // which is exactly what local undo exists to take back. `textChange`
+        // returns nil when nothing has moved since the last record, so the
+        // retries that land back here every backoff never duplicate a step.
+        if let text = liveText[id],
+           let change = localHistory.textChange(blockId: id, to: text,
+                                                lastSaved: block(id)?.text ?? "") {
+            localHistory.record([change])
+        }
         guard error.isRetryableAPIError else {
             failedBlockIds.insert(id)
             report(error)
@@ -421,6 +461,11 @@ final class SongBlockModel {
         // The route is back and the lyric on screen may be the old copy: a
         // successful load replaces it and takes the banner down with it.
         if isShowingOfflineCopy { await load() }
+        // Everything made it: those edits are the server's history now, and
+        // ⌘Z should walk that rather than replay the offline session locally.
+        // A drain that fell short keeps its steps — the writer is still
+        // effectively offline, and they are still the only undo there is.
+        if unsavedBlockIds.isEmpty { localHistory.clear() }
     }
 
     // MARK: - Structure
@@ -537,6 +582,12 @@ final class SongBlockModel {
     /// not survive as a draft. What they had typed before the merge, if
     /// anything, goes back to being held on its own.
     private func unmerge(_ id: Int, restoring text: String?) {
+        // The failed write recorded itself as a local step (see `markUnsaved`);
+        // the merged words are being taken off the screen, so the record has to
+        // come off with them or undo would replay a merge nobody kept.
+        if let attempted = liveText[id] {
+            localHistory.unrecordText(blockId: id, after: attempted)
+        }
         liveText[id] = text
         retryTasks[id]?.cancel()
         retryTasks[id] = nil
@@ -626,8 +677,17 @@ final class SongBlockModel {
         Task { await refreshUndoRedo() }
     }
 
-    func undo() async { await step(.undo) }
-    func redo() async { await step(.redo) }
+    /// Local steps are drained before the server is asked, in both directions:
+    /// a change the server never saw sits on top of everything it did see.
+    func undo() async {
+        if applyLocalStep(.undo) { return }
+        await step(.undo)
+    }
+
+    func redo() async {
+        if applyLocalStep(.redo) { return }
+        await step(.redo)
+    }
 
     private func step(_ rel: Rel) async {
         guard let link = undoRedo?.link(rel) else { return }
@@ -638,11 +698,62 @@ final class SongBlockModel {
             let collection: HALCollection<SongBlock> = try await app.client.fetch(
                 from: link, method: "POST")
             adopt(collection)
+            // The server's answer rewrote the lyric under whatever local steps
+            // are left on the other side — they describe a document that is no
+            // longer on screen, so they go.
+            localHistory.clear()
             await refreshUndoRedo()
             errorMessage = nil
         } catch {
             report(error)
         }
+    }
+
+    // MARK: - Local history (undoing what the server never saw)
+
+    private enum HistoryDirection { case undo, redo }
+
+    /// Pop and apply one local step. Returns false when that side of the
+    /// history is empty and the caller should try the server instead.
+    private func applyLocalStep(_ direction: HistoryDirection) -> Bool {
+        let popped = direction == .undo ? localHistory.popUndo() : localHistory.popRedo()
+        guard let step = popped else { return false }
+        // A step's changes were recorded in the order they happened, so undo
+        // walks them backwards and redo forwards. A lyric only ever records
+        // one change per step today, but the ordering is the screenplay's and
+        // costs nothing to keep.
+        let ordered = direction == .undo ? step.changes.reversed() : step.changes
+        for change in ordered { apply(change, direction) }
+        // The step crosses to the other stack unchanged: a text change holds
+        // both sides of itself, so the same value describes the way back.
+        if direction == .undo {
+            localHistory.pushUndone(step)
+        } else {
+            localHistory.pushRedone(step)
+        }
+        return true
+    }
+
+    private func apply(_ change: LocalChange, _ direction: HistoryDirection) {
+        // Text is the only kind this model records — see `localHistory`.
+        guard case let .text(blockId, before, after) = change else { return }
+        applyText(blockId, to: direction == .undo ? before : after)
+    }
+
+    /// Put text back on a line, through the same channel the words originally
+    /// travelled: it becomes the live copy and re-arms the ordinary debounced
+    /// save — which lands, retries or holds exactly as typing the restoration
+    /// by hand would have. A line the collection no longer carries has nothing
+    /// to apply to; offline nothing can leave the lyric, so this is the
+    /// reloaded-underneath case rather than a step going missing.
+    private func applyText(_ id: Int, to text: String) {
+        guard block(id) != nil else { return }
+        localHistory.noteApplied(blockId: id, text: text)
+        liveText[id] = text
+        // Fresh words earn a fresh set of retries, as typing them would.
+        retryAttempts[id] = nil
+        failedBlockIds.remove(id)
+        scheduleCommit(id)
     }
 
     // MARK: - Plumbing

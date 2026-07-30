@@ -339,8 +339,9 @@ struct SongBlockEditorView: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        // Undo sits on the leading edge, where the screenplay editor puts it,
-        // and only appears where the server keeps a stack for this song.
+        // Undo sits on the leading edge, where the screenplay editor puts it:
+        // where the server keeps a stack for this song, or where this device is
+        // holding edits of its own to take back.
         if model.hasUndoStack {
             ToolbarItemGroup(placement: .navigation) {
                 // Both rewind the lyric to a different set of lines, so the
