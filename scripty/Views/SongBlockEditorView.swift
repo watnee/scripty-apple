@@ -26,6 +26,13 @@ struct SongBlockEditorView: View {
     @State private var showingVersions = false
     @State private var showingTrash = false
     @State private var showingIgnoredWords = false
+    /// Whether the search bar is up. A button rather than a standing field:
+    /// `.searchable` in this sheet draws a full-width bar across the bottom of
+    /// every opening — `.searchToolbarBehavior(.minimize)` collapses a toolbar
+    /// field only outside a sheet — and searching is the rare errand here, not
+    /// the ordinary state. The screenplay's search is a toolbar button for the
+    /// same reason.
+    @State private var isSearching = false
     @State private var searchText = ""
     /// Which lines the current search matched, by id.
     ///
@@ -93,19 +100,17 @@ struct SongBlockEditorView: View {
             }
             .overlay { emptyState }
             .safeAreaInset(edge: .top, spacing: 0) { editionBanner }
-            .safeAreaBar(edge: .bottom, spacing: 0) { wordCountBar }
+            .safeAreaBar(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    searchBar
+                    wordCountBar
+                }
+            }
             .navigationTitle(model.document.displayTitle)
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
-            // `.searchToolbarBehavior(.minimize)` does nothing here and is
-            // deliberately absent: it collapses a field that lives *in* the
-            // toolbar, and this one is pinned to the navigation bar drawer.
-            // Minimising it would mean giving up the explicit placement.
-            .searchable(text: $searchText,
-                        placement: .navigationBarDrawer(displayMode: .automatic),
-                        prompt: "Search lyrics")
             .onChange(of: searchText) { _, _ in
                 runSearch()
             }
@@ -276,6 +281,15 @@ struct SongBlockEditorView: View {
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            // No keyboard shortcut on Search: the screenplay's own button owns
+            // ⌘F, and this editor opens over it — the same reason the text-size
+            // menu below claims no keys.
+            Button {
+                isSearching.toggle()
+                if !isSearching { searchText = "" }
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+            }
             if model.trashLink != nil {
                 Button {
                     showingTrash = true
@@ -296,6 +310,15 @@ struct SongBlockEditorView: View {
                 } label: {
                     Label("Version History", systemImage: "clock.arrow.circlepath")
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var searchBar: some View {
+        if isSearching {
+            SongSearchBar(text: $searchText) {
+                isSearching = false
             }
         }
     }
@@ -349,5 +372,55 @@ struct SongBlockEditorView: View {
     private var errorBinding: Binding<Bool> {
         Binding(get: { model.errorMessage != nil },
                 set: { if !$0 { model.errorMessage = nil } })
+    }
+}
+
+/// Find-in-lyric, presented as a bar above the keyboard the way the
+/// screenplay's search is — but narrowing the list rather than stepping a
+/// cursor through hits, which is how the web song editor filters its lines.
+private struct SongSearchBar: View {
+    @Binding var text: String
+    /// Called when the writer taps Done; the host hides the bar.
+    let onDismiss: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search lyrics", text: $text)
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .focused($isFocused)
+                if !text.isEmpty {
+                    Button {
+                        text = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear Search")
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+
+            Button("Done") {
+                text = ""
+                isFocused = false
+                onDismiss()
+            }
+            .font(.body.weight(.medium))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        // No background of its own: the host mounts it with `.safeAreaBar`,
+        // which supplies the Liquid Glass and the separation from the lyric.
+        .onAppear { isFocused = true }
     }
 }
