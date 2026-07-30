@@ -1728,8 +1728,10 @@ struct ScriptView: View {
     /// route reached it.
     @ViewBuilder
     private func documentEditor(for document: TextDocument) -> some View {
+        // No `onInserted` here: these sheets sit directly over the script, so
+        // the editor dismissing itself is already the way back to it.
         if document.kind == .song, document.hasLink(.songBlocks) {
-            SongBlockEditorView(app: model.app, document: document)
+            SongBlockEditorView(app: model.app, document: document, scriptModel: model)
         } else {
             SongEditorView(model: model, document: document, type: document.kind)
         }

@@ -394,8 +394,10 @@ extension HelpTopic {
                 paragraphs: [
                     "Songs and Notes are written outside the screenplay and inserted "
                     + "when they are ready — a song as Lyrics elements, a note as Note "
-                    + "elements, one line each. Saving a song updates every place it was "
-                    + "already inserted.",
+                    + "elements, one line each. Insert into Script lives on the list "
+                    + "row's menu and in the editor's own menu, so a song just finished "
+                    + "can be sent to the script without stepping back out. Saving a "
+                    + "song updates every place it was already inserted.",
                     "The notes editor carries lists down a line at a time on Return, "
                     + "nests them on Tab, and sets headings; the prefixes stay plain "
                     + "text, so what reaches the script is what you typed. Songs can be "

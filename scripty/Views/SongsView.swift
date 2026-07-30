@@ -361,10 +361,16 @@ struct SongsView: View {
                 // A song is lyric lines on the server, so it opens the line
                 // editor — where reordering, tinting and editions mean
                 // something. A note is plain text and keeps the plain editor.
+                // Either editor can send its document into the script, and a
+                // send that lands takes this list down with it, the way the
+                // rows' own insert does — to reveal the screenplay it changed.
                 if document.kind == .song, document.hasLink(.songBlocks) {
-                    SongBlockEditorView(app: model.app, document: document)
+                    SongBlockEditorView(app: model.app, document: document,
+                                        scriptModel: model,
+                                        onInserted: { dismiss() })
                 } else {
-                    SongEditorView(model: model, document: document, type: document.kind)
+                    SongEditorView(model: model, document: document, type: document.kind,
+                                   onInserted: { dismiss() })
                 }
             }
             .alert("Rename", isPresented: renameBinding) {

@@ -31,6 +31,10 @@ struct SongEditorView: View {
     let model: ScriptModel
     let document: TextDocument?   // nil = create
     let type: DocumentType
+    /// Told when the document has landed in the script, so whoever presented
+    /// this sheet can clear the way to the screenplay — from the songs list
+    /// that means the list dismissing too, as it does for its own insert.
+    var onInserted: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -53,6 +57,12 @@ struct SongEditorView: View {
     /// writer cannot see.
     @State private var isWritingBody = false
     @State private var confirmingDiscard = false
+    /// In flight to the screenplay. Guards the button rather than showing a
+    /// spinner: the send is a save, one POST and a reload, over in a beat.
+    @State private var isInserting = false
+    /// What an insert that put nothing in the script has to say for itself —
+    /// an empty document, unsaved words, or a send the server refused.
+    @State private var insertMessage: String?
     /// Set by Discard on the way out, so the parting save knows the words on
     /// screen are not wanted.
     @State private var discarding = false
@@ -68,10 +78,12 @@ struct SongEditorView: View {
 
     private let settings = PresentationSettings.shared
 
-    init(model: ScriptModel, document: TextDocument?, type: DocumentType) {
+    init(model: ScriptModel, document: TextDocument?, type: DocumentType,
+         onInserted: (() -> Void)? = nil) {
         self.model = model
         self.document = document
         self.type = type
+        self.onInserted = onInserted
         let title = document?.title ?? ""
         let content = document?.content ?? ""
         _title = State(initialValue: title)
@@ -176,7 +188,17 @@ struct SongEditorView: View {
             } message: {
                 Text(discardMessage)
             }
+            .alert("Insert into Script", isPresented: insertMessageBinding) {
+                Button("OK", role: .cancel) { insertMessage = nil }
+            } message: {
+                Text(insertMessage ?? "")
+            }
         }
+    }
+
+    private var insertMessageBinding: Binding<Bool> {
+        Binding(get: { insertMessage != nil },
+                set: { if !$0 { insertMessage = nil } })
     }
 
     /// Whether the last save was refused and the words are still only here.
@@ -310,6 +332,20 @@ struct SongEditorView: View {
                     Button("Save") { save() }
                         .disabled(!canSave)
                 }
+            }
+        }
+        // The list's context-menu action, reachable without leaving the
+        // editor. Same gate — the server advertised an `insert` link on this
+        // document — and the same landing: the end of the script, a song as
+        // Lyrics blocks, a note as Note blocks.
+        if let document, document.hasLink(.insert) {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    insert(document)
+                } label: {
+                    Label("Insert into Script", systemImage: "text.insert")
+                }
+                .disabled(isInserting)
             }
         }
         ToolbarItem(placement: .secondaryAction) {
@@ -466,6 +502,36 @@ struct SongEditorView: View {
                 await model.saveDocument(document, title: sentTitle, content: sentContent)
             }
             await model.refreshAfterDocumentEdit()
+        }
+    }
+
+    /// Sends the document into the screenplay as blocks, at the end of the
+    /// script — the same call the list's context menu makes. The words on
+    /// screen are saved first, so what lands is what the writer is looking at;
+    /// a save the server refuses stops the insert rather than quietly sending
+    /// the server's older copy. A document that landed dismisses down to the
+    /// screenplay it just changed.
+    private func insert(_ document: TextDocument) {
+        isInserting = true
+        Task {
+            autosave?.cancel()
+            await saveNow()
+            if case .failed(let reason) = saveStatus {
+                isInserting = false
+                insertMessage = "\(reason) Nothing was inserted."
+                return
+            }
+            let count = await model.insertDocument(document)
+            isInserting = false
+            if let count, count > 0 {
+                dismiss()
+                onInserted?()
+            } else if count == 0 {
+                insertMessage = "Nothing to insert from \"\(document.displayTitle)\"."
+            } else {
+                insertMessage = model.errorMessage
+                    ?? "Could not insert into the script."
+            }
         }
     }
 
