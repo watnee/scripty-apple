@@ -525,8 +525,7 @@ struct ProjectsSidebarView: View {
         //
         // `.minimize` only collapses a field that lives *in* the toolbar, so it
         // is a silent no-op against the iPad's drawer placement — which is
-        // exactly what keeps that field expanded (see `SongBlockEditorView`,
-        // where the drawer is wanted and the minimise is deliberately absent).
+        // exactly what keeps that field expanded.
         .searchable(text: $searchText, placement: searchPlacement, prompt: "Search projects")
         .searchToolbarBehavior(.minimize)
         .refreshable { await model.refresh() }
