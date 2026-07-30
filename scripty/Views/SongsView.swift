@@ -433,12 +433,22 @@ struct SongsView: View {
         }
         .foregroundStyle(.primary)
         .swipeActions(edge: .trailing) {
+            // Delete stays first so a full swipe keeps meaning delete.
             if document.hasLink(.delete) {
                 Button(role: .destructive) {
                     Task { await model.deleteDocument(document) }
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
+            }
+            if document.hasLink(.update) {
+                Button {
+                    renameTitle = document.title ?? ""
+                    renamingDocument = document
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                .tint(.blue)
             }
         }
         .contextMenu {

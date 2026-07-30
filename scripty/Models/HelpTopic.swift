@@ -406,11 +406,12 @@ extension HelpTopic {
                     + "one opens the last few of that kind you edited, each going "
                     + "straight to its lyrics or its text. The lists repeat those same "
                     + "few at the top, so a long one needs no scrolling to reach them. "
-                    + "An element's own menu inserts a song below it."
+                    + "An element's own menu inserts a song below it. Swipe a row to "
+                    + "rename or delete it; touch and hold for everything else."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
-                           "recent", "quick", "shortcut"]),
+                           "recent", "quick", "shortcut", "rename", "swipe"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",
