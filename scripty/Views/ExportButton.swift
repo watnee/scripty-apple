@@ -2,9 +2,9 @@
 //  ExportButton.swift
 //  scripty
 //
-//  Export menu built from whichever export rels the server advertised.
-//  Downloads run through the authenticated client (Basic auth), so a
-//  plain ShareLink on the URL wouldn't work.
+//  Export menu and print button, built from whichever export rels the server
+//  advertised. Downloads run through the authenticated client (Basic auth),
+//  so a plain ShareLink on the URL wouldn't work.
 //
 //  The work itself lives in ScriptExportModel, because the Mac menu bar
 //  starts the same exports without going through this button.
@@ -23,14 +23,6 @@ struct ExportButton: View {
                     exporter.export(option)
                 }
             }
-            if let printable = exporter.printableOption {
-                Divider()
-                Button {
-                    exporter.print(printable)
-                } label: {
-                    Label("Print…", systemImage: "printer")
-                }
-            }
         } label: {
             if exporter.isExporting {
                 ProgressView()
@@ -39,6 +31,29 @@ struct ExportButton: View {
             }
         }
         .disabled(exporter.isExporting)
+    }
+}
+
+/// Print, beside the export menu rather than inside it. The menu is a list of
+/// file formats to carry away; print is an errand, not a format, and buried
+/// in there it read as one more of them. The Mac menu bar has always kept the
+/// two apart — its Print… item (⌘P) sits outside the Export submenu.
+///
+/// Nothing without a PDF rel to print from, just as the menu is nothing
+/// without export rels. Shares the exporter's in-flight state, so starting
+/// either holds both until the download settles.
+struct PrintButton: View {
+    let exporter: ScriptExportModel
+
+    var body: some View {
+        if let printable = exporter.printableOption {
+            Button {
+                exporter.print(printable)
+            } label: {
+                Label("Print…", systemImage: "printer")
+            }
+            .disabled(exporter.isExporting)
+        }
     }
 }
 

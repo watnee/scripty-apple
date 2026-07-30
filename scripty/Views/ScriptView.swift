@@ -1629,6 +1629,7 @@ struct ScriptView: View {
 
             if !model.exportOptions.isEmpty && !settings.isFocusMode {
                 ExportButton(exporter: exporter)
+                PrintButton(exporter: exporter)
             }
         }
 
