@@ -275,24 +275,8 @@ final class SongBlockModel {
         }
     }
 
-    func canMoveUp(_ block: SongBlock) -> Bool {
-        guard block.hasLink(.move), let index = index(of: block) else { return false }
-        return index > 0
-    }
-
-    func canMoveDown(_ block: SongBlock) -> Bool {
-        guard block.hasLink(.move), let index = index(of: block) else { return false }
-        return index + 1 < blocks.count
-    }
-
-    func move(_ block: SongBlock, by offset: Int) async {
-        guard let index = index(of: block) else { return }
-        await move(block, to: index + offset)
-    }
-
-    /// Puts a line at an absolute index in the lyric — what a drag lands on,
-    /// where the menu's Move Up and Move Down are the same journey a step at a
-    /// time. Out-of-range targets are dropped rather than clamped: a drop past
+    /// Puts a line at an absolute index in the lyric — what a drag lands on.
+    /// Out-of-range targets are dropped rather than clamped: a drop past
     /// the end of the list is the list refusing it, not a request to move to
     /// the end.
     func move(_ block: SongBlock, to index: Int) async {
