@@ -99,6 +99,8 @@ func run() async {
     await checkQueueArithmetic()
     print()
     await checkWritingNewElementsOffline()
+    print()
+    await checkUndoOffline()
 
     print()
     if failures == 0 {
@@ -491,6 +493,116 @@ func checkWritingNewElementsOffline() async {
     checkEqual("with the words intact",
                relaunched.currentText(relaunched.blocks[1]), "Survives a relaunch.")
     check("and says nothing about having synced", relaunched.historyToast == nil)
+}
+
+/// Undo with no connection: the changes held on this device — text kept for
+/// retry, elements queued for creation, offline retypes and deletes — can be
+/// walked back and forward again without the server's history.
+@MainActor
+func checkUndoOffline() async {
+    print("== With no connection, undo takes back the writing held on this device ==")
+    let editableBlocksJSON = """
+    {
+      "_embedded": {
+        "blockResourceList": [
+          {
+            "id": 10, "order": 1, "type": "ACTION", "content": "First line.",
+            "_links": {
+              "update": {"href": "/api/blocks/10"},
+              "delete": {"href": "/api/blocks/10"},
+              "createBelow": {"href": "/api/blocks/10/below"}
+            }
+          },
+          {
+            "id": 11, "order": 2, "type": "ACTION", "content": "Second line.",
+            "_links": {
+              "update": {"href": "/api/blocks/11"},
+              "delete": {"href": "/api/blocks/11"},
+              "createBelow": {"href": "/api/blocks/11/below"}
+            }
+          }
+        ]
+      },
+      "_links": {"self": {"href": "/api/projects/1/blocks"}}
+    }
+    """
+    let directory = scratchDirectory("undo")
+    let store = OfflineStore(scope: "server|alice", directory: directory)
+    store.save(Data(editableBlocksJSON.utf8), .blocks(projectId: 1))
+    let queue = OfflineBlockQueue(scope: "server|alice",
+                                  directory: directory.appendingPathComponent("queue"))
+
+    let monitor = ConnectivityMonitor(startMonitoring: false)
+    monitor.adopt(false)
+    let model = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                            draftStore: nil, offlineStore: store, createQueue: queue)
+    await model.loadBlocks()
+
+    check("nothing to undo yet, and the pair stays out of the bar",
+          !model.canUndo && !model.canRedo && !model.offersUndoRedo)
+    await model.undo()
+    check("an idle undo is a quiet no-op, not an alert", model.errorMessage == nil)
+
+    // A failed save is a change only this device knows — and now an undoable one.
+    model.liveEdit(model.blocks[0], text: "First line, rewritten offline.")
+    await model.blur(model.blocks[0])
+    check("a held edit arms undo", model.canUndo)
+    check("and puts the pair in the bar", model.offersUndoRedo)
+
+    await model.undo()
+    checkEqual("undo puts the saved words back",
+               model.currentText(model.blocks[0]), "First line.")
+    checkEqual("and says so", model.historyToast?.text, "Change undone")
+    check("the step moved to redo", model.canRedo && !model.canUndo)
+    await model.redo()
+    checkEqual("redo brings the offline words back",
+               model.currentText(model.blocks[0]), "First line, rewritten offline.")
+    check("and moves the step back", model.canUndo && !model.canRedo)
+
+    print()
+    print("== Undo removes an element written offline; redo re-queues it ==")
+    await model.splitBlock(model.blocks[1], caret: 12)
+    checkEqual("Return put a new element on screen", model.blocks.count, 3)
+    await model.undo()
+    checkEqual("undo takes it off again", model.blocks.count, 2)
+    checkEqual("and out of the outbox", queue.pending(projectId: 1).count, 0)
+    await model.redo()
+    checkEqual("redo restores it", model.blocks.count, 3)
+    check("back in the outbox too", queue.pending(projectId: 1).count == 1
+          && model.blocks[2].isLocal)
+
+    print()
+    print("== Typing and retyping on a pending element are steps of their own ==")
+    model.liveEdit(model.blocks[2], text: "Written on a train.")
+    await model.blur(model.blocks[2])
+    await model.changeType(model.blocks[2], to: .character)
+    checkEqual("the retype landed", model.blocks[2].blockType, .character)
+    await model.undo()
+    checkEqual("undo returns the retype first", model.blocks[2].blockType, .action)
+    checkEqual("in the outbox as well", queue.pending(projectId: 1).first?.type, "ACTION")
+    checkEqual("without touching the words",
+               model.currentText(model.blocks[2]), "Written on a train.")
+    await model.undo()
+    checkEqual("the next undo returns the words",
+               model.currentText(model.blocks[2]), "")
+    await model.redo()
+    checkEqual("and redo brings them back",
+               model.currentText(model.blocks[2]), "Written on a train.")
+
+    print()
+    print("== A deleted pending element comes back, words and all ==")
+    await model.deleteBlock(model.blocks[2])
+    checkEqual("the element is gone", model.blocks.count, 2)
+    check("a fresh change forfeits redo", !model.canRedo)
+    await model.undo()
+    checkEqual("undo restores it", model.blocks.count, 3)
+    checkEqual("with the words it held",
+               model.currentText(model.blocks[2]), "Written on a train.")
+    checkEqual("and its outbox entry",
+               queue.pending(projectId: 1).first?.content, "Written on a train.")
+    checkEqual("named as a restoration", model.historyToast?.text, "Restored 1 element")
+    check("still counted as unsaved work",
+          model.unsavedBlockIds.contains(model.blocks[2].id))
 }
 
 await run()
