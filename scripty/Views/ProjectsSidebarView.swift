@@ -693,6 +693,11 @@ struct ProjectsSidebarView: View {
                 : "Syncing your screenplays with the cloud."
         case .offline:
             "Offline. Showing the screenplays saved on this device."
+        case .failed:
+            // `cloudState` above never produces this — a refresh that fails
+            // keeps the cached rows and the offline footer instead — but the
+            // switch must speak for every state the badge can wear.
+            "The list couldn't be refreshed. Showing the screenplays saved on this device."
         }
     }
 
