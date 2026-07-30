@@ -707,6 +707,10 @@ struct ScriptView: View {
             // the outline and the position restore cannot fold the bars away
             // under a writer who never scrolled.
             .onUserScroll(respondToScroll)
+            // The system indicator can be watched but not caught. This one is
+            // a handle — grab it and the whole script rides under one drag,
+            // the way Word's iOS app crosses a long document.
+            .draggableScrollThumb()
         }
         .scrollDismissesKeyboard(.interactively)
         // A soft edge lets the writing dissolve into the navigation bar rather
