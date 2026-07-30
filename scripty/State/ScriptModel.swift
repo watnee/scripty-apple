@@ -404,6 +404,19 @@ final class ScriptModel {
         }
     }
 
+    /// Put a block the server just created on screen below its anchor. The
+    /// create answers with the one new element, not the renumbered collection,
+    /// so this shows the reply without the full reload the caret would have to
+    /// wait behind — Return has to feel like a keystroke, not a request. Any
+    /// orders the server shifted underneath are adopted by the next full load
+    /// (the sync poll, once focus leaves), exactly as edits from another
+    /// device are.
+    private func insert(_ created: Block, below source: Block) {
+        guard !blocks.contains(where: { $0.id == created.id }) else { return }
+        let index = blocks.firstIndex { $0.id == source.id }.map { $0 + 1 } ?? blocks.count
+        blocks.insert(created, at: index)
+    }
+
     /// Adopt a single block the server just rewrote: swap it in, drop any live
     /// edit buffer for it, and clear its unsaved flag. The tail shared by the
     /// per-block writes that answer with one block — a retype, a single replace
@@ -507,7 +520,7 @@ final class ScriptModel {
                 body: EditBlockCommand(content: text, personId: block.personId, tags: block.tags))
             replace(updated)
             markSaved(id)
-            await refreshUndoRedo()
+            refreshUndoRedoSoon()
             errorMessage = nil
             return updated
         } catch {
@@ -894,8 +907,8 @@ final class ScriptModel {
                 body: CreateBelowCommand(content: after,
                                          personId: nil,
                                          type: newType.rawValue))
-            await loadBlocks()
-            await refreshUndoRedo()
+            insert(created, below: source)
+            refreshUndoRedoSoon()
             focus(created.id, caret: 0)
             errorMessage = nil
         } catch {
@@ -933,8 +946,8 @@ final class ScriptModel {
             let created: Block = try await app.client.fetch(
                 from: link, method: "POST",
                 body: CreateBelowCommand(content: "", personId: nil, type: type.rawValue))
-            await loadBlocks()
-            await refreshUndoRedo()
+            insert(created, below: block)
+            refreshUndoRedoSoon()
             focus(created.id, caret: 0)
             errorMessage = nil
         } catch {
@@ -969,12 +982,11 @@ final class ScriptModel {
 
         if block.isLocal {
             // Nothing to delete on the server: the absorbed element only ever
-            // existed here, so dropping its queued create is the whole of it.
-            // Done before the reload so the stand-in doesn't come back.
+            // existed here, so dropping its queued create is the whole of it —
+            // it takes the stand-in off screen too.
             if let queue = createQueue { dropPendingCreate(block.id, from: queue) }
             liveText[block.id] = nil
-            await loadBlocks()
-            await refreshUndoRedo()
+            refreshUndoRedoSoon()
             focus(updatedPrevious.id, caret: seam)
             return
         }
@@ -991,9 +1003,15 @@ final class ScriptModel {
                 return
             }
         }
+        // The merged row was already swapped in by the commit above, so the
+        // absorbed element just comes off screen — no reload the caret would
+        // have to wait behind. Backspace at the seam has to feel like a
+        // keystroke, exactly as Return does; the server's renumbering is
+        // adopted by the next full load (the sync poll, once focus leaves).
+        blocks.removeAll { $0.id == block.id }
         liveText[block.id] = nil
-        await loadBlocks()
-        await refreshUndoRedo()
+        markSaved(block.id)
+        refreshUndoRedoSoon()
         focus(updatedPrevious.id, caret: seam)
     }
 
@@ -1035,7 +1053,7 @@ final class ScriptModel {
                 body: SetTypeCommand(type: type.rawValue, content: content,
                                      personId: block.personId, tags: block.tags))
             adoptRewritten(updated)
-            await refreshUndoRedo()
+            refreshUndoRedoSoon()
             errorMessage = nil
             return updated
         } catch {
@@ -1131,8 +1149,8 @@ final class ScriptModel {
             let created: Block = try await app.client.fetch(
                 from: link, method: "POST",
                 body: CreateBelowCommand(content: "", personId: nil, type: BlockType.action.rawValue))
-            await loadBlocks()
-            await refreshUndoRedo()
+            insert(created, below: last)
+            refreshUndoRedoSoon()
             focus(created.id, caret: 0)
             errorMessage = nil
         } catch {
@@ -1155,6 +1173,13 @@ final class ScriptModel {
         } catch {
             // Non-critical; leave stale status rather than surfacing an alert.
         }
+    }
+
+    /// Refresh the undo/redo status without making the caller wait for the
+    /// round trip. The status only feeds the toolbar buttons, so nothing on
+    /// the typing path — Return above all — should ever queue behind it.
+    private func refreshUndoRedoSoon() {
+        Task { await refreshUndoRedo() }
     }
 
     func undo() async {
