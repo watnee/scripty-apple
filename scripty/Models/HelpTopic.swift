@@ -11,8 +11,8 @@
 //  a value rather than by editing a layout.
 //
 //  What it says is deliberately not a translation of the web's copy. Anything
-//  the browser does and this client does not (offline editing, installing to a
-//  home screen, Safari Reader) is left out entirely: a help centre that
+//  the browser does and this client does not (installing to a home screen,
+//  Safari Reader) is left out entirely: a help centre that
 //  describes features the reader cannot find is worse than a shorter one.
 //
 
@@ -406,11 +406,16 @@ extension HelpTopic {
                     + "one opens the last few of that kind you edited, each going "
                     + "straight to its lyrics or its text. The lists repeat those same "
                     + "few at the top, so a long one needs no scrolling to reach them. "
-                    + "An element's own menu inserts a song below it."
+                    + "An element's own menu inserts a song below it.",
+                    "A lyric line edited without a connection is kept on this device — "
+                    + "the cloud in the corner of the song editor says so — and is "
+                    + "saved by itself when the connection returns, even across a "
+                    + "relaunch. The same promise the screenplay editor makes."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
-                           "recent", "quick", "shortcut"]),
+                           "recent", "quick", "shortcut", "offline", "unsaved",
+                           "sync", "cloud", "badge"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

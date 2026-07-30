@@ -18,6 +18,7 @@ struct SongBlockEditorView: View {
     @State private var editions: EditionsModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedLine: Int?
 
     /// The same device-wide readout preference the screenplay honours.
@@ -203,7 +204,41 @@ struct SongBlockEditorView: View {
             } message: {
                 Text(model.errorMessage ?? "")
             }
+            // The connection came back: push the lines held on this device
+            // right away rather than waiting out each one's retry backoff —
+            // the same sweep the screenplay editor runs.
+            .onChange(of: model.app.connectivity.isOnline) { _, online in
+                guard online else { return }
+                Task { await model.syncHeldWork() }
+            }
+            // Backgrounding flushes the debounced commit immediately; coming
+            // back is a second chance for anything still held, since the retry
+            // backoffs may have run out while the app slept.
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background, .inactive:
+                    Task { await model.commitAll() }
+                case .active:
+                    if model.hasUnsavedChanges, model.app.connectivity.isOnline {
+                        Task { await model.syncHeldWork() }
+                    }
+                @unknown default:
+                    break
+                }
+            }
         }
+    }
+
+    /// The same standing answer the screenplay shows: where do the words on
+    /// this screen currently live? Nil in demo, where there is no cloud to be
+    /// honest about.
+    private var cloudState: CloudSyncState? {
+        guard !model.app.isDemo else { return nil }
+        if !model.app.connectivity.isOnline { return .offline }
+        // Refused beats retrying: with both on screen, the one that will not
+        // fix itself is the one the badge must name.
+        if model.hasFailedSaves { return .failed }
+        return model.hasUnsavedChanges ? .holding : .synced
     }
 
     /// Says which edition is open, but only when it is not the default —
@@ -250,6 +285,14 @@ struct SongBlockEditorView: View {
                     dismiss()
                 }
             }
+        }
+        // Beside the way out, where the screenplay keeps it: leaving is the
+        // moment a writer wonders whether their words are anywhere but here.
+        if let cloud = cloudState {
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncBadge(state: cloud, heldCount: model.unsavedBlockIds.count)
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
         // Undo sits on the leading edge, where the screenplay editor puts it,
         // and only appears where the server keeps a stack for this song.

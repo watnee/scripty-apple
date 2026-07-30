@@ -289,6 +289,35 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
 "$BUILD/songlines" || status=1
 
 echo
+echo "== Song drafts survive a failed save =="
+# The same closed-port failures the UnsavedWork suite drives, aimed at the
+# lyric editor: held words, drafts on disk, restore on relaunch.
+swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/LocalHistory.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/SongBlockModel.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/SongDrafts/main.swift"
+run_suite "$BUILD/songdrafts" || status=1
+
+echo
 echo "== Songs and Notes widgets =="
 # The half the extension and the app share — one file for both widgets, since
 # they draw one stored list. WidgetPublisher next door is not here: it imports
