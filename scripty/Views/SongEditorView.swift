@@ -32,9 +32,20 @@
 //  supplying "Untitled" would be taking something away rather than giving
 //  something.
 //
-//  So this sheet now stops the writer over exactly one thing, the thing the
-//  Save button was really standing in for: a save the server refused, where
-//  the words are only on this device.
+//  What it says about all that is what a song says: the cloud in the corner,
+//  the same badge the lyric editor and the screenplay wear, in the same place.
+//  The running commentary this sheet used to keep under the note — "Saving…",
+//  "Saved", a Retry button — was a second vocabulary for a question every other
+//  writing surface in the app already answers with one glyph, and it was the
+//  loudest of the three about the state that matters least. A save that cannot
+//  get out now retries itself on the screenplay's backoff instead of asking to
+//  be pressed, and the connection coming back sends it at once.
+//
+//  So this sheet stops the writer over exactly one thing, and it is the one
+//  case where leaving really does lose the words: a document that has never
+//  reached the server at all. A save refused on a document that exists is on
+//  disk and in the reconnect sweep — the badge goes red and nothing else
+//  happens, exactly as a refused lyric line behaves.
 //
 
 import SwiftUI
@@ -71,6 +82,12 @@ struct SongEditorView: View {
     /// what makes this a save a second after typing stops rather than one per
     /// character — the same shape `SongBlockModel` gives a lyric line.
     @State private var autosave: Task<Void, Never>?
+    /// The armed retry of a save that couldn't get out, and how many have gone
+    /// already. A lyric line has retried itself on a backoff for as long as
+    /// there has been a badge to explain it; with the Retry button gone from
+    /// under the note, this is what takes its place.
+    @State private var retry: Task<Void, Never>?
+    @State private var retryAttempt = 0
     /// Whether the caret is in the note itself, so the formatting bar shows
     /// only when there is a line under the caret for it to act on — pressing
     /// "H1" while the title field has focus would silently head a line the
@@ -170,8 +187,15 @@ struct SongEditorView: View {
     /// mid-way to "Ballad of the Lost Hour" — should not become one.
     private static let createDelay: Duration = .milliseconds(2500)
 
+    /// The screenplay's backoff, unchanged, and a lyric line's: past the last
+    /// delay the words stay held and the next keystroke — or the connection
+    /// coming back — re-arms it.
+    private static let retryDelays: [Duration] =
+        [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+
     /// Where an autosaving note has got to. Absent while nothing has been
-    /// typed, so an untouched note carries no chrome at all.
+    /// typed: an untouched sheet is showing the server's own copy, which the
+    /// badge reads as saved.
     private enum SaveStatus: Equatable {
         case saving
         case saved
@@ -179,8 +203,11 @@ struct SongEditorView: View {
         /// device and the reconnect sweep will send them — leaving loses
         /// nothing. The screenplay's "held" state, in a note.
         case held
-        /// The save was refused. Sticky: this is the one state the writer has
-        /// to see, because it is the one where leaving loses something.
+        /// The save was refused, with the reason. For a document that exists
+        /// the words are still on disk and the sweep still has them, so this
+        /// is a red badge and a line of explanation, nothing more. For one
+        /// that was never created it is the only warning there is: see
+        /// `leavingLosesWork`.
         case failed(String)
     }
 
@@ -194,13 +221,15 @@ struct SongEditorView: View {
     /// Whether going now would really lose the words, which is the only thing
     /// worth stopping a writer to ask about.
     ///
-    /// Almost never, and that is the point of the change: what is on screen is
-    /// saved, or a beat away from being saved by the parting flush — a
-    /// document with nothing in its title field included, since that one saves
-    /// itself under the list's own "Untitled …". What is left is the one case
-    /// the flush cannot rescue: a save the server refused, where trying again
-    /// on the way out is all leaving would achieve.
-    private var leavingLosesWork: Bool { saveFailed }
+    /// One case, and it is the case a song cannot have: a document that was
+    /// never created. Everything else on this screen is somewhere other than
+    /// this view — saved, a beat away from the parting flush, or held on disk
+    /// with the reconnect sweep carrying it, which is true of a refused save
+    /// too. A create has none of that. There is no row on the server for a
+    /// draft to be measured against, so nothing goes to the drafts store and
+    /// no sweep will pick it up; the words are here and nowhere else, and
+    /// dismissing is the one gesture that ends them.
+    private var leavingLosesWork: Bool { isNew && saveFailed }
 
     /// Notes get the list and heading controls; lyrics take the same keyboard
     /// rules but not the bar, which is the split the browser makes too.
@@ -243,18 +272,30 @@ struct SongEditorView: View {
                 autosave?.cancel()
                 Task { await saveNow() }
             }
+            // The connection came back: send what is held right now rather
+            // than waiting out the backoff, the same edge the lyric editor and
+            // the screenplay both take. This is also what turns an amber badge
+            // green without the writer touching anything — and what gets a
+            // document written offline created the moment there is a route.
+            .onChange(of: model.app.connectivity.isOnline) { _, online in
+                guard online, saveStatus == .held || saveFailed else { return }
+                retry?.cancel()
+                retryAttempt = 0
+                Task { await saveNow() }
+            }
             // Covers every other way this sheet goes away: Done, the drag, and
             // the parent view deciding it is finished with it.
             .onDisappear {
                 autosave?.cancel()
+                retry?.cancel()
                 flush()
             }
             // A sheet dragged away takes the note with it, and unlike a button
             // it gives no chance to say so. An autosaving note has nothing to
-            // lose to the drag — it is already saved, or saving — so the drag
-            // is only refused where the words really would go.
+            // lose to the drag — it is already saved, saving, or held — so the
+            // drag is only refused where the words really would go.
             .interactiveDismissDisabled(leavingLosesWork)
-            .confirmationDialog(saveFailed ? "Discard unsaved changes?" : "Discard changes?",
+            .confirmationDialog("Discard unsaved changes?",
                                 isPresented: $confirmingDiscard,
                                 titleVisibility: .visible) {
                 Button("Discard", role: .destructive) {
@@ -288,15 +329,57 @@ struct SongEditorView: View {
         return false
     }
 
-    /// Only ever asked over a refused save now — the sheet does not stop a
-    /// writer for anything it can still put right itself. "Most recent edits"
-    /// would be a kind way of putting it for a document that was never
-    /// created: there is no earlier copy sitting safely on the server, there
-    /// is nothing at all.
+    /// Only ever asked over a document that was never created — the sheet does
+    /// not stop a writer for anything it can still put right itself. "Your most
+    /// recent edits" would be a kind way of putting it here: there is no
+    /// earlier copy sitting safely on the server, there is nothing at all.
     private var discardMessage: String {
-        isNew
-            ? "This \(kindWord) has not reached the server, so it exists only on this device."
-            : "The last save did not reach the server, so your most recent edits are only on this device."
+        "This \(kindWord) has not reached the server, so it exists only on this device."
+    }
+
+    /// Where the words on this screen currently live — the same standing answer
+    /// the lyric editor and the screenplay give, in the same corner. Nil in
+    /// demo, where there is no cloud to be honest about.
+    ///
+    /// Offline outranks refused, as it does in the lyric editor: with no route
+    /// at all, "couldn't save" is a diagnosis the app has not earned.
+    ///
+    /// A save merely *pending* — the debounce armed, or the PUT in flight — is
+    /// not "holding". The lyric editor's badge stays green through typing and
+    /// only colours when a write has actually failed to get out, and a badge
+    /// that went amber every time a writer paused for a second would be a badge
+    /// nobody reads by the end of the first page.
+    ///
+    /// The exception is a document that has never been created: there the
+    /// earlier words are not safe on the server either, because there is no
+    /// server copy at all, and a green tick would be the one lie this badge
+    /// must never tell.
+    private var cloudState: CloudSyncState? {
+        guard !model.app.isDemo else { return nil }
+        if !model.app.connectivity.isOnline { return .offline }
+        switch saveStatus {
+        case .failed: return .failed
+        case .held: return .holding
+        case .saving: return isNew ? .holding : .synced
+        case .saved, .none: return .synced
+        }
+    }
+
+    /// What the badge says aloud, where this sheet knows something its default
+    /// sentence doesn't. A document that was never created is not "kept on this
+    /// device and syncing later": nothing is keeping it but this screen, and a
+    /// spoken label that implies otherwise is the one that would cost a writer
+    /// their words.
+    private var cloudLabel: String? {
+        guard isNew, saveStatus != nil, saveStatus != .saved else { return nil }
+        switch cloudState {
+        case .offline:
+            return "Offline. This \(kindWord) has not been created yet — keep this editor open until you're back online."
+        case .failed:
+            return "This \(kindWord) could not be created, so it exists only on this device."
+        default:
+            return nil
+        }
     }
 
     // MARK: - Surfaces
@@ -336,22 +419,26 @@ struct SongEditorView: View {
         return type == .song ? "Write the lyrics here…" : "Write your notes here…"
     }
 
-    /// Under the note: what went wrong, whether it is saved, how long it is,
-    /// and the formatting bar riding above the keyboard. Stacked in that order
-    /// so the bar sits closest to the writer's thumbs and the readouts stay put
-    /// above it.
+    /// Under the note: what went wrong, how long it is, and the formatting bar
+    /// riding above the keyboard. Stacked in that order so the bar sits closest
+    /// to the writer's thumbs and the readouts stay put above it.
+    ///
+    /// Where the note stands with the server is the badge's job now, not this
+    /// bar's. What is left here is the half a glyph cannot carry: *why* the
+    /// server refused, and a held edit set aside because the note moved on
+    /// elsewhere. Both are rare, both are things a writer has to be told in
+    /// words, and neither of them says "Saved".
     @ViewBuilder
     private var footer: some View {
         VStack(spacing: 0) {
-            if let errorMessage {
-                Text(errorMessage)
+            if let notice {
+                Text(notice)
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
             }
-            saveStatusBar
             if settings.showsWordCount {
                 WordCountBar(words: ScriptStats.countWords(content))
             }
@@ -361,42 +448,12 @@ struct SongEditorView: View {
         }
     }
 
-    /// Says where the note stands with the server, and — when that is nowhere —
-    /// offers the one thing worth offering, which is to try again.
-    @ViewBuilder
-    private var saveStatusBar: some View {
-        if let saveStatus {
-            HStack(spacing: 6) {
-                switch saveStatus {
-                case .saving:
-                    ProgressView().controlSize(.mini)
-                    Text("Saving…").foregroundStyle(.secondary)
-                case .saved:
-                    Image(systemName: "checkmark.circle")
-                        .foregroundStyle(.secondary)
-                    Text("Saved").foregroundStyle(.secondary)
-                case .held:
-                    Image(systemName: "icloud.slash")
-                        .foregroundStyle(.orange)
-                    Text("Kept on this device — saves when you're back online")
-                        .foregroundStyle(.secondary)
-                    Button("Retry") { Task { await saveNow() } }
-                        .font(.footnote.weight(.medium))
-                case .failed(let message):
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(message).foregroundStyle(.primary)
-                    Button("Retry") { Task { await saveNow() } }
-                        .font(.footnote.weight(.medium))
-                }
-                Spacer(minLength: 0)
-            }
-            .font(.footnote)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-        }
+    /// The one line of prose under the note, or none. A refusal outranks the
+    /// set-aside notice: it is the newer news, and the writer is standing over
+    /// the words it concerns.
+    private var notice: String? {
+        if case .failed(let message) = saveStatus { return message }
+        return errorMessage
     }
 
     @ToolbarContentBuilder
@@ -412,6 +469,15 @@ struct SongEditorView: View {
                     dismiss()
                 }
             }
+        }
+        // Beside the way out, where the lyric editor and the screenplay both
+        // keep it: leaving is the moment a writer wonders whether their words
+        // are anywhere but here.
+        if let cloud = cloudState {
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncBadge(state: cloud, label: cloudLabel)
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
         // The list's context-menu action, reachable without leaving the
         // editor. Same gate — the server advertised an `insert` link on this
@@ -520,6 +586,12 @@ struct SongEditorView: View {
             title = draft.title
             content = draft.content
             saveStatus = .held
+            // Nothing has been typed to arm the debounce, so the backoff is
+            // the only thing that will try these words again inside this
+            // sheet — the load failing is usually the connection, and the
+            // online edge covers that, but a fetch that failed for its own
+            // reasons should not leave the draft sitting here untried.
+            scheduleRetry()
             return
         }
         if draft.title == savedTitle && draft.content == savedContent {
@@ -556,8 +628,33 @@ struct SongEditorView: View {
         // this bar must never do.
         saveStatus = .saving
         let delay = isNew ? Self.createDelay : Self.autosaveDelay
+        // A keystroke is a better retry than the backoff's: it sends newer
+        // words, and sooner. The budget goes back to full with it, so a note
+        // written through a long tunnel keeps earning attempts.
+        retry?.cancel()
+        retryAttempt = 0
         autosave?.cancel()
         autosave = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await saveNow()
+        }
+    }
+
+    /// Try again later, on the backoff the screenplay and the lyric editor
+    /// share. Only for a write that couldn't get out — a refusal is not
+    /// something a retry fixes, and hammering the server over it would only
+    /// keep the badge pulsing at a writer who can do nothing about it.
+    ///
+    /// Past the last delay this stops. The words stay where they are — on disk
+    /// for a document that exists, on screen for one that doesn't — and the
+    /// next keystroke or the connection returning arms it all over again.
+    private func scheduleRetry() {
+        guard retryAttempt < Self.retryDelays.count else { return }
+        let delay = Self.retryDelays[retryAttempt]
+        retryAttempt += 1
+        retry?.cancel()
+        retry = Task {
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             await saveNow()
@@ -615,13 +712,22 @@ struct SongEditorView: View {
             haveServerBaseline = true
             saveStatus = .saved
             errorMessage = nil
+            retry?.cancel()
+            retryAttempt = 0
             // Typed into while that was in flight: those words have not been
             // sent.
             if hasUnsavedChanges { scheduleAutosave() }
         case .held:
-            // On disk, retried by the reconnect sweep: not saved, not lost.
+            // On disk, retried by the reconnect sweep — and, while this sheet
+            // is open, by the backoff, so the badge clears itself the moment
+            // the route comes back rather than waiting for the writer to
+            // notice it hasn't.
             saveStatus = .held
+            scheduleRetry()
         case .failed:
+            // Refused. The draft is still on disk and the sweep still has it;
+            // what a retry from here would earn is another refusal.
+            retry?.cancel()
             saveStatus = .failed(model.errorMessage ?? "Not saved.")
         }
     }
@@ -668,12 +774,20 @@ struct SongEditorView: View {
             haveServerBaseline = true
             saveStatus = .saved
             errorMessage = nil
+            retry?.cancel()
+            retryAttempt = 0
             // Typed into while the create was in flight: those words are not on
             // the server yet, and now there is a document to send them to.
             if hasUnsavedChanges { scheduleAutosave() }
         case .unreachable:
+            // The one held-shaped failure with nowhere to be held, so the
+            // backoff matters more here than anywhere else on this screen: it
+            // is what gets the document made while the writer is still sitting
+            // in front of it, before Done can cost them anything.
             saveStatus = .failed("Not saved — couldn't reach the server.")
+            scheduleRetry()
         case .failed:
+            retry?.cancel()
             saveStatus = .failed(model.errorMessage ?? "Not saved.")
         }
     }
