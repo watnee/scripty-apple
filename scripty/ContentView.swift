@@ -156,6 +156,12 @@ struct ContentView: View {
             openBookmarkDestination()
         }
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
+        // Screenplays written before signing in, just copied into the account.
+        // They arrive after this list has already loaded for the new session,
+        // so nothing else would bring them in until the next refresh.
+        .onChange(of: app.guestWorkImports) { _, _ in
+            Task { await projectList.refresh() }
+        }
         // The app was already running when the widget row was tapped, so the
         // list is in hand and the only thing that changed is the request.
         .onChange(of: app.pendingWidgetDestination) { _, _ in openWidgetDestination() }

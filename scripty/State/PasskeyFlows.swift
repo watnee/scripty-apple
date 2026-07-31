@@ -79,7 +79,9 @@ struct PasskeySignInFlow {
         silently: Bool = false,
         ceremony: (PasskeyCoordinator, PasskeyCeremonyOptions) async throws -> SavedCredential
     ) async -> Outcome {
-        let client = app.client
+        // The session on screen may be the local one, which answers in-process
+        // and knows nothing about this writer's account — see `signInClient`.
+        let client = app.signInClient
         do {
             let options: PasskeyCeremonyOptions = try await client.fetch(
                 from: optionsLink, method: "POST")

@@ -129,6 +129,17 @@ actor DemoBackend {
     private var nextActorId = 1
     private var seeded = false
 
+    /// The projects this session actually wrote — created here, or a sample one
+    /// the writer has since changed. It is what "your work" means when a guest
+    /// signs in and is asked whether to keep it: a sample screenplay nobody
+    /// touched is not work, and offering to upload it would put a copy of the
+    /// demo into every new account.
+    ///
+    /// Filled from `touch(_:)` and from project creation, which between them are
+    /// every route that moves a project's `lastEdited` — the same "this changed"
+    /// the sidebar already sorts on.
+    private var writtenProjectIds: Set<Int> = []
+
     // MARK: - Router
 
     func respond(method: String, url: URL, body: Data?) -> (status: Int, data: Data) {
@@ -375,6 +386,7 @@ actor DemoBackend {
             // matching the badge a new demo project already showed.
             if let teamIds = intList(fields["teamIds"]) { project.teamIds = teamIds }
             nextProjectId += 1
+            writtenProjectIds.insert(project.id)
             projects.append(project)
             blocks[project.id] = []
             people[project.id] = []
@@ -402,6 +414,7 @@ actor DemoBackend {
             // replaces it wholesale, an empty list clearing every team.
             if let teamIds = intList(fields["teamIds"]) { projects[index].teamIds = teamIds }
             projects[index].lastEdited = .now
+            writtenProjectIds.insert(projects[index].id)
             return ok(projectJSON(projects[index]))
         case ("POST", "archive"):
             guard projects[index].archivedAt == nil else { return badRequest("id") }
@@ -466,8 +479,16 @@ actor DemoBackend {
         }
     }
 
-    /// Accepts a multipart project-archive upload and seeds a project from its
-    /// title. The demo is lenient — it only reads the archive's project title.
+    /// Accepts a multipart `.scripty.json` upload and builds the projects it
+    /// describes — a bundle's whole list, or the single archive a one-project
+    /// export writes. The answer is the first project created, which is what
+    /// the importing screen decodes.
+    ///
+    /// It reads what `demoProjectsBundle` writes, so a project exported here
+    /// comes back whole: title page, characters, songs and notes, and every
+    /// element with the character it belongs to. Editions are not part of the
+    /// file (see `projectArchive`), so everything lands in one script, exactly
+    /// as it does when the server reads the same document.
     private func demoImport(body: Data?) -> (Int, Data) {
         guard let body, let text = String(data: body, encoding: .utf8),
               let headerEnd = text.range(of: "\r\n\r\n") else {
@@ -481,14 +502,66 @@ actor DemoBackend {
               let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             return badRequest("file")
         }
-        let info = object["project"] as? [String: Any]
-        let title = (info?["title"] as? String) ?? (object["title"] as? String) ?? "Imported Project"
-        let project = DemoProject(id: nextProjectId, title: title, lastEdited: .now)
+        let archives = (object["projects"] as? [[String: Any]]) ?? [object]
+        let created = archives.map(importArchive)
+        guard let first = created.first else { return badRequest("file") }
+        return ok(projectJSON(first))
+    }
+
+    /// One archive document, turned back into a project.
+    private func importArchive(_ archive: [String: Any]) -> DemoProject {
+        let info = archive["project"] as? [String: Any]
+        let title = (info?["title"] as? String) ?? (archive["title"] as? String) ?? "Imported Project"
+        var project = DemoProject(id: nextProjectId, title: title, lastEdited: .now)
+        project.screenplayTitle = info?["screenplayTitle"] as? String
+        project.writers = info?["writers"] as? String
+        project.contactInfo = info?["contactInfo"] as? String
+        project.screenplayVersion = info?["screenplayVersion"] as? String
         nextProjectId += 1
         projects.append(project)
         blocks[project.id] = []
         people[project.id] = []
-        return ok(projectJSON(project))
+        documents[project.id] = []
+        writtenProjectIds.insert(project.id)
+
+        // The file's own keys only wire its parts together; every id here is
+        // freshly minted, exactly as the server's importer does it.
+        var peopleByKey: [Int: Int] = [:]
+        for entry in archive["characters"] as? [[String: Any]] ?? [] {
+            guard let name = entry["name"] as? String else { continue }
+            let person = addPerson(name: name, fullName: entry["fullName"] as? String ?? name)
+            people[project.id]?.append(person)
+            if let key = entry["key"] as? Int { peopleByKey[key] = person.id }
+        }
+
+        for entry in archive["documents"] as? [[String: Any]] ?? [] {
+            guard let title = entry["title"] as? String else { continue }
+            _ = addDocument(projectId: project.id, title: title,
+                            type: normalizeDocumentType(entry["documentType"] as? String) ?? "NOTES",
+                            content: entry["content"] as? String ?? "")
+        }
+
+        let entries = (archive["blocks"] as? [[String: Any]] ?? [])
+            .sorted { ($0["order"] as? Int ?? .max) < ($1["order"] as? Int ?? .max) }
+        for (offset, entry) in entries.enumerated() {
+            var block = DemoBlock(id: nextBlockId,
+                                  order: offset + 1,
+                                  content: entry["content"] as? String ?? "",
+                                  type: entry["type"] as? String ?? "ACTION",
+                                  personId: (entry["characterKey"] as? Int).flatMap { peopleByKey[$0] })
+            block.bookmarked = entry["bookmarked"] as? Bool ?? false
+            block.pinned = entry["pinned"] as? Bool ?? false
+            block.tags = entry["tags"] as? String
+            block.textAlign = (entry["textAlign"] as? String).flatMap(canonicalAlign)
+            block.font = (entry["font"] as? String).flatMap(canonicalFont)
+            block.highlight = entry["highlight"] as? String
+            block.textBold = entry["textBold"] as? Bool
+            block.textItalic = entry["textItalic"] as? Bool
+            block.textUnderline = entry["textUnderline"] as? Bool
+            nextBlockId += 1
+            blocks[project.id]?.append(block)
+        }
+        return project
     }
 
     /// Replaces a project's script from an uploaded file. The demo parses only
@@ -943,6 +1016,7 @@ actor DemoBackend {
             let type = normalizeDocumentType(fields["documentType"] as? String) ?? "SONG"
             let document = addDocument(projectId: projectId, title: title, type: type,
                                        content: fields["content"] as? String ?? "")
+            recordWork(projectId)
             return ok(documentJSON(document, includeContent: true))
         case ("POST", "import"):
             return importDocument(body: body)
@@ -1005,6 +1079,7 @@ actor DemoBackend {
             }
             documents[projectId]?[index].content = fields["content"] as? String ?? ""
             documents[projectId]?[index].updatedAt = .now
+            recordWork(projectId)
             return ok(documentJSON(documents[projectId]![index], includeContent: true))
         case ("DELETE", nil):
             // A soft delete, as on the server: the document is kept aside so a
@@ -2056,6 +2131,7 @@ actor DemoBackend {
             .map(\.content)
             .joined(separator: "\n")
         documents[projectId]?[index].updatedAt = .now
+        recordWork(projectId)
         if let position = songEditions.firstIndex(where: { $0.id == editionId }) {
             songEditions[position].blockCount = (songBlocks[editionId] ?? []).count
             songEditions[position].lastEdited = .now
@@ -3777,12 +3853,10 @@ actor DemoBackend {
         case "pdf":
             return (200, minimalPDF(title: project.title))
         case "scripty", "json":
-            let archive: [String: Any] = [
-                "project": ["title": project.title],
-                "blocks": (blocks[project.id] ?? [])
-                    .sorted { $0.order < $1.order }
-                    .map { ["type": $0.type, "content": $0.content] },
-            ]
+            var archive = projectArchive(project)
+            archive["format"] = Self.archiveFormat
+            archive["formatVersion"] = Self.archiveFormatVersion
+            archive["exportedAt"] = iso.string(from: .now)
             let data = (try? JSONSerialization.data(withJSONObject: archive, options: [.prettyPrinted]))
                 ?? Data()
             return (200, data)
@@ -3793,20 +3867,82 @@ actor DemoBackend {
         }
     }
 
+    /// The `.scripty.json` markers the real server writes and checks for. A file
+    /// without them is refused by `importProject` before it is even read, so
+    /// anything this backend calls an archive has to carry them.
+    static let archiveFormat = "scripty-project"
+    static let bundleFormat = "scripty-projects"
+    static let archiveFormatVersion = 1
+
+    /// One project in the archive shape the server's importer reads: the title
+    /// page, its characters, its songs and notes, and every element with the
+    /// formatting hung on it.
+    ///
+    /// Editions are deliberately left out. The importer creates a default
+    /// edition for a file that names none and files every element into it,
+    /// which is what a demo session's alternate drafts should become on the way
+    /// into a real account — the alternative is inventing edition keys here for
+    /// blocks this backend keeps in a separate table anyway.
+    private func projectArchive(_ project: DemoProject) -> [String: Any] {
+        var info: [String: Any] = ["title": project.title]
+        if let value = project.screenplayTitle { info["screenplayTitle"] = value }
+        if let value = project.writers { info["writers"] = value }
+        if let value = project.contactInfo { info["contactInfo"] = value }
+        if let value = project.screenplayVersion { info["screenplayVersion"] = value }
+
+        let characters = (people[project.id] ?? []).map { person -> [String: Any] in
+            ["key": person.id, "name": person.name, "fullName": person.fullName]
+        }
+
+        let documentEntries = (documents[project.id] ?? [])
+            .sorted { $0.sortOrder < $1.sortOrder }
+            .map { document -> [String: Any] in
+                ["key": document.id, "title": document.title,
+                 "documentType": document.documentType, "content": document.content,
+                 "sortOrder": document.sortOrder]
+            }
+
+        let blockEntries = (blocks[project.id] ?? [])
+            .sorted { $0.order < $1.order }
+            .map { block -> [String: Any] in
+                var entry: [String: Any] = [
+                    "order": block.order,
+                    "type": block.type,
+                    "content": block.content,
+                    "bookmarked": block.bookmarked,
+                    "pinned": block.pinned,
+                ]
+                if let value = block.personId { entry["characterKey"] = value }
+                if let value = block.tags { entry["tags"] = value }
+                if let value = block.textAlign { entry["textAlign"] = value }
+                if let value = block.font { entry["font"] = value }
+                if let value = block.highlight { entry["highlight"] = value }
+                if let value = block.textBold { entry["textBold"] = value }
+                if let value = block.textItalic { entry["textItalic"] = value }
+                if let value = block.textUnderline { entry["textUnderline"] = value }
+                return entry
+            }
+
+        return ["project": info, "characters": characters,
+                "documents": documentEntries, "blocks": blockEntries]
+    }
+
     /// Every project as one archive, in the shape a single project's
     /// `exportArchive` uses — a bundle is the same document with a list at the
-    /// top, so what goes out here is what `importProject` could read back.
+    /// top, so what goes out here is what `importProject` reads back.
     /// An empty `ids` means the whole shelf, which is what the real endpoint
     /// does with no selection.
-    private func demoProjectsBundle(ids: [Int] = []) -> (Int, Data) {
+    ///
+    /// This is also how work written without an account reaches one: signing in
+    /// asks this backend for a bundle of the guest session's projects and hands
+    /// the bytes straight to the account's `importProject`.
+    func demoProjectsBundle(ids: [Int] = []) -> (Int, Data) {
         let chosen = ids.isEmpty ? projects : projects.filter { ids.contains($0.id) }
         let bundle: [String: Any] = [
-            "projects": chosen.map { project in
-                ["project": ["title": project.title],
-                 "blocks": (blocks[project.id] ?? [])
-                     .sorted { $0.order < $1.order }
-                     .map { ["type": $0.type, "content": $0.content] }]
-            },
+            "format": Self.bundleFormat,
+            "formatVersion": Self.archiveFormatVersion,
+            "exportedAt": iso.string(from: .now),
+            "projects": chosen.map(projectArchive),
         ]
         let data = (try? JSONSerialization.data(withJSONObject: bundle, options: [.prettyPrinted])) ?? Data()
         return (200, data)
@@ -3899,7 +4035,31 @@ actor DemoBackend {
     private func touch(_ projectId: Int) {
         if let index = projects.firstIndex(where: { $0.id == projectId }) {
             projects[index].lastEdited = .now
+            recordWork(projectId)
         }
+    }
+
+    /// Marks a project as written without moving its `lastEdited`.
+    ///
+    /// Songs and notes go through here rather than through `touch`: on the
+    /// server a note is its own resource with its own timestamp and the
+    /// screenplay's date does not move for it, and a demo that disagreed would
+    /// re-sort the sidebar where production would not. What it *is*, though, is
+    /// work — so a guest who has only written notes is still asked whether to
+    /// keep them.
+    private func recordWork(_ projectId: Int) {
+        writtenProjectIds.insert(projectId)
+    }
+
+    /// The projects worth offering to keep: everything this session created or
+    /// changed, newest first, and never a sample screenplay left as it was
+    /// seeded. Deleted ones fall out on their own — the id is remembered, but
+    /// the project it named is gone from the list.
+    func guestWork() -> [(id: Int, title: String, blockCount: Int)] {
+        projects
+            .filter { writtenProjectIds.contains($0.id) }
+            .sorted { $0.lastEdited > $1.lastEdited }
+            .map { ($0.id, $0.title, (blocks[$0.id] ?? []).count) }
     }
 
     private func link(_ path: String) -> [String: String] {

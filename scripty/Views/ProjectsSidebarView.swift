@@ -373,11 +373,22 @@ struct ProjectsSidebarView: View {
             }
         }
         Section {
-            Button(role: .destructive) {
-                app.signOut()
-            } label: {
-                Label(app.isDemo ? "Exit Demo" : "Sign Out",
-                      systemImage: "rectangle.portrait.and.arrow.right")
+            // Nothing to sign out of without an account, and nowhere better to
+            // be sent: this session *is* where a signed-out device lives. What
+            // it offers instead is the way to keep the writing — signing in,
+            // which then asks whether to bring it along.
+            if app.isDemo {
+                Button {
+                    app.isPresentingSignIn = true
+                } label: {
+                    Label("Sign In", systemImage: "person.crop.circle.badge.plus")
+                }
+            } else {
+                Button(role: .destructive) {
+                    Task { await app.signOutToLocal() }
+                } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
             }
         }
     }
@@ -531,7 +542,7 @@ struct ProjectsSidebarView: View {
             } else {
                 List(selection: $selection) {
                     if app.isDemo {
-                        DemoBanner()
+                        DemoBanner { app.isPresentingSignIn = true }
                     }
                     ForEach(displayedProjects) { project in
                         projectRow(for: project).tag(project.id)
@@ -862,26 +873,38 @@ private struct ExportedProjects: Identifiable {
     var id: String { url.absoluteString }
 }
 
-/// Demo mode looks exactly like a real session, so say so plainly: nothing
-/// here is talking to a server, and nothing here survives a relaunch.
+/// The local session looks exactly like a real one, so say so plainly: nothing
+/// here is talking to a server, and nothing here survives a relaunch. The
+/// button is not decoration — it is the only thing that changes either fact,
+/// and it is offered where the warning is rather than three taps away in a
+/// menu.
 private struct DemoBanner: View {
+    let onSignIn: () -> Void
+
     var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Demo Mode")
-                    .font(.subheadline.weight(.semibold))
-                Text("A sample screenplay running offline. Edits are discarded when you quit.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Not Signed In")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Write as much as you like — it stays on this device, "
+                         + "and is discarded when you quit. Sign in to keep it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.tint)
             }
-        } icon: {
-            Image(systemName: "sparkles")
-                .foregroundStyle(.tint)
+            .accessibilityElement(children: .combine)
+
+            Button("Sign In", action: onSignIn)
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.semibold))
         }
         .padding(.vertical, 4)
         .listRowBackground(Color.clear)
         .selectionDisabled()
-        .accessibilityElement(children: .combine)
     }
 }
 

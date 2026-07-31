@@ -63,6 +63,12 @@ final class APIClient {
     /// instead of the network (see `DemoBackend`).
     private let demo: DemoBackend?
 
+    /// The backend behind a guest session, for the one caller that needs more
+    /// than a request of it: signing in asks it directly what was written
+    /// without an account, which is not a question the HAL surface asks.
+    /// Nil on every real client.
+    var demoBackend: DemoBackend? { demo }
+
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder

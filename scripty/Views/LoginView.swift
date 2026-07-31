@@ -8,6 +8,14 @@ import SwiftUI
 struct LoginView: View {
     let app: AppModel
 
+    /// True when this is a sheet over a session that is already usable — the
+    /// local one, which anybody gets without an account. Signing in is then a
+    /// choice rather than a gate, so the screen offers a way back out and drops
+    /// the invitation to try the app: they are already in it.
+    var isModal = false
+
+    @Environment(\.dismiss) private var dismiss
+
     @State private var username = ""
     @State private var password = ""
     /// Which button's work is in flight, so the spinner lands on the button
@@ -30,7 +38,7 @@ struct LoginView: View {
     }
 
     private enum Busy {
-        case password, passkey, savedPassword
+        case password, passkey, savedPassword, demo
     }
 
     private var canSubmit: Bool {
@@ -40,6 +48,24 @@ struct LoginView: View {
     }
 
     var body: some View {
+        if isModal {
+            // A sheet needs a bar to be dismissed from — the buttons below are
+            // all about signing in, and the one that isn't reads as a choice
+            // rather than a way out of a screen that was opened by mistake.
+            NavigationStack {
+                content
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { dismiss() }
+                        }
+                    }
+            }
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         // The scroll view only matters when the keyboard leaves too little
         // room — the minHeight frame keeps everything centered whenever the
         // content does fit, so a full-height screen looks exactly as before.
@@ -132,6 +158,31 @@ struct LoginView: View {
                         .disabled(busy != nil)
                     }
 
+                    VStack(spacing: 6) {
+                        Button {
+                            if isModal {
+                                dismiss()
+                            } else {
+                                enterDemo()
+                            }
+                        } label: {
+                            busyLabel(if: .demo) {
+                                Label(isModal ? "Keep Working Without an Account"
+                                              : "Use Scripty Without an Account",
+                                      systemImage: "sparkles")
+                            }
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(busy != nil)
+
+                        Text(isModal
+                             ? "Your work stays on this device until you sign in."
+                             : "Start writing right away — everything stays on this device.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+
                     Spacer(minLength: 16)
                     Spacer(minLength: 0)
                 }
@@ -153,7 +204,7 @@ struct LoginView: View {
         // Asked for once, on the way in. A server that offers nothing simply
         // leaves the buttons out.
         .task {
-            let links = await app.client.signedOutLinks()
+            let links = await app.signInClient.signedOutLinks()
             recoveryLink = links[.forgotPassword]
             passkeyLink = links[.passkeyLogin]
             // A passkey needs a challenge before the system can offer it, so
@@ -166,7 +217,7 @@ struct LoginView: View {
         // from the link in an email is RootView's, because that one can land in
         // any phase — including one where this screen doesn't exist.
         .sheet(item: $presentedRecovery) { link in
-            PasswordRecoveryView(client: app.client, request: link)
+            PasswordRecoveryView(client: app.signInClient, request: link)
         }
     }
 
@@ -183,6 +234,15 @@ struct LoginView: View {
         }
         .frame(maxWidth: 360)
         .padding(.vertical, 6)
+    }
+
+    private func enterDemo() {
+        focusedField = nil
+        busy = .demo
+        Task {
+            await app.enterDemo()
+            busy = nil
+        }
     }
 
     private func signIn() {

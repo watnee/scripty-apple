@@ -1,8 +1,9 @@
 # Scripty for iPhone and iPad
 
 A SwiftUI client for Scripty, the screenplay editor. It talks to the same HAL
-API the web app does, and it ships with an offline demo so you can see the
-whole editor without an account or a server.
+API the web app does, and it opens straight into a working editor — no account,
+no server, no sign-in first. Signing in is offered from inside the app, and
+brings whatever was written before it along.
 
 ## Start from nothing
 
@@ -487,11 +488,18 @@ xcrun simctl spawn booted defaults write scripty.scripty \
     scripty.baseURLOverride "http://localhost:8080"
 ```
 
-The offline demo bypasses the network entirely. It is a development and
-screenshot tool rather than something the app offers: the only way in is the
-`-scripty.demo YES` launch argument, which `demo.sh` and `install.sh --demo`
-pass for you. Nothing in the interface reaches it and no URL opens it, so a
-writer cannot land in a sample screenplay by accident.
+The offline demo bypasses the network entirely, and is also where a launch with
+no stored account lands: the app opens on a workspace rather than a login wall,
+and **Sign In** — in the sidebar menu, or on the banner above the project list —
+attaches an account when the writer wants one. Whatever they wrote first is
+offered to that account straight afterwards, as one `.scripty.json` bundle
+through the same import the projects list already has; anything they leave
+unticked goes when the app quits, as everything local does. Signing out comes
+back here rather than to a login screen.
+
+`demo.sh` always starts here and `install.sh --demo` does too; on an installed
+copy the `scripty://demo` URL does the same, so a Home Screen shortcut can jump
+straight into it.
 
 ### Deploy the server before you install
 

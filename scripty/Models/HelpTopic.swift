@@ -155,7 +155,27 @@ extension HelpTopic {
                     + "ask an administrator."
                 ],
                 keywords: ["recover", "recovery", "undelete", "lost", "missing", "gone",
-                           "accident", "bin"])
+                           "accident", "bin"]),
+            HelpTopic(
+                id: "demo",
+                title: "Using Scripty Without an Account",
+                systemImage: "sparkles",
+                paragraphs: [
+                    "Scripty opens straight into a workspace with a sample screenplay in "
+                    + "it, with no sign-in first. Everything works — writing, songs, "
+                    + "notes, printing — with no server behind it: nothing is sent "
+                    + "anywhere, and everything is discarded when you quit.",
+                    "Sign In, in the sidebar menu or on the banner above the list, "
+                    + "attaches an account. Keep Your Work? then lists everything you "
+                    + "wrote before signing in, ticked to begin with: Keep copies those "
+                    + "screenplays into your account, and anything you untick is left "
+                    + "behind with the rest of this session.",
+                    "Signing out brings this session back rather than shutting you out; "
+                    + "the screenplays in your account stay in your account."
+                ],
+                keywords: ["sample", "try", "offline", "test", "example", "demo",
+                           "guest", "sign in", "sign out", "account", "no account",
+                           "without an account", "local"])
         ]),
         HelpSection(id: "writing", title: "Writing", topics: [
             HelpTopic(
