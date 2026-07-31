@@ -291,6 +291,7 @@ struct SongsView: View {
         list
             .overlay { emptyState }
             .safeAreaBar(edge: .top) { picker }
+            .safeAreaBar(edge: .bottom, spacing: 0) { newDocumentBar }
     }
 
     var body: some View {
@@ -559,6 +560,36 @@ struct SongsView: View {
         }
     }
 
+    /// The primary action of this screen, named and under the thumb — the same
+    /// pill the projects list starts a screenplay from, and for the same
+    /// reasons: the toolbar "+" it replaces was a glyph in the corner furthest
+    /// from the hand, and on iPhone it was competing with Import for the two
+    /// slots that toolbar ever shows.
+    ///
+    /// Follows the picker above it, so it says "New Song" over the songs and
+    /// "New Note" over the notes — the list on screen is the one being added to.
+    ///
+    /// Hidden in edit mode, where the list is answering which songs to delete
+    /// or export and starting a new one is not an answer to it, and hidden
+    /// altogether for a view-only collaborator, who has no create link to use.
+    @ViewBuilder
+    private var newDocumentBar: some View {
+        if canEdit, !editMode.isEditing {
+            Button {
+                creatingType = listType
+            } label: {
+                Label(listType == .song ? "New Song" : "New Note", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            // No background of its own: mounted with `.safeAreaBar`, so the
+            // button already floats on Liquid Glass and a fill under it would
+            // draw a second, flatter surface on top of that one.
+        }
+    }
+
     private var picker: some View {
         VStack(spacing: 0) {
             Picker("Type", selection: $listType) {
@@ -686,16 +717,15 @@ struct SongsView: View {
             }
         }
         if canEdit {
-            ToolbarItemGroup(placement: .primaryAction) {
+            // No "+" alongside it: adding a song is already offered, named, by
+            // the bar under the list, which is on screen whenever this toolbar
+            // is. A glyph saying the same thing in the far corner is one
+            // control too many, and on iPhone it cost Import its slot.
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     showingImporter = true
                 } label: {
                     Label("Import", systemImage: "square.and.arrow.down")
-                }
-                Button {
-                    creatingType = listType
-                } label: {
-                    Label(listType == .song ? "New Song" : "New Note", systemImage: "plus")
                 }
             }
             if let trash = model.documentsLinks[.trash] {

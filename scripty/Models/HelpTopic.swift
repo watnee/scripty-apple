@@ -418,8 +418,10 @@ extension HelpTopic {
                     + "one opens the last few of that kind you edited, each going "
                     + "straight to its lyrics or its text. The lists repeat those same "
                     + "few at the top, so a long one needs no scrolling to reach them. "
-                    + "An element's own menu inserts a song below it. Swipe a row to "
-                    + "rename or delete it; touch and hold for everything else.",
+                    + "Starting one is the button under the list — New Song over the "
+                    + "songs, New Note over the notes. An element's own menu inserts a "
+                    + "song below it. Swipe a row to rename or delete it; touch and "
+                    + "hold for everything else.",
                     "A lyric line or a note edited without a connection is kept on "
                     + "this device — the song editor's corner cloud and the note "
                     + "editor's status line both say so — and is saved by itself when "
