@@ -422,7 +422,9 @@ extension HelpTopic {
                     + "keyboard: the percentage in the middle is the reset.",
                     "Both are settings for this device rather than for the account: the "
                     + "same screenplay is read on a bright rehearsal-room iPad and in a "
-                    + "dark editing suite."
+                    + "dark editing suite.",
+                    "Songs and notes are set in the screenplay's own typeface and scale "
+                    + "with it, so a lyric reads at the size of the scene it belongs to."
                 ],
                 keywords: ["zoom", "font size", "larger", "smaller", "dark mode",
                            "light", "theme", "readability", "format bar"]),

@@ -43,10 +43,6 @@ struct SongLineRow: View {
     /// 1.0, so a host that never sets it leaves the line at its natural size.
     @Environment(\.scriptTextScale) private var textScale
 
-    /// The lyric's base point size at 100%. Matches the default body text this
-    /// row used before it scaled, so nothing moves at the default setting.
-    private static let baseLineSize: CGFloat = 17
-
     /// Whether the keyboard underlines what it does not recognise. Read here so
     /// switching the device-wide preference re-draws every visible lyric line,
     /// the same way `EditableBlockRow` reads it for the screenplay.
@@ -65,7 +61,7 @@ struct SongLineRow: View {
         SongLineField(text: text,
                       isFocused: isFocused,
                       isEditable: block.isEditable,
-                      fontSize: Self.baseLineSize * textScale,
+                      textScale: textScale,
                       spellChecks: spellChecks,
                       spellcheckRevision: spellcheckRevision,
                       accessibilityLabel: "Lyric line \(block.order ?? 0)",
@@ -193,7 +189,10 @@ private struct SongLineField: UIViewRepresentable {
     @Binding var text: String
     let isFocused: Bool
     let isEditable: Bool
-    let fontSize: CGFloat
+    /// The writer's chosen type size, as a multiple. Passed rather than a
+    /// point size so the line resolves its type exactly as the note editor
+    /// does, through `ProseFont`.
+    let textScale: Double
     let spellChecks: Bool
     let spellcheckRevision: Int
     let accessibilityLabel: String
@@ -275,8 +274,12 @@ private struct SongLineField: UIViewRepresentable {
         }
     }
 
+    @MainActor
     private func apply(to view: SongLineUITextView) {
-        let font = UIFont.systemFont(ofSize: fontSize)
+        // The same face and size the note editor and the screenplay rows use —
+        // a lyric line was the last surface still set in the proportional
+        // system font.
+        let font = ProseFont.editor(scale: textScale)
         if view.font != font { view.font = font }
         if view.isEditable != isEditable { view.isEditable = isEditable }
 
