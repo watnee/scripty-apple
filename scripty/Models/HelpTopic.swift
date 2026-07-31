@@ -403,6 +403,12 @@ extension HelpTopic {
                     + "text, so what reaches the script is what you typed. Songs can be "
                     + "opened one at a time, or all together on the workspace screen for "
                     + "a change that runs through several of them.",
+                    "Undo and redo sit at the left of the notes editor's own bar, and "
+                    + "answer to ⌘Z and ⌘⇧Z. They belong to the note while it is open — "
+                    + "never to the screenplay behind it — and take back a burst of "
+                    + "typing, a bullet the bar added, or an edit made offline, one "
+                    + "step at a time. A note's history stays on this device and starts "
+                    + "fresh each time the note is opened.",
                     "A song being worked on is rarely far away. The script has a Songs "
                     + "button and a Notes button, each opening its own list; holding "
                     + "one opens the last few of that kind you edited, each going "
@@ -423,7 +429,8 @@ extension HelpTopic {
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
-                           "offline", "unsaved", "sync", "cloud", "badge"]),
+                           "offline", "unsaved", "sync", "cloud", "badge",
+                           "undo", "redo", "mistake", "history"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

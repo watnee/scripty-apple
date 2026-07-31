@@ -140,6 +140,30 @@ extension FocusedValues {
     }
 }
 
+/// What Undo and Redo mean while a note is open on top of everything else.
+///
+/// Its own focused value rather than a corner of `ScriptActions`: a note is
+/// written in a sheet that can be opened with no screenplay under it at all —
+/// from the songs list, from the workspace — and `ScriptActions` is published
+/// by `ScriptView`, which in that case is nowhere on screen to publish it.
+struct NoteEditorActions {
+    var canUndo = false
+    var canRedo = false
+    var undo: () -> Void
+    var redo: () -> Void
+}
+
+struct NoteEditorActionsKey: FocusedValueKey {
+    typealias Value = NoteEditorActions
+}
+
+extension FocusedValues {
+    var noteEditorActions: NoteEditorActions? {
+        get { self[NoteEditorActionsKey.self] }
+        set { self[NoteEditorActionsKey.self] = newValue }
+    }
+}
+
 struct ScriptCommands: Commands {
     /// Presentation is a device preference, not a per-window one, so the View
     /// menu talks to the same shared settings the toolbar does.
@@ -154,6 +178,14 @@ struct ScriptCommands: Commands {
     private let help = HelpPresentation.shared
 
     @FocusedValue(\.scriptActions) private var actions
+
+    /// Present only while a note is being written, and while it is, it owns
+    /// ⌘Z outright — including when its own history is still empty. Falling
+    /// through to the screenplay would revert the script *behind* the sheet,
+    /// which is never what a writer pressing ⌘Z over a paragraph of prose
+    /// means; the browser refuses to escalate out of a note for the same
+    /// reason.
+    @FocusedValue(\.noteEditorActions) private var noteActions
 
     var body: some Commands {
         // Replacing the stock New Item keeps ⌘N meaningful: in a screenplay
@@ -194,12 +226,16 @@ struct ScriptCommands: Commands {
         }
 
         CommandGroup(replacing: .undoRedo) {
-            Button("Undo") { actions?.undo?() }
-                .keyboardShortcut("z", modifiers: .command)
-                .disabled(!(actions?.canUndo ?? false))
-            Button("Redo") { actions?.redo?() }
-                .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(!(actions?.canRedo ?? false))
+            Button("Undo") {
+                if let noteActions { noteActions.undo() } else { actions?.undo?() }
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!(noteActions?.canUndo ?? actions?.canUndo ?? false))
+            Button("Redo") {
+                if let noteActions { noteActions.redo() } else { actions?.redo?() }
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!(noteActions?.canRedo ?? actions?.canRedo ?? false))
         }
 
         CommandGroup(after: .pasteboard) {

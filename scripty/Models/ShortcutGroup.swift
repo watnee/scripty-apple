@@ -167,7 +167,12 @@ extension ShortcutGroup {
                 ShortcutEntry("Leave the list, on an empty item", "Return"),
                 ShortcutEntry("Nest the item", "Tab"),
                 ShortcutEntry("Un-nest the item", "⇧Tab"),
-                ShortcutEntry("Heading 1, 2 or 3", "⌘⌥1", "⌘⌥2", "⌘⌥3")
+                ShortcutEntry("Heading 1, 2 or 3", "⌘⌥1", "⌘⌥2", "⌘⌥3"),
+                // The same chord the script uses, aimed at the note: while a
+                // note is open these belong to it and never to the screenplay
+                // underneath.
+                ShortcutEntry("Undo", "⌘Z"),
+                ShortcutEntry("Redo", "⌘⇧Z")
             ]),
         ShortcutGroup(
             id: "help",

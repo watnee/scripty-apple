@@ -154,6 +154,13 @@ swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
 run_suite "$BUILD/notes" || status=1
 
 echo
+echo "== Note undo/redo =="
+swiftc "${FLAGS[@]}" -o "$BUILD/notehistory" \
+    "$SRC/State/NoteHistory.swift" \
+    "$ROOT/Tests/NoteHistory/main.swift"
+run_suite "$BUILD/notehistory" || status=1
+
+echo
 echo "== Password reset links =="
 swiftc "${FLAGS[@]}" -o "$BUILD/passwordreset" \
     "$SRC/API/PasswordResetLink.swift" \
