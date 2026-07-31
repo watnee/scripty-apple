@@ -175,18 +175,16 @@ struct SongEditorView: View {
                 autosave?.cancel()
                 Task { await saveNow() }
             }
-            // Covers every other way this sheet goes away: Done, the drag, and
-            // the parent view deciding it is finished with it.
+            // Covers every other way this editor goes away: Done, an insert
+            // that landed, and the parent view deciding it is finished with it.
             .onDisappear {
                 autosave?.cancel()
                 flush()
             }
-            // A sheet dragged away takes the note with it, and unlike a button
-            // it gives no chance to say so. An autosaving note has nothing to
-            // lose to the drag — it is already saved, or saving — so the drag
-            // is only refused where the words really would go: a note that was
-            // never created, and one whose last save the server turned down.
-            .interactiveDismissDisabled(isNew ? hasUnsavedChanges : saveFailed)
+            // No `interactiveDismissDisabled` here. This editor is presented as
+            // a full-screen cover, which has no drag to refuse — Done is the
+            // only way out, and it already asks before losing anything. The
+            // guard it asks on is the one the drag used to be refused on.
             .confirmationDialog(saveFailed ? "Discard unsaved changes?" : "Discard changes?",
                                 isPresented: $confirmingDiscard,
                                 titleVisibility: .visible) {

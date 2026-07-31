@@ -348,16 +348,22 @@ struct SongsView: View {
                         DeletedDocumentRow(document: document)
                     }
             }
-            .sheet(item: $creatingType) { type in
+            // The editors and the workspace are covers, not sheets: writing a
+            // song is the task, so it gets the screen rather than a card with
+            // the list showing around it. Each of them carries its own Done
+            // button — the drag is the only way out a cover takes away, and
+            // none of them relied on it. The trash and the share sheet stay
+            // sheets: those are glanced at and dismissed.
+            .fullScreenCover(item: $creatingType) { type in
                 SongEditorView(model: model, document: nil, type: type)
             }
             .sheet(item: $exportedSong) { export in
                 ShareSheet(items: [export.url])
             }
-            .sheet(isPresented: $showingWorkspace) {
+            .fullScreenCover(isPresented: $showingWorkspace) {
                 SongsWorkspaceView(app: model.app, model: model)
             }
-            .sheet(item: $editingDocument) { document in
+            .fullScreenCover(item: $editingDocument) { document in
                 // A song is lyric lines on the server, so it opens the line
                 // editor — where reordering, tinting and editions mean
                 // something. A note is plain text and keeps the plain editor.
