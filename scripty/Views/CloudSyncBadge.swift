@@ -10,6 +10,11 @@
 //  is the standing half of that answer: always there, quiet when the work is on
 //  the server, coloured the moment it isn't.
 //
+//  It is also the one place to press. A glyph that reports a problem and then
+//  offers nothing leaves the writer to guess whether waiting helps; tapping it
+//  opens the whole answer — when the work last reached the server, what is
+//  still held, and a button that stops the waiting and tries now.
+//
 
 import SwiftUI
 
@@ -28,7 +33,8 @@ enum CloudSyncState: Equatable {
     case failed
 }
 
-/// The cloud in the corner: a standing answer to "is my work saved?".
+/// The cloud in the corner: a standing answer to "is my work saved?", and —
+/// when a `sync` action is handed in — the way to do something about it.
 ///
 /// Deliberately dull in the good state. A badge that shouts while everything
 /// is fine is a badge writers learn to stop reading, which is precisely when
@@ -47,11 +53,55 @@ struct CloudSyncBadge: View {
     /// only the words a caller can say better than this view are handed in.
     var label: String? = nil
 
+    /// When the screen was last known to be in step with the server. Shown in
+    /// the detail panel, where "saving…" on its own leaves open whether that
+    /// has been true for two seconds or since yesterday. Nil means nothing on
+    /// this screen has landed yet this session.
+    var lastSyncedAt: Date? = nil
+
+    /// Push everything held and pull whatever changed, right now. Handing this
+    /// in is what makes the badge pressable; without it the glyph stays the
+    /// read-only sign it has always been.
+    var sync: (() async -> Void)? = nil
+
+    /// Open while the writer is reading the detail panel.
+    @State private var showingDetail = false
+    /// True from the tap until the handed-in sync returns — the button wears a
+    /// spinner and refuses a second press for as long as it is.
+    @State private var isSyncing = false
+
     var body: some View {
+        if let sync {
+            Button {
+                showingDetail = true
+            } label: {
+                glyph
+            }
+            // No bordered chrome: this reports first and acts second, and a
+            // button shape beside the title would read as one more control.
+            .buttonStyle(.plain)
+            .accessibilityLabel(spokenLabel)
+            .accessibilityHint("Shows sync details and lets you sync now.")
+            .help(spokenLabel)
+            .popover(isPresented: $showingDetail) {
+                detailPanel(sync: sync)
+                    // Without this a compact width answers a popover with a
+                    // sheet, which is a whole screen for four lines of text.
+                    .presentationCompactAdaptation(.popover)
+            }
+        } else {
+            glyph
+                .accessibilityElement()
+                .accessibilityLabel(spokenLabel)
+                .help(spokenLabel)
+        }
+    }
+
+    private var glyph: some View {
         Image(systemName: symbol)
             // A shade smaller than the controls beside it: this is something to
-            // read, not something to press, and the size difference says so
-            // before the shape does.
+            // read before it is something to press, and the size difference
+            // says so before the shape does.
             .font(.subheadline)
             // One width for all three glyphs — a slashed cloud is wider than a
             // ticked one, and without this the title next door would shuffle
@@ -63,9 +113,94 @@ struct CloudSyncBadge: View {
             .symbolEffect(.pulse, options: .repeating, isActive: state == .holding)
             .contentTransition(.symbolEffect(.replace))
             .animation(.snappy(duration: 0.2), value: state)
-            .accessibilityElement()
-            .accessibilityLabel(spokenLabel)
-            .help(spokenLabel)
+    }
+
+    // MARK: - The panel behind the tap
+
+    /// What the glyph cannot say: how long this has been true, and what
+    /// pressing something would do about it.
+    private func detailPanel(sync: @escaping () async -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                    .symbolEffect(.pulse, options: .repeating,
+                                  isActive: state == .holding || isSyncing)
+                Text(title)
+                    .font(.headline)
+            }
+            Text(spokenLabel)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                // Wrapping, not truncation: these are whole sentences and the
+                // one that matters is usually the longest.
+                .fixedSize(horizontal: false, vertical: true)
+            if let lastSyncedAt {
+                Label(lastSyncedPhrase(lastSyncedAt), systemImage: "clock.arrow.circlepath")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+            Divider()
+            Button {
+                Task {
+                    isSyncing = true
+                    await sync()
+                    isSyncing = false
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    if isSyncing {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(isSyncing ? "Syncing…" : actionTitle)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            // Offline there is nothing to try: the button would fail on press
+            // every time, which teaches the writer the badge lies.
+            .disabled(state == .offline || isSyncing)
+            if state == .offline {
+                Text("Your work syncs by itself the moment the connection is back.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(width: 280)
+    }
+
+    /// The panel's first line: a few words, where the sentence under it is a
+    /// whole one. Deliberately the same vocabulary as the banners.
+    private var title: String {
+        switch state {
+        case .synced: "Up to date"
+        case .holding: "Saving…"
+        case .offline: "Offline"
+        case .failed: "Couldn't save"
+        }
+    }
+
+    /// What the button promises. "Try Again" only where something was refused —
+    /// everywhere else this is a push and a pull, not a retry.
+    private var actionTitle: String {
+        switch state {
+        case .failed: "Try Again"
+        case .synced: "Check for Changes"
+        case .holding, .offline: "Sync Now"
+        }
+    }
+
+    /// "Last synced 5 minutes ago", with the first minute spelled out rather
+    /// than counted: `.relative` renders a fresh date as "in 0 seconds", which
+    /// reads as a promise about the future.
+    private func lastSyncedPhrase(_ date: Date) -> String {
+        Date.now.timeIntervalSince(date) < 60
+            ? "Last synced just now"
+            : "Last synced " + date.formatted(.relative(presentation: .named))
     }
 
     private var symbol: String {
@@ -88,9 +223,9 @@ struct CloudSyncBadge: View {
         }
     }
 
-    /// What VoiceOver reads and what the pointer's tooltip shows on the Mac.
-    /// Full sentences: the badge is the only thing on screen saying this when
-    /// the writing is merely late rather than stranded.
+    /// What VoiceOver reads, what the pointer's tooltip shows on the Mac, and
+    /// the panel's own sentence. Full sentences: the badge is the only thing on
+    /// screen saying this when the writing is merely late rather than stranded.
     private var spokenLabel: String {
         if let label { return label }
         let held = heldCount == 1
@@ -121,6 +256,9 @@ struct CloudSyncBadge: View {
         CloudSyncBadge(state: .holding, heldCount: 3)
         CloudSyncBadge(state: .offline, heldCount: 3)
         CloudSyncBadge(state: .failed, heldCount: 1)
+        CloudSyncBadge(state: .holding, heldCount: 2,
+                       lastSyncedAt: .now.addingTimeInterval(-600),
+                       sync: { try? await Task.sleep(for: .seconds(1)) })
     }
     .padding()
 }

@@ -335,7 +335,10 @@ struct SongBlockEditorView: View {
         // moment a writer wonders whether their words are anywhere but here.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
-                CloudSyncBadge(state: cloud, heldCount: model.unsavedBlockIds.count)
+                CloudSyncBadge(state: cloud,
+                               heldCount: model.unsavedBlockIds.count,
+                               lastSyncedAt: model.lastSyncedAt,
+                               sync: { await model.syncNow() })
             }
             .sharedBackgroundVisibility(.hidden)
         }

@@ -156,7 +156,10 @@ struct ProjectsSidebarView: View {
         // is on screen came off this device, not the server.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
-                CloudSyncBadge(state: cloud, label: cloudLabel(cloud))
+                CloudSyncBadge(state: cloud,
+                               label: cloudLabel(cloud),
+                               lastSyncedAt: model.lastSyncedAt,
+                               sync: { await model.refresh() })
             }
             .sharedBackgroundVisibility(.hidden)
         }

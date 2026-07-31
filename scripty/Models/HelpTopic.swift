@@ -169,10 +169,20 @@ extension HelpTopic {
                     + "action. Backspace with the caret at the very start merges the "
                     + "element back into the one above.",
                     "Edits save themselves as you pause, so there is no save button to "
-                    + "look for."
+                    + "look for.",
+                    "The cloud beside the title says where those words are: ticked and "
+                    + "grey once everything has reached the server, amber while a save "
+                    + "is still on its way or the connection is gone, red if the server "
+                    + "refused one. Tap it for the rest of the answer — when this script "
+                    + "was last in step with the server, and a Sync Now button that "
+                    + "sends everything held on this device without waiting for the "
+                    + "connection to come back on its own. The same cloud sits in the "
+                    + "corner of the song editor and the project list, and does the "
+                    + "same thing there."
                 ],
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
-                           "autosave", "editing"]),
+                           "autosave", "editing", "cloud", "sync", "offline", "saved",
+                           "badge"]),
             HelpTopic(
                 id: "fountain",
                 title: "Fountain as You Type",
@@ -411,8 +421,9 @@ extension HelpTopic {
                     + "An element's own menu inserts a song below it. Swipe a row to "
                     + "rename or delete it; touch and hold for everything else.",
                     "A lyric line or a note edited without a connection is kept on "
-                    + "this device — the song editor's corner cloud and the note "
-                    + "editor's status line both say so — and is saved by itself when "
+                    + "this device — the song editor's corner cloud, which opens on a "
+                    + "tap with a Sync Now button, and the note editor's status line "
+                    + "both say so — and is saved by itself when "
                     + "the connection returns, even across a relaunch. The same "
                     + "promise the screenplay editor makes. A note that changed "
                     + "elsewhere in the meantime is set aside rather than overwritten, "
