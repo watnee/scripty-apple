@@ -31,6 +31,16 @@ struct EditableBlockRow: View {
     @State private var isEditingTags = false
     @State private var tagDraft = ""
 
+    private let settings = PresentationSettings.shared
+
+    /// What "Add Element Below" offers — narrowed while the script is collapsed
+    /// to its outline, the way the element-type bar is: adding a dialogue line
+    /// there would file the writer's next words behind the mode, which reads as
+    /// a menu item that did nothing.
+    private var insertableTypes: [BlockType] {
+        settings.isOutlineMode ? BlockType.outlineTypes : BlockType.allCases
+    }
+
     private var pageWidth: CGFloat { chrome.columnWidth }
     private var dialogueWidth: CGFloat { chrome.dialogueWidth }
     private var parentheticalWidth: CGFloat { chrome.parentheticalWidth }
@@ -252,7 +262,7 @@ struct EditableBlockRow: View {
         if block.hasLink(.createBelow) {
             Section {
                 Menu {
-                    ForEach(BlockType.allCases) { type in
+                    ForEach(insertableTypes) { type in
                         Button(type.label) {
                             Task { await model.insertBlock(below: block, type: type) }
                         }

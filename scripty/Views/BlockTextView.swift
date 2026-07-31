@@ -265,6 +265,15 @@ struct BlockTextView: UIViewRepresentable, Equatable {
         private func applyLiveForceDetection(_ textView: UITextView) -> BlockType? {
             let text = textView.text ?? ""
             guard let detected = FountainDetector.liveDetect(text) else { return nil }
+            // Nothing reflows out of the outline while outline mode is on. The
+            // markers that matter to an outliner — `.` for a forced heading,
+            // `#` for a section, `=` for a synopsis — all land inside the mode
+            // and still work; the rest would retype the line the writer is
+            // typing into something the mode hides, taking it off the screen
+            // mid-word. The marker is left standing as ordinary text instead,
+            // so the keystroke is visible rather than lost.
+            guard !PresentationSettings.shared.isOutlineMode
+                    || detected.type.isOutlineType else { return nil }
             let typeChanged = detected.type != block.blockType
             let contentChanged = detected.content != text
             guard typeChanged || contentChanged else { return nil }

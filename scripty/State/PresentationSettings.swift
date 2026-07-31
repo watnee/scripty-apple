@@ -92,7 +92,9 @@ final class PresentationSettings {
     ///
     /// Distinct from the outline *panel*, which lists the same elements to
     /// navigate by. This is the editor itself, narrowed: what is left is still
-    /// typed into, retyped and reordered in place.
+    /// typed into, retyped and reordered in place — and everything that makes
+    /// a *new* element while it is on stays inside `BlockType.outlineTypes`,
+    /// or the writing would go somewhere the writer cannot see.
     ///
     /// Turning it on leaves page view, as it does in the browser — paper sheets
     /// full of gaps where the scenes used to be are nobody's idea of an outline.
@@ -103,11 +105,6 @@ final class PresentationSettings {
             if isOutlineMode { isPageView = false }
         }
     }
-
-    /// The elements outline mode keeps — and, while it is on, the only ones the
-    /// element-type bar offers, since retyping a scene into dialogue would make
-    /// it vanish under the writer's hands.
-    static let outlineTypes: [BlockType] = [.scene, .section, .synopsis]
 
     /// Shows the running word count and page estimate under the script.
     ///

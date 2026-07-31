@@ -340,10 +340,16 @@ extension HelpTopic {
                     + "bookmarks in script order; tapping one jumps to it.",
                     "Outline Mode is the other half of the idea: it filters the script "
                     + "itself down to scene headings, sections and synopses, so you can "
-                    + "restructure a draft without the dialogue in the way."
+                    + "restructure a draft without the dialogue in the way.",
+                    "You can write in it, not just read it. Return starts another "
+                    + "element of the same kind — a scene after a scene, a section "
+                    + "after a section — and Tab, the element-type bar and Add Element "
+                    + "Below stay inside those three, so nothing you type disappears "
+                    + "behind the filter. Turn Outline Mode on in an empty script and "
+                    + "the first element it gives you is a scene heading."
                 ],
                 keywords: ["navigator", "structure", "beats", "scenes", "jump",
-                           "navigate", "index"]),
+                           "navigate", "index", "outlining", "beat sheet"]),
             HelpTopic(
                 id: "marks",
                 title: "Bookmarks, Pins and Labels",

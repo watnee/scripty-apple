@@ -119,5 +119,37 @@ check("a short script keeps its decimal", ScriptWordCount.pageEstimate(words: 37
 check("a round short script drops it", ScriptWordCount.pageEstimate(words: 500), "2")
 check("a feature rounds to whole pages", ScriptWordCount.pageEstimate(words: 27_500), "110")
 
+print("\nWriting in outline mode")
+// Outline mode hides everything but these three, so every rule that makes or
+// retypes an element while it is on has to stay inside them — otherwise the
+// line the writer is typing leaves the screen mid-word, which is exactly the
+// bug these answers exist to prevent. Worth pinning because the ordinary
+// answers, right beside them, are all `action`.
+check("the outline is scenes, sections and synopses",
+      BlockType.outlineTypes, [BlockType.scene, .section, .synopsis])
+check("action is not part of it", BlockType.action.isOutlineType, false)
+
+// Return: another element of the same kind, the way Return in a list gives
+// another item at the same level.
+check("Return after a scene gives a scene", BlockType.scene.followingOutlineType, BlockType.scene)
+check("after a section, a section", BlockType.section.followingOutlineType, BlockType.section)
+check("after a synopsis, a synopsis", BlockType.synopsis.followingOutlineType, BlockType.synopsis)
+check("and the ordinary answer is still action", BlockType.scene.followingType, BlockType.action)
+// Only an outline element can be focused while outlining; the fallback is
+// there so a stale focus cannot create an invisible line.
+check("anything else falls back to a scene", BlockType.dialogue.followingOutlineType, BlockType.scene)
+
+// Tab: the ordinary cycle's very next stop after a scene is action, so the
+// narrowed cycle is what keeps one keypress from erasing the line.
+check("Tab walks scene to section", BlockType.scene.cyclingOutlineType(backward: false), BlockType.section)
+check("then to synopsis", BlockType.section.cyclingOutlineType(backward: false), BlockType.synopsis)
+check("and wraps back to scene", BlockType.synopsis.cyclingOutlineType(backward: false), BlockType.scene)
+check("Shift-Tab wraps the other way",
+      BlockType.scene.cyclingOutlineType(backward: true), BlockType.synopsis)
+check("the ordinary cycle would have left the outline",
+      BlockType.scene.cyclingType(backward: false), BlockType.action)
+check("a type off the cycle enters at the scene",
+      BlockType.action.cyclingOutlineType(backward: false), BlockType.scene)
+
 print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)
