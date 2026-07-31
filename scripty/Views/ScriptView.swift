@@ -1856,33 +1856,23 @@ struct ScriptView: View {
             // opened offline never fetched its status, and hiding the button
             // then would hide it exactly when the local steps exist.
             //
-            // A menu rather than a plain button so a long press offers Redo —
-            // the same hold-for-the-other-half gesture Safari's back button
-            // taught. That puts redo one gesture from undo instead of a trip
-            // into the "…", without spending the capsule budget a second
-            // button would (see above). The overflow keeps its Redo item too:
-            // a hold is not discoverable, so the menu is the fast path for
-            // those who know it, not the only path.
-            //
-            // The control greys out only when *both* halves are empty. Undo
-            // alone running dry must not take redo down with it — undoing back
-            // to the start is exactly the moment redo is wanted — so a tap
-            // with nothing to undo guards itself instead.
+            // A plain button, not a menu. It was a menu for a while so that a
+            // long press could offer Redo, and that cost more than the gesture
+            // was worth: a menu control reads as "there is something else in
+            // here" wherever the platform draws its indicator, and it greyed
+            // out on the *pair* being empty rather than on undo being empty,
+            // so a fresh script showed a live Undo that did nothing. Redo
+            // keeps its place in the overflow below, which was always the
+            // discoverable path anyway — a hold is a gesture nobody is told
+            // about. Now the button says exactly what it does and greys out
+            // exactly when there is nothing to undo.
             if model.offersUndoRedo, !settings.isPageView, !isReading {
-                Menu {
-                    Button {
-                        Task { await model.redo() }
-                    } label: {
-                        Label("Redo", systemImage: "arrow.uturn.forward")
-                    }
-                    .disabled(!model.canRedo)
+                Button {
+                    Task { await model.undo() }
                 } label: {
                     Label("Undo", systemImage: "arrow.uturn.backward")
-                } primaryAction: {
-                    guard model.canUndo else { return }
-                    Task { await model.undo() }
                 }
-                .disabled(!model.canUndo && !model.canRedo)
+                .disabled(!model.canUndo)
             }
 
             if model.hasScriptContent && !settings.isFocusMode {
