@@ -2157,6 +2157,68 @@ final class ScriptModel {
         }
     }
 
+    /// Where this project's archived songs and notes are, when the signed-in
+    /// user may put things there. Advertised even when the archive is empty —
+    /// a list can be empty precisely because everything in it is archived — so
+    /// the UI gates the *entry* on the count it reads back, not on this link.
+    var archivedDocumentsLink: HALLink? { documentsLinks[.archived] }
+
+    /// Whether a selection can be archived in one call. Unlike
+    /// ``canBulkDeleteDocuments`` this carries no has-a-song condition: the
+    /// server archives notes just as readily, so a project of notes is offered
+    /// it too.
+    var canBulkArchiveDocuments: Bool { documentsLinks.contains(.bulkArchive) }
+
+    /// Archives one song or note. The server answers with the refreshed list,
+    /// which is what settles the collection — the archived document is no longer
+    /// in it, and its links may have changed with the count.
+    @discardableResult
+    func archiveDocument(_ document: TextDocument) async -> Bool {
+        // No body: the id is in the path, unlike the bulk form.
+        await adoptDocuments(from: document.link(.archive), body: nil, removing: [document.id])
+    }
+
+    /// Archives several documents at once.
+    @discardableResult
+    func bulkArchiveDocuments(_ ids: [Int]) async -> Bool {
+        guard !ids.isEmpty else { return false }
+        return await adoptDocuments(
+            from: documentsLinks[.bulkArchive],
+            body: BulkArchiveDocumentsCommand(ids: ids),
+            removing: ids)
+    }
+
+    /// Shared tail of the two archive calls: POST, settle the list from the
+    /// reply, and hand back any held words for documents that actually left it.
+    ///
+    /// `expected` is what the caller asked to archive; the drafts dropped are
+    /// only those the server really did remove, the same rule
+    /// ``bulkDeleteDocuments`` follows — a stale id the server skipped keeps its
+    /// unsaved words.
+    private func adoptDocuments(from link: HALLink?,
+                                body: (any Encodable)?,
+                                removing expected: [Int]) async -> Bool {
+        guard let link else { return false }
+        do {
+            let collection: HALCollection<TextDocument> = try await app.client.fetch(
+                from: link, method: "POST", body: body)
+            documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+            documentsLinks = collection.links
+            let kept = Set(documents.map(\.id))
+            // An archived note's words are not lost — they were saved before it
+            // left the list — but the outbox has no live document to write to
+            // any more, so a pending draft for one is dropped like a deleted
+            // note's. Unarchiving re-reads the document from the server.
+            for id in expected where !kept.contains(id) { discardDocumentDraft(for: id) }
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            await loadDocuments()   // fall back to the list the server kept
+            return false
+        }
+    }
+
     /// Inserts a document into the screenplay as blocks; returns the count.
     @discardableResult
     func insertDocument(_ document: TextDocument, afterBlockId: Int? = nil, asType: String? = nil) async -> Int? {

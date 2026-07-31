@@ -130,6 +130,7 @@ struct SongsView: View {
     @State private var promptingBulkShare = false
     /// Presented from the link the document collection advertised.
     @State private var trashLink: HALLink?
+    @State private var archiveLink: HALLink?
     @State private var isLoading = false
     @State private var statusMessage: String?
     @State private var searchText = ""
@@ -174,11 +175,17 @@ struct SongsView: View {
     /// sort flips to "Custom order" so what was saved is what stays on screen.
     private var canReorder: Bool { model.canReorderDocuments }
 
-    /// Selecting several is a song affordance: the bulk delete is advertised
-    /// only where there is a song to delete, and the songbook is the only
-    /// export a selection can feed.
+    /// Selecting several used to be a song affordance, because everything a
+    /// selection could feed was: the bulk delete is advertised only where there
+    /// is a song to delete, and the songbook is the only export it fills.
+    ///
+    /// The bulk archive is the first that is not — the server archives notes as
+    /// readily as songs — so the notes list can now select too, and there it is
+    /// the only reason to.
     private var canSelect: Bool {
-        listType == .song && (model.canBulkDeleteDocuments || !model.songbookExportOptions.isEmpty)
+        if model.canBulkArchiveDocuments { return true }
+        return listType == .song
+            && (model.canBulkDeleteDocuments || !model.songbookExportOptions.isEmpty)
     }
 
     /// The selection in list order, so a songbook of it reads in the order the
@@ -348,6 +355,17 @@ struct SongsView: View {
                         DeletedDocumentRow(document: document)
                     }
             }
+            .sheet(item: $archiveLink) { link in
+                ArchiveView(
+                    app: model.app,
+                    source: link,
+                    // An unarchived document rejoins the list behind us, at the
+                    // end of it.
+                    onChanged: { await model.loadDocuments() },
+                    // Opening one dismisses the archive first, so the editor
+                    // arrives over the list rather than three sheets deep.
+                    onOpen: { editingDocument = $0 })
+            }
             .sheet(item: $creatingType) { type in
                 SongEditorView(model: model, document: nil, type: type)
             }
@@ -447,6 +465,16 @@ struct SongsView: View {
                     Label("Delete", systemImage: "trash")
                 }
             }
+            if document.hasLink(.archive) {
+                // Between Delete and Rename by weight: it removes the row like
+                // a delete, but loses nothing, so it is not destructive-tinted.
+                Button {
+                    Task { await model.archiveDocument(document) }
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .tint(.orange)
+            }
             if document.hasLink(.update) {
                 Button {
                     renameTitle = document.title ?? ""
@@ -527,6 +555,16 @@ struct SongsView: View {
                     }
                 } label: {
                     Label("Export…", systemImage: "square.and.arrow.up")
+                }
+            }
+            if document.hasLink(.archive) {
+                // Not destructive: archiving keeps the document whole and is
+                // one tap from undone. It sits above Delete because it is the
+                // gentler of the two ways to clear a finished song off the list.
+                Button {
+                    Task { await model.archiveDocument(document) }
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
                 }
             }
             if document.hasLink(.delete) {
@@ -630,6 +668,15 @@ struct SongsView: View {
                         Label("Delete \(selection.count)", systemImage: "trash")
                     }
                 }
+                if model.canBulkArchiveDocuments {
+                    // No confirmation, unlike the bulk delete: nothing is lost
+                    // and the archive puts any of it back in one tap.
+                    Button {
+                        bulkArchive()
+                    } label: {
+                        Label("Archive \(selection.count)", systemImage: "archivebox")
+                    }
+                }
                 if model.canBulkShareDocuments {
                     Button {
                         shareEmail = ""
@@ -696,6 +743,15 @@ struct SongsView: View {
                     creatingType = listType
                 } label: {
                     Label(listType == .song ? "New Song" : "New Note", systemImage: "plus")
+                }
+            }
+            if let archived = model.archivedDocumentsLink {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        archiveLink = archived
+                    } label: {
+                        Label("Archive", systemImage: "archivebox")
+                    }
                 }
             }
             if let trash = model.documentsLinks[.trash] {
@@ -879,6 +935,25 @@ struct SongsView: View {
                 statusMessage = "Moved \(count) \(count == 1 ? "song" : "songs") to the trash."
             } else {
                 statusMessage = model.errorMessage ?? "Could not delete those songs."
+            }
+        }
+    }
+
+    /// Archives the ticked rows. Unlike ``bulkDelete`` this takes the selection
+    /// whatever kind it holds — the server archives notes and songs alike, so
+    /// nothing is quietly skipped and the count reported is the count asked for.
+    private func bulkArchive() {
+        let ids = selectedDocuments.map(\.id)
+        let count = ids.count
+        let noun = listType == .song
+            ? (count == 1 ? "song" : "songs")
+            : (count == 1 ? "note" : "notes")
+        selection.removeAll()
+        Task {
+            if await model.bulkArchiveDocuments(ids) {
+                statusMessage = "Archived \(count) \(noun)."
+            } else {
+                statusMessage = model.errorMessage ?? "Could not archive those \(noun)."
             }
         }
     }

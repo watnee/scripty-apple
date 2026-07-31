@@ -101,6 +101,9 @@ actor DemoBackend {
     private var songUndoStacks: [Int: [[DemoSongBlock]]] = [:]
     private var songRedoStacks: [Int: [[DemoSongBlock]]] = [:]
     private var deletedDocuments: [Int: [DeletedDemoDocument]] = [:]
+    /// Documents put aside on purpose. Kept apart from `deletedDocuments`
+    /// because nothing here is on a clock and nothing is ever purged from it.
+    private var archivedDocuments: [Int: [ArchivedDemoDocument]] = [:]
     private var invitations: [DemoInvitation] = []
     private var nextInvitationId = 1
     private var activity: [DemoActivity] = []
@@ -936,6 +939,11 @@ actor DemoBackend {
             return routeDocumentTrash(method: method, path: Array(path.dropFirst()), query: query)
         }
 
+        // …and so is `/api/document/archive…`.
+        if path.first == "archive" {
+            return routeDocumentArchive(method: method, path: Array(path.dropFirst()), query: query)
+        }
+
         // `/api/document/reorder` is likewise a sibling, not an id.
         if method == "POST", path.first == "reorder" {
             return reorderDocuments(query: query, fields: fields)
@@ -958,9 +966,18 @@ actor DemoBackend {
         if method == "POST", path.first == "bulk", path.dropFirst().first == "share-email" {
             return bulkShareDocuments(query: query, fields: fields)
         }
+        // …and the bulk archive, which unlike the bulk delete takes notes too.
+        if method == "POST", path.first == "bulk", path.dropFirst().first == "archive" {
+            return bulkArchiveDocuments(query: query, fields: fields)
+        }
 
-        guard let id = path.first.flatMap(Int.init),
-              let (projectId, index) = locateDocument(id) else { return notFound() }
+        guard let id = path.first.flatMap(Int.init) else { return notFound() }
+        guard let (projectId, index) = locateDocument(id) else {
+            // An archived document is out of the list but still whole: it can
+            // be opened and it can be deleted, exactly as on the server, where
+            // the by-id finders ask only that it is not trashed.
+            return routeArchivedDocument(method: method, path: path, id: id)
+        }
 
         switch (method, path.dropFirst().first) {
         case ("GET", nil):
@@ -980,6 +997,14 @@ actor DemoBackend {
                     DeletedDemoDocument(document: removed, deletedAt: Date()))
             }
             return ok([:])
+        case ("POST", "archive"):
+            // Not a delete: the document is set aside whole, keeps its id, and
+            // nothing ever expires it. Answers with the refreshed list, which is
+            // what the client settles from.
+            guard let removed = documents[projectId]?.remove(at: index) else { return notFound() }
+            archivedDocuments[projectId, default: []].append(
+                ArchivedDemoDocument(document: removed, archivedAt: Date()))
+            return documentCollection(projectId)
         case ("POST", "insert"):
             return insertDocument(document: documents[projectId]![index],
                                   afterBlockId: fields["afterBlockId"] as? Int,
@@ -1059,6 +1084,32 @@ actor DemoBackend {
             }
         }
         guard deleted > 0 else { return badRequest("ids") }
+        return documentCollection(projectId)
+    }
+
+    /// Archives several documents at once. Unlike the bulk delete this takes
+    /// notes as well as songs — archiving does nothing type-specific — and ids
+    /// already archived or from another project are skipped.
+    private func bulkArchiveDocuments(query: [String: String], fields: [String: Any]) -> (Int, Data) {
+        guard let projectId = query["projectId"].flatMap(Int.init),
+              documents[projectId] != nil else { return badRequest("projectId") }
+        let ids = (fields["ids"] as? [Any])?.compactMap { $0 as? Int } ?? []
+        guard !ids.isEmpty else { return badRequest("ids") }
+        var archived = 0
+        for id in Set(ids) {
+            guard let index = documents[projectId]?.firstIndex(where: { $0.id == id }),
+                  let removed = documents[projectId]?.remove(at: index) else { continue }
+            archivedDocuments[projectId, default: []].append(
+                ArchivedDemoDocument(document: removed, archivedAt: Date()))
+            archived += 1
+        }
+        guard archived > 0 else { return badRequest("ids") }
+        return documentCollection(projectId)
+    }
+
+    /// A project's document list as the collection resource, which is what
+    /// every write that changes the list answers with.
+    private func documentCollection(_ projectId: Int) -> (Int, Data) {
         let items = (documents[projectId] ?? [])
             .sorted { $0.sortOrder < $1.sortOrder }
             .map { documentJSON($0, includeContent: false) }
@@ -1111,6 +1162,11 @@ actor DemoBackend {
             "importDocument": link("/api/document/import"),
             "reorder": link("/api/document/reorder?projectId=\(projectId)"),
             "trash": link("/api/document/trash?projectId=\(projectId)"),
+            // Both carry no has-a-song condition, unlike the bulk rels below:
+            // notes archive too, and the archive is advertised even when empty
+            // since a list can be empty precisely because everything is in it.
+            "archived": link("/api/document/archive?projectId=\(projectId)"),
+            "bulkArchive": link("/api/document/bulk/archive?projectId=\(projectId)"),
         ]
         if (documents[projectId] ?? []).contains(where: { $0.documentType == "SONG" }) {
             for (rel, format) in [("exportSongsTxt", "txt"), ("exportSongsPdf", "pdf"),
@@ -1255,6 +1311,9 @@ actor DemoBackend {
             // always has edit rights, so they are unconditional here.
             "duplicate": link("/api/document/\(document.id)/duplicate"),
             "changeType": link("/api/document/\(document.id)/change-type"),
+            // Songs and notes both archive — unlike the export and email rels
+            // below, there is nothing song-shaped about putting one aside.
+            "archive": link("/api/document/\(document.id)/archive"),
         ]
         if isSong {
             links["shareEmail"] = link("/api/document/\(document.id)/share-email")
@@ -2351,6 +2410,102 @@ actor DemoBackend {
         default:
             return notFound()
         }
+    }
+
+    /// An archived song or note. Keeps its id and everything else: the archive
+    /// is a place the document sits, not a copy of it.
+    private struct ArchivedDemoDocument {
+        var document: DemoDocument
+        var archivedAt: Date
+    }
+
+    private func routeDocumentArchive(method: String, path: [String],
+                                      query: [String: String]) -> (Int, Data) {
+        guard let projectId = query["projectId"].flatMap(Int.init),
+              documents[projectId] != nil else { return badRequest("projectId") }
+
+        if method == "GET", path.isEmpty {
+            return documentArchiveCollection(projectId)
+        }
+
+        guard let documentId = path.first.flatMap(Int.init),
+              let index = archivedDocuments[projectId]?.firstIndex(where: {
+                  $0.document.id == documentId
+              }) else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("POST", "unarchive"):
+            let record = archivedDocuments[projectId]!.remove(at: index)
+            documents[projectId]?.append(record.document)
+            documents[projectId]?.sort { $0.sortOrder < $1.sortOrder }
+            return documentArchiveCollection(projectId)
+
+        default:
+            // No purge: nothing is ever destroyed from the archive. Deleting an
+            // archived document goes through the ordinary DELETE on the
+            // document itself, which lands it in the trash.
+            return notFound()
+        }
+    }
+
+    /// Opening or deleting a document that is in the archive rather than the
+    /// list. Deleting sends it to the trash like any other, so it stays
+    /// recoverable — the archive is not a second bin.
+    private func routeArchivedDocument(method: String, path: [String], id: Int) -> (Int, Data) {
+        guard let projectId = archivedDocuments.first(where: { _, records in
+                  records.contains { $0.document.id == id }
+              })?.key,
+              let index = archivedDocuments[projectId]?.firstIndex(where: {
+                  $0.document.id == id
+              }) else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("GET", nil):
+            return ok(documentJSON(archivedDocuments[projectId]![index].document,
+                                   includeContent: true))
+        case ("DELETE", nil):
+            let record = archivedDocuments[projectId]!.remove(at: index)
+            deletedDocuments[projectId, default: []].append(
+                DeletedDemoDocument(document: record.document, deletedAt: Date()))
+            return ok([:])
+        default:
+            return notFound()
+        }
+    }
+
+    private func documentArchiveCollection(_ projectId: Int) -> (Int, Data) {
+        let items = (archivedDocuments[projectId] ?? [])
+            .sorted { $0.archivedAt > $1.archivedAt }
+            .map { record -> [String: Any] in
+                let id = record.document.id
+                var json: [String: Any] = [
+                    "id": id,
+                    "title": record.document.title,
+                    "documentType": record.document.documentType,
+                    "documentTypeLabel": record.document.documentType == "SONG" ? "Song" : "Notes",
+                    "archivedAt": iso.string(from: record.archivedAt),
+                    // No purge date, and no purge link: the absence is the whole
+                    // difference from the trash beside it.
+                    "_links": [
+                        "unarchive": link("/api/document/archive/\(id)/unarchive?projectId=\(projectId)"),
+                        "document": link("/api/document/\(id)"),
+                        "delete": link("/api/document/\(id)"),
+                        "archived": link("/api/document/archive?projectId=\(projectId)"),
+                    ],
+                ]
+                let preview = record.document.content
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !preview.isEmpty { json["preview"] = String(preview.prefix(120)) }
+                return json
+            }
+        return ok([
+            "_embedded": ["archivedDocumentResourceList": items],
+            "_links": [
+                "self": link("/api/document/archive?projectId=\(projectId)"),
+                "documents": link("/api/document?projectId=\(projectId)"),
+                "project": link("/api/project/\(projectId)"),
+            ],
+        ])
     }
 
     private func documentTrashCollection(_ projectId: Int) -> (Int, Data) {

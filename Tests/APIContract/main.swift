@@ -1190,8 +1190,106 @@ func run() async {
     await checkProjectTeams(pid: pid)
     await checkBlockTags(pid: pid)
     await checkClearFont(pid: pid)
+    await checkDocumentArchive(pid: pid)
 
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
+}
+
+/// The archive: a second, independent way for a song or note to leave the list,
+/// and deliberately not a second trash.
+///
+/// What these pin is the distinctions that are easy to erode: nothing carries a
+/// purge date, an archived document is still readable by id, deleting one still
+/// goes to the trash rather than being final, and the rels are offered without
+/// the has-a-song condition its bulk neighbours carry.
+func checkDocumentArchive(pid: Int) async {
+    let docs = json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data)
+    let collectionLinks = links(docs)
+    check("document collection advertises `archived`", collectionLinks["archived"] != nil)
+    check("document collection advertises `bulkArchive`", collectionLinks["bulkArchive"] != nil)
+
+    let live = embedded(docs)
+    guard let subject = live.first(where: { $0["documentType"] as? String == "SONG" }),
+          let songId = subject["id"] as? Int,
+          let note = live.first(where: { $0["documentType"] as? String == "NOTES" }),
+          let noteId = note["id"] as? Int else {
+        check("archive fixture needs a song and a note", false)
+        return
+    }
+    let songTitle = subject["title"] as? String ?? ""
+    check("a song advertises `archive`", links(subject)["archive"] != nil)
+    // The point of departure from `shareEmail` and the song exports, which are
+    // song-only: archiving does nothing type-specific.
+    check("a note advertises `archive` too", links(note)["archive"] != nil)
+
+    // --- one document, there and back ---
+    let archived = await be.respond(method: "POST", url: url("/api/document/\(songId)/archive"), body: nil)
+    check("archive -> 200", archived.status == 200, "got \(archived.status)")
+    check("archiving answers with the refreshed list, without it",
+          !embedded(json(archived.data)).contains { $0["id"] as? Int == songId })
+
+    var shelf = embedded(json(await be.respond(
+        method: "GET", url: url("/api/document/archive?projectId=\(pid)"), body: nil).data))
+    check("the archived song is in the archive", shelf.contains { $0["id"] as? Int == songId })
+    let row = shelf.first { $0["id"] as? Int == songId }
+    check("it says when it was archived", row?["archivedAt"] != nil)
+    // The distinction from the trash, in the one field that carries it.
+    check("nothing in the archive has a purge date", row?["purgesAt"] == nil)
+    check("an archived document offers no purge", links(row ?? [:])["purge"] == nil)
+    check("an archived document offers `unarchive`", links(row ?? [:])["unarchive"] != nil)
+    check("an archived document says where it lives", links(row ?? [:])["document"] != nil)
+
+    // Still whole: this is what separates putting something aside from binning it.
+    let reread = await be.respond(method: "GET", url: url("/api/document/\(songId)"), body: nil)
+    check("an archived document is still readable by id", reread.status == 200, "got \(reread.status)")
+    check("and still carries its content", json(reread.data)["content"] != nil)
+
+    let back = await be.respond(method: "POST",
+                                url: url("/api/document/archive/\(songId)/unarchive?projectId=\(pid)"),
+                                body: nil)
+    check("unarchive -> 200", back.status == 200, "got \(back.status)")
+    check("unarchiving empties it from the archive",
+          !embedded(json(back.data)).contains { $0["id"] as? Int == songId })
+    let relisted = embedded(json(await be.respond(
+        method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data))
+    check("the document is back in the list", relisted.contains { $0["id"] as? Int == songId })
+    check("it keeps its id and title",
+          relisted.first { $0["id"] as? Int == songId }?["title"] as? String == songTitle)
+    check("unarchiving something that is not archived -> 404",
+          await be.respond(method: "POST",
+                           url: url("/api/document/archive/999999/unarchive?projectId=\(pid)"),
+                           body: nil).status == 404)
+
+    // --- a selection, including a note ---
+    let bulk = await be.respond(method: "POST",
+                                url: url("/api/document/bulk/archive?projectId=\(pid)"),
+                                body: body(["ids": [songId, noteId]]))
+    check("bulk archive -> 200", bulk.status == 200, "got \(bulk.status)")
+    let after = embedded(json(bulk.data))
+    check("both left the list",
+          !after.contains { $0["id"] as? Int == songId } && !after.contains { $0["id"] as? Int == noteId })
+    shelf = embedded(json(await be.respond(
+        method: "GET", url: url("/api/document/archive?projectId=\(pid)"), body: nil).data))
+    // Unlike the bulk delete, which skips every id that is not a song.
+    check("a note archives in a selection just as a song does",
+          shelf.contains { $0["id"] as? Int == noteId })
+
+    // --- deleting from the archive is still the soft delete ---
+    let binned = await be.respond(method: "DELETE", url: url("/api/document/\(noteId)"), body: nil)
+    check("deleting an archived document -> 200", binned.status == 200, "got \(binned.status)")
+    check("it leaves the archive",
+          !embedded(json(await be.respond(
+              method: "GET", url: url("/api/document/archive?projectId=\(pid)"), body: nil).data))
+              .contains { $0["id"] as? Int == noteId })
+    check("and lands in the trash, not nowhere",
+          embedded(json(await be.respond(
+              method: "GET", url: url("/api/document/trash?projectId=\(pid)"), body: nil).data))
+              .contains { $0["id"] as? Int == noteId })
+
+    // Leave the fixture as it was found: later checks read this list.
+    _ = await be.respond(method: "POST",
+                         url: url("/api/document/archive/\(songId)/unarchive?projectId=\(pid)"),
+                         body: nil)
 }
 
 /// The block menu's "Edit Tags" — the web editor's "Tags (comma separated)"

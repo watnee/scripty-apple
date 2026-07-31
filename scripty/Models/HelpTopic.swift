@@ -418,12 +418,25 @@ extension HelpTopic {
                     + "elsewhere in the meantime is set aside rather than overwritten, "
                     + "and the editor says when that happens. A song opened offline "
                     + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a banner saying how old that copy is."
+                    + "with a banner saying how old that copy is.",
+                    "Finished with a song but not ready to lose it? Archive it. "
+                    + "Archiving takes a song or note out of the list without "
+                    + "deleting it — the cut verse, the number that left the show. "
+                    + "Swipe a row for Archive, or tick several in edit mode and "
+                    + "archive them together; notes archive as readily as songs. "
+                    + "Archive in the list's menu opens what is there: swipe to "
+                    + "unarchive and it rejoins the end of the list, or tap to open "
+                    + "it where it is. Unlike the trash nothing in the archive is on "
+                    + "a clock and nothing is ever removed from it on its own — an "
+                    + "archived song keeps its lyrics and version history and still "
+                    + "exports. A songbook of every song leaves the archived ones out."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
-                           "offline", "unsaved", "sync", "cloud", "badge"]),
+                           "offline", "unsaved", "sync", "cloud", "badge",
+                           "archive", "archived", "unarchive", "put aside",
+                           "hide", "finished", "cut", "shelve", "old"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",
