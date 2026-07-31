@@ -18,7 +18,7 @@
 import SwiftUI
 
 struct ArchiveView: View {
-    @State private var model: ArchiveModel
+    @State private var model: ArchiveModel<ArchivedDocument>
     /// Called after anything leaves the archive, so the list behind us reloads.
     var onChanged: () async -> Void = {}
     /// Opens an archived document in the editor. The sheet dismisses first —
@@ -32,7 +32,7 @@ struct ArchiveView: View {
          source: HALLink,
          onChanged: @escaping () async -> Void = {},
          onOpen: @escaping (TextDocument) -> Void = { _ in }) {
-        _model = State(initialValue: ArchiveModel(app: app, source: source))
+        _model = State(initialValue: ArchiveModel<ArchivedDocument>(app: app, source: source))
         self.onChanged = onChanged
         self.onOpen = onOpen
     }
@@ -117,7 +117,8 @@ struct ArchiveView: View {
         opening = item.id
         Task {
             defer { opening = nil }
-            guard let document = await model.document(for: item) else { return }
+            let document: TextDocument? = await model.resource(.document, of: item)
+            guard let document else { return }
             dismiss()
             onOpen(document)
         }

@@ -28,6 +28,12 @@ actor DemoBackend {
         /// The teams the project belongs to, by id. Seeded to the one "Demo"
         /// team every project already showed a badge for.
         var teamIds: [Int] = [1]
+        /// Set once the project has been put aside. Unlike a trashed project,
+        /// which moves to `trashedProjects` wholesale, an archived one stays
+        /// right here: it is still readable by id and still goes into a bundle
+        /// export, and only the collection filters it out — exactly the split
+        /// the server draws with `archived_at` beside `deleted_at`.
+        var archivedAt: Date?
     }
 
     private struct DemoBlock {
@@ -344,6 +350,10 @@ actor DemoBackend {
         if path.first == "trash" {
             return routeProjectTrash(method: method, path: Array(path.dropFirst()))
         }
+        // …and `/api/project/archive…` is a sibling of both.
+        if path.first == "archive" {
+            return routeProjectArchive(method: method, path: Array(path.dropFirst()))
+        }
         if path.first == "edition" {
             return routeEdition(method: method, path: Array(path.dropFirst()),
                                 query: query, fields: fields)
@@ -393,6 +403,13 @@ actor DemoBackend {
             if let teamIds = intList(fields["teamIds"]) { projects[index].teamIds = teamIds }
             projects[index].lastEdited = .now
             return ok(projectJSON(projects[index]))
+        case ("POST", "archive"):
+            guard projects[index].archivedAt == nil else { return badRequest("id") }
+            projects[index].archivedAt = Date()
+            // As deleting does: a default nobody can find in the list would
+            // land them on it at every launch.
+            if defaultProjectId == id { defaultProjectId = nil }
+            return projectCollection()
         case ("POST", "import-script"):
             return demoImportScript(projectId: id, body: body)
         case ("DELETE", nil):
@@ -2640,7 +2657,10 @@ actor DemoBackend {
 
         switch (method, path.dropFirst().first) {
         case ("POST", "restore"):
-            let record = trashedProjects.remove(at: index)
+            var record = trashedProjects.remove(at: index)
+            // Something archived and then deleted comes back where the person
+            // looking for it is looking, not into the archive.
+            record.project.archivedAt = nil
             projects.append(record.project)
             projects.sort { $0.id < $1.id }
             blocks[record.project.id] = record.blocks
@@ -2687,14 +2707,66 @@ actor DemoBackend {
             "self": link("/api/project"),
             "importProject": link("/api/project/import"),
             "trash": link("/api/project/trash"),
+            // Advertised even when the archive is empty, since a list can be
+            // empty precisely because everything in it was archived.
+            "archived": link("/api/project/archive"),
         ]
+        let listed = projects.filter { $0.archivedAt == nil }
         // Nothing to bundle from an empty list, so the rel goes away with the
         // last project — the same rule the server applies.
-        if !projects.isEmpty {
+        if !listed.isEmpty {
             links["exportProjects"] = link("/api/project/export-projects")
         }
-        return ok(["_embedded": ["projectResourceList": projects.map(projectJSON)],
+        return ok(["_embedded": ["projectResourceList": listed.map(projectJSON)],
                    "_links": links])
+    }
+
+    /// The screenplay archive. No purge, no "empty", nothing on a clock — the
+    /// absent rels are the distinction from the trash, not a flag.
+    private func routeProjectArchive(method: String, path: [String]) -> (Int, Data) {
+        if path.isEmpty {
+            return method == "GET" ? projectArchiveCollection() : notFound()
+        }
+        guard let projectId = path.first.flatMap(Int.init),
+              let index = projects.firstIndex(where: { $0.id == projectId && $0.archivedAt != nil })
+        else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("POST", "unarchive"):
+            projects[index].archivedAt = nil
+            return projectArchiveCollection()
+        default:
+            return notFound()
+        }
+    }
+
+    private func projectArchiveCollection() -> (Int, Data) {
+        let items = projects
+            .filter { $0.archivedAt != nil }
+            .sorted { ($0.archivedAt ?? .distantPast) > ($1.archivedAt ?? .distantPast) }
+            .map { project -> [String: Any] in
+                [
+                    "id": project.id,
+                    "title": project.title,
+                    "lastEdited": iso.string(from: project.lastEdited),
+                    "archivedAt": iso.string(from: project.archivedAt ?? .now),
+                    "teams": project.teamIds.compactMap { id in
+                        teamsStore.first(where: { $0.id == id })?.name
+                    },
+                    "_links": [
+                        "unarchive": link("/api/project/archive/\(project.id)/unarchive"),
+                        // Still openable in place — the whole point of putting
+                        // something aside rather than binning it.
+                        "project": link("/api/project/\(project.id)"),
+                        // The ordinary soft delete, so it lands in the trash.
+                        "delete": link("/api/project/\(project.id)"),
+                        "archived": link("/api/project/archive"),
+                    ],
+                ]
+            }
+        return ok(["_embedded": ["archivedProjectResourceList": items],
+                   "_links": ["self": link("/api/project/archive"),
+                              "projects": link("/api/project")]])
     }
 
     // MARK: - Version history
@@ -3314,6 +3386,7 @@ actor DemoBackend {
                 "self": link("/api/project/\(project.id)"),
                 "update": link("/api/project/\(project.id)"),
                 "delete": link("/api/project/\(project.id)"),
+                "archive": link("/api/project/\(project.id)/archive"),
                 "projectTeams": link("/api/project/\(project.id)/teams"),
                 "toggleDefault": link("/api/project/\(project.id)/toggleDefault"),
                 "blocks": link("/api/block?projectId=\(project.id)"),

@@ -206,6 +206,20 @@ final class ProjectListModel {
         }
     }
 
+    /// Puts a screenplay aside. The server answers with the refreshed
+    /// collection, so — unlike `delete`, whose reply is a bare project — this
+    /// adopts what came back rather than dropping the row and hoping.
+    func archive(_ project: Project) async {
+        guard let link = project.link(.archive) else { return }
+        do {
+            let collection: HALCollection<Project> = try await app.client.fetch(from: link, method: "POST")
+            adopt(collection)
+            errorMessage = nil
+        } catch {
+            report(error)
+        }
+    }
+
     func delete(_ project: Project) async {
         guard let link = project.link(.delete) else { return }
         do {

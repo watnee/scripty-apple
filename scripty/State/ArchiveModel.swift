@@ -2,7 +2,9 @@
 //  ArchiveModel.swift
 //  scripty
 //
-//  Reading a project's archive and acting on what is in it.
+//  Reading an archive and acting on what is in it. One model serves the
+//  document archive and the screenplay archive, as `TrashModel` serves both
+//  trashes: same shape, different scale.
 //
 //  Shaped like `TrashModel` but deliberately not it: the archive has one way
 //  out rather than two, no bulk destroy, and nothing that expires — so a shared
@@ -16,11 +18,11 @@ import Observation
 
 @Observable
 @MainActor
-final class ArchiveModel {
+final class ArchiveModel<Item: Decodable & Identifiable & HALResource> where Item.ID == Int {
     private let app: AppModel
     private let source: HALLink
 
-    private(set) var items: [ArchivedDocument] = []
+    private(set) var items: [Item] = []
     private(set) var links = HALLinks()
     private(set) var isLoading = false
     private(set) var isWorking = false
@@ -37,7 +39,7 @@ final class ArchiveModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            let collection: HALCollection<ArchivedDocument> = try await app.client.fetch(from: source)
+            let collection: HALCollection<Item> = try await app.client.fetch(from: source)
             adopt(collection)
             errorMessage = nil
         } catch {
@@ -45,19 +47,19 @@ final class ArchiveModel {
         }
     }
 
-    func canUnarchive(_ item: ArchivedDocument) -> Bool { item.hasLink(.unarchive) }
+    func canUnarchive(_ item: Item) -> Bool { item.hasLink(.unarchive) }
 
     /// Deleting from here is the ordinary soft delete: it lands in the trash and
     /// stays restorable, so it needs no confirmation of its own.
-    func canDelete(_ item: ArchivedDocument) -> Bool { item.hasLink(.delete) }
+    func canDelete(_ item: Item) -> Bool { item.hasLink(.delete) }
 
     @discardableResult
-    func unarchive(_ item: ArchivedDocument) async -> Bool {
+    func unarchive(_ item: Item) async -> Bool {
         await act(item.link(.unarchive), method: "POST")
     }
 
     @discardableResult
-    func delete(_ item: ArchivedDocument) async -> Bool {
+    func delete(_ item: Item) async -> Bool {
         // The delete answers with a bare document resource, not the archive, so
         // this drops the row itself and re-reads rather than adopting a reply of
         // the wrong shape.
@@ -75,14 +77,15 @@ final class ArchiveModel {
         }
     }
 
-    /// The full document behind an archived row, for opening it in the editor.
-    /// An archived song is still whole, which is the point of the archive.
-    func document(for item: ArchivedDocument) async -> TextDocument? {
-        guard let link = item.link(.document) else { return nil }
+    /// The whole thing behind an archived row, followed by rel — a `TextDocument`
+    /// through `document`, say. An archived song is still whole, which is the
+    /// point of the archive, and this is how the editor gets at it.
+    func resource<T: Decodable>(_ rel: Rel, of item: Item) async -> T? {
+        guard let link = item.link(rel) else { return nil }
         do {
-            let document: TextDocument = try await app.client.fetch(from: link)
+            let resource: T = try await app.client.fetch(from: link)
             errorMessage = nil
-            return document
+            return resource
         } catch {
             report(error)
             return nil
@@ -94,7 +97,7 @@ final class ArchiveModel {
         isWorking = true
         defer { isWorking = false }
         do {
-            let collection: HALCollection<ArchivedDocument> = try await app.client.fetch(
+            let collection: HALCollection<Item> = try await app.client.fetch(
                 from: link, method: method)
             adopt(collection)
             errorMessage = nil
@@ -105,7 +108,7 @@ final class ArchiveModel {
         }
     }
 
-    private func adopt(_ collection: HALCollection<ArchivedDocument>) {
+    private func adopt(_ collection: HALCollection<Item>) {
         items = collection.items
         links = collection.links
     }

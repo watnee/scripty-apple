@@ -40,6 +40,35 @@ struct ArchivedDocument: Decodable, Identifiable, Hashable, HALResource {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+/// An archived screenplay.
+///
+/// Carries what the project list carries rather than what the trash carries:
+/// an archived project is one you might still be reading, not one you are
+/// deciding whether to recover, so `lastEdited` and the teams earn their place
+/// beside `archivedAt`. As with the document above there is no purge date,
+/// because there is none to have.
+struct ArchivedProject: Decodable, Identifiable, Hashable, HALResource {
+    let id: Int
+    var title: String?
+    var lastEdited: Date?
+    var archivedAt: Date?
+    var teams: [String]?
+    let links: HALLinks?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, lastEdited, archivedAt, teams
+        case links = "_links"
+    }
+
+    var displayTitle: String {
+        let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled Screenplay" : trimmed
+    }
+
+    static func == (lhs: ArchivedProject, rhs: ArchivedProject) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
 /// Archiving several documents at once, from a selection in the list.
 struct BulkArchiveDocumentsCommand: Encodable {
     let ids: [Int]

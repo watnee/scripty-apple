@@ -54,6 +54,8 @@ struct ProjectsSidebarView: View {
     /// Presented by link rather than by flag, so the sheet cannot open before
     /// the server has said where the trash is.
     @State private var trashLink: HALLink?
+    /// The screenplay archive, opened the same way and for the same reason.
+    @State private var projectArchiveLink: HALLink?
     @State private var renamingProject: Project?
     /// The project whose team assignment is being edited — the per-project
     /// production-teams picker, distinct from the global `teamsLink` above.
@@ -248,8 +250,19 @@ struct ProjectsSidebarView: View {
                 }
             }
         }
-        if let trash = model.collectionLinks[.trash] {
-            Section {
+        // The two places a screenplay goes when it leaves the list, together:
+        // one is a recovery window, the other is a decision. Both are
+        // advertised even when empty — an empty list can mean everything in it
+        // was archived, and that is exactly when the way in matters.
+        Section {
+            if let archive = model.collectionLinks[.archived] {
+                Button {
+                    projectArchiveLink = archive
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+            }
+            if let trash = model.collectionLinks[.trash] {
                 Button {
                     trashLink = trash
                 } label: {
@@ -364,6 +377,19 @@ struct ProjectsSidebarView: View {
                     Label("Delete", systemImage: "trash")
                 }
             }
+            // Beside delete and the reversible half of the same pair: this puts
+            // the screenplay aside rather than starting a clock on it.
+            if project.hasLink(.archive) {
+                Button {
+                    Task {
+                        if selection == project.id { selection = nil }
+                        await model.archive(project)
+                    }
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .tint(.orange)
+            }
             if project.hasLink(.update) {
                 Button {
                     renamingProject = project
@@ -427,8 +453,21 @@ struct ProjectsSidebarView: View {
                 .disabled(isExportingProjects)
             }
         }
-        if project.hasLink(.delete) {
-            Section {
+        Section {
+            // Not destructive, and above the delete rather than beside it:
+            // nothing is lost, nothing expires, and the way back is the Archive
+            // entry in the list menu.
+            if project.hasLink(.archive) {
+                Button {
+                    Task {
+                        if selection == project.id { selection = nil }
+                        await model.archive(project)
+                    }
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+            }
+            if project.hasLink(.delete) {
                 Button(role: .destructive) {
                     Task {
                         if selection == project.id { selection = nil }
@@ -548,6 +587,13 @@ struct ProjectsSidebarView: View {
         .environment(\.editMode, $editMode)
         .sheet(isPresented: $showingPreferences) {
             CapitalizationSettingsView(app: app)
+        }
+        .sheet(item: $projectArchiveLink) { link in
+            // Unarchiving puts a screenplay back in the list behind us, and
+            // deleting from here moves it to the trash; either way the sidebar
+            // is out of date until it reloads.
+            ProjectArchiveView(app: app, source: link,
+                               onChanged: { await model.refresh() })
         }
         .sheet(item: $trashLink) { link in
             TrashView<TrashedProject, TrashedProjectRow>(

@@ -116,6 +116,30 @@ extension HelpTopic {
                 keywords: ["backup", "archive", "json", "transfer", "move", "download",
                            "upload", "restore"]),
             HelpTopic(
+                id: "project-archive",
+                title: "Wrapped a Production?",
+                systemImage: "archivebox",
+                paragraphs: [
+                    "Archive it. Archiving takes a screenplay out of the list without "
+                    + "deleting it — the show that closed, last year's short, the pitch "
+                    + "that went nowhere. Swipe a row for Archive, or hold it for the "
+                    + "same entry in its menu.",
+                    "Archive in the list's menu opens what is there: swipe to unarchive "
+                    + "and the screenplay rejoins the list, script, songs, notes and "
+                    + "version history intact. Unlike Recently Deleted nothing in the "
+                    + "archive is on a clock and nothing is ever removed on its own, and "
+                    + "an archived screenplay still travels in a project export. It has "
+                    + "to come back to the list before it can be opened here, which "
+                    + "unarchiving does in one swipe. Archiving also clears it as your "
+                    + "default project; unarchiving does not set that again.",
+                    "Done with it for good? Delete works from the archive too, and does "
+                    + "what it does in the list: the screenplay moves to Recently "
+                    + "Deleted, still recoverable."
+                ],
+                keywords: ["archive", "archived", "unarchive", "put aside", "hide",
+                           "finished", "wrapped", "done", "old", "shelve", "retire",
+                           "clutter", "tidy"]),
+            HelpTopic(
                 id: "project-trash",
                 title: "Deleted a Project by Mistake?",
                 systemImage: "trash",
