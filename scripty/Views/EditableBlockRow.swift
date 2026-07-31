@@ -398,41 +398,9 @@ struct EditableBlockRow: View {
         if block.textBold ?? false { traits.insert(.traitBold) }
         if block.textItalic ?? false { traits.insert(.traitItalic) }
 
-        return Self.font(family: ScriptFont(serverValue: block.font) ?? .default,
-                         size: 16 * textScale,
-                         traits: traits)
-    }
-
-    /// Resolved fonts, kept between updates.
-    ///
-    /// Every keystroke invalidates the observed editing state, so SwiftUI
-    /// re-runs the update for each visible row — and building a `UIFont` from
-    /// a descriptor is not free. A whole script only ever uses a handful of
-    /// (family, size, traits) combinations, so they are worth holding onto:
-    /// the work collapses to a dictionary lookup after the first row of each
-    /// kind. Bounded by the type-size control having a fixed set of steps.
-    @MainActor private static var fontCache: [FontKey: UIFont] = [:]
-
-    private struct FontKey: Hashable {
-        let family: ScriptFont
-        let size: CGFloat
-        /// `SymbolicTraits` is an OptionSet and so isn't Hashable on its own.
-        let traits: UInt32
-    }
-
-    @MainActor
-    private static func font(family: ScriptFont,
-                             size: CGFloat,
-                             traits: UIFontDescriptor.SymbolicTraits) -> UIFont {
-        let key = FontKey(family: family, size: size, traits: traits.rawValue)
-        if let cached = fontCache[key] { return cached }
-
-        let base = UIFont(name: family.postScriptName, size: size)
-            ?? .monospacedSystemFont(ofSize: size, weight: .regular)
-
-        let resolved = base.fontDescriptor.withSymbolicTraits(traits)
-            .map { UIFont(descriptor: $0, size: size) } ?? base
-        fontCache[key] = resolved
-        return resolved
+        // Sized from the same base as the note and lyric surfaces, through the
+        // same resolver — see `ProseFont`.
+        return (ScriptFont(serverValue: block.font) ?? .default)
+            .uiFont(size: ProseFont.baseSize * textScale, traits: traits)
     }
 }

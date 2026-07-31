@@ -91,12 +91,13 @@ struct NoteTextView: UIViewRepresentable {
     /// formatting bar only while there is something for it to format.
     var onFocusChange: ((Bool) -> Void)?
 
-    /// Sized by the preference, then scaled again by the system's Dynamic
-    /// Type setting — prose notes have no Courier-fidelity excuse to ignore
-    /// either.
+    /// The editor's face at the writer's chosen size — the screenplay's own
+    /// typeface, resolved through the one place that knows it. This asked for
+    /// the system monospace before, which is a different face from the script
+    /// this note is about.
+    @MainActor
     private var scaledFont: UIFont {
-        UIFontMetrics(forTextStyle: .body).scaledFont(
-            for: .monospacedSystemFont(ofSize: 16 * textScale, weight: .regular))
+        ProseFont.editor(scale: textScale)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
