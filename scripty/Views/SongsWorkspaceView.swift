@@ -234,6 +234,23 @@ struct SongsWorkspaceView: View {
         }
     }
 
+    /// Where the writing on this screen currently lives, read across every song
+    /// that has been opened. Same precedence as the song editor's badge —
+    /// refused beats retrying — but taken over the whole workspace, because a
+    /// verse held back in the fourth song down is as unsaved as one in the
+    /// first, and nothing else here would say so while that song is collapsed.
+    private var cloudState: CloudSyncState? {
+        guard !app.isDemo else { return nil }
+        if !app.connectivity.isOnline { return .offline }
+        if lyrics.values.contains(where: \.hasFailedSaves) { return .failed }
+        return lyrics.values.contains(where: \.hasUnsavedChanges) ? .holding : .synced
+    }
+
+    /// Lines still kept on this device, counted across every open song.
+    private var heldLineCount: Int {
+        lyrics.values.reduce(0) { $0 + $1.unsavedBlockIds.count }
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
@@ -244,6 +261,23 @@ struct SongsWorkspaceView: View {
                 }
             }
         }
+        // Beside the way out, where the song editor and the screenplay keep it:
+        // leaving is the moment a writer wonders whether their words are
+        // anywhere but here.
+        if let cloud = cloudState {
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncBadge(state: cloud, heldCount: heldLineCount)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
+        // "Expand"/"Collapse" rather than the "Expand All"/"Collapse All" these
+        // were: the badge has to fit beside them, and with Done, a badge and
+        // both words spelled out the iPhone bar is one item over what it will
+        // draw — it then drops one, and not the same one twice: one launch
+        // loses Collapse All, the next loses the badge. A badge that is only
+        // sometimes there is worse than no badge. The two words each buy back
+        // the room, and the "All" they lose is the part the buttons never
+        // needed: every song on screen is what this screen is.
         ToolbarItemGroup(placement: .primaryAction) {
             // Only the songs currently passing the filter, so "expand all"
             // means the same thing the writer can see.
