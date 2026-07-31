@@ -326,8 +326,8 @@ struct SongEditorView: View {
                 retryAttempt = 0
                 Task { await saveNow() }
             }
-            // Covers every other way this sheet goes away: Done, the drag, and
-            // the parent view deciding it is finished with it.
+            // Covers every other way this editor goes away: Done, an insert
+            // that landed, and the parent view deciding it is finished with it.
             .onDisappear {
                 autosave?.cancel()
                 retry?.cancel()
@@ -337,8 +337,12 @@ struct SongEditorView: View {
             // it gives no chance to say so. An autosaving note has nothing to
             // lose to the drag — it is already saved, saving, or held — so the
             // drag is only refused where the words really would go.
+            // Presented as a full-screen cover now, which has no drag to
+            // refuse; kept because the same view is still put up as a sheet
+            // from the script, where the drag is real and would take the words
+            // with it.
             .interactiveDismissDisabled(leavingLosesWork)
-            .confirmationDialog("Discard unsaved changes?",
+            .confirmationDialog(saveFailed ? "Discard unsaved changes?" : "Discard changes?",
                                 isPresented: $confirmingDiscard,
                                 titleVisibility: .visible) {
                 Button("Discard", role: .destructive) {

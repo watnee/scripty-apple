@@ -582,6 +582,9 @@ extension HelpTopic {
                     + "one song at a time, and applies to that song's own edition "
                     + "when you are in one; the all-songs workspace honours it too "
                     + "and marks the locked songs.",
+                    "The lists, the editors and the workspace each take the whole "
+                    + "screen rather than a card over the script; Done, at the top "
+                    + "left, is the way back.",
                     "A lyric line or a note edited without a connection is kept on "
                     + "this device — the corner cloud in the song editor and on the "
                     + "workspace screen, and the note editor's status line, all say "

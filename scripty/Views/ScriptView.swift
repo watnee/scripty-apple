@@ -507,7 +507,15 @@ struct ScriptView: View {
         // reopened once: the next time this screen is asked for it is because
         // someone tapped for it, and they asked for the list rather than for
         // whatever was on it last night.
-        .sheet(item: $documentsSheet, onDismiss: { reopeningInSongs = [] }) { request in
+        //
+        // A cover rather than a sheet: songs and notes are a place to work, not
+        // something to glance at over the script. As a sheet an iPad left them
+        // in a centred card with the screenplay showing around it — half a
+        // screen for the lyric column and the editor stacked above it. Nothing
+        // is lost by covering the script: every screen in this stack already
+        // carries its own Done button, which is the only way out a cover
+        // offers. See `SongsView` for the same change one rung up.
+        .fullScreenCover(item: $documentsSheet, onDismiss: { reopeningInSongs = [] }) { request in
             // Identified by the request, because the screen's own list is
             // `@State` seeded from this argument — and seeding only happens the
             // first time a view identity exists. Without this, the second
@@ -534,7 +542,9 @@ struct ScriptView: View {
         }
         // A song reached from the toolbar menu opens the same editor the songs
         // list would have opened it in — the list is only skipped, not replaced.
-        .sheet(item: $openingDocument, onDismiss: {
+        // A cover for the same reason the list is one: skipping the list is a
+        // shortcut to the editor, not a smaller version of it.
+        .fullScreenCover(item: $openingDocument, onDismiss: {
             // Saving a song re-syncs every place it was already inserted, so
             // the script may have changed while the editor was up; the menu
             // re-orders on the dates the same reload brings back.
