@@ -259,7 +259,6 @@ actions are registered by the app itself, and the Shortcuts app lists them under
 | "Open my songs in Scripty" | The songs of your default screenplay             |
 | "Open my notes in Scripty" | The notes of the same one                        |
 | "Open my screenplays in Scripty" | The projects list                          |
-| "Open the Scripty demo"    | The offline demo, no account needed              |
 | **Open Screenplay**        | A screenplay you name — also a Spotlight result  |
 | **Open Song or Note**      | A song or note you name, in its screenplay       |
 
@@ -285,7 +284,6 @@ Siri uses:
 | `scripty://songs`, `scripty://notes` | Your default screenplay's songs or notes |
 | `scripty://project?id=…` | That screenplay; `scripty://project` for the list |
 | `scripty://document?project=…&id=…&kind=…` | One song or note |
-| `scripty://demo` | The offline demo |
 
 The pieces are in [scripty/Intents](scripty/Intents): the entities Siri can name
 ([ScreenplayEntity.swift](scripty/Intents/ScreenplayEntity.swift),
@@ -489,9 +487,11 @@ xcrun simctl spawn booted defaults write scripty.scripty \
     scripty.baseURLOverride "http://localhost:8080"
 ```
 
-The offline demo bypasses the network entirely. `demo.sh` always starts there
-and `install.sh --demo` does too; on an installed copy the `scripty://demo` URL
-does the same, so a Home Screen shortcut can jump straight into it.
+The offline demo bypasses the network entirely. It is a development and
+screenshot tool rather than something the app offers: the only way in is the
+`-scripty.demo YES` launch argument, which `demo.sh` and `install.sh --demo`
+pass for you. Nothing in the interface reaches it and no URL opens it, so a
+writer cannot land in a sample screenplay by accident.
 
 ### Deploy the server before you install
 

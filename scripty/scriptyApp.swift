@@ -87,16 +87,10 @@ struct scriptyApp: App {
                     // for a screen and lets the loaded list settle the rest.
                     //
                     // Checked after the two widget links, which are more
-                    // specific, and before the demo one, which is not a route.
+                    // specific.
                     if let route = ScriptyLink.route(in: url) {
                         QuickActions.shared.pending = IntentRouting.action(for: route)
-                        return
                     }
-                    // scripty://demo — e.g. from a home-screen Shortcut —
-                    // jumps straight into the offline demo.
-                    guard url.scheme == "scripty",
-                          url.host() == "demo" || url.path == "/demo" else { return }
-                    Task { await appModel.enterDemo() }
                 }
         }
         // Real menus on the Mac, and real keyboard shortcuts on an iPad with

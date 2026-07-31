@@ -95,6 +95,10 @@ final class AppModel {
 
     /// Set via launch arguments (`-scripty.demo YES`) to boot straight into
     /// demo mode — used by scripts/demo.sh and never persisted.
+    ///
+    /// The only way in. Demo mode is a development and screenshot tool, not
+    /// something the app offers: nothing in the interface reaches it, and no
+    /// URL opens it.
     static let demoLaunchKey = "scripty.demo"
 
     /// Whose unsaved drafts the disk store holds: server + account, so drafts
@@ -109,8 +113,9 @@ final class AppModel {
 
     /// Bumped whenever the session is replaced. An in-flight bootstrap that
     /// resumes against a stale token must not overwrite the newer session —
-    /// otherwise `scripty://demo` on a cold launch loses a race with the
-    /// stored-credential check and drops the user back at the login screen.
+    /// otherwise a passkey sign-in that lands while the stored-credential check
+    /// is still in flight is overwritten by it, dropping the user back at the
+    /// login screen.
     private var session = 0
 
     /// Called once at launch: try stored credentials against the API root.
@@ -280,8 +285,9 @@ final class AppModel {
     /// Enters the offline demo: a fresh in-memory backend seeded with a
     /// sample screenplay. Stored real credentials are left untouched.
     ///
-    /// Re-entering while already in the demo is a no-op, so opening
-    /// `scripty://demo` again doesn't throw away the edits being demoed.
+    /// Reached only through `demoLaunchKey` — scripts/demo.sh and the checks
+    /// under Tests. Re-entering while already in the demo is a no-op, so asking
+    /// twice doesn't throw away the edits being demoed.
     func enterDemo() async {
         guard !isDemo else { return }
         session += 1

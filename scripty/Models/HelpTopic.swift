@@ -155,17 +155,7 @@ extension HelpTopic {
                     + "ask an administrator."
                 ],
                 keywords: ["recover", "recovery", "undelete", "lost", "missing", "gone",
-                           "accident", "bin"]),
-            HelpTopic(
-                id: "demo",
-                title: "Demo Mode",
-                systemImage: "sparkles",
-                paragraphs: [
-                    "Try Demo on the sign-in screen opens a sample screenplay with no "
-                    + "server behind it. Everything works, nothing is sent anywhere, and "
-                    + "every edit is discarded when you quit."
-                ],
-                keywords: ["sample", "try", "offline", "test", "example"])
+                           "accident", "bin"])
         ]),
         HelpSection(id: "writing", title: "Writing", topics: [
             HelpTopic(

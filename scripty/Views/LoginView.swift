@@ -30,7 +30,7 @@ struct LoginView: View {
     }
 
     private enum Busy {
-        case password, passkey, savedPassword, demo
+        case password, passkey, savedPassword
     }
 
     private var canSubmit: Bool {
@@ -132,22 +132,6 @@ struct LoginView: View {
                         .disabled(busy != nil)
                     }
 
-                    VStack(spacing: 6) {
-                        Button {
-                            enterDemo()
-                        } label: {
-                            busyLabel(if: .demo) {
-                                Label("Try the Demo", systemImage: "sparkles")
-                            }
-                        }
-                        .buttonStyle(.glass)
-                        .disabled(busy != nil)
-
-                        Text("Explore a sample screenplay — no account needed.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
                     Spacer(minLength: 16)
                     Spacer(minLength: 0)
                 }
@@ -199,15 +183,6 @@ struct LoginView: View {
         }
         .frame(maxWidth: 360)
         .padding(.vertical, 6)
-    }
-
-    private func enterDemo() {
-        focusedField = nil
-        busy = .demo
-        Task {
-            await app.enterDemo()
-            busy = nil
-        }
     }
 
     private func signIn() {
