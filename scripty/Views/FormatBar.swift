@@ -7,9 +7,14 @@
 //  toggle button at that bar's leading edge. Every control reflects the
 //  block's current server state, so the bar doubles as an indicator.
 //
+//  The type size at the end is the exception, and is documented where it is
+//  built: it belongs to the device rather than to the element, because the
+//  server carries no per-element size.
+//
 //  The three styles and the three alignments are each packed into one
-//  segmented capsule, and the typeface shows its short name, so the whole bar
-//  fits a phone without scrolling. It still hides behind the toggle: a second
+//  segmented capsule, and the typeface and size show short labels, so the bar
+//  fits a phone with only the last chip scrolled to. It still hides behind
+//  the toggle: a second
 //  permanent row of chips above the keyboard is more of the screen than
 //  formatting deserves. Segment height matches ElementTypeBar's chips, so the
 //  two rows still read as one language: the group's own 2pt inset plus a
@@ -25,6 +30,11 @@ struct FormatBar: View {
     let model: ScriptModel
     let block: Block
 
+    private let settings = PresentationSettings.shared
+
+    @State private var isEnteringSize = false
+    @State private var sizeText = ""
+
     private var align: TextAlign { TextAlign(serverValue: block.textAlign) ?? .left }
     /// nil is a real state here — the element carries no font override and so
     /// prints in the default typeface. The menu shows "Default" for it.
@@ -36,6 +46,7 @@ struct FormatBar: View {
                 segmented { styleSegments }
                 segmented { alignSegments }
                 fontMenu
+                sizeMenu
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
@@ -43,6 +54,30 @@ struct FormatBar: View {
         // No background: `ScriptView` mounts the editing bars with
         // `.safeAreaBar`, so the strip is already floating on Liquid Glass.
         .scrollEdgeEffectHidden()
+        .alert("Text Size", isPresented: $isEnteringSize) {
+            TextField("Points", text: $sizeText)
+                .keyboardType(.decimalPad)
+            Button("Cancel", role: .cancel) { sizeText = "" }
+            Button("Set") {
+                // A number that isn't one leaves the size alone; one outside
+                // the range is pulled to the nearest end by the setter. The
+                // comma is tried as a decimal point because that is the key
+                // the number pad offers wherever a comma is the separator, and
+                // `Double(_:)` only ever reads a full stop.
+                let entry = sizeText.trimmingCharacters(in: .whitespaces)
+                if let points = Double(entry)
+                    ?? Double(entry.replacingOccurrences(of: ",", with: ".")) {
+                    settings.fontSizePt = points
+                }
+                sizeText = ""
+            }
+        } message: {
+            Text("Show the script between "
+                 + "\(PresentationSettings.fontSizeLabel(PresentationSettings.minFontSizePt)) "
+                 + "and "
+                 + "\(PresentationSettings.fontSizeLabel(PresentationSettings.maxFontSizePt)) "
+                 + "points.")
+        }
     }
 
     // MARK: - Bold / italic / underline
@@ -74,7 +109,10 @@ struct FormatBar: View {
     // MARK: - Typeface
 
     private var fontMenu: some View {
-        Menu {
+        // The chip shows the name shortened; VoiceOver reads it whole.
+        chipMenu(title: font?.shortLabel ?? "Default",
+                 accessibilityLabel: "Font",
+                 accessibilityValue: font?.label ?? "Default") {
             // "Default" resets the override, matching the web Format menu's
             // "Font: Default". It clears through the bulk endpoint's `clearFont`
             // flag, since the per-block PUT can only set a named font — a blank
@@ -83,22 +121,7 @@ struct FormatBar: View {
             ForEach(ScriptFont.allCases) { option in
                 fontOption(option, label: option.label)
             }
-        } label: {
-            HStack(spacing: 4) {
-                Text(font?.shortLabel ?? "Default")
-                Image(systemName: "chevron.up.chevron.down").font(.caption2)
-            }
-            .font(.footnote.weight(.medium))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.primary)
-        .background(Capsule().fill(Color.secondary.opacity(0.15)))
-        .accessibilityLabel("Font")
-        // The chip shows the name shortened; VoiceOver reads it whole.
-        .accessibilityValue(font?.label ?? "Default")
     }
 
     @ViewBuilder
@@ -118,6 +141,81 @@ struct FormatBar: View {
                 Text(label)
             }
         }
+    }
+
+    // MARK: - Type size
+
+    /// The size the script is shown in, in points, beside the typeface it is
+    /// shown in — which is where a writer looks for it.
+    ///
+    /// The odd one out in this bar: every control to its left changes the
+    /// element under the cursor, and this one changes how the whole script is
+    /// drawn, on this device. There is no per-element size to change — the
+    /// server carries a typeface, the three styles, an alignment and a
+    /// highlight, and no size — so the section header says whose size it is,
+    /// and the menu is the same one the View menu's Text Size section steps.
+    private var sizeMenu: some View {
+        chipMenu(title: "\(settings.fontSizeLabel) pt",
+                 accessibilityLabel: "Script text size",
+                 accessibilityValue: "\(settings.fontSizeLabel) points") {
+            Section("Script Text Size") {
+                ForEach(PresentationSettings.fontSizePresets, id: \.self) { size in
+                    sizeOption(size)
+                }
+
+                // Last, and named for what it opens rather than for what it
+                // sets: the presets cover the sizes anyone asks for by name,
+                // and this is for the writer who knows the number they want.
+                Button("Custom Size…") {
+                    sizeText = settings.fontSizeLabel
+                    isEnteringSize = true
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sizeOption(_ points: Double) -> some View {
+        Button {
+            settings.fontSizePt = points
+        } label: {
+            let label = "\(PresentationSettings.fontSizeLabel(points)) pt"
+            if settings.isSetIn(fontSizePt: points) {
+                Label(label, systemImage: "checkmark")
+            } else {
+                Text(label)
+            }
+        }
+    }
+
+    // MARK: - Chips
+
+    /// A menu dressed as one of the bar's capsules. Shared by the typeface and
+    /// the size so the two read as one pair of controls rather than as two
+    /// separately-built ones.
+    private func chipMenu<Content: View>(
+        title: String,
+        accessibilityLabel: String,
+        accessibilityValue: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Menu {
+            content()
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                Image(systemName: "chevron.up.chevron.down").font(.caption2)
+            }
+            .font(.footnote.weight(.medium))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.primary)
+        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue)
     }
 
     // MARK: - Segmented group

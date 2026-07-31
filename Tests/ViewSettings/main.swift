@@ -304,6 +304,55 @@ func runFitToWidth() {
     check("nonsense falls back to 100%", odd.pageZoom, 100)
 }
 
+/// The point size in the format bar is the stored percentage in other units,
+/// and the conversion runs through a rounded integer both ways. So the thing
+/// worth checking is the round trip: every size the menu offers has to come
+/// back as itself, or the checkmark lands on the wrong row and the chip reads
+/// 13.9 for the 14 the writer just picked.
+@MainActor
+func runFontSizePoints() {
+    print("")
+    print("Type size in points")
+    let store = scratch("fontsize")
+    let settings = PresentationSettings(defaults: store)
+
+    check("a first run is set in 12pt", settings.fontSizePt, 12.0)
+    check("and says so without a decimal", settings.fontSizeLabel, "12")
+
+    for size in PresentationSettings.fontSizePresets {
+        settings.fontSizePt = size
+        check("\(PresentationSettings.fontSizeLabel(size))pt comes back as itself",
+              settings.fontSizePt, size)
+        check("and matches its own preset", settings.isSetIn(fontSizePt: size), true)
+    }
+
+    settings.fontSizePt = 14
+    check("14pt is stored as the percentage the web app reads",
+          store.object(forKey: "scripty-text-size") as? Int ?? 0, 117)
+    check("and does not match the size next to it",
+          settings.isSetIn(fontSizePt: 16), false)
+
+    // Out of range is pulled to the nearest end rather than refused — typing 72
+    // means "as big as this goes", not "do nothing".
+    settings.fontSizePt = 72
+    check("an outsized point size is pulled back",
+          settings.fontSizePt, PresentationSettings.maxFontSizePt)
+    settings.fontSizePt = 2
+    check("and a vanishing one too",
+          settings.fontSizePt, PresentationSettings.minFontSizePt)
+
+    // The floor rounds up, so the smallest size on offer is one the scale can
+    // give back exactly; the ceiling rounds down for the same reason.
+    check("the floor is a round point", PresentationSettings.minFontSizePt, 10.0)
+    check("the ceiling is too", PresentationSettings.maxFontSizePt, 24.0)
+
+    // The percentage and the points are one setting: stepping one moves the
+    // other, and a step that lands off a whole point has to say so.
+    settings.textSize = 110
+    check("stepping the percentage moves the point size", settings.fontSizePt, 13.2)
+    check("and a fractional size keeps its decimal", settings.fontSizeLabel, "13.2")
+}
+
 MainActor.assumeIsolated {
     runWordCount()
     runOutlineMode()
@@ -312,6 +361,7 @@ MainActor.assumeIsolated {
     runWordUnderSelection()
     runAppearance()
     runZoomAndTextSizeBounds()
+    runFontSizePoints()
     runFitToWidth()
 }
 

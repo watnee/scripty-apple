@@ -365,12 +365,22 @@ extension HelpTopic {
                     "Bigger, Smaller and Actual Size scale the script for your eyes and "
                     + "your screen. Appearance in the sidebar menu picks light, dark, or "
                     + "whatever the device is doing.",
-                    "Both are settings for this device rather than for the account: the "
-                    + "same screenplay is read on a bright rehearsal-room iPad and in a "
-                    + "dark editing suite."
+                    "The same size can be asked for in points. While you are typing, "
+                    + "the formatting button at the start of the element bar folds out "
+                    + "bold, italic, alignment, the typeface and a pt button: that one "
+                    + "offers 10 through 24, and Custom Size takes any number in "
+                    + "between. A screenplay is set in 12pt, so 12 is where the script "
+                    + "starts — and unlike the controls beside it, the size is for the "
+                    + "whole script rather than for the element you are in.",
+                    "All of these are settings for this device rather than for the "
+                    + "account: the same screenplay is read on a bright rehearsal-room "
+                    + "iPad and in a dark editing suite. Printing and PDF export stay at "
+                    + "12pt whatever you are reading at, so the pages still count the "
+                    + "way a screenplay's pages are supposed to."
                 ],
                 keywords: ["zoom", "font size", "larger", "smaller", "dark mode",
-                           "light", "theme", "readability"]),
+                           "light", "theme", "readability", "points", "pt", "10", "12",
+                           "14", "16"]),
             HelpTopic(
                 id: "stats",
                 title: "Script Stats and Word Count",
