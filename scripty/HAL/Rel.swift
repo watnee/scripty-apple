@@ -171,20 +171,6 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let purge = Rel("purge")
     static let emptyTrash = Rel("emptyTrash")
 
-    // Putting something aside, which is not the same as losing it. A second
-    // stamp beside `deleted_at` rather than a second trash: an archived song or
-    // note is whole, still openable, and comes back in one tap — nothing
-    // expires it and nothing has to be "restored".
-    //
-    // Advertised for songs and notes alike, since there was never anything
-    // song-shaped about setting a document aside.
-    static let archive = Rel("archive")
-    static let unarchive = Rel("unarchive")
-    /// The documents put aside, on the document collection.
-    static let archived = Rel("archived")
-    /// Archiving a ticked selection, the archive's answer to `bulkDelete`.
-    static let bulkArchive = Rel("bulkArchive")
-
     // Collaboration.
     static let comments = Rel("comments")
     static let addComment = Rel("addComment")

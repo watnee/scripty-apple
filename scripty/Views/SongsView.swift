@@ -132,9 +132,6 @@ struct SongsView: View {
     @State private var selection = Set<Int>()
     @State private var editMode: EditMode = .inactive
     @State private var confirmingBulkDelete = false
-    /// Presented from the link the document collection advertised, like the
-    /// trash beside it.
-    @State private var archiveLink: HALLink?
     /// Emailing the ticked songs asks for the address in its own alert: the
     /// single-song one keys off `sharingDocument`, and there is no one
     /// document here to hang it on.
@@ -832,19 +829,6 @@ struct SongsView: View {
                     }
                 }
             }
-            // The shelf beside the bin. Always offered where the server
-            // advertises it, empty or not — unlike the bulk rels it needs no
-            // document to be useful, since a project's list can be empty
-            // precisely because everything in it was archived.
-            if let archive = model.archivedDocumentsLink {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        archiveLink = archive
-                    } label: {
-                        Label("Archived Songs & Notes", systemImage: "archivebox")
-                    }
-                }
-            }
             if let trash = model.documentsLinks[.trash] {
                 ToolbarItem(placement: .secondaryAction) {
                     Button {
@@ -1059,25 +1043,6 @@ struct SongsView: View {
             } else {
                 statusMessage = model.errorMessage
                     ?? "Could not delete those \(kindWordPlural)."
-            }
-        }
-    }
-
-    /// Archives the ticked rows. Unlike ``bulkDelete`` this takes the selection
-    /// whatever kind it holds — the server archives notes and songs alike, so
-    /// nothing is quietly skipped and the count reported is the count asked for.
-    private func bulkArchive() {
-        let ids = selectedDocuments.map(\.id)
-        let count = ids.count
-        let noun = listType == .song
-            ? (count == 1 ? "song" : "songs")
-            : (count == 1 ? "note" : "notes")
-        selection.removeAll()
-        Task {
-            if await model.bulkArchiveDocuments(ids) {
-                statusMessage = "Archived \(count) \(noun)."
-            } else {
-                statusMessage = model.errorMessage ?? "Could not archive those \(noun)."
             }
         }
     }
