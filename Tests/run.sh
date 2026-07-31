@@ -147,6 +147,17 @@ swiftc "${FLAGS[@]}" -o "$BUILD/narration" \
 run_suite "$BUILD/narration" || status=1
 
 echo
+echo "== Reading a picked file =="
+# Foundation only: the coordinated read itself needs a Files provider to have
+# anything to coordinate with, so what is checked here is the shape around it —
+# the bytes, the MIME types the server sorts formats by, and the failure message
+# keeping the system's reason instead of swallowing it.
+swiftc "${FLAGS[@]}" -o "$BUILD/pickedfile" \
+    "$SRC/Models/PickedFile.swift" \
+    "$ROOT/Tests/PickedFile/main.swift"
+run_suite "$BUILD/pickedfile" || status=1
+
+echo
 echo "== Note formatting =="
 swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
     "$SRC/Models/NoteFormatting.swift" \
