@@ -32,6 +32,8 @@ struct SongBlockEditorView: View {
 
     /// The same device-wide readout preference the screenplay honours.
     private let settings = PresentationSettings.shared
+    /// Whether the offline strip has been closed for the copy currently shown.
+    private let notices = DismissedNotices.shared
     @State private var showingEditions = false
     @State private var showingVersions = false
     @State private var showingTrash = false
@@ -128,6 +130,12 @@ struct SongBlockEditorView: View {
                     editionBanner
                     offlineCopyBanner
                 }
+            }
+            // A fresh load — a newer cached copy, or the real lyric — is a new
+            // situation, so whatever was closed about the old one stops
+            // applying and the strip is free to speak again.
+            .onChange(of: offlineCopyState) { _, _ in
+                notices.situationChanged(offlineCopyKey)
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
@@ -256,13 +264,28 @@ struct SongBlockEditorView: View {
         return model.hasUnsavedChanges ? .holding : .synced
     }
 
+    /// Which copy the strip is reporting, or nil when the lyric on screen came
+    /// from the server. The date is the situation: a newer stale copy is a
+    /// different thing to be told, so it is told even if the last one was
+    /// closed.
+    private var offlineCopyState: String? {
+        model.offlineCopySavedAt.map(DismissedNotices.offlineCopyState(savedAt:))
+    }
+
+    /// The songs workspace raises the same notice about the same lyric under
+    /// this key, so closing it in either place closes it in both.
+    private var offlineCopyKey: String {
+        DismissedNotices.offlineCopyKey(songId: model.document.id)
+    }
+
     /// Says the lyric on screen is the copy saved on this device, and how old
     /// it is — an out-of-date lyric should not look current. Only shown when
     /// the fallback actually happened, not merely because the radio is off;
     /// the same rule the projects sidebar follows.
     @ViewBuilder
     private var offlineCopyBanner: some View {
-        if let savedAt = model.offlineCopySavedAt {
+        let isClosed = offlineCopyState.map { notices.isDismissed(offlineCopyKey, state: $0) } ?? true
+        if let savedAt = model.offlineCopySavedAt, !isClosed {
             HStack(spacing: 6) {
                 Image(systemName: "wifi.slash")
                     .font(.caption)
@@ -270,6 +293,7 @@ struct SongBlockEditorView: View {
                      + savedAt.formatted(.relative(presentation: .named)))
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                NoticeCloseButton(action: dismissOfflineCopy)
             }
             .font(.footnote)
             .foregroundStyle(.secondary)
@@ -280,9 +304,21 @@ struct SongBlockEditorView: View {
             .overlay(alignment: .bottom) {
                 Rectangle().fill(.separator).frame(height: 0.5)
             }
-            .accessibilityElement(children: .combine)
+            // `.ignore`, not `.combine`: a combined element swallows the close
+            // button, and a notice VoiceOver cannot put down is worse than one
+            // nobody can close at all.
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Offline. Showing the lyrics saved on this device "
                                 + savedAt.formatted(.relative(presentation: .named)) + ".")
+            .accessibilityAction(named: "Dismiss") { dismissOfflineCopy() }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private func dismissOfflineCopy() {
+        guard let state = offlineCopyState else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            notices.dismiss(offlineCopyKey, state: state)
         }
     }
 

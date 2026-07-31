@@ -174,6 +174,29 @@ extension HelpTopic {
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
                            "autosave", "editing"]),
             HelpTopic(
+                id: "offline-writing",
+                title: "Writing Without a Connection",
+                systemImage: "wifi.slash",
+                paragraphs: [
+                    "Keep typing. Words written with the connection down are kept on "
+                    + "this device, survive closing the app, and are sent by themselves "
+                    + "when it comes back. A strip under the toolbar says which state "
+                    + "you are in: You're offline while there is no connection, Not "
+                    + "saved yet while something is still on its way, and Couldn't save "
+                    + "if the server refused a line — editing that line tries again.",
+                    "Tap the ✕ on the strip to put it away. It stays away for as long "
+                    + "as that situation lasts, and comes back if the situation changes "
+                    + "— a refusal arriving, or the connection dropping again after it "
+                    + "returned. The cloud in the top left goes on showing the same "
+                    + "state either way, and tapping it says when everything last "
+                    + "reached the server.",
+                    "Songs, notes and the project list work the same way, and each says "
+                    + "how old the copy on screen is when it was read back from this "
+                    + "device rather than the server."
+                ],
+                keywords: ["offline", "no connection", "unsaved", "held", "sync",
+                           "cloud", "banner", "dismiss", "close", "airplane mode"]),
+            HelpTopic(
                 id: "fountain",
                 title: "Fountain as You Type",
                 systemImage: "wand.and.stars",
@@ -428,7 +451,8 @@ extension HelpTopic {
                     + "elsewhere in the meantime is set aside rather than overwritten, "
                     + "and the editor says when that happens. A song opened offline "
                     + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a banner saying how old that copy is. A brand-new song "
+                    + "with a strip saying how old that copy is — tap its ✕ to put "
+                    + "it away until a newer copy arrives. A brand-new song "
                     + "or note is the exception: until it has reached the server "
                     + "once there is nothing there to keep it against, so the editor "
                     + "says it has not been saved and holds on to it until you are "
@@ -438,7 +462,7 @@ extension HelpTopic {
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
-                           "save", "autosave", "title"]),
+                           "save", "autosave", "title", "dismiss", "close"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

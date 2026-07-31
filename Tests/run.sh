@@ -180,6 +180,13 @@ swiftc "${FLAGS[@]}" -o "$BUILD/viewoptions" \
 run_suite "$BUILD/viewoptions" || status=1
 
 echo
+echo "== Dismissed notices =="
+swiftc "${FLAGS[@]}" -o "$BUILD/notices" \
+    "$SRC/State/DismissedNotices.swift" \
+    "$ROOT/Tests/Notices/main.swift"
+run_suite "$BUILD/notices" || status=1
+
+echo
 echo "== Reopening what was left open =="
 swiftc "${FLAGS[@]}" -o "$BUILD/editorstate" \
     "$SRC/State/OpenEditorState.swift" \
