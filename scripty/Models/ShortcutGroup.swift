@@ -147,7 +147,7 @@ extension ShortcutGroup {
                 ShortcutEntry("Focus mode", "⌘⇧F"),
                 ShortcutEntry("Full page width", "⌘\\"),
                 ShortcutEntry("Outline mode", "⌘⇧O"),
-                ShortcutEntry("Outline panel", "⌘⌥O"),
+                ShortcutEntry("Navigator", "⌘⌥O"),
                 ShortcutEntry("Read script", "⌘⇧R"),
                 ShortcutEntry("Read aloud", "⌘⇧A"),
                 ShortcutEntry("Check spelling", "⌘⇧;"),

@@ -363,10 +363,10 @@ extension HelpTopic {
                            "table read", "run lines", "text to speech"]),
             HelpTopic(
                 id: "outline",
-                title: "Outline and Outline Mode",
+                title: "Navigator and Outline Mode",
                 systemImage: "list.bullet.indent",
                 paragraphs: [
-                    "Outline opens a panel of the scenes, sections, synopses and "
+                    "Navigator opens a panel of the scenes, sections, synopses and "
                     + "bookmarks in script order; tapping one jumps to it.",
                     "Outline Mode is the other half of the idea: it filters the script "
                     + "itself down to scene headings, sections and synopses, so you can "
