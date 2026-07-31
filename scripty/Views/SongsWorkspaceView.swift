@@ -147,12 +147,6 @@ struct SongsWorkspaceView: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                     Spacer(minLength: 0)
-                    if let count = lineCount(song) {
-                        Text("\(count) \(count == 1 ? "line" : "lines")")
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
                 }
                 .contentShape(Rectangle())
             }
@@ -323,11 +317,6 @@ struct SongsWorkspaceView: View {
             open(song)
         }
         didRestore = true
-    }
-
-    private func lineCount(_ song: TextDocument) -> Int? {
-        guard let lyric = lyrics[song.id], !lyric.isLoading else { return nil }
-        return lyric.blocks.count
     }
 
     private func commitEverything() async {
