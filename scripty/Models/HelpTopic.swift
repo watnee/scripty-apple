@@ -92,7 +92,9 @@ extension HelpTopic {
                 paragraphs: [
                     "The sidebar lists every screenplay you can open. Search it by "
                     + "title, sort by last edited or by name, and swipe a row to rename "
-                    + "or delete it.",
+                    + "or delete it. A screenplay already open can be renamed where you "
+                    + "are: Rename Screenplay sits under its name in the script's "
+                    + "toolbar, beside the title page and the rest of its affairs.",
                     "The star marks a default project. Tap it on the row you keep "
                     + "coming back to, and Scripty opens that screenplay for you "
                     + "the next time it starts — the same landing the web editor "
@@ -522,10 +524,15 @@ extension HelpTopic {
                 paragraphs: [
                     "The title page holds the front matter — title, writers, contact "
                     + "details, draft version — with a live preview of the sheet beside "
-                    + "the form. It travels with every export that has a front page."
+                    + "the form. It travels with every export that has a front page.",
+                    "The screenplay title set here is what the script is headed with. "
+                    + "The project name, which the same sheet also holds, is only what "
+                    + "your list calls it — so on a screenplay with a title of its own, "
+                    + "renaming the project changes the list and leaves the heading "
+                    + "alone. Leave the title blank and the two are the same thing."
                 ],
                 keywords: ["front matter", "credits", "author", "byline", "contact",
-                           "draft"]),
+                           "draft", "name", "rename", "project name", "heading"]),
             HelpTopic(
                 id: "import-export",
                 title: "Importing and Exporting a Screenplay",
