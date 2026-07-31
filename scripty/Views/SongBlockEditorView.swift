@@ -133,6 +133,7 @@ struct SongBlockEditorView: View {
                 VStack(spacing: 0) {
                     searchBar
                     wordCountBar
+                    keyboardBar
                 }
             }
             .navigationTitle(model.document.displayTitle)
@@ -475,6 +476,29 @@ struct SongBlockEditorView: View {
                 running + ScriptStats.countWords(model.currentText(block))
             }
             WordCountBar(words: words)
+        }
+    }
+
+    /// The way down from a lyric line. Only while one is being typed into —
+    /// there is no keyboard to hide otherwise, and a lyric is short enough that
+    /// a standing strip would be a row of the song lost to a button. Tapping it
+    /// ends the line's editing, which clears the focus and takes the bar with
+    /// it, exactly as tapping away from the line already does.
+    ///
+    /// Asked of the model rather than of `focusedLine`: no view here claims that
+    /// focus state with `.focused()`, so SwiftUI throws its value away and the
+    /// bar would never appear.
+    @ViewBuilder
+    private var keyboardBar: some View {
+        if model.focusedBlockId != nil {
+            // The line's own `onEndEditing` clears these too, but not before
+            // the row has had an update to re-grant itself first responder
+            // from either — which would hand the keyboard straight back.
+            HideKeyboardBar(releaseFocus: {
+                focusedLine = nil
+                model.focusedBlockId = nil
+                model.focusRequest = nil
+            })
         }
     }
 

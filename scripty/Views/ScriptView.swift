@@ -1439,6 +1439,21 @@ struct ScriptView: View {
                     if block.hasLink(.setType) {
                         ElementTypeBar(model: model, block: block)
                     }
+                    // Trailing, opposite the formatting toggle: the two are the
+                    // controls that are not type chips, and keeping them at the
+                    // ends leaves the chips a clear run between them. The type
+                    // bar scrolls, so this stays put however long the row gets.
+                    // Asked rather than left to the button, so a Mac — which has
+                    // no keyboard to hide — is not left the padding either.
+                    if HideKeyboardButton.isAvailable {
+                        // The model lets go of the element in the same turn:
+                        // the row re-grants itself first responder while it is
+                        // still the focused one, so a resign alone is undone
+                        // before the keyboard has finished going down.
+                        HideKeyboardButton(releaseFocus: { model.focus(nil) })
+                            .padding(.trailing, 12)
+                            .padding(.vertical, 5)
+                    }
                 }
             }
         }

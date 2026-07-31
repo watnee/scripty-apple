@@ -73,6 +73,10 @@ struct SongLineRow: View {
                       onCaretApplied: { model.caretRequests[block.id] = nil },
                       onBeginEditing: {
                           focusedLine = block.id
+                          // And in the model, which is the copy that survives:
+                          // SwiftUI keeps no focus value no view has claimed,
+                          // so this is what the hosts' keyboard bar reads.
+                          model.focusedBlockId = block.id
                           // Taken: the model has no further say over where
                           // the caret goes until it asks again.
                           if model.focusRequest == block.id { model.focusRequest = nil }
@@ -83,6 +87,7 @@ struct SongLineRow: View {
                           // still points here — a tap on another line has
                           // already moved it on by the time this fires.
                           if focusedLine == block.id { focusedLine = nil }
+                          if model.focusedBlockId == block.id { model.focusedBlockId = nil }
                           Task { await model.commit(block) }
                       },
                       onReturn: {

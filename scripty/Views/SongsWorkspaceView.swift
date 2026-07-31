@@ -75,6 +75,23 @@ struct SongsWorkspaceView: View {
             .environment(\.scriptTextScale, settings.textScale)
             .searchable(text: $filter, prompt: "Filter songs")
             .overlay { emptyState }
+            // The same way down from a lyric line the song editor gives, since
+            // this screen is the same rows in a different list. Mounted in the
+            // bar rather than in the list, where a conditional row is a coin
+            // toss from one launch to the next.
+            .safeAreaBar(edge: .bottom, spacing: 0) {
+                // Asked of the lyrics rather than of `focusedLine`, which
+                // SwiftUI discards: no row claims it with `.focused()`.
+                if lyrics.values.contains(where: { $0.focusedBlockId != nil }) {
+                    HideKeyboardBar(releaseFocus: {
+                        focusedLine = nil
+                        for lyric in lyrics.values {
+                            lyric.focusedBlockId = nil
+                            lyric.focusRequest = nil
+                        }
+                    })
+                }
+            }
             .navigationTitle("All Songs")
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)

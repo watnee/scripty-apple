@@ -357,8 +357,33 @@ struct SongEditorView: View {
             }
             if showsFormatBar && isWritingBody {
                 NoteFormatBar(controller: formatting)
+            } else if isTyping {
+                // The formatting bar carries the way out of the keyboard for a
+                // note being written. Everywhere else the keyboard covers this
+                // sheet — a song's lyrics, which get the keyboard rules but not
+                // the bar, and either kind's title field — the chip needs a
+                // strip of its own, wearing the same chrome so the two read as
+                // one bar appearing and disappearing rather than two.
+                // The title field's focus is SwiftUI's, so it is dropped the
+                // way SwiftUI understands rather than left to be re-asserted.
+                HideKeyboardBar(releaseFocus: { titleFocused = false })
+                    .background(.bar)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(.separator).frame(height: 0.5)
+                    }
             }
         }
+    }
+
+    /// Whether the keyboard is up over this sheet.
+    ///
+    /// The body reports its own focus, and for the title there is nothing to
+    /// ask: its `@FocusState` stays false through a tap into the field, because
+    /// the UIKit editor below has held first responder and SwiftUI's focus
+    /// engine no longer agrees with UIKit about who has it now. So the keyboard
+    /// is watched instead — see `SoftwareKeyboard`.
+    private var isTyping: Bool {
+        canEdit && (isWritingBody || SoftwareKeyboard.shared.isVisible)
     }
 
     /// Says where the note stands with the server, and — when that is nowhere —

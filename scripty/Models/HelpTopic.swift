@@ -169,10 +169,15 @@ extension HelpTopic {
                     + "action. Backspace with the caret at the very start merges the "
                     + "element back into the one above.",
                     "Edits save themselves as you pause, so there is no save button to "
-                    + "look for."
+                    + "look for.",
+                    "The keyboard key at the end of the element bar puts the keyboard "
+                    + "away and gives the screen back to the script, without leaving "
+                    + "what you were writing. The lyric and note editors carry the "
+                    + "same key above their own keyboards."
                 ],
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
-                           "autosave", "editing"]),
+                           "autosave", "editing", "hide keyboard", "dismiss keyboard",
+                           "close keyboard", "keyboard"]),
             HelpTopic(
                 id: "fountain",
                 title: "Fountain as You Type",
@@ -412,7 +417,9 @@ extension HelpTopic {
                     + "nests them on Tab, and sets headings; the prefixes stay plain "
                     + "text, so what reaches the script is what you typed. Songs can be "
                     + "opened one at a time, or all together on the workspace screen for "
-                    + "a change that runs through several of them.",
+                    + "a change that runs through several of them. Both editors show a "
+                    + "keyboard key above the keyboard while you write — it puts the "
+                    + "keyboard away and leaves the words where they are.",
                     "A song being worked on is rarely far away. The script has a Songs "
                     + "button and a Notes button, each opening its own list; holding "
                     + "one opens the last few of that kind you edited, each going "
@@ -438,7 +445,8 @@ extension HelpTopic {
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
-                           "save", "autosave", "title"]),
+                           "save", "autosave", "title", "hide keyboard",
+                           "dismiss keyboard", "keyboard"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",
