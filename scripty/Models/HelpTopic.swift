@@ -210,10 +210,14 @@ extension HelpTopic {
                     "The format button at the left of the bar above the keyboard "
                     + "unfolds bold, italic and underline for the element you are in, "
                     + "along with its alignment and typeface. Each chip shows what the "
-                    + "element is already set to, so the bar doubles as a readout."
+                    + "element is already set to, so the bar doubles as a readout.",
+                    "The text size sits at the end of that bar: A− and A+ step it, and "
+                    + "the percentage between them puts it back to 100%. Unlike the "
+                    + "rest of the bar it belongs to this device rather than to the "
+                    + "element, and it moves the whole script."
                 ],
                 keywords: ["bold", "italic", "underline", "align", "centre", "font",
-                           "typeface", "style"]),
+                           "typeface", "style", "text size"]),
             HelpTopic(
                 id: "clipboard",
                 title: "Moving Elements Around",
@@ -365,12 +369,15 @@ extension HelpTopic {
                     "Bigger, Smaller and Actual Size scale the script for your eyes and "
                     + "your screen. Appearance in the sidebar menu picks light, dark, or "
                     + "whatever the device is doing.",
+                    "The formatting bar behind the Aa button carries the same three, so "
+                    + "the size can be changed mid-sentence without dismissing the "
+                    + "keyboard: the percentage in the middle is the reset.",
                     "Both are settings for this device rather than for the account: the "
                     + "same screenplay is read on a bright rehearsal-room iPad and in a "
                     + "dark editing suite."
                 ],
                 keywords: ["zoom", "font size", "larger", "smaller", "dark mode",
-                           "light", "theme", "readability"]),
+                           "light", "theme", "readability", "format bar"]),
             HelpTopic(
                 id: "stats",
                 title: "Script Stats and Word Count",
