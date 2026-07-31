@@ -139,6 +139,14 @@ final class ScriptModel {
     private(set) var offlineCopySavedAt: Date?
     var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
 
+    /// The last moment this script was known to be in step with the server —
+    /// a load that came off the network, or the save that emptied the held
+    /// set. The cloud badge's detail panel says it, because "saving…" alone
+    /// leaves open whether that has been true for two seconds or since
+    /// yesterday. Nil until the first round trip lands; a fallback to the
+    /// offline copy deliberately does not set it, since nothing synced.
+    private(set) var lastSyncedAt: Date?
+
     /// How many elements on screen exist only on this device. Drives the
     /// banner's count alongside the unsaved-text one.
     var pendingCreateCount: Int { blocks.filter(\.isLocal).count }
@@ -255,6 +263,7 @@ final class ScriptModel {
             offlineCopySavedAt = nil
             errorMessage = nil
             wasAbandoned = false
+            noteSyncedIfSettled()
             if isDefaultEdition, let store = offlineStore {
                 store.save(data, .blocks(projectId: project.id))
                 store.prune(keeping: project.id)
@@ -668,6 +677,16 @@ final class ScriptModel {
         retryTasks[id] = nil
         retryAttempts[id] = nil
         draftStore?.remove(blockId: id, projectId: project.id)
+        noteSyncedIfSettled()
+    }
+
+    /// Stamp "last synced" — but only when there is genuinely nothing left
+    /// behind. A save that lands while four other elements are still held has
+    /// not put this script in step with the server, and a timestamp claiming
+    /// otherwise is worse than none.
+    private func noteSyncedIfSettled() {
+        guard !hasHeldWork else { return }
+        lastSyncedAt = .now
     }
 
     /// A write failed. Flag the block so its live text is held, and — when the
@@ -975,6 +994,17 @@ final class ScriptModel {
     var hasHeldWork: Bool {
         hasUnsavedChanges || !heldDocumentIds.isEmpty
             || createQueue?.hasPending(projectId: project.id) == true
+    }
+
+    /// The same sweep below, asked for by hand from the cloud badge. It differs
+    /// from the automatic one in a single way that matters to someone pressing
+    /// a button: the debounce is not waited out. A writer who taps "Sync Now"
+    /// half a second after their last keystroke means *that* word too, and
+    /// watching the badge sit on "up to date" while the debounce runs would
+    /// read as the button having done nothing.
+    func syncNow() async {
+        await flushPendingCommits()
+        await syncHeldWork()
     }
 
     /// Push everything held on this device right now — unsaved text first,

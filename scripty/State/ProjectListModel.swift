@@ -21,6 +21,11 @@ final class ProjectListModel {
     private(set) var offlineCopySavedAt: Date?
     var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
 
+    /// When this list last came off the server rather than off the disk — the
+    /// cloud badge's detail panel says it, so a list that has been quietly
+    /// stale for a day cannot pass for one fetched a moment ago.
+    private(set) var lastSyncedAt: Date?
+
     init(app: AppModel) {
         self.app = app
     }
@@ -35,6 +40,7 @@ final class ProjectListModel {
             adopt(collection)
             offlineCopySavedAt = nil
             errorMessage = nil
+            lastSyncedAt = .now
             app.offlineStore?.save(data, .projects)
         } catch {
             // A list the network failed to fetch falls back to the copy saved

@@ -109,6 +109,12 @@ final class SongBlockModel {
     private(set) var offlineCopySavedAt: Date?
     var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
 
+    /// The last moment this lyric was known to match the server's copy — the
+    /// screenplay's `lastSyncedAt` under a different set of lines, and read by
+    /// the same badge. A fallback to the offline copy leaves it alone: showing
+    /// yesterday's words is not a sync.
+    private(set) var lastSyncedAt: Date?
+
     var canAddLine: Bool { links.contains(.create) }
 
     /// The song's snapshot history, when the server keeps one. Advertised on
@@ -184,6 +190,7 @@ final class SongBlockModel {
             offlineCopySavedAt = nil
             errorMessage = nil
             adoptPersistedDrafts()
+            noteSyncedIfSettled()
             if let cacheKind { offlineStore?.save(data, cacheKind) }
         } catch {
             // The network failed — fall back to the copy saved last time this
@@ -322,6 +329,15 @@ final class SongBlockModel {
         retryTasks[id] = nil
         retryAttempts[id] = nil
         draftStore?.remove(blockId: id, projectId: document.id)
+        noteSyncedIfSettled()
+    }
+
+    /// Stamp "last synced", but only with nothing left held — the screenplay's
+    /// rule, for its reason: one line landing while three others are stranded
+    /// is not this song being in step with the server.
+    private func noteSyncedIfSettled() {
+        guard unsavedBlockIds.isEmpty else { return }
+        lastSyncedAt = .now
     }
 
     /// A write failed. Hold the line's words — flagged unsaved, snapshotted to
@@ -428,6 +444,21 @@ final class SongBlockModel {
                 ? "An offline edit was set aside — that line changed elsewhere"
                 : "\(setAside) offline edits were set aside — those lines changed elsewhere"
         }
+    }
+
+    /// The badge's "Sync Now": push what is typed but not yet sent, drain what
+    /// is held, then pull. The sweep below skips that last step unless it was
+    /// showing the offline copy — reasonable for a reconnect nobody asked for,
+    /// wrong for a button whose whole promise in the healthy state is to check
+    /// for changes.
+    func syncNow() async {
+        await commitAll()
+        // Read before the sweep, not after: a sweep that succeeds clears the
+        // flag, so asking afterwards would say "was never stale" every time
+        // the reload it just did worked — and load twice for its trouble.
+        let wasStale = isShowingOfflineCopy
+        await syncHeldWork()
+        if !wasStale { await load() }
     }
 
     /// Push every held line right now — the connection is back, or the editor

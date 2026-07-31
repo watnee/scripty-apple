@@ -1794,16 +1794,22 @@ struct ScriptView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        // Status rather than an action, so it keeps the leading edge — beside
-        // the way back — instead of joining the controls crowding the far side,
-        // which on an iPhone are one item away from spilling into an overflow
-        // menu a standing indicator would be no use inside of. It stays through
-        // focus mode: that mode clears away what the writer does not need to
-        // look at, and whether their words are safe is not that.
+        // Status first, so it keeps the leading edge — beside the way back —
+        // instead of joining the controls crowding the far side, which on an
+        // iPhone are one item away from spilling into an overflow menu a
+        // standing indicator would be no use inside of. It stays through focus
+        // mode: that mode clears away what the writer does not need to look at,
+        // and whether their words are safe is not that.
+        //
+        // Pressing it opens the detail panel, where the one useful action lives
+        // — a writer watching an amber cloud should not have to find out that
+        // waiting is all there is by waiting.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
                 CloudSyncBadge(state: cloud,
-                               heldCount: model.unsavedBlockIds.count + model.heldDocumentIds.count)
+                               heldCount: model.unsavedBlockIds.count + model.heldDocumentIds.count,
+                               lastSyncedAt: model.lastSyncedAt,
+                               sync: { await model.syncNow() })
             }
             .sharedBackgroundVisibility(.hidden)
         }
