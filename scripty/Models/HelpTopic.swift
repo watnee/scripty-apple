@@ -116,6 +116,30 @@ extension HelpTopic {
                 keywords: ["backup", "archive", "json", "transfer", "move", "download",
                            "upload", "restore"]),
             HelpTopic(
+                id: "project-archive",
+                title: "Wrapped a Production?",
+                systemImage: "archivebox",
+                paragraphs: [
+                    "Archive it. Archiving takes a screenplay out of the list without "
+                    + "deleting it — the show that closed, last year's short, the pitch "
+                    + "that went nowhere. Swipe a row for Archive, or hold it for the "
+                    + "same entry in its menu.",
+                    "Archive in the list's menu opens what is there: swipe to unarchive "
+                    + "and the screenplay rejoins the list, script, songs, notes and "
+                    + "version history intact. Unlike Recently Deleted nothing in the "
+                    + "archive is on a clock and nothing is ever removed on its own, and "
+                    + "an archived screenplay still travels in a project export. It has "
+                    + "to come back to the list before it can be opened here, which "
+                    + "unarchiving does in one swipe. Archiving also clears it as your "
+                    + "default project; unarchiving does not set that again.",
+                    "Done with it for good? Delete works from the archive too, and does "
+                    + "what it does in the list: the screenplay moves to Recently "
+                    + "Deleted, still recoverable."
+                ],
+                keywords: ["archive", "archived", "unarchive", "put aside", "hide",
+                           "finished", "wrapped", "done", "old", "shelve", "retire",
+                           "clutter", "tidy"]),
+            HelpTopic(
                 id: "project-trash",
                 title: "Deleted a Project by Mistake?",
                 systemImage: "trash",
@@ -434,13 +458,26 @@ extension HelpTopic {
                     + "or note is the exception: until it has reached the server "
                     + "once there is nothing there to keep it against, so the editor "
                     + "says it has not been saved and holds on to it until you are "
-                    + "back — leave it and it asks first."
+                    + "back — leave it and it asks first.",
+                    "Finished with a song but not ready to lose it? Archive it. "
+                    + "Archiving takes a song or note out of the list without "
+                    + "deleting it — the cut verse, the number that left the show. "
+                    + "Swipe a row for Archive, or tick several in edit mode and "
+                    + "archive them together; notes archive as readily as songs. "
+                    + "Archive in the list's menu opens what is there: swipe to "
+                    + "unarchive and it rejoins the end of the list, or tap to open "
+                    + "it where it is. Unlike the trash nothing in the archive is on "
+                    + "a clock and nothing is ever removed from it on its own — an "
+                    + "archived song keeps its lyrics and version history and still "
+                    + "exports. A songbook of every song leaves the archived ones out."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
-                           "save", "autosave", "title"]),
+                           "save", "autosave", "title",
+                           "archive", "archived", "unarchive", "put aside",
+                           "hide", "finished", "cut", "shelve", "old"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

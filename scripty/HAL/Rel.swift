@@ -134,6 +134,20 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let duplicate = Rel("duplicate")
     static let changeType = Rel("changeType")
 
+    /// Putting a song or note aside without deleting it. Deliberately not the
+    /// trash: nothing in the archive expires, an archived document is still
+    /// whole and openable, and it stays in a project bundle export — it is only
+    /// kept out of the list.
+    ///
+    /// `archived` is the collection it went to (on the document collection, for
+    /// an editor, advertised even when empty); `archive` and `unarchive` are the
+    /// two directions; `bulkArchive` is the selection form. Unlike `bulkDelete`
+    /// none of these needs the project to hold a song — notes archive too.
+    static let archive = Rel("archive")
+    static let unarchive = Rel("unarchive")
+    static let archived = Rel("archived")
+    static let bulkArchive = Rel("bulkArchive")
+
     // Version history. The server has offered these all along.
     static let versions = Rel("versions")
     static let restore = Rel("restore")
