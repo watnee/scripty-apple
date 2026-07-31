@@ -95,9 +95,16 @@ do {
           texts("INT. BAR - NI", .scene), ["INT. BAR - NIGHT"])
     check("times are not offered without a location", texts("INT. - NI", .scene), [String]())
 
-    // A stub still on an action line, before detection has retyped it.
-    check("a heading stub on an action line is a heading",
-          ScriptSuggestions.looksLikeSceneTyping("IN", type: .action), true)
+    // On any other element the writer has to say they mean a heading. A stub
+    // is not saying it: an action line opening "I" is usually "It was raining".
+    check("a heading stub on an action line is not a heading",
+          ScriptSuggestions.looksLikeSceneTyping("IN", type: .action), false)
+    check("so the prefixes stay out of the way", texts("I", .action), [String]())
+    check("the force marker says it", texts(".", .action),
+          ["INT. ", "EXT. ", "EST. ", "INT./EXT. ", "I/E. ",
+           "EXT. ROOFTOP - DAY", "INT. BAR - NIGHT"])
+    check("and so does a prefix typed out in full",
+          ScriptSuggestions.looksLikeSceneTyping("INT. ", type: .action), true)
     check("accepting one retypes the line",
           ScriptSuggestions.suggestions(forText: "INT. BA", type: .action,
                                         blocks: script, characters: cast).first?.becomesType,

@@ -193,9 +193,13 @@ extension HelpTopic {
                 systemImage: "text.badge.checkmark",
                 paragraphs: [
                     "While you type a character cue, the cast already in the script is "
-                    + "offered below the line. While you type a scene heading you are "
-                    + "offered the INT./EXT. prefixes, locations used earlier, and the "
-                    + "times of day after a dash.",
+                    + "offered below the line. On a scene heading you are offered the "
+                    + "INT./EXT. prefixes, locations used earlier, and the times of day "
+                    + "after a dash.",
+                    "Headings are only suggested once you mean one: on an element that "
+                    + "is not a scene heading, nothing is offered until you type the "
+                    + "leading dot or write a prefix out in full, so a line beginning "
+                    + "\"I\" is left as prose.",
                     "With a keyboard, the arrow keys move through the list, Return or "
                     + "Tab takes the highlighted one, and Escape dismisses it. By touch, "
                     + "tap the one you want."

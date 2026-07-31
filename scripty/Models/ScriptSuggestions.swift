@@ -44,10 +44,11 @@ enum ScriptSuggestions {
 
     private static let scenePrefixes = ["INT. ", "EXT. ", "EST. ", "INT./EXT. ", "I/E. "]
 
-    /// The stub of a heading prefix, matched while the writer is still partway
-    /// through typing it and the element is therefore still action.
-    private static let prefixStub = try! NSRegularExpression(
-        pattern: #"^(?:I|IN|INT|INT\.|E|EX|EXT|EXT\.|ES|EST|EST\.|I/|I/E|I/E\.|INT\.?/|INT\.?/E|INT\.?/EX|INT\.?/EXT|INT\.?/EXT\.?)$"#,
+    /// A heading prefix typed out in full with the location begun after it.
+    /// The trailing space is the whole point: it is what separates a writer
+    /// who has committed to a heading from one who has typed "I".
+    private static let startedHeading = try! NSRegularExpression(
+        pattern: #"^(?:INT\.?/EXT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)[ \t]"#,
         options: .caseInsensitive)
 
     private static let scenePrefix = try! NSRegularExpression(
@@ -65,8 +66,9 @@ enum ScriptSuggestions {
     ///
     /// `type` is the element as it stands *now*, which is not always what the
     /// writer is heading for: live Fountain detection only retypes an action
-    /// line once it looks like a heading, so an action line holding "INT" is
-    /// still offered locations.
+    /// line once it looks like a heading, so an action line holding "INT. B"
+    /// is still offered locations. A line that has not gone that far is left
+    /// alone — see `looksLikeSceneTyping`.
     static func suggestions(forText text: String,
                             type: BlockType,
                             blocks: [Block],
@@ -168,13 +170,19 @@ enum ScriptSuggestions {
 
     /// Whether the line reads as a heading in progress. An empty scene element
     /// counts — that is exactly when the prefixes are most useful.
+    ///
+    /// Choosing the element is what opens the heading list. On anything else
+    /// the writer has to say so: Fountain's `.` force marker, or a prefix typed
+    /// out in full with the location started after it. A stub is not enough —
+    /// an action line beginning "I" is far more often "It was raining" than the
+    /// start of INT., and offering INT./EXT. over every such line is noise.
     static func looksLikeSceneTyping(_ text: String, type: BlockType) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return type == .scene }
-        if trimmed.hasPrefix(".") { return true }
         if type == .scene { return true }
-        if matched(scenePrefix, trimmed) != nil { return true }
-        return matched(prefixStub, trimmed) != nil
+        let line = text.replacingOccurrences(of: "\u{00a0}", with: " ")
+        // Leading space only: the trailing one is what `startedHeading` needs.
+        let started = String(line.drop(while: { $0 == " " || $0 == "\t" }))
+        if started.hasPrefix(".") { return true }
+        return matched(startedHeading, started) != nil
     }
 
     private static func sceneSuggestions(forText text: String,
