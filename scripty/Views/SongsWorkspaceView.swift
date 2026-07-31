@@ -30,6 +30,11 @@ struct SongsWorkspaceView: View {
     /// size the writer chose in a song or the screenplay — it is one setting.
     private let settings = PresentationSettings.shared
 
+    /// Which songs' offline lines have been closed. Per song, and under the
+    /// same keys the song editor uses: it is one notice about one lyric, and
+    /// closing it in the editor should not leave it standing here.
+    private let notices = DismissedNotices.shared
+
     /// One per song, made on first expand. Songs nobody opens cost nothing.
     @State private var lyrics: [Int: SongBlockModel] = [:]
     @State private var expanded: Set<Int> = []
@@ -121,7 +126,39 @@ struct SongsWorkspaceView: View {
                     break
                 }
             }
+            // A lyric that reloaded — from the server, or from a newer cached
+            // copy — is a new situation, so whatever was closed about the old
+            // one stops applying.
+            .onChange(of: offlineStamps) { old, new in
+                for id in Set(old.keys).union(new.keys) where old[id] != new[id] {
+                    notices.situationChanged(DismissedNotices.offlineCopyKey(songId: id))
+                }
+            }
         }
+    }
+
+    // MARK: - Offline notices
+
+    private func offlineKey(_ song: TextDocument) -> String {
+        DismissedNotices.offlineCopyKey(songId: song.id)
+    }
+
+    private func offlineState(_ savedAt: Date) -> String {
+        DismissedNotices.offlineCopyState(savedAt: savedAt)
+    }
+
+    private func dismissOffline(_ song: TextDocument, savedAt: Date) {
+        withAnimation(.snappy(duration: 0.2)) {
+            notices.dismiss(offlineKey(song), state: offlineState(savedAt))
+        }
+    }
+
+    /// Every open lyric's stale-copy stamp, by song. Watched as one value
+    /// rather than row by row: a row that has stopped being offline is a row
+    /// that is no longer on screen to notice it, and its dismissal still has to
+    /// be retired.
+    private var offlineStamps: [Int: String] {
+        lyrics.compactMapValues { $0.offlineCopySavedAt.map(offlineState) }
     }
 
     private func syncOpenLyrics() async {
@@ -198,13 +235,25 @@ struct SongsWorkspaceView: View {
     private func lines(for song: TextDocument) -> some View {
         if let lyric = lyrics[song.id] {
             // The same honesty the song editor's banner gives: an out-of-date
-            // lyric must not look current.
-            if let savedAt = lyric.offlineCopySavedAt {
-                Label("Offline — lyrics saved "
-                      + savedAt.formatted(.relative(presentation: .named)),
-                      systemImage: "wifi.slash")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            // lyric must not look current — and the same ✕, since a writer who
+            // has read it should be able to get the row back.
+            if let savedAt = lyric.offlineCopySavedAt,
+               !notices.isDismissed(offlineKey(song), state: offlineState(savedAt)) {
+                HStack(spacing: 6) {
+                    Label("Offline — lyrics saved "
+                          + savedAt.formatted(.relative(presentation: .named)),
+                          systemImage: "wifi.slash")
+                    Spacer(minLength: 0)
+                    NoticeCloseButton { dismissOffline(song, savedAt: savedAt) }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                // `.ignore` rather than `.combine`, so the close button comes
+                // through as a named action instead of being swallowed.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Offline. Showing the lyrics saved on this device "
+                                    + savedAt.formatted(.relative(presentation: .named)) + ".")
+                .accessibilityAction(named: "Dismiss") { dismissOffline(song, savedAt: savedAt) }
             }
             if lyric.blocks.isEmpty {
                 Text(lyric.isLoading ? "Loading…" : "No lines yet.")

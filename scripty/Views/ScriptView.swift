@@ -104,6 +104,9 @@ struct ScriptView: View {
     /// app down. The project list owns the project half of that record; this
     /// view owns the screen sitting on top of it.
     private let openEditors = OpenEditorState.shared
+    /// Whether the held-work strip has been closed for the situation currently
+    /// on. Shared, so leaving the script and coming back does not undo the tap.
+    private let notices = DismissedNotices.shared
     /// What the Songs & Notes screen should reopen once it is up, when this
     /// launch is restoring a song or note editor that was reached through it.
     /// Held here rather than read from the record inside that screen because the
@@ -227,6 +230,13 @@ struct ScriptView: View {
                 unsavedBanner
                 editionBanner
             }
+        }
+        // A closed strip is closed about one situation. When the situation
+        // moves on — the connection comes back, everything lands, a refusal
+        // arrives on top of held work — the dismissal stops applying and the
+        // next thing worth saying gets said.
+        .onChange(of: heldWorkState) { _, _ in
+            notices.situationChanged(heldWorkKey)
         }
         // Outside the mode switch, so the readout is in the same place whether
         // the script is a column or a stack of pages. `.safeAreaBar` rather
@@ -624,6 +634,32 @@ struct ScriptView: View {
         return model.hasHeldWork ? .holding : .synced
     }
 
+    /// Which situation the strip is reporting, or nil when there is nothing to
+    /// say. Doubles as what a dismissal is *about*: the writer closed this
+    /// notice saying this, so a different answer here raises it again.
+    ///
+    /// The two patient states are named by kind alone — carrying the count
+    /// would send the strip back up the screen on the next keystroke, which is
+    /// the opposite of having put it down. A refusal is different: another one
+    /// arriving is news, and news is worth interrupting for.
+    private var heldWorkState: String? {
+        if isOffline { return "offline" }
+        if model.hasFailedSaves { return "failed:\(model.failedBlockIds.count)" }
+        if model.hasUnsavedChanges { return "unsaved" }
+        return nil
+    }
+
+    /// What the writer's dismissal is filed under — this screenplay's strip,
+    /// not every screenplay's.
+    private var heldWorkKey: String { "script.held.\(model.project.id)" }
+
+    private func dismissHeldWork() {
+        guard let state = heldWorkState else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            notices.dismiss(heldWorkKey, state: state)
+        }
+    }
+
     @ViewBuilder
     private var unsavedBanner: some View {
         // Elements written offline are counted in `unsavedBlockIds` too, so
@@ -636,7 +672,12 @@ struct ScriptView: View {
         let held = newCount == count && newCount > 0
             ? "· \(newCount) new \(noun(newCount)) kept on this device"
             : "· \(count) \(noun(count)) kept on this device"
-        if isOffline {
+        // Closed by the writer, for exactly what it is saying now. The toolbar
+        // cloud carries on reporting the same state in the corner.
+        let isClosed = heldWorkState.map { notices.isDismissed(heldWorkKey, state: $0) } ?? true
+        if isClosed {
+            EmptyView()
+        } else if isOffline {
             heldWorkBanner(
                 icon: "wifi.slash",
                 title: "You're offline",
@@ -692,6 +733,8 @@ struct ScriptView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
+            // Read and understood. The strip goes; the toolbar cloud stays.
+            NoticeCloseButton(action: dismissHeldWork)
         }
         .font(.footnote)
         .foregroundStyle(tint)
@@ -700,8 +743,12 @@ struct ScriptView: View {
         .frame(maxWidth: .infinity)
         .background(tint.opacity(0.12))
         .overlay(alignment: .bottom) { Divider() }
-        .accessibilityElement(children: .combine)
+        // `.ignore` rather than `.combine`: combining swallows the close button
+        // whole, leaving VoiceOver a strip it can read but not put down. One
+        // element with one named action is what a sighted writer gets too.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibility)
+        .accessibilityAction(named: "Dismiss") { dismissHeldWork() }
         .transition(.move(edge: .top).combined(with: .opacity))
         .animation(.snappy(duration: 0.2), value: count)
     }

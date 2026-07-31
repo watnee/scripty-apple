@@ -203,6 +203,29 @@ extension HelpTopic {
                            "autosave", "editing", "new", "first element", "empty",
                            "cloud", "sync", "offline", "saved", "badge"]),
             HelpTopic(
+                id: "offline-writing",
+                title: "Writing Without a Connection",
+                systemImage: "wifi.slash",
+                paragraphs: [
+                    "Keep typing. Words written with the connection down are kept on "
+                    + "this device, survive closing the app, and are sent by themselves "
+                    + "when it comes back. A strip under the toolbar says which state "
+                    + "you are in: You're offline while there is no connection, Not "
+                    + "saved yet while something is still on its way, and Couldn't save "
+                    + "if the server refused a line — editing that line tries again.",
+                    "Tap the ✕ on the strip to put it away. It stays away for as long "
+                    + "as that situation lasts, and comes back if the situation changes "
+                    + "— a refusal arriving, or the connection dropping again after it "
+                    + "returned. The cloud in the top left goes on showing the same "
+                    + "state either way, and tapping it says when everything last "
+                    + "reached the server.",
+                    "Songs, notes and the project list work the same way, and each says "
+                    + "how old the copy on screen is when it was read back from this "
+                    + "device rather than the server."
+                ],
+                keywords: ["offline", "no connection", "unsaved", "held", "sync",
+                           "cloud", "banner", "dismiss", "close", "airplane mode"]),
+            HelpTopic(
                 id: "fountain",
                 title: "Fountain as You Type",
                 systemImage: "wand.and.stars",
@@ -561,7 +584,8 @@ extension HelpTopic {
                     + "elsewhere in the meantime is set aside rather than overwritten, "
                     + "and the editor says when that happens. A song opened offline "
                     + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a banner saying how old that copy is. Undo and Redo keep "
+                    + "with a strip saying how old that copy is — tap its ✕ to put "
+                    + "it away until a newer copy arrives. Undo and Redo keep "
                     + "working there: with no connection they walk back the lyric "
                     + "edits still held on this device, and hand over to the song's "
                     + "own history once those have been saved. A brand-new song "
@@ -589,7 +613,7 @@ extension HelpTopic {
                            "archive", "archived", "unarchive", "put aside",
                            "hide", "finished", "cut", "shelve", "old",
                            "export", "email", "share", "put back", "select",
-                           "musicxml", "mistake", "history"]),
+                           "musicxml", "mistake", "history", "dismiss", "close"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

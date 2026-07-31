@@ -49,6 +49,9 @@ struct ProjectsSidebarView: View {
     /// gives the iPhone answer everywhere. See `ContentView`.
     let isCompact: Bool
 
+    /// Whether the offline footer has been closed for the copy currently shown.
+    private let notices = DismissedNotices.shared
+
     @State private var showingCreate = false
     @State private var showingImporter = false
     /// Presented by link rather than by flag, so the sheet cannot open before
@@ -600,6 +603,11 @@ struct ProjectsSidebarView: View {
                 newProjectBar
             }
         }
+        // A closed footer was closed about the copy that was on screen then;
+        // a fresh load is a new situation and gets to say so.
+        .onChange(of: offlineCopyState) { _, _ in
+            notices.situationChanged(offlineCopyKey)
+        }
         // The connection is back — trade the offline copy for the real list.
         .onChange(of: app.connectivity.isOnline) { _, online in
             guard online else { return }
@@ -773,12 +781,29 @@ struct ProjectsSidebarView: View {
         }
     }
 
+    /// Which copy the footer is reporting, or nil when the list came from the
+    /// server. The date is the situation, so a newer stale copy still speaks.
+    private var offlineCopyState: String? {
+        model.offlineCopySavedAt.map(DismissedNotices.offlineCopyState(savedAt:))
+    }
+
+    /// One list, one footer — no project id to scope it by.
+    private var offlineCopyKey: String { "projects.offlineCopy" }
+
+    private func dismissOfflineCopy() {
+        guard let state = offlineCopyState else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            notices.dismiss(offlineCopyKey, state: state)
+        }
+    }
+
     /// Says the list on screen is the copy saved on this device, and how old
     /// it is — an out-of-date list should not look current. Only shown when
     /// the fallback actually happened, not merely because the radio is off.
     @ViewBuilder
     private var offlineFooter: some View {
-        if let savedAt = model.offlineCopySavedAt {
+        let isClosed = offlineCopyState.map { notices.isDismissed(offlineCopyKey, state: $0) } ?? true
+        if let savedAt = model.offlineCopySavedAt, !isClosed {
             HStack(spacing: 6) {
                 Image(systemName: "wifi.slash")
                     .font(.caption)
@@ -786,15 +811,19 @@ struct ProjectsSidebarView: View {
                      + savedAt.formatted(.relative(presentation: .named)))
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                NoticeCloseButton(action: dismissOfflineCopy)
             }
             .font(.footnote)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
+            // `.ignore` rather than `.combine`, so the close button survives as
+            // a named action instead of being folded into the label.
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Offline. Showing the projects saved on this device "
                                 + savedAt.formatted(.relative(presentation: .named)) + ".")
+            .accessibilityAction(named: "Dismiss") { dismissOfflineCopy() }
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
