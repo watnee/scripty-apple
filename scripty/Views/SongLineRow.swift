@@ -26,6 +26,12 @@ import UIKit
 struct SongLineRow: View {
     let model: SongBlockModel
     let block: SongBlock
+    /// Whether this song is locked for reading. Not a property of the line —
+    /// the whole lyric locks at once — but it is applied here, because every
+    /// way into a line is on this row: the text itself, and the swipes that
+    /// delete and tint it. A lock the server never heard of, so it narrows
+    /// what an editor may do and can never widen it.
+    let isLocked: Bool
     /// Owned by whatever list this row is in, so Return can move the caret to
     /// the line it just created. Bridged to the UITextView below rather than
     /// attached with `.focused`: the field grants itself first responder when
@@ -64,7 +70,7 @@ struct SongLineRow: View {
     var body: some View {
         SongLineField(text: text,
                       isFocused: isFocused,
-                      isEditable: block.isEditable,
+                      isEditable: block.isEditable && !isLocked,
                       fontSize: Self.baseLineSize * textScale,
                       spellChecks: spellChecks,
                       spellcheckRevision: spellcheckRevision,
@@ -113,7 +119,7 @@ struct SongLineRow: View {
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowBackground(rowBackground)
         .swipeActions(edge: .trailing) {
-            if block.hasLink(.delete) {
+            if block.hasLink(.delete), !isLocked {
                 Button(role: .destructive) {
                     Task { await model.delete(block) }
                 } label: {
@@ -126,7 +132,7 @@ struct SongLineRow: View {
         // and a long press cannot replace the menu because the text field
         // swallows it, so the tint rides the same gesture Delete already uses.
         .swipeActions(edge: .leading) {
-            if block.hasLink(.setHighlight) {
+            if block.hasLink(.setHighlight), !isLocked {
                 Button {
                     pickingHighlight = true
                 } label: {
@@ -161,8 +167,12 @@ struct SongLineRow: View {
     /// value SwiftUI would throw away if it were kept in the focus state: no
     /// view here claims it with `.focused()`, since the field grants itself
     /// first responder.
+    /// A locked lyric claims nothing: a focus request outlives the lock — it
+    /// is whichever line was last made or merged — and granting first
+    /// responder to a line that cannot be typed into would put the caret in a
+    /// song the writer has just closed to editing.
     private var isFocused: Bool {
-        focusedLine == block.id || model.focusRequest == block.id
+        !isLocked && (focusedLine == block.id || model.focusRequest == block.id)
     }
 
     private var text: Binding<String> {

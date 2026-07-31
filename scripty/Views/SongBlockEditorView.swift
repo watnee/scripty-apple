@@ -16,6 +16,9 @@ import SwiftUI
 struct SongBlockEditorView: View {
     @State private var model: SongBlockModel
     @State private var editions: EditionsModel
+    /// Whether this song is closed to typing. Per song and per edition, kept
+    /// on the device — see `SongViewOptions`.
+    @State private var options: SongViewOptions
     /// The screenplay behind this sheet, so the song can be sent into it from
     /// here — the list's context menu carries the same action, but the writer
     /// who has just finished polishing a verse is standing in this editor, not
@@ -64,6 +67,7 @@ struct SongBlockEditorView: View {
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
+        _options = State(initialValue: SongViewOptions(documentId: document.id))
         self.scriptModel = scriptModel
         self.onInserted = onInserted
     }
@@ -96,6 +100,7 @@ struct SongBlockEditorView: View {
                     ForEach(shownBlocks) { block in
                         SongLineRow(model: model,
                                     block: block,
+                                    isLocked: options.isEditingLocked,
                                     focusedLine: $focusedLine)
                             .id(block.id)
                             // No hairline between one lyric line and the next.
@@ -126,6 +131,7 @@ struct SongBlockEditorView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                     editionBanner
+                    lockBanner
                     offlineCopyBanner
                 }
             }
@@ -142,6 +148,12 @@ struct SongBlockEditorView: View {
             .toolbar { toolbar }
             .onChange(of: searchText) { _, _ in
                 runSearch()
+            }
+            // The lock follows the edition on screen, so a rewrite opened from
+            // a locked song is judged by its own key rather than inheriting the
+            // lock for the rest of the session. Same wiring as the screenplay's.
+            .onChange(of: editions.selectedId) { _, id in
+                options.editionId = id
             }
             .task {
                 await model.load()
@@ -286,6 +298,43 @@ struct SongBlockEditorView: View {
         }
     }
 
+    /// Says the lyric is closed to typing, and takes the lock off when tapped.
+    ///
+    /// The screenplay needs no such banner: a locked script visibly loses its
+    /// editing bars, and the toggle sits in a menu that is always on screen.
+    /// This editor is a sheet whose toolbar keeps the switch behind an
+    /// overflow menu, and a locked lyric looks exactly like an unlocked one —
+    /// so without this, a tap that does nothing has nothing to say for itself.
+    @ViewBuilder
+    private var lockBanner: some View {
+        if options.isEditingLocked {
+            Button {
+                options.setEditingLocked(false)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                    Text("Locked")
+                        .fontWeight(.medium)
+                    Text("— tap to edit")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .font(.footnote)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity)
+                .background(.secondary.opacity(0.12))
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(.separator).frame(height: 0.5)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Editing is locked. Unlock editing.")
+        }
+    }
+
     /// Says which edition is open, but only when it is not the default —
     /// the same rule and the same reasoning as the screenplay's banner.
     @ViewBuilder
@@ -392,6 +441,19 @@ struct SongBlockEditorView: View {
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
         }
+        // Beside the spelling controls, where the screenplay's View menu keeps
+        // it and for the same reason: both are about typing, and neither means
+        // anything to someone the server never gave the keyboard to. Offered
+        // even while locked — it is the way back. No keyboard shortcut: the
+        // screenplay owns ⌘⇧Q and this editor opens over it, the same reason
+        // Search and Text Size claim no keys here.
+        if canEditSong {
+            ToolbarItem(placement: .secondaryAction) {
+                Toggle(isOn: lockBinding) {
+                    Label("Lock Editing", systemImage: "lock")
+                }
+            }
+        }
         // Text size, the web song editor's Tools-menu A−/A+. It drives the same
         // device-wide preference the screenplay editor changes, so a size set
         // here shows up there and vice versa. No keyboard shortcuts: the
@@ -482,6 +544,28 @@ struct SongBlockEditorView: View {
         Binding(get: { settings.showsWordCount }, set: { settings.showsWordCount = $0 })
     }
 
+    /// Whether there is anything here to lock. A reader was never handed the
+    /// keyboard, so offering to take it away would be nonsense — the same rule
+    /// `canEditScript` applies to the screenplay's View menu. Either half is
+    /// enough: a song with no lines yet can still be added to, and a song whose
+    /// create link is gone can still have its existing lines typed into.
+    private var canEditSong: Bool {
+        model.canAddLine || model.blocks.contains(where: \.isEditable)
+    }
+
+    /// The lock's setter is a method rather than a property, because what it
+    /// writes depends on which edition is open. Locking flushes first: what is
+    /// half-typed when the writer closes the lyric is part of the lyric, and
+    /// the debounce that would have saved it is about to have no field left to
+    /// fire from.
+    private var lockBinding: Binding<Bool> {
+        Binding(get: { options.isEditingLocked },
+                set: { locked in
+                    if locked { Task { await model.commitAll() } }
+                    options.setEditingLocked(locked)
+                })
+    }
+
     @ViewBuilder
     private var emptyState: some View {
         if shownBlocks.isEmpty {
@@ -496,7 +580,7 @@ struct SongBlockEditorView: View {
                 } description: {
                     Text("Add the first line to start writing.")
                 } actions: {
-                    if model.canAddLine {
+                    if model.canAddLine, !options.isEditingLocked {
                         Button("Add Line") {
                             Task {
                                 if let created = await model.appendLine() {
