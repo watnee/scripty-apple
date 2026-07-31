@@ -258,14 +258,20 @@ struct SongsWorkspaceView: View {
         ToolbarItemGroup(placement: .primaryAction) {
             // Only the songs currently passing the filter, so "expand all"
             // means the same thing the writer can see.
-            Button("Expand All") {
+            Button {
                 for song in songs { open(song) }
+            } label: {
+                Label("Expand All", systemImage: "rectangle.expand.vertical")
             }
+            .labelStyle(.iconOnly)
             .disabled(songs.isEmpty)
 
-            Button("Collapse All") {
+            Button {
                 expanded.subtract(songs.map(\.id))
+            } label: {
+                Label("Collapse All", systemImage: "rectangle.compress.vertical")
             }
+            .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
         }
         // Every song at once is where a field of red squiggles is hardest to
