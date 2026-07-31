@@ -573,6 +573,15 @@ extension HelpTopic {
                     + "songs, New Note over the notes. An element's own menu inserts a "
                     + "song below it. Swipe a row to rename or delete it; touch and "
                     + "hold for everything else.",
+                    "A finished song can be locked. Lock Editing in the song "
+                    + "editor's menu closes that lyric to typing — the lines stop "
+                    + "taking keystrokes and stop offering delete and highlight — "
+                    + "so a song being read from at a rehearsal cannot pick up a "
+                    + "stray character. A banner across the top says it is locked "
+                    + "and unlocks it when tapped. The lock is kept on this device, "
+                    + "one song at a time, and applies to that song's own edition "
+                    + "when you are in one; the all-songs workspace honours it too "
+                    + "and marks the locked songs.",
                     "A lyric line or a note edited without a connection is kept on "
                     + "this device — the corner cloud in the song editor and on the "
                     + "workspace screen, and the note editor's status line, all say "
@@ -613,7 +622,8 @@ extension HelpTopic {
                            "archive", "archived", "unarchive", "put aside",
                            "hide", "finished", "cut", "shelve", "old",
                            "export", "email", "share", "put back", "select",
-                           "musicxml", "mistake", "history", "dismiss", "close"]),
+                           "musicxml", "mistake", "history", "dismiss", "close",
+                           "lock", "locked", "read only", "protect"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

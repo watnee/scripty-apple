@@ -37,6 +37,13 @@ struct SongsWorkspaceView: View {
 
     /// One per song, made on first expand. Songs nobody opens cost nothing.
     @State private var lyrics: [Int: SongBlockModel] = [:]
+    /// Whether each opened song is closed to typing. A lock set in the song
+    /// editor has to hold here too, or the screen that shows every lyric at
+    /// once would be the way around every lock in the project. Read only —
+    /// the switch itself stays in the song's own editor, where a writer is
+    /// looking at one song and means it. Made beside the lyric, so a song
+    /// nobody opened still costs nothing.
+    @State private var locks: [Int: SongViewOptions] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
     @State private var showingIgnoredWords = false
@@ -184,11 +191,21 @@ struct SongsWorkspaceView: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                     Spacer(minLength: 0)
+                    // Why this song's lines will not take a keystroke. The
+                    // switch is in the song's own editor, so all this has to
+                    // do is answer the question.
+                    if isLocked(song) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(song.displayTitle)
+            .accessibilityLabel(isLocked(song)
+                                ? "\(song.displayTitle), locked"
+                                : song.displayTitle)
             .accessibilityHint(expanded.contains(song.id) ? "Hide lyrics" : "Show lyrics")
             .accessibilityAddTraits(expanded.contains(song.id) ? [.isSelected] : [])
             if canReorder {
@@ -266,7 +283,20 @@ struct SongsWorkspaceView: View {
             // song's verse. Return at the end of a line makes the next line,
             // which is how a lyric is written anyway.
             ForEach(lyric.blocks) { block in
-                SongLineRow(model: lyric, block: block, focusedLine: $focusedLine)
+                SongLineRow(model: lyric,
+                            block: block,
+                            isLocked: isLocked(song),
+                            focusedLine: $focusedLine)
+            }
+            if lyric.canAddLine, !isLocked(song) {
+                Button {
+                    Task {
+                        if let created = await lyric.appendLine() { focusedLine = created }
+                    }
+                } label: {
+                    Label("Add Line", systemImage: "plus")
+                        .font(.callout)
+                }
             }
         }
     }
@@ -388,7 +418,17 @@ struct SongsWorkspaceView: View {
         guard lyrics[song.id] == nil else { return }
         let lyric = SongBlockModel(app: app, document: song)
         lyrics[song.id] = lyric
+        // No edition named: this screen always reads the default lyric, which
+        // is the one a song-level lock covers.
+        locks[song.id] = SongViewOptions(documentId: song.id)
         Task { await lyric.load() }
+    }
+
+    /// Whether this song is closed to typing. A song not yet opened has no
+    /// stored answer here and needs none — nothing of it is on screen to type
+    /// into.
+    private func isLocked(_ song: TextDocument) -> Bool {
+        locks[song.id]?.isEditingLocked ?? false
     }
 
     /// Reopens the songs left open last time. Runs after the documents load so

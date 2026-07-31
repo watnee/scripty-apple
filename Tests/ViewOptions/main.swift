@@ -165,6 +165,56 @@ func run() {
     }
 
     print("")
+    print("Song editing lock")
+    do {
+        let store = scratch("songlock")
+        let song = SongViewOptions(documentId: 11, defaults: store)
+        check("a song opens unlocked", song.isEditingLocked, false)
+
+        song.setEditingLocked(true)
+        check("with no edition open it locks the song",
+              store.object(forKey: "scripty-song-edit-locked-document-11") as? Bool ?? false, true)
+        // Its own key family: a song edition and a script edition are different
+        // things, and one must never lock the other.
+        check("it does not touch the screenplay's key",
+              store.object(forKey: "scripty-block-edit-locked-project-11") == nil, true)
+        // Songs are locked one at a time, as each is finished.
+        check("another song is unaffected",
+              SongViewOptions(documentId: 12, defaults: store).isEditingLocked, false)
+        check("reopening the song is still locked",
+              SongViewOptions(documentId: 11, defaults: store).isEditingLocked, true)
+
+        // An edition with no lock of its own inherits the song's, so opening a
+        // rewrite of a locked lyric does not hand back the keyboard.
+        let rewrite = SongViewOptions(documentId: 11, editionId: 4, defaults: store)
+        check("an edition inherits the song's lock", rewrite.isEditingLocked, true)
+
+        rewrite.setEditingLocked(false)
+        check("unlocking writes the edition's own key",
+              store.object(forKey: "scripty-song-edit-locked-edition-4") as? Bool ?? true, false)
+        check("the song's lock is left alone",
+              store.object(forKey: "scripty-song-edit-locked-document-11") as? Bool ?? false, true)
+        check("reopening the rewrite reads its own key",
+              SongViewOptions(documentId: 11, editionId: 4, defaults: store).isEditingLocked, false)
+        check("reopening the default lyric is still locked",
+              SongViewOptions(documentId: 11, defaults: store).isEditingLocked, true)
+    }
+
+    print("")
+    print("Switching song edition")
+    do {
+        let store = scratch("songswitch")
+        let options = SongViewOptions(documentId: 11, defaults: store)
+        options.setEditingLocked(true)
+        options.editionId = 4
+        check("the switch re-reads the lock", options.isEditingLocked, true)
+        // Adopting the song's lock must not write it to the edition, or the
+        // rewrite would be pinned to whatever the song happened to be.
+        check("adopting does not write the edition's key",
+              store.object(forKey: "scripty-song-edit-locked-edition-4") == nil, true)
+    }
+
+    print("")
     print("Songs workspace open set")
     do {
         let store = scratch("workspace")
