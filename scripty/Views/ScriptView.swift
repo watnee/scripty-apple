@@ -1531,6 +1531,11 @@ struct ScriptView: View {
         actions.toggleShowElementLabels = { options.showsElementLabels.toggle() }
         if canEditScript {
             actions.toggleEditingLock = { options.setEditingLocked(!options.isEditingLocked) }
+            // Gated exactly as the View menu's item is: a writer, with
+            // something to come back from.
+            if isAwayFromWriting {
+                actions.editScreenplay = { returnToWriting() }
+            }
         }
 
         if let focused = model.blocks.first(where: { $0.id == model.focusedBlockId }) {
@@ -2047,6 +2052,25 @@ struct ScriptView: View {
                     Label("Read Script", systemImage: "book")
                 }
                 .disabled(!model.hasScriptContent && !isReading)
+
+                // The way back out of all of them at once. Each mode above
+                // names its own exit, but a writer three modes deep — reading,
+                // in outline, on paper — has to remember which ones are on and
+                // turn them off one at a time. This is the one item that means
+                // "just let me write", and it clears the editing lock with
+                // them, since a lock left on would make it a lie. Offered only
+                // to a writer who has somewhere to type, matching the lock's
+                // own section, and greyed when the plain column is already up.
+                // It carries no chord of its own: ⌘⇧E is centre alignment, and
+                // everything it clears already answers to a chord.
+                if canEditScript {
+                    Button {
+                        returnToWriting()
+                    } label: {
+                        Label("Edit Screenplay", systemImage: "pencil.line")
+                    }
+                    .disabled(!isAwayFromWriting)
+                }
             }
 
             // Only offered where it changes anything: the page view lays the
@@ -2158,6 +2182,33 @@ struct ScriptView: View {
     /// links rather than the lock, which is a choice about this device.
     private var canEditScript: Bool {
         model.blocks.contains(where: \.isEditable) || model.canSeedScript
+    }
+
+    /// Whether anything at all stands between the writer and the plain writing
+    /// column — one of the display modes, or the lock. False when the script is
+    /// already open the way it is written in, which is when "Edit Screenplay"
+    /// has nothing left to do.
+    private var isAwayFromWriting: Bool {
+        settings.isPageView || settings.isFocusMode || settings.isOutlineMode
+            || isReading || options.isEditingLocked
+    }
+
+    /// Put the script back the way it is written in: every display mode off,
+    /// and the lock with them.
+    ///
+    /// The lock is cleared through `options` rather than written directly,
+    /// because which edition it belongs to is the setter's business. Only
+    /// called from a menu item the reader never sees, so unlocking here cannot
+    /// hand editing to someone the server never gave it to — the elements stay
+    /// read-only whatever this device thinks.
+    private func returnToWriting() {
+        settings.isPageView = false
+        settings.isFocusMode = false
+        settings.isOutlineMode = false
+        isReading = false
+        if options.isEditingLocked {
+            options.setEditingLocked(false)
+        }
     }
 
     private var wordCountBinding: Binding<Bool> {
