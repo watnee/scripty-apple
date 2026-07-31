@@ -519,6 +519,10 @@ struct NoteFormatBar: View {
                     .accessibilityLabel("Heading \(level)")
             }
             Spacer(minLength: 0)
+            // Trailing, away from the writing controls: it is the way out of
+            // the note rather than another thing to do to it — and the same
+            // corner the screenplay's own bar puts it in.
+            HideKeyboardButton(style: .bordered)
         }
         .font(.footnote)
         .padding(.horizontal, 16)

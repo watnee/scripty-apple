@@ -189,6 +189,10 @@ extension HelpTopic {
                     + "element back into the one above.",
                     "Edits save themselves as you pause, so there is no save button to "
                     + "look for.",
+                    "The keyboard key at the end of the element bar puts the keyboard "
+                    + "away and gives the screen back to the script, without leaving "
+                    + "what you were writing. The lyric and note editors carry the "
+                    + "same key above their own keyboards.",
                     "The cloud beside the title says where those words are: ticked and "
                     + "grey once everything has reached the server, amber while a save "
                     + "is still on its way or the connection is gone, red if the server "
@@ -201,7 +205,9 @@ extension HelpTopic {
                 ],
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
                            "autosave", "editing", "new", "first element", "empty",
-                           "cloud", "sync", "offline", "saved", "badge"]),
+                           "cloud", "sync", "offline", "saved", "badge",
+                           "hide keyboard", "dismiss keyboard", "close keyboard",
+                           "keyboard"]),
             HelpTopic(
                 id: "offline-writing",
                 title: "Writing Without a Connection",
@@ -571,6 +577,9 @@ extension HelpTopic {
                     + "The pencil beside it puts the writing back, on the same lines you "
                     + "left. It is the songs' answer to Read Script, and it takes the "
                     + "same device-wide text size.",
+                    "Both editors show a keyboard key above the keyboard while you "
+                    + "write — it puts the keyboard away and leaves the words where "
+                    + "they are.",
                     "A song being worked on is rarely far away. The script has a Songs "
                     + "button and a Notes button, each opening its own list; holding "
                     + "one opens the last few of that kind you edited, each going "
@@ -634,7 +643,8 @@ extension HelpTopic {
                            "hide", "finished", "cut", "shelve", "old",
                            "export", "email", "share", "put back", "select",
                            "musicxml", "mistake", "history", "dismiss", "close",
-                           "lock", "locked", "read only", "protect"]),
+                           "lock", "locked", "read only", "protect",
+                           "hide keyboard", "dismiss keyboard", "keyboard"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

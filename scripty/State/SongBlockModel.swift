@@ -36,7 +36,12 @@ final class SongBlockModel {
     private(set) var isLoading = false
     var errorMessage: String?
 
-    /// Set while a line is being typed into, so a refresh does not clobber it.
+    /// Which line is being typed into, reported by the row that has it.
+    ///
+    /// Kept here rather than read from the host's `@FocusState` for the reason
+    /// `focusRequest` below is: SwiftUI discards a focus value no view has
+    /// claimed with `.focused()`, so a host cannot ask its own state whether
+    /// the keyboard is up. Both editors draw the hide-keyboard bar from this.
     var focusedBlockId: Int?
     private(set) var liveText: [Int: String] = [:]
 
