@@ -83,8 +83,8 @@ struct ScriptActions {
     var stats: (() -> Void)?
     var pageSetup: (() -> Void)?
     /// Flips the script screen into (and out of) reading mode — the script
-    /// as prose, in place, not a screen of its own. The flag drives the
-    /// menu item's label.
+    /// without its editing chrome, in place, not a screen of its own. The flag
+    /// drives the menu item's label.
     var readScript: (() -> Void)?
     var isReadingScript = false
     /// The voice, not a mode: reading aloud runs on whatever surface is up,

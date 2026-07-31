@@ -44,7 +44,7 @@ struct ScriptView: View {
     /// errand, and each session should start with the screen it saves.
     @State private var showingFormatBar = false
     @State private var isSearching = false
-    /// Whether the script is up as prose for reading silently — a surface of
+    /// Whether the script is up for reading silently — a surface of
     /// this screen, like page view, not a screen of its own: the mode swaps
     /// the writing column for the reader in place, and the toolbar and the
     /// reading position stay put. Session state rather than a stored
@@ -1042,10 +1042,10 @@ struct ScriptView: View {
         return visibleBlocks.map(\.id).filter { hits.contains($0) }
     }
 
-    /// The reading surface: the script as prose, in place of the column. It
-    /// borrows this screen's narrator for the spotlight and its navigator for
-    /// outline jumps, and trades positions through the same remembered element
-    /// the column and the paper trade through.
+    /// The reading surface: the script without its chrome, in place of the
+    /// column. It borrows this screen's narrator for the spotlight and its
+    /// navigator for outline jumps, and trades positions through the same
+    /// remembered element the column and the paper trade through.
     private var reader: some View {
         ReadScriptView(
             title: model.project.displayTitle,
@@ -2045,7 +2045,7 @@ struct ScriptView: View {
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
                 // A mode among the modes, not a screen: the toggle swaps the
-                // column for the prose reader in place, and toggling it off —
+                // column for the reader in place, and toggling it off —
                 // or asking for page or outline mode — puts the writing back.
                 // Read Aloud is not beside it: that one is a button out in
                 // the bar, and reading aloud never needs this mode.

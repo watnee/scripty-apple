@@ -310,12 +310,13 @@ extension HelpTopic {
                 title: "Read Script",
                 systemImage: "book",
                 paragraphs: [
-                    "Read Script sets the screenplay as prose in a serif face, with the "
+                    "Read Script sets the screenplay in screenplay format — the same "
+                    + "face and the same indents as the writing column — with the "
                     + "editing controls and the working annotations — synopses and notes "
                     + "— left out. It swaps in on the script screen itself, opening at "
                     + "the place you were writing; choose it again in the View menu to "
-                    + "put the writing back. It is for reading on a screen; page view is "
-                    + "the one for reading it as paper.",
+                    + "put the writing back. It runs continuously, without page breaks "
+                    + "or page numbers: page view is the one for reading it as paper.",
                     "Read Aloud (⌘⇧A) speaks the script from wherever you are, on "
                     + "whichever surface is up. The element being read is highlighted "
                     + "and scrolls itself into view, and the transport at the foot of "
@@ -328,7 +329,8 @@ extension HelpTopic {
                     + "installed on the device stretch; add more in the Settings app "
                     + "under Accessibility."
                 ],
-                keywords: ["reader", "reading", "prose", "review", "distraction free",
+                keywords: ["reader", "reading", "format", "courier", "indents",
+                           "review", "distraction free",
                            "aloud", "speech", "speak", "voice", "listen", "audio",
                            "table read", "run lines", "text to speech"]),
             HelpTopic(
