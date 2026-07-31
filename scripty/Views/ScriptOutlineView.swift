@@ -93,6 +93,8 @@ struct ScriptOutlineView: View {
                     options?.rememberOutlineTab(newTab.rawValue)
                 }
 
+                markVisibilityToggle
+
                 list(outline)
             }
             .navigationTitle(tab.label)
@@ -102,6 +104,42 @@ struct ScriptOutlineView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+
+    /// Whether the marks are drawn beside the script's lines, offered next to
+    /// the list of them rather than in the View menu: a writer thinking about
+    /// pins or bookmarks is already looking at this panel, and the list here
+    /// keeps working as a way back to a line whose mark is hidden on the page.
+    ///
+    /// It sits above the list rather than in it so that an empty tab — the very
+    /// case where a writer wonders where their marks went — still shows it,
+    /// instead of losing it under the "Nothing Here Yet" overlay.
+    @ViewBuilder
+    private var markVisibilityToggle: some View {
+        if let binding = markVisibility {
+            Toggle(isOn: binding) {
+                Label("Show \(tab.label) in the Script", systemImage: tab.systemImage)
+                    .font(.subheadline)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+    }
+
+    /// The per-project setting behind the toggle, for the two tabs that have
+    /// one. nil elsewhere, and nil without a project's options — previews pass
+    /// none, and there is nothing to remember the choice in.
+    private var markVisibility: Binding<Bool>? {
+        guard let options else { return nil }
+        switch tab {
+        case .pins:
+            return Binding(get: { options.showsPins }, set: { options.showsPins = $0 })
+        case .bookmarks:
+            return Binding(get: { options.showsBookmarks },
+                           set: { options.showsBookmarks = $0 })
+        default:
+            return nil
         }
     }
 
