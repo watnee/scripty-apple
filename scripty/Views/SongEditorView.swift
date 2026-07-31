@@ -15,14 +15,26 @@
 //  formatting bar while the caret is in the note, and the same word-count
 //  readout the screenplay and lyric editors show under the same preference.
 //
-//  A note that already exists saves itself as it is written, as it does in the
-//  browser. Every other writing surface in this app has worked that way for as
-//  long as it has existed — the screenplay debounces each block, a lyric line
-//  saves on the way out of it — and this was the one place where an hour of
-//  prose lived only in a text view until somebody remembered to press a button.
-//  A new note is still saved by hand: it has no title until the writer gives it
-//  one, and creating a document behind their back on the first keystroke is a
-//  worse surprise than the prompt on the way out.
+//  A song or a note saves itself as it is written, as it does in the browser.
+//  Every other writing surface in this app has worked that way for as long as
+//  it has existed — the screenplay debounces each block, a lyric line saves on
+//  the way out of it — and this was the last place where an hour of prose lived
+//  only in a text view until somebody remembered to press a button. There is no
+//  longer a button to remember: the first save of a new document creates it, and
+//  every save after that edits it.
+//
+//  Nothing waits on the title. The server requires one and the list needs
+//  something to draw, so a document written without one is saved under the
+//  name the list has always drawn for it — "Untitled Notes", the very words
+//  `TextDocument.displayTitle` puts there — and typing a real title later is
+//  an ordinary rename. Only a writer who *deletes* the name of a document that
+//  had one is asked to put it back, because that is the one case where
+//  supplying "Untitled" would be taking something away rather than giving
+//  something.
+//
+//  So this sheet now stops the writer over exactly one thing, the thing the
+//  Save button was really standing in for: a save the server refused, where
+//  the words are only on this device.
 //
 
 import SwiftUI
@@ -40,7 +52,15 @@ struct SongEditorView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var title: String
     @State private var content: String
+    /// The document this sheet made. Nil until a new document's first save
+    /// lands — from then on this sheet is editing that, and every part of it
+    /// that asked "which document?" gets this one instead of nothing.
+    @State private var created: TextDocument?
     @State private var isSaving = false
+    /// Whether the one create this sheet will ever make is in flight. Kept
+    /// apart from `isSaving` because it guards something a save does not need
+    /// guarding against: a second POST would make a second document.
+    @State private var isCreating = false
     @State private var isLoading = false
     @State private var didLoad = false
     @State private var errorMessage: String?
@@ -100,21 +120,55 @@ struct SongEditorView: View {
         _savedContent = State(initialValue: content)
     }
 
-    private var isNew: Bool { document == nil }
+    /// The document being written: the one this sheet was opened on, or the one
+    /// its first save created. Nil only while a new document has yet to land.
+    private var target: TextDocument? { document ?? created }
+
+    private var isNew: Bool { target == nil }
     private var canEdit: Bool { document?.hasLink(.update) ?? true }
     private var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    private var canSave: Bool { canEdit && !trimmedTitle.isEmpty && !isSaving }
 
-    /// Whether this editor saves as it is written. A document the server will
-    /// take an edit for, and that therefore already exists to be edited.
-    private var autosaves: Bool { document != nil && canEdit }
+    /// The word for what is being written, for the sentences that need it.
+    private var kindWord: String { type == .song ? "song" : "note" }
+
+    /// What the server ends up holding for a title field containing `raw`:
+    /// the trimmed words, or — where a document is allowed to have no name —
+    /// the one the list has always drawn for it. Deliberately spelled the same
+    /// way `TextDocument.displayTitle` spells it, so a document saved under
+    /// this name reads on every screen exactly as it did before it had one.
+    private func storedName(for raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled \(type.label)" : trimmed
+    }
+
+    /// Whether an empty title field may be saved under that borrowed name.
+    ///
+    /// True for a document with no name to lose: one being written for the
+    /// first time, one the server itself holds untitled, and one already filed
+    /// under the borrowed name — clearing "Untitled Notes" to type a real one
+    /// is the first half of a rename, and pausing in the middle of it should
+    /// not raise a warning about a name that was never the writer's.
+    ///
+    /// False once it has a name of its own. A writer who clears the title of
+    /// "Ballad of the Lost Hour" has deleted something, and answering that by
+    /// filing it under "Untitled Song" behind their back is not a rescue.
+    private var mayGoUntitled: Bool {
+        let saved = savedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return saved.isEmpty || saved == storedName(for: "")
+    }
 
     /// How long typing has to stop before the note is sent. The browser waits
     /// 900ms; this waits a little longer because a phone's save is a request
     /// over whatever network it has, not a same-host POST.
     private static let autosaveDelay: Duration = .milliseconds(1200)
+
+    /// A create waits longer than a save does. A save is a correction to
+    /// something that exists; a create names a document in the list and cannot
+    /// be taken back by typing more, so a title still being typed — "Ballad",
+    /// mid-way to "Ballad of the Lost Hour" — should not become one.
+    private static let createDelay: Duration = .milliseconds(2500)
 
     /// Where an autosaving note has got to. Absent while nothing has been
     /// typed, so an untouched note carries no chrome at all.
@@ -137,12 +191,26 @@ struct SongEditorView: View {
         canEdit && !isLoading && (title != savedTitle || content != savedContent)
     }
 
+    /// Whether going now would really lose the words, which is the only thing
+    /// worth stopping a writer to ask about.
+    ///
+    /// Almost never, and that is the point of the change: what is on screen is
+    /// saved, or a beat away from being saved by the parting flush — a
+    /// document with nothing in its title field included, since that one saves
+    /// itself under the list's own "Untitled …". What is left is the one case
+    /// the flush cannot rescue: a save the server refused, where trying again
+    /// on the way out is all leaving would achieve.
+    private var leavingLosesWork: Bool { saveFailed }
+
     /// Notes get the list and heading controls; lyrics take the same keyboard
     /// rules but not the bar, which is the split the browser makes too.
     private var showsFormatBar: Bool { type != .song && canEdit }
 
+    /// Fixed for the life of the sheet, on how it was opened rather than on
+    /// whether the document exists yet. A create landing mid-sentence is not a
+    /// reason for the screen the writer is looking at to rename itself.
     private var navTitle: String {
-        if isNew { return type == .song ? "New Song" : "New Note" }
+        if document == nil { return type == .song ? "New Song" : "New Note" }
         return canEdit ? "Edit \(type.label)" : type.label
     }
 
@@ -184,9 +252,8 @@ struct SongEditorView: View {
             // A sheet dragged away takes the note with it, and unlike a button
             // it gives no chance to say so. An autosaving note has nothing to
             // lose to the drag — it is already saved, or saving — so the drag
-            // is only refused where the words really would go: a note that was
-            // never created, and one whose last save the server turned down.
-            .interactiveDismissDisabled(isNew ? hasUnsavedChanges : saveFailed)
+            // is only refused where the words really would go.
+            .interactiveDismissDisabled(leavingLosesWork)
             .confirmationDialog(saveFailed ? "Discard unsaved changes?" : "Discard changes?",
                                 isPresented: $confirmingDiscard,
                                 titleVisibility: .visible) {
@@ -195,7 +262,7 @@ struct SongEditorView: View {
                     // the very words the writer just chose to throw away —
                     // and the held draft would push them on the next sweep.
                     discarding = true
-                    if let document { model.discardDocumentDraft(for: document.id) }
+                    if let target { model.discardDocumentDraft(for: target.id) }
                     dismiss()
                 }
                 Button("Keep Editing", role: .cancel) {}
@@ -221,13 +288,15 @@ struct SongEditorView: View {
         return false
     }
 
+    /// Only ever asked over a refused save now — the sheet does not stop a
+    /// writer for anything it can still put right itself. "Most recent edits"
+    /// would be a kind way of putting it for a document that was never
+    /// created: there is no earlier copy sitting safely on the server, there
+    /// is nothing at all.
     private var discardMessage: String {
-        if saveFailed {
-            return "The last save did not reach the server, so your most recent edits are only on this device."
-        }
-        return isNew
-            ? "This \(type == .song ? "song" : "note") has not been saved yet."
-            : "Your edits since opening will be lost."
+        isNew
+            ? "This \(kindWord) has not reached the server, so it exists only on this device."
+            : "The last save did not reach the server, so your most recent edits are only on this device."
     }
 
     // MARK: - Surfaces
@@ -332,37 +401,28 @@ struct SongEditorView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // An autosaving note is only ever left, never cancelled: there is
-        // nothing to cancel back to. The one exception is a save the server
-        // refused, where leaving does lose something and so has to be asked
-        // about.
+        // An autosaving document is only ever left, never cancelled: there is
+        // nothing to cancel back to, and no Save to pair a Cancel with. Leaving
+        // is only asked about where it would really cost something.
         ToolbarItem(placement: .cancellationAction) {
-            Button(autosaves || !canEdit ? "Done" : "Cancel") {
-                if autosaves ? saveFailed : hasUnsavedChanges {
+            Button("Done") {
+                if leavingLosesWork {
                     confirmingDiscard = true
                 } else {
                     dismiss()
                 }
             }
         }
-        if canEdit && !autosaves {
-            ToolbarItem(placement: .confirmationAction) {
-                if isSaving {
-                    ProgressView()
-                } else {
-                    Button("Save") { save() }
-                        .disabled(!canSave)
-                }
-            }
-        }
         // The list's context-menu action, reachable without leaving the
         // editor. Same gate — the server advertised an `insert` link on this
         // document — and the same landing: the end of the script, a song as
-        // Lyrics blocks, a note as Note blocks.
-        if let document, document.hasLink(.insert) {
+        // Lyrics blocks, a note as Note blocks. A document created by this
+        // sheet a moment ago has that link too, so a song written here can go
+        // straight into the script without being reopened.
+        if let target, target.hasLink(.insert) {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
-                    insert(document)
+                    insert(target)
                 } label: {
                     Label("Insert into Script", systemImage: "text.insert")
                 }
@@ -489,15 +549,16 @@ struct SongEditorView: View {
     /// this checks that the note has really diverged rather than trusting that
     /// a change came from the keyboard.
     private func scheduleAutosave() {
-        guard autosaves, !isLoading, hasUnsavedChanges else { return }
+        guard canEdit, !isLoading, hasUnsavedChanges else { return }
         // Said from the first keystroke rather than when the request leaves:
         // what the writer needs to know is that the words are on their way, and
         // a readout that still says "Saved" over unsent text is the one thing
         // this bar must never do.
         saveStatus = .saving
+        let delay = isNew ? Self.createDelay : Self.autosaveDelay
         autosave?.cancel()
         autosave = Task {
-            try? await Task.sleep(for: Self.autosaveDelay)
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             await saveNow()
         }
@@ -510,19 +571,26 @@ struct SongEditorView: View {
     /// the note moved on in the meantime, another save is armed rather than the
     /// newer words being marked as saved.
     private func saveNow() async {
-        guard autosaves, let document, !isSaving else { return }
+        guard canEdit, !isSaving else { return }
         // Typed back to what the server already holds — there is nothing to
         // send, but the bar has been saying "Saving…" since the keystroke that
-        // got it there.
+        // got it there. A new document typed into and then emptied again holds
+        // nothing anywhere, and must not be told it is saved: the bar goes back
+        // to saying nothing, which is what an untouched sheet says.
         guard hasUnsavedChanges else {
-            if saveStatus == .saving { saveStatus = .saved }
+            if saveStatus == .saving { saveStatus = isNew ? nil : .saved }
             return
         }
-        // An untitled note cannot be saved: the server requires the title, and
-        // the list would have nothing to draw. Say so rather than retrying into
-        // a refusal every second.
-        guard !trimmedTitle.isEmpty else {
-            saveStatus = .failed("Add a title to save this \(type == .song ? "song" : "note").")
+        // The server requires a title and the list needs something to draw, so
+        // a document with nothing in the field goes under the name the list
+        // already draws for it. The one refusal left is the writer deleting a
+        // name it *had* — see `mayGoUntitled`.
+        guard !trimmedTitle.isEmpty || mayGoUntitled else {
+            saveStatus = .failed("Add a title to save this \(kindWord).")
+            return
+        }
+        guard let document = target else {
+            await createNow()
             return
         }
         let sentTitle = title
@@ -530,8 +598,12 @@ struct SongEditorView: View {
         isSaving = true
         saveStatus = .saving
         let outcome = await model.saveDocumentOutcome(
-            document, title: trimmedTitle, content: sentContent,
-            baseTitle: haveServerBaseline ? savedTitle : nil,
+            document, title: storedName(for: title), content: sentContent,
+            // What the server holds, which for a document saved without a name
+            // is the borrowed one — not the empty field that stands in for it
+            // here. A base of "" against a server saying "Untitled Notes" is a
+            // held draft the reconnect sweep would set aside as stale.
+            baseTitle: haveServerBaseline ? storedName(for: savedTitle) : nil,
             baseContent: haveServerBaseline ? savedContent : nil)
         isSaving = false
         switch outcome {
@@ -554,6 +626,58 @@ struct SongEditorView: View {
         }
     }
 
+    /// The first save of a new document, which has to make it before it can
+    /// write to it. From here on this sheet is an ordinary editor: `target`
+    /// answers with what came back, and every save after this one is the PUT
+    /// above.
+    ///
+    /// A create that cannot get out is not held the way a save is — there is no
+    /// document on the server for a draft to be measured against, so nothing
+    /// goes to the drafts store and no sweep will pick it up. It reads as a
+    /// failure because that is what it is: the words are only here. Typing on
+    /// re-arms the debounce, so the create that could not go out at the kitchen
+    /// table goes out when the train reaches the station.
+    private func createNow() async {
+        let sentTitle = title
+        let sentContent = content
+        let createdTitle = storedName(for: title)
+        let model = model
+        let type = type
+        isSaving = true
+        isCreating = true
+        saveStatus = .saving
+        // On a task of its own, and deliberately so. Everything that reaches
+        // here arrives on the debounce task, which the next keystroke cancels
+        // and the sheet's dismissal cancels — and a cancelled POST is the one
+        // failure this editor cannot climb out of, because the server may have
+        // made the document anyway and the retry would make a second one. A
+        // PUT can be abandoned and repeated; a create is asked exactly once.
+        let outcome = await Task { @MainActor in
+            await model.createDocumentOutcome(title: createdTitle, content: sentContent, type: type)
+        }.value
+        isSaving = false
+        isCreating = false
+        switch outcome {
+        case .created(let document):
+            created = document
+            savedTitle = sentTitle
+            savedContent = sentContent
+            // The server has just told us what it holds, which is as good a
+            // baseline as a fetch — and the one a held draft would be judged
+            // against if the next save cannot get out.
+            haveServerBaseline = true
+            saveStatus = .saved
+            errorMessage = nil
+            // Typed into while the create was in flight: those words are not on
+            // the server yet, and now there is a document to send them to.
+            if hasUnsavedChanges { scheduleAutosave() }
+        case .unreachable:
+            saveStatus = .failed("Not saved — couldn't reach the server.")
+        case .failed:
+            saveStatus = .failed(model.errorMessage ?? "Not saved.")
+        }
+    }
+
     /// Sends whatever is unsent without waiting out the debounce, on a task
     /// that belongs to the model rather than to this view — a sheet on its way
     /// out takes its own tasks with it, and this is exactly the moment the
@@ -561,22 +685,41 @@ struct SongEditorView: View {
     ///
     /// Also where the lists left alone during the session are brought back into
     /// step, since every save until now deliberately skipped them.
+    ///
+    /// A new document dismissed inside the create debounce is created here, not
+    /// abandoned. Done is now the ordinary way out of a song written in one
+    /// sitting, and it must not be a way to throw it away by being quick.
     private func flush() {
-        guard autosaves, let document else { return }
-        let dirty = hasUnsavedChanges && !trimmedTitle.isEmpty && !discarding
+        guard canEdit else { return }
+        let dirty = hasUnsavedChanges && (!trimmedTitle.isEmpty || mayGoUntitled)
+            && !discarding
         guard dirty || saveStatus != nil else { return }
-        let sentTitle = trimmedTitle
+        let sentTitle = storedName(for: title)
         let sentContent = content
-        let baseTitle = haveServerBaseline ? savedTitle : nil
+        let baseTitle = haveServerBaseline ? storedName(for: savedTitle) : nil
         let baseContent = haveServerBaseline ? savedContent : nil
+        let type = type
         let model = model
+        let target = target
+        let alreadyCreating = isCreating
         Task { @MainActor in
             if dirty {
-                // The outcome path holds the words on failure, so a sheet
-                // dismissed on a train still delivers its last paragraph on
-                // the next reconnect sweep.
-                await model.saveDocumentOutcome(document, title: sentTitle, content: sentContent,
-                                                baseTitle: baseTitle, baseContent: baseContent)
+                if let target {
+                    // The outcome path holds the words on failure, so a sheet
+                    // dismissed on a train still delivers its last paragraph on
+                    // the next reconnect sweep.
+                    await model.saveDocumentOutcome(target, title: sentTitle, content: sentContent,
+                                                    baseTitle: baseTitle, baseContent: baseContent)
+                } else if !alreadyCreating {
+                    // Nothing was ever created, so there is nothing to hold
+                    // this against: it lands or it doesn't. It having reached
+                    // here at all means the writer was not asked, which means
+                    // there is a title — the untitled case never dismisses
+                    // without the discard prompt. And only if the debounce did
+                    // not get there first: that create outlives this sheet, so
+                    // a second one here would be a second document.
+                    await model.createDocument(title: sentTitle, content: sentContent, type: type)
+                }
             }
             await model.refreshAfterDocumentEdit()
         }
@@ -608,30 +751,6 @@ struct SongEditorView: View {
             } else {
                 insertMessage = model.errorMessage
                     ?? "Could not insert into the script."
-            }
-        }
-    }
-
-    /// The Save button, which now only ever creates: a document that exists is
-    /// saving itself, and one that does not has no update link for anything
-    /// else to use.
-    private func save() {
-        guard canSave, document == nil else { return }
-        isSaving = true
-        errorMessage = nil
-        let title = trimmedTitle
-        Task {
-            let succeeded = await model.createDocument(
-                title: title, content: content, type: type) != nil
-            isSaving = false
-            if succeeded {
-                // Cleared before dismissing so the discard prompt cannot fire
-                // on the way out over work that has just been saved.
-                savedTitle = self.title
-                savedContent = content
-                dismiss()
-            } else {
-                errorMessage = model.errorMessage ?? "Could not save. Please try again."
             }
         }
     }

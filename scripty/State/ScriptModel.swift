@@ -1845,9 +1845,33 @@ final class ScriptModel {
         }
     }
 
-    @discardableResult
-    func createDocument(title: String, content: String, type: DocumentType) async -> TextDocument? {
-        guard let link = documentsLinks[.selfRel] ?? project.link(.documents) else { return nil }
+    /// What became of a document being created. The editor needs the middle
+    /// case kept apart from a refusal: a create that couldn't get out is worth
+    /// trying again on the next keystroke and says nothing alarming, while one
+    /// the server turned down is neither.
+    ///
+    /// There is deliberately no `held` here, as there is for a save. Holding
+    /// means "on disk, and the reconnect sweep will send it", and the sweep
+    /// works document by document against the server's copy — of which a
+    /// document that was never created has none. The words stay where they
+    /// are, on screen, in an editor that will not let itself be dismissed
+    /// without asking.
+    enum DocumentCreateOutcome {
+        case created(TextDocument)
+        /// Carries the failure, because not every caller has an editor to put
+        /// a status line in — an intent asked to take a note by voice has only
+        /// the sentence it says back.
+        case unreachable(Error)
+        case failed
+    }
+
+    /// Creates a document and says how it went. What the editor's autosave
+    /// uses: the first save of a new song or note is a POST rather than a PUT,
+    /// and a create that fails while the writer is still typing must not raise
+    /// an alert per debounce.
+    func createDocumentOutcome(title: String, content: String,
+                               type: DocumentType) async -> DocumentCreateOutcome {
+        guard let link = documentsLinks[.selfRel] ?? project.link(.documents) else { return .failed }
         do {
             let created: TextDocument = try await app.client.fetch(
                 from: link, method: "POST",
@@ -1855,9 +1879,31 @@ final class ScriptModel {
                                             documentType: type.rawValue, content: content))
             await loadDocuments()
             errorMessage = nil
-            return created
+            return .created(created)
         } catch {
+            // Abandoned, or offline: nothing was refused, so there is nothing
+            // to tell the writer beyond what the editor's own status line
+            // already says.
+            guard !error.isCancelledRequest, !error.isRetryableAPIError else {
+                return .unreachable(error)
+            }
             report(error)
+            return .failed
+        }
+    }
+
+    /// The optional-shaped create, for callers with nowhere to put a status
+    /// line: every failure is reported, as it was before the editor needed to
+    /// tell "not sent" apart from "refused".
+    @discardableResult
+    func createDocument(title: String, content: String, type: DocumentType) async -> TextDocument? {
+        switch await createDocumentOutcome(title: title, content: content, type: type) {
+        case .created(let document):
+            return document
+        case .unreachable(let error):
+            report(error)
+            return nil
+        case .failed:
             return nil
         }
     }

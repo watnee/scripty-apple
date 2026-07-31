@@ -398,6 +398,16 @@ extension HelpTopic {
                     + "row's menu and in the editor's own menu, so a song just finished "
                     + "can be sent to the script without stepping back out. Saving a "
                     + "song updates every place it was already inserted.",
+                    "Nothing here is saved by hand. A song or a note saves itself "
+                    + "as it is written, and a new one is created for you a moment "
+                    + "after you start — untitled if you have not named it yet, "
+                    + "filed as \u{201C}Untitled Song\u{201D} or \u{201C}Untitled Notes\u{201D} "
+                    + "until you do, and simply renamed when you type a title. The "
+                    + "status line under the writing says where each save has got "
+                    + "to. Clearing a title you gave it is the one edit that waits "
+                    + "for a new one, since that is a name being taken away rather "
+                    + "than never given; emptying the borrowed \u{201C}Untitled\u{201D} one on "
+                    + "your way to typing a real title is not.",
                     "The notes editor carries lists down a line at a time on Return, "
                     + "nests them on Tab, and sets headings; the prefixes stay plain "
                     + "text, so what reaches the script is what you typed. Songs can be "
@@ -418,12 +428,17 @@ extension HelpTopic {
                     + "elsewhere in the meantime is set aside rather than overwritten, "
                     + "and the editor says when that happens. A song opened offline "
                     + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a banner saying how old that copy is."
+                    + "with a banner saying how old that copy is. A brand-new song "
+                    + "or note is the exception: until it has reached the server "
+                    + "once there is nothing there to keep it against, so the editor "
+                    + "says it has not been saved and holds on to it until you are "
+                    + "back — leave it and it asks first."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
-                           "offline", "unsaved", "sync", "cloud", "badge"]),
+                           "offline", "unsaved", "sync", "cloud", "badge",
+                           "save", "autosave", "title"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

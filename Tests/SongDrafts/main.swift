@@ -291,11 +291,35 @@ func run() async {
     }
 
     print()
+    print("== A create that cannot get out is not a refusal ==")
+    do {
+        // The editor's first autosave of a new song or note is a POST. Offline
+        // it must come back as "unreachable" and stay quiet: the sheet's own
+        // status line says where the words are, and an alert per debounce over
+        // a document the writer is still typing the title of would bury them.
+        let project = decode(Project.self, """
+        {"id": 1, "title": "Test Script",
+         "_links": {"documents": {"href": "/api/document?projectId=1"}}}
+        """)
+        let model = ScriptModel(app: AppModel(), project: project)
+        var unreachable = false
+        if case .unreachable = await model.createDocumentOutcome(
+            title: "Ballad of the Closed Port", content: "First verse.", type: .song) {
+            unreachable = true
+        }
+        check("the outcome is unreachable, not failed", unreachable)
+        check("and raises no alert", model.errorMessage == nil)
+        check("and nothing was added to the list", model.documents.isEmpty)
+    }
+
+    print()
     await checkNoteDraftStore()
     print()
     await checkHeldNoteSave()
     print()
     await checkNoteDraftDrain()
+    print()
+    await checkDocumentCreate()
 
     print()
     if failures == 0 {
@@ -421,6 +445,78 @@ func checkNoteDraftDrain() async {
     await model.syncHeldWork()
     check("a draft for a deleted note is set aside",
           store.drafts(projectId: project.id).isEmpty)
+}
+
+@MainActor
+func checkDocumentCreate() async {
+    print("== A created document can be saved again without being reopened ==")
+    // What the editor sheet needs from a create now that there is no Save
+    // button: the document that comes back has to be a document it can go on
+    // editing, or the second autosave would be a second POST and the writer
+    // would end the sitting with a list full of half-typed duplicates.
+    let app = AppModel()
+    await app.enterDemo()
+    guard let projectsLink = app.apiRoot?.link(.projects),
+          let projects: HALCollection<Project> = try? await app.client.fetch(from: projectsLink),
+          let project = projects.items.first else {
+        check("the demo has a project", false)
+        return
+    }
+    let model = ScriptModel(app: app, project: project)
+    await model.loadDocuments()
+    let before = model.documents.count
+
+    var created: TextDocument?
+    if case .created(let document) = await model.createDocumentOutcome(
+        title: "Ballad of the Lost Hour", content: "First verse.", type: .song) {
+        created = document
+    }
+    guard let created else {
+        check("the create lands", false)
+        return
+    }
+    checkEqual("the title is what was typed", created.title, "Ballad of the Lost Hour")
+    check("it advertises an update link, so the next save is a PUT",
+          created.hasLink(.update))
+    check("and an insert link, so it can go into the script from the same sheet",
+          created.hasLink(.insert))
+    checkEqual("the list has it", model.documents.count, before + 1)
+
+    // The second save: an edit to what was just created, sent the way the
+    // editor's debounce sends it.
+    let outcome = await model.saveDocumentOutcome(
+        created, title: "Ballad of the Lost Hour", content: "First verse.\nSecond verse.",
+        baseTitle: "Ballad of the Lost Hour", baseContent: "First verse.")
+    check("the second save is a save, not a create", outcome == .saved)
+    await model.loadDocuments()
+    checkEqual("and made no second document", model.documents.count, before + 1)
+    let full = await model.fetchDocument(created)
+    checkEqual("the server has both verses", full?.content, "First verse.\nSecond verse.")
+
+    // A document written without a title goes under the name the list already
+    // draws for it, rather than not going at all. The editor supplies it, so
+    // what is pinned here is that the server takes it and that a real title
+    // typed afterwards is an ordinary rename rather than a second document.
+    var untitled: TextDocument?
+    if case .created(let document) = await model.createDocumentOutcome(
+        title: "Untitled Notes", content: "Ask props for a second machine.",
+        type: .notes) {
+        untitled = document
+    }
+    guard let untitled else {
+        check("an untitled document is created too", false)
+        return
+    }
+    checkEqual("it is filed under the name the list draws",
+               untitled.displayTitle, "Untitled Notes")
+    let renamed = await model.saveDocumentOutcome(
+        untitled, title: "Props List", content: "Ask props for a second machine.",
+        baseTitle: "Untitled Notes", baseContent: "Ask props for a second machine.")
+    check("naming it later is a rename, not a refusal", renamed == .saved)
+    await model.loadDocuments()
+    checkEqual("and still one document", model.documents.count, before + 2)
+    checkEqual("under its new name",
+               model.documents.first { $0.id == untitled.id }?.title, "Props List")
 }
 
 await run()
