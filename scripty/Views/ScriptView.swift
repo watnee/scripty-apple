@@ -927,10 +927,12 @@ struct ScriptView: View {
     /// It draws no background of its own — the `.safeAreaBar` already floats it
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
     ///
-    /// Read Aloud rides along for the same reason the documents do: it has a
-    /// toolbar button now, and on a phone that button is always the overflow's
-    /// — the very menu it just moved out of. Listening is also the posture this
-    /// bar suits best: a thumb on the bottom edge, not a reach for the corner.
+    /// Read Aloud lives here and nowhere else in the chrome. It had a toolbar
+    /// button beside Search and Outline, which on a phone was always the
+    /// overflow's — the very menu this bar exists to keep things out of — and
+    /// on an iPad or a Mac was a second door onto what the View menu's ⌘⇧A
+    /// already opens. Listening is also the posture this bar suits best: a
+    /// thumb on the bottom edge, not a reach for the corner.
     @ViewBuilder
     private var documentsBar: some View {
         // Not while elements are being selected: the selection bar already
@@ -1633,13 +1635,16 @@ struct ScriptView: View {
                        recents: model.notes)
     }
 
-    /// One definition for its two homes — the toolbar capsule where an iPad
-    /// or a Mac has the width, and the phone's bottom bar — so the two cannot
-    /// drift. Reading happens on this very screen: the voice starts from
-    /// wherever the writer is and the transport bar comes up at the bottom,
-    /// so while it runs the button is the pause it will be reached for as.
-    /// The ⌘⇧A shortcut is the toolbar's alone; a second claim from the
-    /// bottom bar would leave one of them silently dead.
+    /// The bottom bar's listening button. Reading happens on this very screen:
+    /// the voice starts from wherever the writer is and the transport bar comes
+    /// up at the bottom, so while it runs the button is the pause it will be
+    /// reached for as.
+    ///
+    /// It claims no keyboard shortcut: ⌘⇧A is the View menu's Read Aloud item
+    /// (`ScriptCommands`), which reaches this same action through
+    /// `actions.readAloud` on every platform with a keyboard. A second live
+    /// claim on the same keys would be settled by responder order, with one of
+    /// the two silently dead.
     private var readAloudButton: some View {
         Button {
             toggleReadAloud()
@@ -1832,18 +1837,6 @@ struct ScriptView: View {
             }
 
             if model.hasScriptContent && !settings.isFocusMode {
-                // Out of the View menu, where it was a listening feature filed
-                // under presentation toggles and cost a menu trip every time.
-                // It joins this capsule rather than opening one of its own for
-                // the reason undo does, and sits where an iPad and a Mac will
-                // draw it as a button. A phone will not — everything past Undo
-                // is the "…"'s — so `documentsBar` gives the phone a real one
-                // down under the thumb, which is also why the shortcut lives
-                // here and not there: two live claims on ⌘⇧A would be settled
-                // by responder order with one of them silently dead.
-                readAloudButton
-                    .keyboardShortcut("a", modifiers: [.command, .shift])
-
                 // Not while reading: the search bar rides the editing column,
                 // which the reader has swapped out.
                 if !isReading {
@@ -2047,8 +2040,9 @@ struct ScriptView: View {
                 // A mode among the modes, not a screen: the toggle swaps the
                 // column for the reader in place, and toggling it off —
                 // or asking for page or outline mode — puts the writing back.
-                // Read Aloud is not beside it: that one is a button out in
-                // the bar, and reading aloud never needs this mode.
+                // Read Aloud is not beside it: that one is the phone's bottom
+                // bar and the View menu's ⌘⇧A, and reading aloud never needs
+                // this mode.
                 Toggle(isOn: $isReading) {
                     Label("Read Script", systemImage: "book")
                 }
