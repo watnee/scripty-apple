@@ -20,7 +20,38 @@ final class AppModel {
 
     private(set) var phase: Phase = .loading
     private(set) var apiRoot: APIRoot?
+
+    /// Whether this session is the local one, answered in-process by
+    /// `DemoBackend` rather than by a server.
+    ///
+    /// It is what a launch with no stored credentials lands in: the app opens
+    /// on a workspace instead of a login wall, and signing in is something the
+    /// writer does when they want their work kept — see `enterDemo()`. The name
+    /// is unchanged because the session is unchanged; what moved is when it
+    /// happens, and it is still exactly what `scripty://demo` opens.
     private(set) var isDemo = false
+
+    /// Whether the sign-in screen is being shown over the app.
+    ///
+    /// The signed-out *phase* is now the narrow case — a session the server
+    /// revoked — so a guest asking to sign in gets a sheet over their own
+    /// workspace instead, and cancelling leaves everything they wrote in place.
+    var isPresentingSignIn = false
+
+    /// Work written without an account, waiting to be offered to the account
+    /// that just signed in.
+    ///
+    /// Parked rather than presented: the sign-in sheet is on its way out at
+    /// exactly this moment, and a sheet raised while another is being dismissed
+    /// is dropped without a word. `RootView` picks this up once that one has
+    /// gone, and clears it.
+    var pendingGuestWorkOffer: GuestWorkOffer?
+
+    /// Bumped when guest work has been copied into the account, so the project
+    /// list knows to reload — the upload happens after the list has already
+    /// loaded for the new session.
+    private(set) var guestWorkImports = 0
+
     var signInError: String?
 
     /// The token from a recovery email's link, when one has opened the app.
@@ -77,13 +108,16 @@ final class AppModel {
         }
     }
 
-    /// Point the client's fail-fast gate at the monitor. Applied to every
-    /// real client this model creates; the demo client is left unwired, since
-    /// the demo answers in-process and works with no connection at all.
-    private func wireOfflineCheck() {
-        client.offlineCheck = { [weak connectivity] in
+    /// Point a client's fail-fast gate at the monitor. Applied to every real
+    /// client this model creates; the demo client is left unwired, since the
+    /// demo answers in-process and works with no connection at all.
+    @discardableResult
+    private func wireOfflineCheck(_ target: APIClient? = nil) -> APIClient {
+        let target = target ?? client
+        target.offlineCheck = { [weak connectivity] in
             !(connectivity?.isOnline ?? true)
         }
+        return target
     }
 
     /// Where the offline copies of this account's documents live. Nil exactly
@@ -107,6 +141,9 @@ final class AppModel {
         return host + "|" + username.lowercased()
     }
 
+    /// Counts the offers made, so each gets an identity of its own.
+    private var nextOfferId = 0
+
     /// Bumped whenever the session is replaced. An in-flight bootstrap that
     /// resumes against a stale token must not overwrite the newer session —
     /// otherwise `scripty://demo` on a cold launch loses a race with the
@@ -114,13 +151,20 @@ final class AppModel {
     private var session = 0
 
     /// Called once at launch: try stored credentials against the API root.
+    ///
+    /// A device with no stored credentials is not sent to a login screen. It
+    /// opens the local session instead, so the app can be used — and written in
+    /// — without an account; signing in is offered from inside it, and is what
+    /// gives the writing somewhere to live. Credentials the *server* refuses
+    /// still land on the login screen: that writer has an account, and the only
+    /// useful thing to say is that it needs signing into again.
     func bootstrap() async {
         if UserDefaults.standard.bool(forKey: Self.demoLaunchKey) {
             await enterDemo()
             return
         }
         guard let stored = KeychainStore.load() else {
-            phase = .signedOut
+            await enterDemo()
             return
         }
         let token = session
@@ -189,32 +233,99 @@ final class AppModel {
 
     func signIn(username: String, password: String) async {
         let credentials = Credentials(username: username, password: password)
-        client.credentials = credentials
+        let attempt = signingInClient(with: credentials)
         do {
-            let data = try await client.data(for: client.rootLink)
-            apiRoot = try client.decode(APIRoot.self, from: data)
-            isOfflineSession = false
-            offlineStore?.save(data, .root)
-            // A keychain that won't hold the credentials doesn't stop this
-            // session, but it does mean the next cold launch lands back on
-            // this screen — better to say so now than to look like a bug then.
-            do {
-                try KeychainStore.save(credentials)
-                isSessionPersisted = true
-            } catch {
-                isSessionPersisted = false
-            }
-            signInError = nil
-            phase = .signedIn
-            loadEditorPreferences()
+            let data = try await attempt.data(for: attempt.rootLink)
+            let root = try attempt.decode(APIRoot.self, from: data)
+            await adopt(root, rootData: data, from: attempt, credentials: credentials)
         } catch APIError.unauthorized {
-            client.credentials = nil
+            abandon(attempt)
             signInError = "Incorrect username or password."
         } catch {
-            client.credentials = nil
+            abandon(attempt)
             guard !error.isCancelledRequest else { return }
             signInError = error.localizedDescription
         }
+    }
+
+    /// The client everything to do with signing in talks to.
+    ///
+    /// In a guest session the installed client is answered in-process by the
+    /// demo backend, which has no accounts, no passkeys and no password to
+    /// recover — asking it anything about signing in gets the demo's answer to
+    /// a question about the writer's real account. So the sign-in screen, the
+    /// passkey ceremonies and the attempt itself use this one instead: a real
+    /// client, kept *beside* the guest session rather than replacing it, so an
+    /// attempt that fails leaves the writer exactly where they were, in the
+    /// workspace they have been writing in. Only success installs it (`adopt`).
+    var signInClient: APIClient {
+        guard isDemo else { return client }
+        if let guestSignInClient { return guestSignInClient }
+        let fresh = wireOfflineCheck(APIClient())
+        guestSignInClient = fresh
+        return fresh
+    }
+
+    private var guestSignInClient: APIClient?
+
+    private func signingInClient(with credentials: Credentials) -> APIClient {
+        let attempt = signInClient
+        attempt.credentials = credentials
+        return attempt
+    }
+
+    /// Takes on a session the server has just accepted, whatever proved it.
+    ///
+    /// The client is installed here rather than before the request, so a guest
+    /// session survives a failed attempt untouched. When the writer came from
+    /// one, what they wrote there is offered to the account they have just
+    /// reached — the backend is held open past the swap for exactly that.
+    private func adopt(_ root: APIRoot, rootData: Data, from attempt: APIClient,
+                       credentials: Credentials) async {
+        // Asked first, and awaited before anything else moves: taking the sheet
+        // down is what makes the offer presentable, so the offer has to exist
+        // by then. Everything below this line is synchronous for that reason.
+        let guestBackend = isDemo ? client.demoBackend : nil
+        let written = await guestBackend?.guestWork() ?? []
+
+        session += 1
+        client = attempt
+        guestSignInClient = nil
+        isDemo = false
+        apiRoot = root
+        isOfflineSession = false
+        offlineStore?.save(rootData, .root)
+        // A keychain that won't hold the credentials doesn't stop this session,
+        // but it does mean the next cold launch lands back signed out — better
+        // to say so now than to look like a bug then.
+        do {
+            try KeychainStore.save(credentials)
+            isSessionPersisted = true
+        } catch {
+            isSessionPersisted = false
+        }
+        signInError = nil
+        phase = .signedIn
+        loadEditorPreferences()
+        if let guestBackend, !written.isEmpty {
+            nextOfferId += 1
+            pendingGuestWorkOffer = GuestWorkOffer(
+                id: nextOfferId,
+                backend: guestBackend,
+                projects: written.map {
+                    GuestWorkOffer.Item(id: $0.id, title: $0.title, elements: $0.blockCount)
+                })
+        }
+        // Last: the sheet coming down is what `RootView` presents the offer on.
+        isPresentingSignIn = false
+    }
+
+    /// Gives up on a sign-in attempt: the refused credentials come off the
+    /// client that carried them, and nothing else moves. A guest's own client
+    /// was never replaced, so there is nothing to put back — the workspace on
+    /// screen has not noticed any of this.
+    private func abandon(_ attempt: APIClient) {
+        attempt.credentials = nil
     }
 
     /// Completes a passkey sign-in: adopt the bearer token the server minted
@@ -225,26 +336,15 @@ final class AppModel {
     /// must not leak into this file, which Tests/run.sh compiles bare.
     @discardableResult
     func adoptPasskeySession(username: String, token: String, revokeHref: String?) async -> Bool {
-        session += 1
         let credentials = Credentials(username: username, token: token, revokeHref: revokeHref)
-        client.credentials = credentials
+        let attempt = signingInClient(with: credentials)
         do {
-            let data = try await client.data(for: client.rootLink)
-            apiRoot = try client.decode(APIRoot.self, from: data)
-            isOfflineSession = false
-            offlineStore?.save(data, .root)
-            do {
-                try KeychainStore.save(credentials)
-                isSessionPersisted = true
-            } catch {
-                isSessionPersisted = false
-            }
-            signInError = nil
-            phase = .signedIn
-            loadEditorPreferences()
+            let data = try await attempt.data(for: attempt.rootLink)
+            let root = try attempt.decode(APIRoot.self, from: data)
+            await adopt(root, rootData: data, from: attempt, credentials: credentials)
             return true
         } catch {
-            client.credentials = nil
+            abandon(attempt)
             guard !error.isCancelledRequest else { return false }
             signInError = error.localizedDescription
             return false
@@ -277,11 +377,16 @@ final class AppModel {
         return phase
     }
 
-    /// Enters the offline demo: a fresh in-memory backend seeded with a
-    /// sample screenplay. Stored real credentials are left untouched.
+    /// Enters the local session: a fresh in-memory backend seeded with a sample
+    /// screenplay. Stored real credentials are left untouched.
     ///
-    /// Re-entering while already in the demo is a no-op, so opening
-    /// `scripty://demo` again doesn't throw away the edits being demoed.
+    /// This is what a launch with no account lands in, as well as what
+    /// `scripty://demo` and the Try Scripty script open. Everything here is
+    /// writable and none of it leaves the device — or survives the app being
+    /// quit, which is what the offer to upload it on sign-in is for.
+    ///
+    /// Re-entering while already in it is a no-op, so opening `scripty://demo`
+    /// again doesn't throw away the edits being demoed.
     func enterDemo() async {
         guard !isDemo else { return }
         session += 1
@@ -300,7 +405,24 @@ final class AppModel {
         }
     }
 
+    /// Ends the session and shows the sign-in screen. For the session that
+    /// ended without being asked to — credentials the server revoked — where
+    /// the only useful thing to say is that signing in again is needed.
     func signOut() {
+        endSession()
+        phase = .signedOut
+    }
+
+    /// Ends the session and goes back to the local one, which is where a device
+    /// with no account belongs: signing out is not a reason to be shut out of
+    /// the app. What was written in the account stays in the account; the local
+    /// session starts fresh, on its sample screenplay.
+    func signOutToLocal() async {
+        endSession()
+        await enterDemo()
+    }
+
+    private func endSession() {
         session += 1
         if isDemo {
             isDemo = false
@@ -311,10 +433,11 @@ final class AppModel {
             KeychainStore.delete()
             client.credentials = nil
         }
+        guestSignInClient = nil
+        pendingGuestWorkOffer = nil
         apiRoot = nil
         signInError = nil
         isOfflineSession = false
-        phase = .signedOut
         CapitalizationSettings.shared.reset()
     }
 
@@ -349,5 +472,63 @@ final class AppModel {
             signOut()
             signInError = "Your session ended. Please sign in again."
         }
+    }
+
+    // MARK: - Keeping what was written without an account
+
+    /// Copies chosen screenplays out of the guest session and into the account
+    /// that has just signed in, as one `.scripty.json` bundle through the very
+    /// import the projects list already offers. Nothing about the archive is
+    /// special-cased: the guest backend writes the same document the server's
+    /// own export writes, and the server reads it the same way.
+    ///
+    /// Answers an error message, or nil when it landed.
+    func uploadGuestWork(_ offer: GuestWorkOffer, ids: [Int]) async -> String? {
+        guard !ids.isEmpty else { return nil }
+        guard let projectsLink = apiRoot?.link(.projects) else {
+            return "This account can't take new screenplays."
+        }
+        let (status, bundle) = await offer.backend.demoProjectsBundle(ids: ids)
+        guard status == 200, !bundle.isEmpty else {
+            return "That work could not be read back."
+        }
+        do {
+            let collection: HALCollection<Project> = try await client.fetch(from: projectsLink)
+            guard let importLink = collection.links[.importProject] else {
+                return "This account can't take new screenplays."
+            }
+            _ = try await client.upload(to: importLink,
+                                        fileName: "Scripty.scripty.json",
+                                        fileData: bundle,
+                                        mimeType: "application/json")
+            guestWorkImports += 1
+            return nil
+        } catch {
+            // A cancelled upload is the writer leaving, not a failure — see
+            // `isCancelledRequest`.
+            guard !error.isCancelledRequest else { return nil }
+            handle(error)
+            return error.localizedDescription
+        }
+    }
+}
+
+/// The screenplays written without an account, offered to the account that has
+/// just signed in.
+///
+/// Holds the guest backend itself, not a copy of the work: the bundle is built
+/// only if the writer says yes, and until then the session it came from is
+/// still the one that could answer any question about it.
+struct GuestWorkOffer: Identifiable {
+    /// One per offer, so a second sign-in in the same run presents a new sheet
+    /// rather than reusing the last one's identity.
+    let id: Int
+    let backend: DemoBackend
+    let projects: [Item]
+
+    struct Item: Identifiable, Hashable {
+        let id: Int
+        let title: String
+        let elements: Int
     }
 }

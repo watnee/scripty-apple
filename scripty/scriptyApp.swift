@@ -132,6 +132,9 @@ struct RootView: View {
     /// that is still signed in, where there is no login screen to hand it to.
     @State private var pendingReset: PendingReset?
 
+    /// The offer of local work to keep, once there is room on screen for it.
+    @State private var guestWork: GuestWorkOffer?
+
     private struct PendingReset: Identifiable {
         let link: HALLink
         let token: String
@@ -144,16 +147,34 @@ struct RootView: View {
             .sheet(item: helpBinding) { screen in
                 HelpSheet(screen: screen)
             }
+            // Signing in from inside the app, which is how anyone using it
+            // without an account gets one attached. Presented here rather than
+            // from the sidebar so the local session underneath is untouched:
+            // cancelling puts the writer back in the workspace they were in,
+            // with everything they had written still in it.
+            .sheet(isPresented: signInBinding, onDismiss: presentGuestWork) {
+                LoginView(app: app, isModal: true)
+            }
+            // What they wrote there, offered to the account they just reached —
+            // once the screen they signed in on has actually gone.
+            .sheet(item: $guestWork) { offer in
+                GuestWorkView(app: app, offer: offer)
+            }
             // Re-runs whenever a link arrives, whatever the phase.
             .task(id: app.passwordResetToken) { await adoptResetToken() }
             .sheet(item: $pendingReset, onDismiss: { app.passwordResetToken = nil }) { pending in
-                PasswordRecoveryView(client: app.client, reset: pending.link,
+                PasswordRecoveryView(client: app.signInClient, reset: pending.link,
                                      token: pending.token) {
-                    // This session was opened with the password that just
-                    // changed, so it cannot outlive it. The sheet lives above
-                    // the phase and stays up to say the reset worked, while
-                    // the login screen takes its place underneath.
-                    if case .signedIn = app.phase { app.signOut() }
+                    // A session opened with the password that just changed
+                    // cannot outlive it. The sheet lives above the phase and
+                    // stays up to say the reset worked, while the login screen
+                    // takes its place underneath.
+                    //
+                    // The local session is not one of those: it was opened with
+                    // nothing, has no account behind it to be locked out of, and
+                    // ending it would throw away whatever has been written here
+                    // — over a link that says nothing about this device.
+                    if case .signedIn = app.phase, !app.isDemo { app.signOut() }
                 }
             }
             // A quick action can only be carried out by a signed-in session, and
@@ -168,15 +189,28 @@ struct RootView: View {
             // this app takes it back, and nobody else can.
             .onChange(of: app.phase) { _, phase in
                 guard case .signedOut = phase else { return }
-                QuickActions.shared.pending = nil
-                QuickActions.shared.clearRecents()
-                QuickActions.shared.forgetOpens()
-                app.pendingWidgetDestination = nil
-                app.pendingBookmarkDestination = nil
-                WidgetPublisher.clear()
-                ProjectsWidgetPublisher.clear()
-                BookmarksWidgetPublisher.clear()
+                forgetTheAccount()
             }
+            // Signing out no longer ends at the login screen — it ends in the
+            // local session — so the phase above never changes for it. This is
+            // the same moment by its other name, and the same reasoning: what
+            // the menu and the widgets are still holding belongs to the account
+            // that has just been left.
+            .onChange(of: app.isDemo) { _, isDemo in
+                guard isDemo else { return }
+                forgetTheAccount()
+            }
+    }
+
+    private func forgetTheAccount() {
+        QuickActions.shared.pending = nil
+        QuickActions.shared.clearRecents()
+        QuickActions.shared.forgetOpens()
+        app.pendingWidgetDestination = nil
+        app.pendingBookmarkDestination = nil
+        WidgetPublisher.clear()
+        ProjectsWidgetPublisher.clear()
+        BookmarksWidgetPublisher.clear()
     }
 
     @ViewBuilder
@@ -203,11 +237,29 @@ struct RootView: View {
     /// token unclaimed rather than opening a sheet that could only fail.
     private func adoptResetToken() async {
         guard let token = app.passwordResetToken else { return }
-        guard let link = await app.client.signedOutLinks()[.resetPassword] else { return }
+        guard let link = await app.signInClient.signedOutLinks()[.resetPassword] else { return }
         pendingReset = PendingReset(link: link, token: token)
     }
 
     private var helpBinding: Binding<HelpPresentation.Screen?> {
         Binding(get: { help.screen }, set: { help.screen = $0 })
+    }
+
+    /// Never up in the signed-out phase: the login screen *is* that phase, and
+    /// a sheet of it over itself would be the same screen twice.
+    private var signInBinding: Binding<Bool> {
+        Binding(get: { app.isPresentingSignIn && !isSignedOut },
+                set: { app.isPresentingSignIn = $0 })
+    }
+
+    /// Takes up whatever the sign-in left parked, now that its sheet is gone.
+    private func presentGuestWork() {
+        guestWork = app.pendingGuestWorkOffer
+        app.pendingGuestWorkOffer = nil
+    }
+
+    private var isSignedOut: Bool {
+        if case .signedOut = app.phase { return true }
+        return false
     }
 }

@@ -1190,6 +1190,7 @@ func run() async {
     await checkProjectTeams(pid: pid)
     await checkBlockTags(pid: pid)
     await checkClearFont(pid: pid)
+    await checkGuestWork()
 
     print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
 }
@@ -1541,9 +1542,131 @@ func checkBundleExports(pid: Int) async {
           listed.count == embedded(projects).count,
           "\(listed.count) bundled vs \(embedded(projects).count) listed")
 
+    // The markers the server's importer checks for before it reads a byte. A
+    // bundle without them is refused as "not a Scripty file" — which is what
+    // signing in and offering to keep local work would hit, since that is the
+    // very document it uploads.
+    let bundleObject = json(bundle.data)
+    check("the bundle names its format",
+          bundleObject["format"] as? String == "scripty-projects",
+          "got \(bundleObject["format"] ?? "nil")")
+    check("the bundle names its version", bundleObject["formatVersion"] as? Int == 1)
+    check("a single-project archive names its own format",
+          json(await be.respond(method: "GET",
+                                url: url("/api/project/\(pid)/export/scripty"),
+                                body: nil).data)["format"] as? String == "scripty-project")
+
+    // What the archive has to carry to be worth keeping.
+    guard let mine = listed.first(where: { ($0["project"] as? [String: Any])?["title"] as? String
+        == (embedded(projects).first { $0["id"] as? Int == pid }?["title"] as? String) }) else {
+        check("the bundle holds this project", false)
+        return
+    }
+    let archivedBlocks = mine["blocks"] as? [[String: Any]] ?? []
+    check("archived elements carry their order and type",
+          archivedBlocks.first?["order"] as? Int == 1 && archivedBlocks.first?["type"] != nil,
+          "got \(archivedBlocks.first ?? [:])")
+    check("the archive carries this project's characters",
+          !((mine["characters"] as? [[String: Any]]) ?? []).isEmpty)
+    check("the archive carries this project's songs and notes",
+          !((mine["documents"] as? [[String: Any]]) ?? []).isEmpty)
+
+    // And the round trip: the demo reads back what it writes, which is the
+    // same document the server's own importer reads.
+    let reimported = json(await be.respond(
+        method: "POST", url: url("/api/project/import"),
+        body: multipart(named: "Bundle.scripty.json", json: bundle.data)).data)
+    if let newId = reimported["id"] as? Int {
+        let script = embedded(json(await be.respond(
+            method: "GET", url: url("/api/block?projectId=\(newId)"), body: nil).data))
+        check("an imported project comes back with its script",
+              script.count == archivedBlocks.count,
+              "\(archivedBlocks.count) exported vs \(script.count) imported")
+        check("an imported project comes back with its songs and notes",
+              embedded(json(await be.respond(
+                  method: "GET", url: url("/api/document?projectId=\(newId)"),
+                  body: nil).data)).count
+                  == ((mine["documents"] as? [[String: Any]]) ?? []).count)
+        _ = await be.respond(method: "DELETE", url: url("/api/project/\(newId)"), body: nil)
+    } else {
+        check("a bundle can be imported back", false, "got \(reimported)")
+    }
+
     if let emptyId = notesOnly["id"] as? Int {
         _ = await be.respond(method: "DELETE", url: url("/api/project/\(emptyId)"), body: nil)
     }
+}
+
+/// A multipart body shaped the way `APIClient.upload` writes one, since that is
+/// what the demo backend parses.
+func multipart(named name: String, json data: Data) -> Data {
+    var body = Data("--\(APIClient.multipartBoundary)\r\n".utf8)
+    body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(name)\"\r\n".utf8))
+    body.append(Data("Content-Type: application/json\r\n\r\n".utf8))
+    body.append(data)
+    body.append(Data("\r\n--\(APIClient.multipartBoundary)--\r\n".utf8))
+    return body
+}
+
+/// What the app offers to keep when a guest signs in. The rule that matters is
+/// the negative one: a sample screenplay nobody touched is not the writer's
+/// work, and offering it would put a copy of the demo into every new account.
+func checkGuestWork() async {
+    let fresh = DemoBackend()
+    // Nothing has been asked of it yet, so nothing has been written.
+    check("an untouched session offers nothing", await fresh.guestWork().isEmpty)
+
+    let projects = json(await fresh.respond(method: "GET", url: url("/api/project"), body: nil).data)
+    let seededOffer = await fresh.guestWork()
+    check("…even once the sample screenplays are seeded",
+          !embedded(projects).isEmpty && seededOffer.isEmpty,
+          "offered \(seededOffer.map(\.title))")
+
+    guard let sample = embedded(projects).first?["id"] as? Int else {
+        check("the demo seeds a sample project", false)
+        return
+    }
+    let created = json(await fresh.respond(method: "POST", url: url("/api/project"),
+                                           body: body(["title": "Mine"])).data)
+    check("a project created here is offered",
+          await fresh.guestWork().map(\.title) == ["Mine"],
+          "got \(await fresh.guestWork().map(\.title))")
+
+    // A note is work too, even though the screenplay's own date does not move
+    // for it — see `recordWork`.
+    _ = await fresh.respond(method: "POST", url: url("/api/document"),
+                            body: body(["projectId": sample, "title": "A thought",
+                                        "documentType": "NOTES", "content": "…"]))
+    check("a sample screenplay that was written in is offered",
+          await fresh.guestWork().contains { $0.id == sample })
+
+    // Deleting takes it back off the list; the id is remembered, the project
+    // it named is not.
+    if let mineId = created["id"] as? Int {
+        _ = await fresh.respond(method: "DELETE", url: url("/api/project/\(mineId)"), body: nil)
+        let afterDelete = await fresh.guestWork()
+        check("a deleted project is not offered",
+              !afterDelete.contains { $0.id == mineId })
+    }
+
+    let offered = await fresh.guestWork().first { $0.id == sample }?.blockCount
+    let script = embedded(json(await fresh.respond(
+        method: "GET", url: url("/api/block?projectId=\(sample)"), body: nil).data))
+    check("the element count is the one the script holds", offered == script.count,
+          "offered \(offered ?? -1) vs \(script.count)")
+
+    // Who says a line is part of the line. A sample screenplay still has its
+    // cast attached, unlike `pid` above, whose script an earlier check
+    // replaced wholesale from a file.
+    let archived = json(await fresh.demoProjectsBundle(ids: [sample]).1)
+    let sampleArchive = (archived["projects"] as? [[String: Any]])?.first ?? [:]
+    check("archived elements name the character speaking",
+          (sampleArchive["blocks"] as? [[String: Any]] ?? []).contains { $0["characterKey"] != nil })
+    let keys = Set((sampleArchive["characters"] as? [[String: Any]] ?? []).compactMap { $0["key"] as? Int })
+    check("every character an element names is in the archive",
+          (sampleArchive["blocks"] as? [[String: Any]] ?? [])
+              .compactMap { $0["characterKey"] as? Int }
+              .allSatisfy(keys.contains))
 }
 
 /// Invite autofill hangs off one rel, and the rel's spelling is the whole
