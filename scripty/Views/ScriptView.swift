@@ -927,10 +927,12 @@ struct ScriptView: View {
     /// It draws no background of its own — the `.safeAreaBar` already floats it
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
     ///
-    /// Read Aloud rides along for the same reason the documents do: it has a
-    /// toolbar button now, and on a phone that button is always the overflow's
-    /// — the very menu it just moved out of. Listening is also the posture this
-    /// bar suits best: a thumb on the bottom edge, not a reach for the corner.
+    /// Read Aloud rides along for the same reason the documents do: on a phone
+    /// its toolbar button was always the overflow's — the very menu it moved
+    /// out of — so the toolbar no longer offers it at this width at all, and
+    /// this is the only Read Aloud a phone draws. Listening is also the posture
+    /// this bar suits best: a thumb on the bottom edge, not a reach for the
+    /// corner.
     @ViewBuilder
     private var documentsBar: some View {
         // Not while elements are being selected: the selection bar already
@@ -1638,8 +1640,11 @@ struct ScriptView: View {
     /// drift. Reading happens on this very screen: the voice starts from
     /// wherever the writer is and the transport bar comes up at the bottom,
     /// so while it runs the button is the pause it will be reached for as.
-    /// The ⌘⇧A shortcut is the toolbar's alone; a second claim from the
-    /// bottom bar would leave one of them silently dead.
+    /// ⌘⇧A hangs off the toolbar's copy only, and the two homes never draw at
+    /// once, so the bottom bar makes no second claim on the chord — one that
+    /// would be settled by responder order with one of the two silently dead.
+    /// A phone, which has only this copy, keeps the chord through the menu
+    /// bar's own item (see `ScriptCommands`).
     private var readAloudButton: some View {
         Button {
             toggleReadAloud()
@@ -1836,13 +1841,19 @@ struct ScriptView: View {
                 // under presentation toggles and cost a menu trip every time.
                 // It joins this capsule rather than opening one of its own for
                 // the reason undo does, and sits where an iPad and a Mac will
-                // draw it as a button. A phone will not — everything past Undo
-                // is the "…"'s — so `documentsBar` gives the phone a real one
-                // down under the thumb, which is also why the shortcut lives
-                // here and not there: two live claims on ⌘⇧A would be settled
-                // by responder order with one of them silently dead.
-                readAloudButton
-                    .keyboardShortcut("a", modifiers: [.command, .shift])
+                // draw it as a button.
+                //
+                // Not on a phone, though: everything past Undo is the "…"'s
+                // there, so the item only ever drew inside the overflow — the
+                // one place `documentsBar` already exists to keep listening out
+                // of. Two Read Alouds on one screen, one of them buried in the
+                // menu, said nothing the button under the thumb does not.
+                // ⌘⇧A survives its removal: the menu bar's own item (see
+                // `ScriptCommands`) carries the chord on every platform.
+                if !isCompact {
+                    readAloudButton
+                        .keyboardShortcut("a", modifiers: [.command, .shift])
+                }
 
                 // Not while reading: the search bar rides the editing column,
                 // which the reader has swapped out.
