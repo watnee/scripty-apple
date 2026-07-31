@@ -43,10 +43,6 @@ struct SongLineRow: View {
     /// 1.0, so a host that never sets it leaves the line at its natural size.
     @Environment(\.scriptTextScale) private var textScale
 
-    /// The lyric's base point size at 100%. Matches the default body text this
-    /// row used before it scaled, so nothing moves at the default setting.
-    private static let baseLineSize: CGFloat = 17
-
     /// Whether the keyboard underlines what it does not recognise. Read here so
     /// switching the device-wide preference re-draws every visible lyric line,
     /// the same way `EditableBlockRow` reads it for the screenplay.
@@ -65,7 +61,7 @@ struct SongLineRow: View {
         SongLineField(text: text,
                       isFocused: isFocused,
                       isEditable: block.isEditable,
-                      fontSize: Self.baseLineSize * textScale,
+                      fontSize: ScriptTypeScale.lyrics * textScale,
                       spellChecks: spellChecks,
                       spellcheckRevision: spellcheckRevision,
                       accessibilityLabel: "Lyric line \(block.order ?? 0)",
@@ -103,13 +99,14 @@ struct SongLineRow: View {
                               }
                           }
                       })
-        .padding(.vertical, 2)
+        .padding(.vertical, ScriptTypeScale.lyricGap * textScale)
         .padding(.horizontal, 4)
         // The list's own row insets would put a blank line's worth of air
         // between one lyric line and the next, which reads as double spacing.
-        // A verse is single-spaced: the 2pt row padding above is the only
-        // vertical gap, matching the near-flush lines of the web's song
-        // editor. Horizontal stays at the plain list's usual 16pt.
+        // A verse is single-spaced: the row padding above is the only vertical
+        // gap, matching the near-flush lines of the web's song editor, and it
+        // grows with the type or the lines close up. Horizontal stays at the
+        // plain list's usual 16pt.
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowBackground(rowBackground)
         .swipeActions(edge: .trailing) {

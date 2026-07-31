@@ -355,15 +355,10 @@ struct EditableBlockRow: View {
         }
     }
 
+    /// The same inset the read-only row leaves, floored at the 4pt every
+    /// editable row carries so consecutive action lines are not flush.
     private var topPadding: CGFloat {
-        let base: CGFloat
-        switch block.blockType {
-        case .scene: base = 18
-        case .character, .dualDialogue, .transition, .shot: base = 10
-        case .section: base = 14
-        default: base = 4
-        }
-        return base * textScale
+        max(ScriptTypeScale.topInset(for: block.blockType), 4) * textScale
     }
 
     /// Whether this line auto-capitalizes as the writer types. Scene headings,
@@ -398,8 +393,10 @@ struct EditableBlockRow: View {
         if block.textBold ?? false { traits.insert(.traitBold) }
         if block.textItalic ?? false { traits.insert(.traitItalic) }
 
-        return Self.font(family: ScriptFont(serverValue: block.font) ?? .default,
-                         size: 16 * textScale,
+        let family = ScriptFont(serverValue: block.font) ?? .default
+        return Self.font(family: family,
+                         size: ScriptTypeScale.size(for: block.blockType,
+                                                    face: family.opticalFace) * textScale,
                          traits: traits)
     }
 

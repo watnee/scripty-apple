@@ -128,7 +128,13 @@ struct TitlePageView: View {
 
 /// A title page as it would be typeset: the title centered on the upper
 /// third, "written by" beneath it, and the contact block in the bottom-left
-/// corner. Typography follows BlockRowView's screenplay conventions.
+/// corner.
+///
+/// This is a miniature *page*, not a writing surface, so its type is page
+/// geometry scaled to fit the preview box — the same reasoning as the sheets in
+/// `ScreenplayPageView`, and the reason it deliberately ignores the writer's
+/// type-size preference. It is not on `ScriptTypeScale`: a body size meant for
+/// reading would overflow the box rather than enlarge the page.
 private struct TitlePagePreview: View {
     let model: TitlePageModel
 

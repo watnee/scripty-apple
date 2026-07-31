@@ -715,8 +715,14 @@ struct ScriptView: View {
                 .scrollTargetLayout()
                 .padding(.vertical, 12)
                 // Focus mode pulls the column in to a single measure and
-                // drops the surrounding chrome, as the web app does.
-                .frame(maxWidth: settings.isFocusMode ? 720 : .infinity)
+                // drops the surrounding chrome, as the web app does. Derived
+                // from the measure and not a round number: `rowChrome` sizes
+                // the column against the whole scroll width, not against this
+                // clamp, so a frame narrower than measure-plus-padding would
+                // quietly squeeze every line instead of framing them.
+                .frame(maxWidth: settings.isFocusMode
+                       ? ScriptRowChrome.editorMeasure * 1.125
+                       : .infinity)
                 .frame(maxWidth: .infinity)
             }
             // `initial` so a target set while the paper was on screen — the
@@ -830,11 +836,15 @@ struct ScriptView: View {
         // never the column's to use.
         let usable = availableWidth - 48
 
-        // A window narrower than the printed measure — a phone, a split-view
-        // slice — gives the column what room it has. Without this the 640pt
+        // A window narrower than the full measure — a phone, a split-view
+        // slice — gives the column what room it has. Without this the full-size
         // column overhangs the screen, and the speech boxes measured against it
         // come out wider than the window itself: dialogue then renders full
         // bleed, indistinguishable from action.
+        //
+        // The floors here and below are physical room to write in, not a
+        // character count, so they stay put as the type grows — 280pt is about
+        // 22 columns of Courier Prime at the current size.
         chrome.columnWidth = min(chrome.columnWidth, max(280, usable))
 
         // The marks sit in the margin beyond the column, so full width leaves

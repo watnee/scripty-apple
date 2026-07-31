@@ -99,6 +99,16 @@ swiftc "${FLAGS[@]}" -o "$BUILD/pagination" \
     "$ROOT/Tests/Pagination/main.swift"
 run_suite "$BUILD/pagination" || status=1
 
+echo ""
+echo "== Optical type scale =="
+swiftc "${FLAGS[@]}" -o "$BUILD/typescale" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/ScreenplayLayout.swift" \
+    "$SRC/Models/ScriptTypeScale.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/TypeScale/main.swift"
+run_suite "$BUILD/typescale" || status=1
+
 echo
 echo "== Offline print PDF =="
 # Core Text and Core Graphics, not UIKit, so the renderer the offline print

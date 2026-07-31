@@ -51,7 +51,7 @@ struct ReadScriptView: View {
     /// it is a width. Held at a fixed 640 points it was the right line length
     /// at the default size and a narrower and narrower ribbon above it — worst
     /// exactly where the extra room a bigger window brings should be going.
-    private var measure: CGFloat { 640 * scale }
+    private var measure: CGFloat { ScriptTypeScale.readerMeasure * scale }
 
     /// The OS text-size setting, as a multiplier.
     ///
@@ -92,7 +92,8 @@ struct ReadScriptView: View {
                 // of screenplay before showing the first page of it.
                 LazyVStack(alignment: .leading, spacing: 0) {
                     Text(title.isEmpty ? "Untitled Project" : title)
-                        .font(.system(size: 28 * scale, weight: .bold, design: .serif))
+                        .font(.system(size: ScriptTypeScale.reader(.title) * scale,
+                                      weight: .bold, design: .serif))
                         .padding(.bottom, 24)
 
                     ForEach(readable) { block in
@@ -221,7 +222,8 @@ struct ReadScriptView: View {
                     Divider().padding(.bottom, 16)
                 }
                 Text(cased(text, block))
-                    .font(.system(size: 17 * scale, weight: .bold, design: .serif))
+                    .font(.system(size: ScriptTypeScale.reader(.scene) * scale,
+                                  weight: .bold, design: .serif))
                     .tracking(0.7)
                     // Read back in its written case: VoiceOver spells out
                     // all-caps runs letter by letter, which turns every scene
@@ -234,14 +236,16 @@ struct ReadScriptView: View {
 
         case .section:
             Text(text)
-                .font(.system(size: 20 * scale, weight: .semibold, design: .serif))
+                .font(.system(size: ScriptTypeScale.reader(.section) * scale,
+                              weight: .semibold, design: .serif))
                 .accessibilityAddTraits(.isHeader)
                 .padding(.top, 20)
                 .padding(.bottom, 12)
 
         case .character, .dualDialogue:
             Text(cased(text, block))
-                .font(.system(size: 16 * scale, weight: .bold, design: .serif))
+                .font(.system(size: ScriptTypeScale.reader(.character) * scale,
+                              weight: .bold, design: .serif))
                 .tracking(0.9)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityLabel(text)
@@ -276,7 +280,8 @@ struct ReadScriptView: View {
                 if let name = block.personName, !name.isEmpty,
                    !block.blockType.isCharacterCue {
                     Text(name.uppercased())
-                        .font(.system(size: 15 * scale, weight: .bold, design: .serif))
+                        .font(.system(size: ScriptTypeScale.reader(.speaker) * scale,
+                                      weight: .bold, design: .serif))
                         .tracking(0.9)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
@@ -290,7 +295,7 @@ struct ReadScriptView: View {
     /// character formatting but not the screenplay indents.
     private func prose(_ text: String, block: Block) -> Text {
         var result = Text(text.isEmpty ? " " : text)
-            .font(.system(size: 17 * scale, design: .serif))
+            .font(.system(size: ScriptTypeScale.reader(.body) * scale, design: .serif))
         if block.textBold ?? false { result = result.bold() }
         if block.textItalic ?? false { result = result.italic() }
         if block.textUnderline ?? false { result = result.underline() }

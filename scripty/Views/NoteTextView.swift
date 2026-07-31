@@ -96,7 +96,8 @@ struct NoteTextView: UIViewRepresentable {
     /// either.
     private var scaledFont: UIFont {
         UIFontMetrics(forTextStyle: .body).scaledFont(
-            for: .monospacedSystemFont(ofSize: 16 * textScale, weight: .regular))
+            for: .monospacedSystemFont(ofSize: ScriptTypeScale.notes * textScale,
+                                       weight: .regular))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }

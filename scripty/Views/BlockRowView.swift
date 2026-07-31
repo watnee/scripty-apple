@@ -28,16 +28,18 @@ extension EnvironmentValues {
 /// only the script page has the project's view options to hand. Somewhere
 /// without them gets the defaults, which is how the rows have always looked.
 struct ScriptRowChrome: Equatable {
-    /// The printed six-inch measure in points — the column at its full size.
-    static let printedMeasure: CGFloat = 640
+    /// The column at its full size, in points. Tied to the script face's own
+    /// size (`ScriptTypeScale.measureEms`), so the two cannot drift: how many
+    /// characters fit on a line is the thing being held still, not the width.
+    static var editorMeasure: CGFloat { ScriptTypeScale.editorMeasure }
 
     var showsPins = true
     var showsBookmarks = true
     var showsElementLabels = false
-    /// The text column, in points: the printed six-inch measure by default,
-    /// the window's width when the window is narrower than the measure, or
-    /// the width of whatever contains the row when full width is on.
-    var columnWidth: CGFloat = ScriptRowChrome.printedMeasure
+    /// The text column, in points: the full measure by default, the window's
+    /// width when the window is narrower than the measure, or the width of
+    /// whatever contains the row when full width is on.
+    var columnWidth: CGFloat = ScriptRowChrome.editorMeasure
     /// Whether that width was measured against the window rather than being the
     /// fixed measure. The editable row grows its column with the type size, and
     /// a measured width must not be grown a second time.
@@ -58,8 +60,8 @@ struct ScriptRowChrome: Equatable {
     /// 3.5in-of-6in proportion, and a widened column keeps that proportion so a
     /// full-width script is still recognisably a script. A *narrowed* column
     /// does not: 58% of a phone is too little to write in, so the box holds its
-    /// printed size while it fits and then follows the web's phone stylesheet —
-    /// `max-width: min(78%, 3.5in)` — down.
+    /// full-measure size while it fits and then follows the web's phone
+    /// stylesheet — `max-width: min(78%, 3.5in)` — down.
     var dialogueWidth: CGFloat {
         speechWidth(ScreenplayLayout.dialogueBox, phoneFraction: 0.78)
     }
@@ -72,11 +74,11 @@ struct ScriptRowChrome: Equatable {
 
     private func speechWidth(_ box: ScreenplayLayout.ElementBox,
                              phoneFraction: Double) -> CGFloat {
-        if columnWidth >= Self.printedMeasure {
+        if columnWidth >= Self.editorMeasure {
             return columnWidth * CGFloat(box.widthFraction)
         }
         return min(columnWidth * CGFloat(phoneFraction),
-                   Self.printedMeasure * CGFloat(box.widthFraction))
+                   Self.editorMeasure * CGFloat(box.widthFraction))
     }
 }
 
@@ -210,7 +212,7 @@ struct BlockRowView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
         .blockMarkers(block, commentCount: commentCount,
-                      topInset: markerTopInset, onComment: onComment)
+                      topInset: topInset, onComment: onComment)
         .frame(maxWidth: .infinity)
     }
 
@@ -271,12 +273,12 @@ struct BlockRowView: View {
             styledText(cased(displayContent))
                 .fontWeight(.bold)
                 .frame(maxWidth: .infinity, alignment: alignment)
-                .padding(.top, 18)
+                .padding(.top, topInset)
 
         case .character, .dualDialogue:
             styledText(cased(displayContent))
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 10)
+                .padding(.top, topInset)
 
         case .dialogue:
             styledText(displayContent)
@@ -292,13 +294,13 @@ struct BlockRowView: View {
         case .transition:
             styledText(cased(displayContent))
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.top, 10)
+                .padding(.top, topInset)
 
         case .shot:
             styledText(cased(displayContent))
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: alignment)
-                .padding(.top, 10)
+                .padding(.top, topInset)
 
         case .centered:
             styledText(displayContent)
@@ -311,11 +313,14 @@ struct BlockRowView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
         case .section:
+            // Sized by `baseFont` like everything else — `.title3` was an
+            // absolute 20pt that only read as a heading while the body happened
+            // to be 16.
             styledText(displayContent)
-                .font(.title3.weight(.semibold))
+                .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 14)
+                .padding(.top, topInset)
 
         case .synopsis:
             styledText(displayContent)
@@ -324,8 +329,9 @@ struct BlockRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .note:
+            // Likewise `.callout`: an absolute 16pt, which would now be *smaller*
+            // than the body it annotates rather than a shade under it.
             styledText(displayContent)
-                .font(.callout)
                 .padding(8)
                 .background(Color.yellow.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -338,7 +344,7 @@ struct BlockRowView: View {
                     .foregroundStyle(.tertiary)
                 line
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, topInset)
 
         case .action, .text:
             styledText(displayContent)
@@ -360,17 +366,16 @@ struct BlockRowView: View {
         }
     }
 
-    /// The space this element leaves above its first line, which is where its
-    /// marks belong — a pin drawn at the top of a scene heading's row floats
-    /// clear of the heading and looks like it belongs to the line before.
-    private var markerTopInset: CGFloat {
-        switch block.blockType {
-        case .scene: return 18
-        case .section: return 14
-        case .character, .dualDialogue, .transition, .shot: return 10
-        case .pageBreak: return 8
-        default: return 0
-        }
+    /// The space this element leaves above its first line — which is also where
+    /// its marks belong, since a pin drawn at the top of a scene heading's row
+    /// floats clear of the heading and looks like it belongs to the line before.
+    ///
+    /// One property feeding both the padding and `.blockMarkers(topInset:)`, and
+    /// scaled: the two used to be separate copies of the same numbers, and only
+    /// the editable row's copy grew with the type, so a mark sat at a different
+    /// height depending on whether its row could be typed in.
+    private var topInset: CGFloat {
+        ScriptTypeScale.topInset(for: block.blockType) * textScale
     }
 
     /// Character cues carry the speaker name as content; fall back to the
@@ -407,7 +412,10 @@ struct BlockRowView: View {
     private var baseFont: Font {
         let family = ScriptFont(serverValue: block.font) ?? .default
         // Fixed size: the script's own type-size control is the scale here,
-        // and letting Dynamic Type multiply it again would compound the two.
-        return .custom(family.postScriptName, fixedSize: 16 * textScale)
+        // and letting Dynamic Type multiply it again would compound the two —
+        // and untie the type from a column measured in characters.
+        return .custom(family.postScriptName,
+                       fixedSize: ScriptTypeScale.size(for: block.blockType,
+                                                       face: family.opticalFace) * textScale)
     }
 }
