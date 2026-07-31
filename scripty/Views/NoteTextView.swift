@@ -397,6 +397,13 @@ final class NoteUITextView: UITextView, SpellcheckingTextView {
 struct NoteFormatBar: View {
     let controller: NoteEditorController
 
+    /// Whether the list and heading controls belong here. False for a song's
+    /// lyrics, which take the keyboard rules but not the outline structure —
+    /// a verse has no bullets and no H2. The undo pair stays either way: it is
+    /// about the words, which a lyric has as much of as a note, and it is the
+    /// only route to undo on a device with no hardware keyboard.
+    var showsStructure = true
+
     private func perform(_ command: NoteTextView.Command) { controller(command) }
 
     var body: some View {
@@ -423,14 +430,16 @@ struct NoteFormatBar: View {
             .disabled(!controller.canRedo)
             .accessibilityLabel("Redo")
 
-            Divider().frame(height: 18)
-            button("List", systemImage: "list.bullet", .bulletList)
-            button("Numbered List", systemImage: "list.number", .numberedList)
-            Divider().frame(height: 18)
-            ForEach(1...3, id: \.self) { level in
-                Button("H\(level)") { perform(.heading(level)) }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Heading \(level)")
+            if showsStructure {
+                Divider().frame(height: 18)
+                button("List", systemImage: "list.bullet", .bulletList)
+                button("Numbered List", systemImage: "list.number", .numberedList)
+                Divider().frame(height: 18)
+                ForEach(1...3, id: \.self) { level in
+                    Button("H\(level)") { perform(.heading(level)) }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Heading \(level)")
+                }
             }
             Spacer(minLength: 0)
         }

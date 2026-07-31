@@ -78,6 +78,17 @@ struct SongBlockEditorView: View {
         query.isEmpty ? model.blocks : model.blocks.filter { matchedLines.contains($0.id) }
     }
 
+    /// What the menu bar's Undo and Redo do while this editor is up. Both
+    /// rewind the lyric to a different set of lines, so the search has to be
+    /// re-run behind them, exactly as the toolbar buttons do it.
+    private var menuActions: DocumentEditorActions {
+        DocumentEditorActions(
+            undo: { Task { await model.undo(); runSearch() } },
+            redo: { Task { await model.redo(); runSearch() } },
+            canUndo: model.canUndo,
+            canRedo: model.canRedo)
+    }
+
     /// Recomputes the matched set from what the lines currently say.
     private func runSearch() {
         let needle = query.lowercased()
@@ -140,6 +151,12 @@ struct SongBlockEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            // ⌘Z belongs to this lyric while it is open. Without this the menu
+            // bar's Undo still reaches the screenplay behind the sheet — a
+            // scene's focused value is not covered up by a sheet over it — and
+            // stepping back in a song would rewind the script instead. See
+            // `DocumentEditorActions`.
+            .focusedSceneValue(\.documentEditorActions, menuActions)
             .onChange(of: searchText) { _, _ in
                 runSearch()
             }
@@ -339,9 +356,11 @@ struct SongBlockEditorView: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        // Undo sits on the leading edge, where the screenplay editor puts it,
-        // and only appears where the server keeps a stack for this song.
-        if model.hasUndoStack {
+        // Undo sits on the leading edge, where the screenplay editor puts it.
+        // `offersUndoRedo` rather than the server's stack alone: a song opened
+        // offline may be holding steps of its own, which are the only undo
+        // there is until the connection comes back.
+        if model.offersUndoRedo {
             ToolbarItemGroup(placement: .navigation) {
                 // Both rewind the lyric to a different set of lines, so the
                 // matched set has to be taken again or a search would keep

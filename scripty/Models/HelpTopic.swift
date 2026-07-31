@@ -418,12 +418,22 @@ extension HelpTopic {
                     + "elsewhere in the meantime is set aside rather than overwritten, "
                     + "and the editor says when that happens. A song opened offline "
                     + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a banner saying how old that copy is."
+                    + "with a banner saying how old that copy is.",
+                    "Undo and Redo sit at the top of the song editor and beside each "
+                    + "song's title on the workspace screen, since every song keeps a "
+                    + "history of its own. With a connection they step through the same "
+                    + "history the browser shows. Without one they step back through the "
+                    + "lyric edits still waiting on this device — newest first, one press "
+                    + "each — so a line typed offline can be taken back offline. Once "
+                    + "those edits reach the server they become part of its history and "
+                    + "Undo goes back to walking that. In the plain song editor, and in "
+                    + "notes, the pair above the keyboard undoes the text itself."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
-                           "offline", "unsaved", "sync", "cloud", "badge"]),
+                           "offline", "unsaved", "sync", "cloud", "badge",
+                           "undo", "redo", "history", "step back"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

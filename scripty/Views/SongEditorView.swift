@@ -137,9 +137,26 @@ struct SongEditorView: View {
         canEdit && !isLoading && (title != savedTitle || content != savedContent)
     }
 
-    /// Notes get the list and heading controls; lyrics take the same keyboard
-    /// rules but not the bar, which is the split the browser makes too.
-    private var showsFormatBar: Bool { type != .song && canEdit }
+    /// Both kinds get the bar, because both get undo — which on a device with
+    /// no hardware keyboard has no other route here, and which a writer needs
+    /// as much in a verse as in a note. Only the *structure* half is a note's:
+    /// lyrics take the same keyboard rules but have no bullets and no headings,
+    /// which is the split the browser makes too.
+    private var showsFormatBar: Bool { canEdit }
+    private var showsFormatStructure: Bool { type != .song }
+
+    /// What the menu bar's Undo and Redo do while this editor is up: the text
+    /// view's own history, the same one the bar's two buttons drive. A document
+    /// that cannot be typed into offers neither, but still claims the pair —
+    /// falling through to the script behind would be worse than doing nothing.
+    private var menuActions: DocumentEditorActions {
+        guard canEdit else { return DocumentEditorActions() }
+        return DocumentEditorActions(
+            undo: { formatting.undo() },
+            redo: { formatting.redo() },
+            canUndo: formatting.canUndo,
+            canRedo: formatting.canRedo)
+    }
 
     private var navTitle: String {
         if isNew { return type == .song ? "New Song" : "New Note" }
@@ -160,6 +177,11 @@ struct SongEditorView: View {
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            // ⌘Z belongs to the words in here, not to the script this sheet
+            // covers — the scene's focused value survives being covered, so
+            // without this the menu's Undo rewinds the screenplay behind a
+            // song nobody meant to leave. See `DocumentEditorActions`.
+            .focusedSceneValue(\.documentEditorActions, menuActions)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -287,7 +309,7 @@ struct SongEditorView: View {
                 WordCountBar(words: ScriptStats.countWords(content))
             }
             if showsFormatBar && isWritingBody {
-                NoteFormatBar(controller: formatting)
+                NoteFormatBar(controller: formatting, showsStructure: showsFormatStructure)
             }
         }
     }
