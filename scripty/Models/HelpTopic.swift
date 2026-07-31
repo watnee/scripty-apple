@@ -345,6 +345,22 @@ extension HelpTopic {
                 keywords: ["navigator", "structure", "beats", "scenes", "jump",
                            "navigate", "index"]),
             HelpTopic(
+                id: "edit-screenplay",
+                title: "Getting Back to Writing",
+                systemImage: "pencil.line",
+                paragraphs: [
+                    "Edit Screenplay, at the foot of the View menu's first group, puts "
+                    + "the script back the way it is written in: page view, focus mode, "
+                    + "outline mode and Read Script all off, and Lock Editing cleared "
+                    + "with them. It saves working out which of the modes is the one "
+                    + "still on. It is greyed when the plain writing column is already "
+                    + "up, and it is offered only where you have editing rights — "
+                    + "unlocking here changes what this device shows you, never what "
+                    + "the screenplay lets you do."
+                ],
+                keywords: ["edit", "write", "writing", "back", "exit", "leave", "modes",
+                           "unlock", "locked", "read only"]),
+            HelpTopic(
                 id: "marks",
                 title: "Bookmarks, Pins and Labels",
                 systemImage: "bookmark",

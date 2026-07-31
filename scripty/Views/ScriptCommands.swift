@@ -76,6 +76,13 @@ struct ScriptActions {
     var showsElementLabels = false
     var isEditingLocked = false
 
+    /// Drop every display mode and the lock in one go — the View menu's "Edit
+    /// Screenplay", which is the one way back to the plain writing column from
+    /// wherever the modes have left it. Nil when the writer is already there,
+    /// or when this script was never theirs to type in, so the item greys
+    /// rather than promising an edit the server would refuse.
+    var editScreenplay: (() -> Void)?
+
     var find: (() -> Void)?
     var ignoredWords: (() -> Void)?
     var outline: (() -> Void)?
@@ -453,6 +460,14 @@ struct ScriptCommands: Commands {
         }
         .keyboardShortcut("r", modifiers: [.command, .shift])
         .disabled(actions?.readScript == nil)
+
+        // The way out of all of the modes above at once, for a writer who has
+        // stacked two or three of them. No chord: ⌘⇧E is centre alignment, and
+        // each mode this clears can already be turned off from the keyboard on
+        // its own. Comes through the focused script because the lock it drops
+        // is per edition.
+        Button("Edit Screenplay") { actions?.editScreenplay?() }
+            .disabled(actions?.editScreenplay == nil)
 
         // The voice, in place on the script screen. ⌘⇧A rather than anything
         // nearer ⌘⇧R: R is taken by the reader itself, and every other letter
