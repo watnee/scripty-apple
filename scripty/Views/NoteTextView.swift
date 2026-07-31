@@ -13,24 +13,40 @@
 import SwiftUI
 import UIKit
 
-/// The handle the formatting bar holds on the live text view.
+/// The handle the formatting bar holds on the live text view, and the keeper
+/// of the note's undo history.
 ///
 /// The bar is a sibling of the editor, not a child, so it has no way to reach
 /// the coordinator that owns the caret. This is that way — set once when the
 /// view is made, cleared with it.
+///
+/// The history lives here rather than in the coordinator because it has to
+/// outlast one: the sheet, the bar and the menu bar's ⌘Z all reach for it, and
+/// SwiftUI may rebuild the representable underneath any of them.
 @Observable
 @MainActor
 final class NoteEditorController {
     @ObservationIgnored fileprivate var perform: ((NoteTextView.Command) -> Void)?
     @ObservationIgnored fileprivate var beginEditing: (() -> Void)?
-    @ObservationIgnored fileprivate var history: (() -> UndoManager?)?
+    /// Puts a remembered state back on screen. Set when the view is made,
+    /// alongside the others.
+    @ObservationIgnored fileprivate var restore: ((NoteHistory.Snapshot) -> Void)?
 
-    /// Whether there is anything to step back to, mirrored from the text view's
-    /// undo manager rather than read through it: a stored value is what makes
-    /// the two buttons dim and undim as the note is typed. Refreshed by the
-    /// coordinator on every change, which is the only thing that moves either.
-    private(set) var canUndo = false
-    private(set) var canRedo = false
+    /// The note's own undo stack — see `NoteHistory` for why it is the app's
+    /// and not UIKit's. Tracked, so the bar's two buttons dim and undim as the
+    /// note is typed without anything having to remember to tell them.
+    private var history: NoteHistory
+
+    /// `text` is what the editor is about to put on screen, and so the state
+    /// undo stops at. Seeded here rather than when the text view is made,
+    /// because that happens inside a SwiftUI update and this is state a view
+    /// in that same update reads.
+    init(text: String = "") {
+        history = NoteHistory(text: text)
+    }
+
+    var canUndo: Bool { history.canUndo }
+    var canRedo: Bool { history.canRedo }
 
     func callAsFunction(_ command: NoteTextView.Command) {
         perform?(command)
@@ -42,26 +58,59 @@ final class NoteEditorController {
         beginEditing?()
     }
 
-    /// Undo and redo the note's own text. The keyboard already offers ⌘Z, and
-    /// a device without one has only the shake gesture — so the bar carries
-    /// them too, as the browser's note toolbar does.
+    /// Undo and redo the note's own text. The keyboard offers ⌘Z through the
+    /// menu, and a device without one has only the shake gesture — so the bar
+    /// carries them too, as the browser's note toolbar does.
     func undo() {
-        guard let manager = history?(), manager.canUndo else { return }
-        manager.undo()
-        refresh()
+        guard let snapshot = history.undo() else { return }
+        restore?(snapshot)
     }
 
     func redo() {
-        guard let manager = history?(), manager.canRedo else { return }
-        manager.redo()
-        refresh()
+        guard let snapshot = history.redo() else { return }
+        restore?(snapshot)
     }
 
-    fileprivate func refresh() {
-        let manager = history?()
-        canUndo = manager?.canUndo ?? false
-        canRedo = manager?.canRedo ?? false
+    // MARK: - What the editor tells the history
+
+    /// This is the note now, and none of what came before it belongs to it —
+    /// the full document landing on top of the list row's preview, or another
+    /// note opening in the same sheet.
+    func reset(to text: String) {
+        history.reset(to: text)
     }
+
+    /// Words that arrived in one go from somewhere other than the keyboard,
+    /// worth one press of undo: an offline draft taken back up, which is the
+    /// one edit in a note the writer may never have watched themselves make.
+    func record(_ text: String) {
+        history.capture(NoteHistory.Snapshot(text: text), at: Self.now,
+                        coalescing: false)
+    }
+
+    /// Typing, and the formatting bar's rewrites — which are one gesture each
+    /// and so never folded into the typing around them.
+    fileprivate func capture(text: String, selection: NSRange,
+                             coalescing: Bool = true) {
+        history.capture(NoteHistory.Snapshot(text: text,
+                                             start: selection.location,
+                                             end: selection.location + selection.length),
+                        at: Self.now, coalescing: coalescing)
+    }
+
+    /// The text view was written to from outside and nobody said what it meant.
+    /// If the history already knows these words — the editor recorded them just
+    /// before handing them over — there is nothing to do; otherwise a history
+    /// describing a note nobody is looking at is worse than none.
+    fileprivate func syncExternal(_ text: String) {
+        guard history.current.text != text else { return }
+        history.reset(to: text)
+    }
+
+    /// Monotonic, so a clock that changes under the app — a timezone crossed,
+    /// an NTP correction — cannot make a burst of typing look like an hour of
+    /// it, or the reverse.
+    private static var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 }
 
 struct NoteTextView: UIViewRepresentable {
@@ -128,10 +177,9 @@ struct NoteTextView: UIViewRepresentable {
         controller?.beginEditing = { [weak view] in
             view?.becomeFirstResponder()
         }
-        // Resolved on each ask rather than captured: a text view has no undo
-        // manager of its own until it is in a window and editing, since the one
-        // it uses comes up the responder chain.
-        controller?.history = { [weak view] in view?.undoManager }
+        controller?.restore = { [weak coordinator = context.coordinator] snapshot in
+            coordinator?.restore(snapshot)
+        }
         view.placeholder = placeholder
         return view
     }
@@ -140,7 +188,13 @@ struct NoteTextView: UIViewRepresentable {
         context.coordinator.parent = self
         // Only when the value really diverged: assigning `text` moves the caret
         // to the end, which mid-sentence would be maddening.
-        if view.text != text { view.text = text }
+        if view.text != text {
+            view.text = text
+            // Words from outside the keyboard. Whoever wrote them has usually
+            // already told the history what they mean; this is the backstop
+            // for whoever didn't.
+            controller?.syncExternal(text)
+        }
         if view.isEditable != isEditable { view.isEditable = isEditable }
         if view.placeholder != placeholder { view.placeholder = placeholder }
 
@@ -163,6 +217,11 @@ struct NoteTextView: UIViewRepresentable {
         var parent: NoteTextView
         weak var textView: NoteUITextView?
 
+        /// Set while the coordinator is the one writing, so a state put back by
+        /// undo is not mistaken for typing and pushed onto the stack it just
+        /// came off.
+        private var isWriting = false
+
         init(_ parent: NoteTextView) {
             self.parent = parent
         }
@@ -170,17 +229,16 @@ struct NoteTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
             (textView as? NoteUITextView)?.updatePlaceholder()
-            // Every route to a changed note passes through here — typing, the
-            // formatting bar, ⌘Z, the shake gesture — so this one call is
-            // enough to keep the bar's two buttons honest.
-            parent.controller?.refresh()
+            guard !isWriting else { return }
+            // Every route to a note changed by hand passes through here —
+            // typing, dictation, a paste, the shake gesture — so this one call
+            // is what the note's history is built from.
+            parent.controller?.capture(text: textView.text,
+                                       selection: textView.selectedRange)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             parent.onFocusChange?(true)
-            // The undo manager only exists once the note is editing, so the
-            // first honest reading of it is here.
-            parent.controller?.refresh()
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
@@ -227,28 +285,55 @@ struct NoteTextView: UIViewRepresentable {
             }
         }
 
-        /// Puts a rewritten note back into the text view.
+        /// Puts a rewritten note back into the text view, and files it as one
+        /// press of undo: a bullet the bar added comes off in one, without
+        /// taking the sentence it was added to with it.
+        private func apply(_ edit: NoteEdit) {
+            let location = utf16Offset(edit.caret, in: edit.text)
+            let caret = NSRange(location: location, length: 0)
+            write(edit.text, selection: caret)
+            parent.controller?.capture(text: edit.text, selection: caret,
+                                       coalescing: false)
+        }
+
+        /// Puts a remembered state back on screen. The history has already
+        /// moved, so nothing is captured here.
+        fileprivate func restore(_ snapshot: NoteHistory.Snapshot) {
+            guard let textView, textView.isEditable else { return }
+            // Where the browser calls `focus()` on the field it is about to
+            // restore: undo that leaves the caret in the title field would put
+            // the next keystroke somewhere the writer is not looking.
+            if !textView.isFirstResponder { textView.becomeFirstResponder() }
+            let length = (snapshot.text as NSString).length
+            let start = max(0, min(snapshot.start, length))
+            let end = max(start, min(snapshot.end, length))
+            write(snapshot.text, selection: NSRange(location: start, length: end - start))
+        }
+
+        /// The one route by which this coordinator writes the note.
         ///
         /// Through `replace(_:withText:)` rather than by assigning `text`: an
-        /// assignment is invisible to UIKit's undo manager, so a bullet added
-        /// by the bar could not be taken off again by ⌘Z, and the next undo
-        /// would step back past it to whatever the writer typed before —
-        /// silently discarding everything the rules had done since. The web
-        /// editor avoids the same trap by going through `execCommand`.
-        private func apply(_ edit: NoteEdit) {
+        /// assignment is invisible to UIKit's own undo manager, so the shake
+        /// gesture — the one route to undo this app does not own — would step
+        /// back past everything the rules had done since, silently discarding
+        /// it. The web editor avoids the same trap by going through
+        /// `execCommand`.
+        private func write(_ text: String, selection: NSRange) {
             guard let textView else { return }
+            isWriting = true
+            defer { isWriting = false }
             let old = textView.text ?? ""
-            if let change = NoteFormatting.change(from: old, to: edit.text),
+            if let change = NoteFormatting.change(from: old, to: text),
                let range = textRange(of: change, in: textView, oldText: old) {
                 textView.replace(range, withText: change.replacement)
             }
             // Belt and braces: `replace` reports back through the delegate, but
             // a text view that refused the range has still to leave the model
-            // holding what the rules produced.
-            if textView.text != edit.text { textView.text = edit.text }
-            parent.text = edit.text
-            let location = utf16Offset(edit.caret, in: edit.text)
-            textView.selectedRange = NSRange(location: location, length: 0)
+            // holding what was asked for.
+            if textView.text != text { textView.text = text }
+            textView.updatePlaceholder()
+            parent.text = text
+            textView.selectedRange = selection
         }
 
         /// A changed span, as the pair of positions the text view wants.

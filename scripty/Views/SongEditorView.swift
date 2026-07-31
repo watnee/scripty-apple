@@ -103,8 +103,10 @@ struct SongEditorView: View {
     /// Set by Discard on the way out, so the parting save knows the words on
     /// screen are not wanted.
     @State private var discarding = false
-    /// The formatting bar's handle on the text view.
-    @State private var formatting = NoteEditorController()
+    /// The formatting bar's handle on the text view, and the note's own undo
+    /// history. Seeded with whatever the sheet opens showing — see
+    /// `NoteHistory`.
+    @State private var formatting: NoteEditorController
     @FocusState private var titleFocused: Bool
     @State private var showingIgnoredWords = false
 
@@ -135,6 +137,7 @@ struct SongEditorView: View {
         _content = State(initialValue: content)
         _savedTitle = State(initialValue: title)
         _savedContent = State(initialValue: content)
+        _formatting = State(initialValue: NoteEditorController(text: content))
     }
 
     /// The document being written: the one this sheet was opened on, or the one
@@ -260,6 +263,10 @@ struct SongEditorView: View {
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
+            // ⌘Z belongs to the note while the note is on screen — see
+            // `NoteEditorActions`, and `NoteHistory` for why the note's own
+            // history is the only thing it could sensibly mean.
+            .focusedSceneValue(\.noteEditorActions, undoActions)
             .task { await loadFullContentIfNeeded() }
             .onChange(of: title) { _, _ in scheduleAutosave() }
             .onChange(of: content) { _, _ in scheduleAutosave() }
@@ -316,6 +323,18 @@ struct SongEditorView: View {
                 Text(insertMessage ?? "")
             }
         }
+    }
+
+    /// The menu bar's Undo and Redo while this sheet is up. Nil on a note the
+    /// server won't take an edit for: there is nothing to walk back, and
+    /// claiming the chord anyway would leave ⌘Z doing nothing at all on a
+    /// screenplay the writer can still edit.
+    private var undoActions: NoteEditorActions? {
+        guard canEdit else { return nil }
+        return NoteEditorActions(canUndo: formatting.canUndo,
+                                 canRedo: formatting.canRedo,
+                                 undo: { formatting.undo() },
+                                 redo: { formatting.redo() })
     }
 
     private var insertMessageBinding: Binding<Bool> {
@@ -571,6 +590,11 @@ struct SongEditorView: View {
         savedTitle = title
         savedContent = content
         haveServerBaseline = full != nil
+        // The document that just landed is where undo stops. What the sheet
+        // opened with was the list row's preview — a truncated one — and
+        // leaving that at the bottom of the stack would put one press of ⌘Z
+        // between the writer and losing most of their note.
+        formatting.reset(to: content)
         adoptHeldDraft(for: document, sawServerCopy: full != nil)
     }
 
@@ -585,6 +609,9 @@ struct SongEditorView: View {
             // Adopt; the reconnect sweep re-checks with the real thing.
             title = draft.title
             content = draft.content
+            // And nothing to walk back *to*: the only other text here is that
+            // same truncated preview. The draft is where this note begins.
+            formatting.reset(to: content)
             saveStatus = .held
             // Nothing has been typed to arm the debounce, so the backoff is
             // the only thing that will try these words again inside this
@@ -609,6 +636,12 @@ struct SongEditorView: View {
         }
         title = draft.title
         content = draft.content
+        // One press of undo, back to the words the server holds. An edit made
+        // offline is the one edit in a note a writer may never have watched
+        // themselves make — it was typed in another session, on another day —
+        // and until now taking it back meant retyping the paragraph it
+        // replaced from memory.
+        formatting.record(content)
         saveStatus = .held
         // The ordinary machinery takes it from here: the debounce fires, the
         // save lands or holds again.
@@ -621,7 +654,13 @@ struct SongEditorView: View {
     /// this checks that the note has really diverged rather than trusting that
     /// a change came from the keyboard.
     private func scheduleAutosave() {
-        guard canEdit, !isLoading, hasUnsavedChanges else { return }
+        guard canEdit, !isLoading else { return }
+        // Undoing back to what the server already has is not "no change" — it
+        // is the change that makes the held draft pointless, so it goes.
+        guard hasUnsavedChanges else {
+            dropHeldDraftIfBackToServerCopy()
+            return
+        }
         // Said from the first keystroke rather than when the request leaves:
         // what the writer needs to know is that the words are on their way, and
         // a readout that still says "Saved" over unsent text is the one thing
@@ -659,6 +698,23 @@ struct SongEditorView: View {
             guard !Task.isCancelled else { return }
             await saveNow()
         }
+    }
+
+    /// The note is back to exactly the words the server holds — undone, or
+    /// typed back — so anything held for it on this device describes an edit
+    /// that no longer exists.
+    ///
+    /// It has to go now rather than at the next save, because there will be no
+    /// next save: nothing is dirty. Left alone, the reconnect sweep would push
+    /// it and put back the paragraph the writer just took off the screen —
+    /// which is undo losing to the network, the one way this feature could be
+    /// worse than not having it. Only against a real server copy: without one
+    /// `savedContent` is the list row's truncated preview and proves nothing.
+    private func dropHeldDraftIfBackToServerCopy() {
+        guard haveServerBaseline, let document,
+              model.heldDocumentDraft(for: document) != nil else { return }
+        model.discardDocumentDraft(for: document.id)
+        saveStatus = .saved
     }
 
     /// Sends what is on screen and says so.

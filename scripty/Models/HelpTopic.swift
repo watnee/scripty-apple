@@ -497,6 +497,12 @@ extension HelpTopic {
                     + "trash, which is where a countdown does apply, and an archived "
                     + "document can be deleted from the shelf without coming back "
                     + "first.",
+                    "Undo and redo sit at the left of the notes editor's own bar, and "
+                    + "answer to ⌘Z and ⌘⇧Z. They belong to the note while it is open — "
+                    + "never to the screenplay behind it — and take back a burst of "
+                    + "typing, a bullet the bar added, or an edit made offline, one "
+                    + "step at a time. A note's history stays on this device and starts "
+                    + "fresh each time the note is opened.",
                     "A song being worked on is rarely far away. The script has a Songs "
                     + "button and a Notes button, each opening its own list; holding "
                     + "one opens the last few of that kind you edited, each going "
@@ -545,7 +551,7 @@ extension HelpTopic {
                            "archive", "archived", "unarchive", "put aside",
                            "hide", "finished", "cut", "shelve", "old",
                            "export", "email", "share", "put back", "select",
-                           "musicxml"]),
+                           "musicxml", "mistake", "history"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",
