@@ -2173,15 +2173,19 @@ final class ScriptModel {
         }
     }
 
-    /// Whether a selection of songs can be sent to the trash in one call —
-    /// advertised on the collection for an editor of a project that has songs,
-    /// so it doubles as the "may select several" gate.
+    /// Whether a selection can be sent to the trash in one call — advertised
+    /// on the collection for an editor of a project that has any document at
+    /// all, so it doubles as the "may select several" gate.
+    ///
+    /// It used to require a *song*, because the service behind it skipped
+    /// anything that was not one. It no longer does: a ticked note is trashed
+    /// like a ticked song, which is what let the notes list grow the same
+    /// checkbox column.
     var canBulkDeleteDocuments: Bool { documentsLinks.contains(.bulkDelete) }
 
-    /// Trashes several songs at once. The server answers with what is left, so
-    /// the list settles from its reply rather than from local guesswork about
-    /// which of the chosen ids it accepted — a note caught in the selection is
-    /// skipped there, not here.
+    /// Trashes several documents at once. The server answers with what is left,
+    /// so the list settles from its reply rather than from local guesswork
+    /// about which of the chosen ids it accepted.
     @discardableResult
     func bulkDeleteDocuments(_ ids: [Int]) async -> Bool {
         guard let link = documentsLinks[.bulkDelete], !ids.isEmpty else { return false }
@@ -2190,10 +2194,67 @@ final class ScriptModel {
                 from: link, method: "POST", body: BulkDeleteDocumentsCommand(ids: ids))
             documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
             documentsLinks = collection.links
-            // Only the ones the server actually removed: a note caught in the
-            // selection is skipped by the server and keeps its held words.
+            // Only the ones the server actually removed. It takes songs and
+            // notes alike now, but an id it declined — one already gone, or
+            // from another project — must keep its held words.
             let kept = Set(documents.map(\.id))
             for id in ids where !kept.contains(id) { discardDocumentDraft(for: id) }
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            await loadDocuments()   // fall back to the list the server kept
+            return false
+        }
+    }
+
+    // MARK: - Archive
+    //
+    // Putting a document aside is not deleting it. The trash is a countdown
+    // with a purge at the end of it; the archive is a shelf. A song or note on
+    // that shelf is whole and still openable, nothing expires it, and one tap
+    // puts it back — so the two live side by side rather than one standing in
+    // for the other.
+    //
+    // Songs and notes are offered this identically, which is how the server
+    // advertises it: unlike exporting or emailing there was never a
+    // song-shaped thing about it to gate on.
+
+    /// Where the documents put aside are listed, when the server offers them.
+    var archivedDocumentsLink: HALLink? { documentsLinks[.archived] }
+
+    /// Archives one document. The server answers with the list it is no longer
+    /// in, so the row leaves the screen from its reply.
+    @discardableResult
+    func archiveDocument(_ document: TextDocument) async -> Bool {
+        guard let link = document.link(.archive) else { return false }
+        return await adoptDocuments(from: link, method: "POST")
+    }
+
+    /// Whether a ticked selection can be archived in one call.
+    var canBulkArchiveDocuments: Bool { documentsLinks.contains(.bulkArchive) }
+
+    /// Archives several documents at once.
+    @discardableResult
+    func bulkArchiveDocuments(_ ids: [Int]) async -> Bool {
+        guard let link = documentsLinks[.bulkArchive], !ids.isEmpty else { return false }
+        return await adoptDocuments(from: link, method: "POST",
+                                    body: BulkDeleteDocumentsCommand(ids: ids))
+    }
+
+    /// Sends a document command that answers with the refreshed collection, and
+    /// settles the list from that reply.
+    ///
+    /// Unlike the bulk delete above, nothing here discards held drafts: an
+    /// archived document is still a document, and words this device could not
+    /// send are still owed to it when it comes back off the shelf.
+    private func adoptDocuments(from link: HALLink, method: String,
+                                body: (any Encodable)? = nil) async -> Bool {
+        do {
+            let collection: HALCollection<TextDocument> = try await app.client.fetch(
+                from: link, method: method, body: body)
+            documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
+            documentsLinks = collection.links
             errorMessage = nil
             return true
         } catch {
@@ -2255,13 +2316,14 @@ final class ScriptModel {
         }
     }
 
-    /// Advertised on the collection for an editor with a song to send, the
+    /// Advertised on the collection for an editor with something to send, the
     /// same pair of conditions the bulk delete rides on.
     var canBulkShareDocuments: Bool { documentsLinks.contains(.bulkShareEmail) }
 
-    /// Emails several songs in one message. Returns how many actually went —
-    /// a note caught in the selection is skipped by the server, so "sent 3"
-    /// is not the same as "you chose 3" and the caller says which it means.
+    /// Emails several documents in one message — songs, notes, or a mix, which
+    /// the server's subject line names honestly. Returns how many actually
+    /// went, since an id it declined means "sent 3" is not the same as "you
+    /// chose 3" and the caller says which it means.
     func bulkShareDocuments(_ ids: [Int], email: String) async -> Int? {
         guard let link = documentsLinks[.bulkShareEmail], !ids.isEmpty else { return nil }
         do {
@@ -2336,9 +2398,14 @@ final class ScriptModel {
         exportOptions.first { $0.rel == .exportPdf }
     }
 
-    /// The formats a single song advertises. Song-only, matching the server:
-    /// SongExportService lays lyrics out as a song, which is not what a note
-    /// wants, so a note carries none of these links.
+    /// The formats a single document advertises.
+    ///
+    /// A note now carries the first four. The server's renderer only ever laid
+    /// out a title and its lines — and already fell back to a document's own
+    /// text for songs with no blocks, which is precisely what a note is — so
+    /// what was song-only about it was the guard, not the layout. MusicXML is
+    /// the exception and stays song-only, which is why this reads the links
+    /// rather than the kind: the note simply arrives without that one.
     func songExportOptions(for document: TextDocument) -> [ExportOption] {
         let all: [(Rel, String, String)] = [
             (.exportSongTxt, "Text", "txt"),
@@ -2372,17 +2439,47 @@ final class ScriptModel {
         }
     }
 
-    /// The same songbook narrowed to the chosen songs. The server's songbook
-    /// endpoint reads an `ids` list — the rel documents it, and the web's own
-    /// export menu appends the checked ids to the very same href — so a
-    /// selection is a query on the advertised link rather than a second rel.
-    func songbookExportOptions(for ids: [Int]) -> [ExportOption] {
-        guard !ids.isEmpty else { return songbookExportOptions }
+    /// The formats the project's notes are offered in as one file — the
+    /// songbook's counterpart, advertised once there is a note to put in it.
+    ///
+    /// Four rather than five: MusicXML is a score, and the server refuses a
+    /// note one rather than handing back an empty stave.
+    var notesExportOptions: [ExportOption] {
+        let all: [(Rel, String, String)] = [
+            (.exportNotesTxt, "Text", "txt"),
+            (.exportNotesPdf, "PDF", "pdf"),
+            (.exportNotesDocx, "Word", "docx"),
+            (.exportNotesEpub, "EPUB", "epub"),
+        ]
+        return all.compactMap { rel, label, ext in
+            documentsLinks[rel].map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
+        }
+    }
+
+    /// Whichever collection export belongs to the list on screen. The two sets
+    /// are separate rels rather than one templated href, so this is the single
+    /// place that has to know which is which.
+    func collectionExportOptions(for type: DocumentType) -> [ExportOption] {
+        type == .song ? songbookExportOptions : notesExportOptions
+    }
+
+    /// The same file narrowed to the chosen documents. The server's endpoint
+    /// reads an `ids` list — the rel documents it, and the web's own export
+    /// menu appends the checked ids to the very same href — so a selection is a
+    /// query on the advertised link rather than a second rel.
+    func collectionExportOptions(for type: DocumentType, ids: [Int]) -> [ExportOption] {
+        let base = collectionExportOptions(for: type)
+        guard !ids.isEmpty else { return base }
         let list = ids.map(String.init).joined(separator: ",")
-        return songbookExportOptions.map {
+        return base.map {
             ExportOption(rel: $0.rel, label: $0.label, fileExtension: $0.fileExtension,
                          link: $0.link.addingQuery(["ids": list]))
         }
+    }
+
+    /// The songbook narrowed to the chosen songs.
+    func songbookExportOptions(for ids: [Int]) -> [ExportOption] {
+        collectionExportOptions(for: .song, ids: ids)
     }
 
     /// Downloads an export with auth and writes it to a shareable temp file,

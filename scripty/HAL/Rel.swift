@@ -94,6 +94,19 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     /// song is a titled section on its own page.
     static let exportSongsMusicXml = Rel("exportSongsMusicXml")
 
+    /// The same gathering made of the project's notes, advertised on the
+    /// document collection when it holds one. Rels of their own rather than the
+    /// songbook's, because the two lists export separately and a screen showing
+    /// one of them has to know which href is its — the two differ only by the
+    /// `type` on the query.
+    ///
+    /// There is no MusicXML twin here on purpose: a score of scene notes is not
+    /// a thing, and the server refuses it.
+    static let exportNotesTxt = Rel("exportNotesTxt")
+    static let exportNotesPdf = Rel("exportNotesPdf")
+    static let exportNotesDocx = Rel("exportNotesDocx")
+    static let exportNotesEpub = Rel("exportNotesEpub")
+
     /// Replace the set of characters an actor auditions for in a project.
     /// Advertised on a project-scoped actor only — auditions have no meaning
     /// without a project. The audition character ids ride on the same resource.
@@ -143,6 +156,20 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let trash = Rel("trash")
     static let purge = Rel("purge")
     static let emptyTrash = Rel("emptyTrash")
+
+    // Putting something aside, which is not the same as losing it. A second
+    // stamp beside `deleted_at` rather than a second trash: an archived song or
+    // note is whole, still openable, and comes back in one tap — nothing
+    // expires it and nothing has to be "restored".
+    //
+    // Advertised for songs and notes alike, since there was never anything
+    // song-shaped about setting a document aside.
+    static let archive = Rel("archive")
+    static let unarchive = Rel("unarchive")
+    /// The documents put aside, on the document collection.
+    static let archived = Rel("archived")
+    /// Archiving a ticked selection, the archive's answer to `bulkDelete`.
+    static let bulkArchive = Rel("bulkArchive")
 
     // Collaboration.
     static let comments = Rel("comments")
