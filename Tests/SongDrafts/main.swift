@@ -129,6 +129,10 @@ func run() async {
         checkEqual("the second keeps its own text",
                    model.currentText(model.blocks[1]), "Second verse.")
         check("nothing is left flagged unsaved", !model.hasUnsavedChanges)
+        // The PUT that failed recorded the merged words as a local step; the
+        // rollback has to take that record with it, or undo would offer to
+        // walk back a merge the writer never got.
+        check("and nothing to undo", !model.canUndo)
     }
 
     print()
@@ -291,6 +295,9 @@ func run() async {
     }
 
     print()
+    await checkLyricUndoOffline()
+
+    print()
     print("== A create that cannot get out is not a refusal ==")
     do {
         // The editor's first autosave of a new song or note is a POST. Offline
@@ -327,6 +334,69 @@ func run() async {
     } else {
         print("\(failures) CHECK(S) FAILED")
     }
+}
+
+// MARK: - Undo with no connection
+
+/// The lyric editor's undo used to be the server's alone: with the route down
+/// the status never loaded, both buttons went grey, and the one reflex a writer
+/// has for taking words back was gone exactly when nothing else could save
+/// them. The screenplay editor answers this with `LocalHistory`; these are the
+/// same promises for a song.
+@MainActor
+func checkLyricUndoOffline() async {
+    print("== With no connection, undo takes back the words held on this device ==")
+    let directory = scratchDirectory("lyric-undo")
+    let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
+    let model = makeModel(store: store)
+    let first = model.blocks[0]
+
+    check("nothing to undo yet, and the pair stays out of the bar",
+          !model.canUndo && !model.canRedo && !model.hasUndoStack)
+    await model.undo()
+    check("an idle undo is a quiet no-op, not an alert", model.errorMessage == nil)
+
+    // A write the server never took is a change only this device knows —
+    // and now an undoable one.
+    model.edit(first, text: "First verse, rewritten.")
+    await model.commit(first)
+    check("a held edit arms undo", model.canUndo)
+    check("and puts the pair in the bar", model.hasUndoStack)
+    check("with nothing to redo yet", !model.canRedo)
+
+    await model.undo()
+    checkEqual("undo puts the server's words back",
+               model.currentText(model.blocks[0]), "First verse.")
+    check("and the step moved to redo", model.canRedo && !model.canUndo)
+
+    await model.redo()
+    checkEqual("redo brings the held words back",
+               model.currentText(model.blocks[0]), "First verse, rewritten.")
+    check("and the step is undoable again", model.canUndo && !model.canRedo)
+
+    // Two failed writes are two steps, each measured from the last: while a
+    // line's saves keep failing its content never moves, so the server's copy
+    // is the wrong thing to measure the second one from.
+    model.edit(first, text: "First verse, rewritten twice.")
+    await model.commit(first)
+    check("a fresh change forfeits redo", !model.canRedo)
+
+    await model.undo()
+    checkEqual("undo returns the words held before it",
+               model.currentText(model.blocks[0]), "First verse, rewritten.")
+    await model.undo()
+    checkEqual("and the step before that is the server's own words",
+               model.currentText(model.blocks[0]), "First verse.")
+    check("with nothing left to undo", !model.canUndo)
+
+    // Back where the server already is: nothing is held any more, so the
+    // reconnect sweep hands undo back to the server's own history.
+    await model.commit(model.blocks[0])
+    check("matching the server clears the hold", !model.hasUnsavedChanges)
+    await model.syncHeldWork()
+    check("a drain with nothing left to push drops the local steps",
+          !model.canUndo && !model.canRedo)
+    check("and takes the pair back out of the bar", !model.hasUndoStack)
 }
 
 // MARK: - Note drafts

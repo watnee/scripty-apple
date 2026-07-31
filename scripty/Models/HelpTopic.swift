@@ -454,7 +454,10 @@ extension HelpTopic {
                     + "elsewhere in the meantime is set aside rather than overwritten, "
                     + "and the editor says when that happens. A song opened offline "
                     + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a banner saying how old that copy is. A brand-new song "
+                    + "with a banner saying how old that copy is. Undo and Redo keep "
+                    + "working there: with no connection they walk back the lyric "
+                    + "edits still held on this device, and hand over to the song's "
+                    + "own history once those have been saved. A brand-new song "
                     + "or note is the exception: until it has reached the server "
                     + "once there is nothing there to keep it against, so the editor "
                     + "says it has not been saved and holds on to it until you are "
@@ -475,7 +478,7 @@ extension HelpTopic {
                            "workspace", "list", "bullets", "heading",
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
-                           "save", "autosave", "title",
+                           "save", "autosave", "title", "undo", "redo",
                            "archive", "archived", "unarchive", "put aside",
                            "hide", "finished", "cut", "shelve", "old"]),
             HelpTopic(
