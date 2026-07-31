@@ -43,6 +43,12 @@ struct SongBlockEditorView: View {
     /// the ordinary state. The screenplay's search is a toolbar button for the
     /// same reason.
     @State private var isSearching = false
+    /// Whether the lyric is being read rather than written. The song's answer
+    /// to the screenplay's Read Script: the editable lines are swapped for the
+    /// reading column in place, and everything around them — the toolbar, the
+    /// banners, the saving — stays put. Not persisted, for the same reason the
+    /// script's reading mode is not: it is a posture, not a preference.
+    @State private var isReading = false
     /// In flight to the screenplay. Guards the button rather than showing a
     /// spinner: the send is one POST and a reload, over in a beat.
     @State private var isInserting = false
@@ -91,38 +97,15 @@ struct SongBlockEditorView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
-                List {
-                    ForEach(shownBlocks) { block in
-                        SongLineRow(model: model,
-                                    block: block,
-                                    focusedLine: $focusedLine)
-                            .id(block.id)
-                            // No hairline between one lyric line and the next.
-                            // A plain list rules off every row, which turns a
-                            // verse into a table; the screenplay draws its
-                            // blocks in a LazyVStack with nothing between them,
-                            // and a lyric reads the same way. The tinted row
-                            // backgrounds still separate highlighted lines.
-                            .listRowSeparator(.hidden)
-                    }
-                }
-                .listStyle(.plain)
-                // The list pads every row up to its default minimum height,
-                // which reads as double spacing between lyric lines. A verse
-                // is single-spaced: let each line be exactly as tall as its
-                // text, the way the web's song editor draws them near-flush.
-                .environment(\.defaultMinListRowHeight, 1)
-                // One device-wide type size scales the lyric here, the way it
-                // scales the screenplay — the web reuses its global text-size
-                // preference for song lines for the same reason.
-                .environment(\.scriptTextScale, settings.textScale)
-                .onChange(of: focusedLine) { _, id in
-                    guard let id else { return }
-                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+            Group {
+                // Reading wins while it is on; the lines wait underneath and
+                // come back exactly as they were left.
+                if isReading {
+                    reader
+                } else {
+                    lyricList
                 }
             }
-            .overlay { emptyState }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                     editionBanner
@@ -221,6 +204,77 @@ struct SongBlockEditorView: View {
             }
         }
     }
+
+    // MARK: - Surfaces
+
+    /// The writing surface: the lyric as editable lines.
+    private var lyricList: some View {
+        ScrollViewReader { proxy in
+            List {
+                ForEach(shownBlocks) { block in
+                    SongLineRow(model: model,
+                                block: block,
+                                focusedLine: $focusedLine)
+                        .id(block.id)
+                        // No hairline between one lyric line and the next.
+                        // A plain list rules off every row, which turns a
+                        // verse into a table; the screenplay draws its
+                        // blocks in a LazyVStack with nothing between them,
+                        // and a lyric reads the same way. The tinted row
+                        // backgrounds still separate highlighted lines.
+                        .listRowSeparator(.hidden)
+                }
+            }
+            .listStyle(.plain)
+            // The list pads every row up to its default minimum height,
+            // which reads as double spacing between lyric lines. A verse
+            // is single-spaced: let each line be exactly as tall as its
+            // text, the way the web's song editor draws them near-flush.
+            .environment(\.defaultMinListRowHeight, 1)
+            // One device-wide type size scales the lyric here, the way it
+            // scales the screenplay — the web reuses its global text-size
+            // preference for song lines for the same reason.
+            .environment(\.scriptTextScale, settings.textScale)
+            .onChange(of: focusedLine) { _, id in
+                guard let id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
+        }
+        // Belongs to this surface rather than to the screen: the reader has an
+        // empty state of its own, and "Add Line" is an offer that makes no
+        // sense on a page being read.
+        .overlay { emptyState }
+    }
+
+    /// The reading surface: the lyric as verse, in place of the lines.
+    ///
+    /// Fed from `currentText` rather than from what was last saved, so a line
+    /// typed a moment ago reads as typed — leaving the lines resigns the
+    /// keyboard and commits them anyway, but the words on screen must not
+    /// depend on that having landed.
+    private var reader: some View {
+        ReadSongView(title: model.document.displayTitle,
+                     lines: model.blocks.map { model.currentText($0) },
+                     textScale: settings.textScale)
+    }
+
+    /// Enters or leaves reading.
+    ///
+    /// Focus is dropped on the way in because the lines themselves are going
+    /// away: a `focusedLine` still pointing at one would have the row grant
+    /// itself first responder the moment the list came back, putting the
+    /// keyboard up over a lyric nobody asked to type into.
+    private func setReading(_ reading: Bool) {
+        isReading = reading
+        guard reading else { return }
+        focusedLine = nil
+        // Search draws its bar over the lines and works by narrowing them —
+        // neither means anything on a surface that has no rows to narrow.
+        isSearching = false
+        searchText = ""
+    }
+
+    // MARK: - Actions
 
     /// Sends the song into the screenplay as Lyrics blocks, at the end of the
     /// script — the same call the list's context menu makes. Half-typed lines
@@ -340,8 +394,10 @@ struct SongBlockEditorView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         // Undo sits on the leading edge, where the screenplay editor puts it,
-        // and only appears where the server keeps a stack for this song.
-        if model.hasUndoStack {
+        // and only appears where the server keeps a stack for this song. Not
+        // while reading: there is nothing on that surface for a step back to
+        // be a step back from.
+        if model.hasUndoStack && !isReading {
             ToolbarItemGroup(placement: .navigation) {
                 // Both rewind the lyric to a different set of lines, so the
                 // matched set has to be taken again or a search would keep
@@ -423,14 +479,34 @@ struct SongBlockEditorView: View {
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            // First in the group, so on a phone — where this bar's trailing
+            // side draws two controls and an overflow — the mode is the one
+            // that stays out where it can be seen. It carries no chord for the
+            // same reason nothing else in this sheet does: the screenplay
+            // underneath owns ⌘⇧X, and this editor opens over it.
+            Button {
+                setReading(!isReading)
+            } label: {
+                Label(isReading ? "Edit Lyrics" : "Read Song",
+                      systemImage: isReading ? "square.and.pencil" : "book")
+            }
+            // Nothing to read in a song with no lines — but always a way back
+            // out of the mode, even if the last line went while it was on.
+            .disabled(model.blocks.isEmpty && !isReading)
+
             // No keyboard shortcut on Search: the screenplay's own button owns
             // ⌘F, and this editor opens over it — the same reason the text-size
             // menu below claims no keys.
-            Button {
-                isSearching.toggle()
-                if !isSearching { searchText = "" }
-            } label: {
-                Label("Search", systemImage: "magnifyingglass")
+            //
+            // Search narrows the lines, so it is only offered where there are
+            // lines to narrow; reading swaps them out.
+            if !isReading {
+                Button {
+                    isSearching.toggle()
+                    if !isSearching { searchText = "" }
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
             }
             if model.trashLink != nil {
                 Button {
