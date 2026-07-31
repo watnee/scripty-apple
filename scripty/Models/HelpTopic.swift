@@ -411,8 +411,9 @@ extension HelpTopic {
                     + "An element's own menu inserts a song below it. Swipe a row to "
                     + "rename or delete it; touch and hold for everything else.",
                     "A lyric line or a note edited without a connection is kept on "
-                    + "this device — the song editor's corner cloud and the note "
-                    + "editor's status line both say so — and is saved by itself when "
+                    + "this device — the corner cloud in the song editor and on the "
+                    + "workspace screen, and the note editor's status line, all say "
+                    + "so — and is saved by itself when "
                     + "the connection returns, even across a relaunch. The same "
                     + "promise the screenplay editor makes. A note that changed "
                     + "elsewhere in the meantime is set aside rather than overwritten, "
