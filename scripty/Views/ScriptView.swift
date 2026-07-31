@@ -36,6 +36,9 @@ struct ScriptView: View {
     /// going through the Songs & Notes screen first.
     @State private var openingDocument: TextDocument?
     @State private var showingTitlePage = false
+    /// Whether the rename sheet is up for the screenplay on screen. The name
+    /// is the thing being reached for, so it is offered under the name.
+    @State private var showingRename = false
     @State private var showingOutline = false
     @State private var showingStats = false
     @State private var showingIgnoredWords = false
@@ -494,6 +497,19 @@ struct ScriptView: View {
         }) { document in
             documentEditor(for: document)
         }
+        // Renaming without going back to the list — the same sheet the list
+        // raises, on the project already open here.
+        .sheet(isPresented: $showingRename) {
+            ProjectTitleSheet(title: model.project.title ?? "",
+                              heading: "Rename Screenplay",
+                              note: renameNote) { title in
+                guard let updated = await model.renameProject(to: title) else { return false }
+                // This screen's title is right the moment the model adopts it;
+                // the list behind it is not, so hand the new resource back.
+                await onProjectChanged(updated)
+                return true
+            }
+        }
         .sheet(isPresented: $showingTitlePage) {
             TitlePageView(app: model.app, project: model.project) { updated in
                 model.adopt(updated)
@@ -526,6 +542,19 @@ struct ScriptView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+
+    /// The line under the rename field, for the one case where renaming would
+    /// otherwise look as though it had done nothing: a screenplay whose title
+    /// page names it is headed with *that* title, so the project's own name is
+    /// what is being typed here and the bar above will not change. Nil the rest
+    /// of the time, where the two are the same thing.
+    private var renameNote: String? {
+        let screenplay = (model.project.screenplayTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !screenplay.isEmpty else { return nil }
+        return "This is the project\u{2019}s own name. The script stays headed "
+            + "\u{201C}\(screenplay)\u{201D} — the screenplay title, which the title page sets."
     }
 
     /// Standing notice that some of what is on screen only exists on this
@@ -1974,6 +2003,18 @@ struct ScriptView: View {
     /// for why they are in both rather than only under the title.
     @ViewBuilder
     private var projectButtons: some View {
+        // First, and first for a reason: this list hangs off the screenplay's
+        // name, and renaming is what a name is most often tapped for — the web
+        // header renames on a click of the title itself. Gated on the same
+        // `update` link the list's Rename is, so a reader is offered nothing.
+        if model.canRenameProject {
+            Button {
+                showingRename = true
+            } label: {
+                Label("Rename Screenplay…", systemImage: "pencil")
+            }
+        }
+
         Button {
             showingTitlePage = true
         } label: {

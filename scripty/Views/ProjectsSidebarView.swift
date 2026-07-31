@@ -911,10 +911,15 @@ private struct ProjectRow: View {
     }
 }
 
-/// Shared title-entry sheet for creating and renaming projects.
-private struct ProjectTitleSheet: View {
+/// Shared title-entry sheet for creating and renaming projects. Used by the
+/// script screen too, which renames the screenplay it already has open.
+struct ProjectTitleSheet: View {
     @State var title: String
     let heading: String
+    /// An optional line under the field, for when the name being typed is not
+    /// the whole story — see the script screen's Rename, where a screenplay
+    /// title set on the title page is what the script is actually headed with.
+    var note: String?
     let action: (String) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -924,9 +929,15 @@ private struct ProjectTitleSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Title", text: $title)
-                    .focused($focused)
-                    .onSubmit { save() }
+                Section {
+                    TextField("Title", text: $title)
+                        .focused($focused)
+                        .onSubmit { save() }
+                } footer: {
+                    if let note {
+                        Text(note)
+                    }
+                }
             }
             .navigationTitle(heading)
             .navigationBarTitleDisplayMode(.inline)

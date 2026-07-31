@@ -1746,6 +1746,35 @@ final class ScriptModel {
         errorMessage = error.localizedDescription
     }
 
+    // MARK: - The project itself
+
+    /// Whether the screenplay can be renamed from this screen — the same
+    /// `update` affordance the list's Rename is gated on, so a reader is
+    /// offered nothing.
+    var canRenameProject: Bool { project.hasLink(.update) }
+
+    /// Renames the screenplay without leaving it, as the web header's
+    /// click-to-rename does. Only the name is sent: every title-page field and
+    /// the team assignment are left out, and left out means unchanged (see
+    /// `EditProjectCommand`), so a rename never disturbs the front matter.
+    ///
+    /// Returns the refreshed project so the caller can hand it to the list
+    /// behind this screen, which is still showing the old name.
+    @discardableResult
+    func renameProject(to title: String) async -> Project? {
+        guard let link = project.link(.update) else { return nil }
+        do {
+            let updated: Project = try await app.client.fetch(
+                from: link, method: "PUT", body: EditProjectCommand(title: title))
+            adopt(updated)
+            errorMessage = nil
+            return updated
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
     // MARK: - Characters
 
     @discardableResult
