@@ -35,6 +35,13 @@ struct ReadScriptView: View {
     /// spotlighted and kept on screen. Playing is asked for through
     /// `onReadFrom`, so preparing the run stays the owner's job.
     var narrator: ScriptNarrator
+    /// Whether the script is still on its way. Only ever true now that a
+    /// screenplay can *open* into this mode rather than only be switched into
+    /// it: entered by hand there were always elements to show, but on the way
+    /// in from a cold launch the blocks land after the surface does, and a
+    /// script that has not arrived yet must not be announced as one with
+    /// nothing in it.
+    var isLoading = false
     /// The script screen's navigator, listened to the way the editor listens:
     /// an outline tap should land here too. Jumps to elements the reader
     /// leaves out — synopses, notes — find no row and quietly do nothing.
@@ -407,10 +414,14 @@ struct ReadScriptView: View {
     @ViewBuilder
     private var emptyState: some View {
         if readableBlocks.isEmpty {
-            ContentUnavailableView(
-                "Nothing to Read",
-                systemImage: "book",
-                description: Text("This script has no elements yet."))
+            if isLoading {
+                ProgressView()
+            } else {
+                ContentUnavailableView(
+                    "Nothing to Read",
+                    systemImage: "book",
+                    description: Text("This script has no elements yet."))
+            }
         }
     }
 }

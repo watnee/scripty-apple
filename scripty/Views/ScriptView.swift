@@ -50,10 +50,17 @@ struct ScriptView: View {
     /// Whether the script is up for reading silently — a surface of
     /// this screen, like page view, not a screen of its own: the mode swaps
     /// the writing column for the reader in place, and the toolbar and the
-    /// reading position stay put. Session state rather than a stored
-    /// preference, because reading is a posture entered and left, not how a
-    /// script should reopen tomorrow.
-    @State private var isReading = false
+    /// reading position stay put.
+    ///
+    /// Where a screenplay *opens* now, and no longer only a posture entered by
+    /// hand. Pages and Word both open a document to be read on iOS and put an
+    /// Edit button in the corner, and a screenplay that comes up live to the
+    /// keyboard is one a thumb scrolling through it will eventually type into.
+    /// `ReadingViewSettings` holds the two rules that make that bearable — a
+    /// document reopens the way it was left, and one switch changes the answer
+    /// for the documents nobody has chosen for — and `setReading` is what
+    /// tells it which way this one was put.
+    @State private var isReading: Bool
     /// The voice that reads the script out loud, owned by the script screen
     /// so a reading survives the reading mode coming and going. The
     /// preferences it carries are stored, so voice and speed outlive it.
@@ -87,6 +94,11 @@ struct ScriptView: View {
     /// Presentation is a device preference shared across every project, so the
     /// model is the app-wide one rather than one per script.
     private let settings = PresentationSettings.shared
+
+    /// Whether a document opens to be read or to be written in, and which way
+    /// this screenplay was last put. Shared with the song and note editors, so
+    /// one switch answers for every document in the app.
+    private let readingViews = ReadingViewSettings.shared
 
     /// Which screen the writer had open above the script when they last put the
     /// app down. The project list owns the project half of that record; this
@@ -170,6 +182,24 @@ struct ScriptView: View {
         _editions = State(initialValue: EditionsModel(app: app, project: project))
         _exporter = State(initialValue: ScriptExportModel(model: model))
         _options = State(initialValue: ScriptViewOptions(projectId: project.id))
+
+        // Which surface this screenplay opens on, settled here rather than
+        // when the elements land: decided later it would be a swap the writer
+        // watches happen, a beat of the writing column and then the reader
+        // over the top of it.
+        //
+        // Page view and outline mode opt out. Both are already postures of
+        // their own — paper cannot be typed into either, and outline mode is
+        // the writing surface narrowed to the skeleton, which is a thing
+        // someone is doing rather than reading — so a script left in either
+        // reopens in it. A script that turns out to have nothing in it opts
+        // out too, but only the load can know that; see `leaveEmptyReader`.
+        let presentation = PresentationSettings.shared
+        let opensForReading = ReadingViewSettings.shared
+            .opensInReadingView(.screenplay(project: project.id))
+        _isReading = State(initialValue: opensForReading
+                           && !presentation.isPageView
+                           && !presentation.isOutlineMode)
     }
 
     var body: some View {
@@ -262,6 +292,11 @@ struct ScriptView: View {
             // view down. Opening a screenplay does exactly that, and a load
             // abandoned there is silent: see `ScriptModel.open`.
             await model.open()
+            // A screenplay with nothing in it belongs to the writer, not the
+            // reader. Here as well as on the blocks landing, because an empty
+            // script *is* no change to them: they start empty and stay that
+            // way, so nothing would ever fire.
+            leaveEmptyReader()
             // Straight after the documents land, since a remembered song editor
             // needs the song itself, and before the edition restore below, whose
             // round trip a reopening sheet should not be made to wait out.
@@ -333,6 +368,7 @@ struct ScriptView: View {
             publishBookmarks()
             openPendingBookmark()
             restoreRememberedPosition()
+            leaveEmptyReader()
             // A reading in progress follows the script it is reading — an
             // edit, a sync, a restore all reshape the run, and the narrator
             // keeps its place across the rebuild. Idle, there is nothing to
@@ -356,8 +392,10 @@ struct ScriptView: View {
             repaginate()
             // Asking for paper (or the column) is asking to leave the reader:
             // a Page View toggle that visibly did nothing because reading sat
-            // on top of it would read as broken.
-            isReading = false
+            // on top of it would read as broken. Not remembered as a choice
+            // about reading, though — asking for paper is not the same as
+            // saying this script should open ready to type in.
+            setReading(false, remember: false)
             // Changing surface is not leaving the page: the paper opens on the
             // sheet the column was showing, and the column comes back to the
             // element the sheet started with. Both read the position the other
@@ -368,9 +406,10 @@ struct ScriptView: View {
             }
         }
         // Outline mode is a request for the editor, narrowed — leave the
-        // reader for it, as the page-view toggle above does.
+        // reader for it, as the page-view toggle above does, and on the same
+        // terms: a mode change, not a choice about how this script opens.
         .onChange(of: settings.isOutlineMode) { _, on in
-            if on { isReading = false }
+            if on { setReading(false, remember: false) }
         }
         // Leaving the reader sends the returning surface to where the reading
         // got to — the same handoff the column and the paper already make.
@@ -968,9 +1007,32 @@ struct ScriptView: View {
         // takes two rows of the phone's bottom edge, and songs, notes, and
         // listening are exactly the errand the writer is not on.
         if isCompact && !isChromeHidden && !settings.isFocusMode
-            && (model.canViewDocuments || model.hasScriptContent)
+            && (isReadyToEdit || model.canViewDocuments || model.hasScriptContent)
             && !selection.isSelecting {
             HStack(spacing: 8) {
+                // The way out of the reader, down here for the reason
+                // everything else in this bar is: measured on a 402pt iPhone,
+                // the trailing side of the navigation bar draws one control
+                // beside the "…", and the View menu is that control. Edit was
+                // put in the View menu's own capsule to try to buy the slot and
+                // the bar collapsed it anyway — so on a phone the toolbar's
+                // Edit is only ever the overflow's, two taps deep, which is no
+                // way to offer the one thing a reader most needs.
+                //
+                // Titled and filled, alone among these: the others are
+                // errands a writer goes looking for, and this one is the door
+                // back into their own screenplay. It leads the row because
+                // that is where the eye starts, and because the icon-only
+                // trio beside it reads as a set it does not belong to.
+                if isReadyToEdit {
+                    Button {
+                        setReading(false)
+                    } label: {
+                        Label("Edit", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .labelStyle(.titleAndIcon)
+                }
                 if model.canViewDocuments {
                     songsButton
                     notesButton
@@ -984,6 +1046,10 @@ struct ScriptView: View {
             .padding(.vertical, 4)
         }
     }
+
+    /// Whether the script is up to be read and there is somewhere to type —
+    /// which is exactly when an Edit button is worth drawing.
+    private var isReadyToEdit: Bool { isReading && canEditScript }
 
     /// How long the script is, while it is being written.
     ///
@@ -1083,6 +1149,7 @@ struct ScriptView: View {
             blocks: model.blocks,
             textScale: settings.textScale,
             narrator: narrator,
+            isLoading: model.isLoading,
             navigator: navigator,
             initialBlockId: options.rememberedBlockId,
             onTopVisibleBlock: { options.rememberBlock($0) },
@@ -1091,6 +1158,37 @@ struct ScriptView: View {
                 narrator.play(from: id)
             },
             onUserScroll: respondToScroll)
+    }
+
+    /// Puts the script up for reading, or hands it back to the writer, and —
+    /// unless told otherwise — records which way it was put.
+    ///
+    /// Every route a writer can take between the two goes through here: the
+    /// Edit button, the View menu's Read Script toggle and the menu bar's
+    /// ⌘⇧R. What is remembered is a *choice*, which is why the two callers
+    /// that are not one pass `remember: false` — leaving the reader because
+    /// paper was asked for, and leaving it because the script turned out to be
+    /// empty, are both this view getting out of the way rather than the writer
+    /// saying how the script should open next time.
+    private func setReading(_ reading: Bool, remember: Bool = true) {
+        guard isReading != reading else { return }
+        isReading = reading
+        guard remember else { return }
+        readingViews.remember(reading, for: .screenplay(project: model.project.id))
+    }
+
+    /// Hands an empty screenplay straight to the writer.
+    ///
+    /// Whether there is anything to read is the one part of the opening
+    /// decision the init cannot make, since the elements arrive later. A new
+    /// project opening into "Nothing to Read" — with Start Writing sitting
+    /// unreachable on the surface underneath — would be the reader at its
+    /// least useful, so the script comes back the moment the load says there
+    /// is nothing in it. Not remembered: the project has said nothing about
+    /// how it wants to open, and once it has a scene in it the answer changes.
+    private func leaveEmptyReader() {
+        guard isReading, !model.isLoading, !model.hasScriptContent else { return }
+        setReading(false, remember: false)
     }
 
     /// The paper surface: read-only sheets with a pager.
@@ -1644,7 +1742,7 @@ struct ScriptView: View {
         // Offered while reading even if the script has emptied under the mode,
         // so the menu bar always has the way back out.
         if model.hasScriptContent || isReading {
-            actions.readScript = { isReading.toggle() }
+            actions.readScript = { setReading(!isReading) }
             actions.isReadingScript = isReading
         }
 
@@ -1822,6 +1920,32 @@ struct ScriptView: View {
         // on the script itself. Pooling them in one capsule read as one set.
         ToolbarItemGroup(placement: .primaryAction) {
             viewMenu
+
+            // The way out of the reader and into the script, in the corner
+            // Pages and Word both put it in — where there is a corner to put
+            // it in. On an iPad and a Mac this draws; on a phone the bar has
+            // room for the View menu and the "…" and nothing else, and this
+            // was collapsed into the overflow even from in here, beside the
+            // one control that is always drawn. `documentsBar` carries the
+            // phone's real one, under the thumb; see its note.
+            //
+            // In the View menu's capsule rather than the group below, which
+            // is where it started: that group is the one the phone collapses
+            // whole, and on the widths where both are drawn this is a change
+            // of how the script is *presented*, which is what this capsule is
+            // for. Ungated by focus mode for the same reason the View menu is:
+            // both are ways back.
+            //
+            // Only where there is somewhere to type. A reader the server never
+            // gave an `update` link has no edit view to be sent to, and a
+            // button offering one would be a promise this app cannot keep.
+            if isReadyToEdit {
+                Button {
+                    setReading(false)
+                } label: {
+                    Label("Edit", systemImage: "square.and.pencil")
+                }
+            }
         }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -2097,10 +2221,9 @@ struct ScriptView: View {
                 // A mode among the modes, not a screen: the toggle swaps the
                 // column for the reader in place, and toggling it off —
                 // or asking for page or outline mode — puts the writing back.
-                // Read Aloud is not beside it: that one is the phone's bottom
-                // bar and the View menu's ⌘⇧A, and reading aloud never needs
-                // this mode.
-                Toggle(isOn: $isReading) {
+                // Read Aloud is not beside it: that one is a button out in
+                // the bar, and reading aloud never needs this mode.
+                Toggle(isOn: readingBinding) {
                     Label("Read Script", systemImage: "book")
                 }
                 .disabled(!model.hasScriptContent && !isReading)
@@ -2213,6 +2336,13 @@ struct ScriptView: View {
         } label: {
             Label("View", systemImage: "eye")
         }
+    }
+
+    /// The reader, as a Toggle can use it. Through `setReading` rather than
+    /// straight at the state, so choosing the mode here is remembered the same
+    /// way choosing it with the Edit button is.
+    private var readingBinding: Binding<Bool> {
+        Binding(get: { isReading }, set: { setReading($0) })
     }
 
     private var pageViewBinding: Binding<Bool> {

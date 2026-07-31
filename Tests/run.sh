@@ -221,6 +221,13 @@ swiftc "${FLAGS[@]}" -o "$BUILD/viewsettings" \
 run_suite "$BUILD/viewsettings" || status=1
 
 echo
+echo "== Where a document opens =="
+swiftc "${FLAGS[@]}" -o "$BUILD/readingview" \
+    "$SRC/State/ReadingViewSettings.swift" \
+    "$ROOT/Tests/ReadingView/main.swift"
+run_suite "$BUILD/readingview" || status=1
+
+echo
 echo "== Search and selection =="
 swiftc "${FLAGS[@]}" -o "$BUILD/statelogic" \
     "$SRC/Models/Block.swift" \

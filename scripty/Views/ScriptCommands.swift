@@ -180,6 +180,11 @@ struct ScriptCommands: Commands {
     /// the shared store the same way.
     private let appearance = AppearanceSettings.shared
 
+    /// Whether documents open to be read or to be written in — app-wide too,
+    /// and reached from here as well as from the sidebar's account menu so a
+    /// keyboard can get at it without leaving the script.
+    private let readingViews = ReadingViewSettings.shared
+
     /// Help belongs to no window either, and a `Commands` body cannot present
     /// a sheet — so the menu sets the flag and the root view opens it.
     private let help = HelpPresentation.shared
@@ -504,6 +509,16 @@ struct ScriptCommands: Commands {
         // is per edition.
         Button("Edit Screenplay") { actions?.editScreenplay?() }
             .disabled(actions?.editScreenplay == nil)
+        // The standing answer behind that toggle: which way a document comes
+        // up in the first place. Named for what choosing it would do, like
+        // every other item in this menu, and undisabled in every window — it
+        // is a preference about documents in general, so it means the same
+        // thing with no script in front of it.
+        Button(readingViews.opensInEditView
+               ? "Open Documents for Reading"
+               : "Open Documents in Edit View") {
+            readingViews.opensInEditView.toggle()
+        }
 
         // The voice, in place on the script screen. ⌘⇧A rather than anything
         // nearer ⌘⇧R: R is taken by the reader itself, and every other letter
