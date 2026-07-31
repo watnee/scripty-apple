@@ -185,18 +185,13 @@ struct SongsWorkspaceView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+            // No Add Line button here, unlike the single-song editor. This
+            // screen stacks every song in the project, so a button under each
+            // one repeats down the whole list and reads as part of the next
+            // song's verse. Return at the end of a line makes the next line,
+            // which is how a lyric is written anyway.
             ForEach(lyric.blocks) { block in
                 SongLineRow(model: lyric, block: block, focusedLine: $focusedLine)
-            }
-            if lyric.canAddLine {
-                Button {
-                    Task {
-                        if let created = await lyric.appendLine() { focusedLine = created }
-                    }
-                } label: {
-                    Label("Add Line", systemImage: "plus")
-                        .font(.callout)
-                }
             }
         }
     }
