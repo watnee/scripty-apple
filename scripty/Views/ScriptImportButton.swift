@@ -71,23 +71,30 @@ private struct ScriptImporter: ViewModifier {
 
     // MARK: - Actions
 
-    /// Reads the picked file up front — the security scope is only valid
-    /// inside this callback, so the bytes are held until the user confirms.
+    /// Reads the picked file up front, so the bytes are already in hand when
+    /// the writer confirms a replacement they cannot undo.
     private func handlePick(_ result: Result<[URL], Error>) {
         if case let .failure(error) = result {
             statusMessage = error.localizedDescription
             return
         }
         guard case let .success(urls) = result, let url = urls.first else { return }
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else {
-            statusMessage = "Couldn't read that file."
-            return
+        Task {
+            do {
+                let picked = try await PickedFileReader.read(url)
+                guard !picked.data.isEmpty else {
+                    statusMessage = "That file is empty."
+                    return
+                }
+                pending = PendingScriptFile(name: picked.name,
+                                            data: picked.data,
+                                            mimeType: picked.mimeType)
+            } catch {
+                if let message = PickedFileReader.readFailureMessage(error) {
+                    statusMessage = message
+                }
+            }
         }
-        pending = PendingScriptFile(name: url.lastPathComponent,
-                                    data: data,
-                                    mimeType: url.scriptMimeType)
     }
 
     private func upload(_ file: PendingScriptFile) {
@@ -126,14 +133,4 @@ private struct PendingScriptFile: Identifiable {
     let mimeType: String
 
     var id: String { name }
-}
-
-private extension URL {
-    var scriptMimeType: String {
-        if let type = UTType(filenameExtension: pathExtension),
-           let mime = type.preferredMIMEType {
-            return mime
-        }
-        return "application/octet-stream"
-    }
 }

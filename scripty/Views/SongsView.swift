@@ -992,26 +992,39 @@ struct SongsView: View {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            let didAccess = url.startAccessingSecurityScopedResource()
-            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let data = try Data(contentsOf: url)
-                let name = url.lastPathComponent
-                let mime = url.mimeType
-                Task {
-                    let created = await model.importDocument(
-                        fileName: name, data: data, type: listType, mimeType: mime)
-                    if let created {
-                        editingDocument = created
-                    } else {
-                        statusMessage = model.errorMessage ?? "Could not import that file."
+            Task {
+                let picked: PickedFile
+                do {
+                    picked = try await PickedFileReader.read(url)
+                } catch {
+                    if let message = PickedFileReader.readFailureMessage(error) {
+                        statusMessage = message
                     }
+                    return
                 }
-            } catch {
-                statusMessage = "Could not read that file."
+                // The server answers an empty upload with a plain refusal, and
+                // "could not import" for a file that simply has nothing in it
+                // sends the writer looking for a fault in the format.
+                guard !picked.data.isEmpty else {
+                    statusMessage = "That file is empty."
+                    return
+                }
+                let created = await model.importDocument(
+                    fileName: picked.name, data: picked.data,
+                    type: listType, mimeType: picked.mimeType)
+                if let created {
+                    editingDocument = created
+                } else {
+                    statusMessage = model.errorMessage ?? "Could not import that file."
+                }
             }
-        case .failure:
-            break   // user cancelled or picker error; nothing to report
+        case .failure(let error):
+            // Cancelling is not a failure and has never been worth a banner.
+            // Anything else is the picker itself refusing, and staying silent
+            // about that leaves a tapped Import button looking like a dud.
+            if (error as? CocoaError)?.code != .userCancelled {
+                statusMessage = error.localizedDescription
+            }
         }
     }
 
@@ -1056,14 +1069,4 @@ private struct RecentDocument: Identifiable {
 private struct ExportedSong: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
-}
-
-private extension URL {
-    var mimeType: String {
-        if let type = UTType(filenameExtension: pathExtension),
-           let mime = type.preferredMIMEType {
-            return mime
-        }
-        return "application/octet-stream"
-    }
 }

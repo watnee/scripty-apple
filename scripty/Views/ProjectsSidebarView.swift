@@ -644,15 +644,16 @@ struct ProjectsSidebarView: View {
             }
             guard case let .success(urls) = result, let url = urls.first else { return }
             Task {
-                // Imported files live outside the sandbox; read them under a
-                // security scope, then hand the bytes to the API.
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                guard let data = try? Data(contentsOf: url) else {
-                    model.errorMessage = "Couldn't read that file."
-                    return
+                // Imported files live outside the sandbox, and an archive kept
+                // in iCloud may not be on this device at all until asked for.
+                do {
+                    let picked = try await PickedFileReader.read(url)
+                    await model.importProject(data: picked.data, filename: picked.name)
+                } catch {
+                    if let message = PickedFileReader.readFailureMessage(error) {
+                        model.errorMessage = message
+                    }
                 }
-                await model.importProject(data: data, filename: url.lastPathComponent)
             }
         }
         .alert("Error", isPresented: errorBinding) {
