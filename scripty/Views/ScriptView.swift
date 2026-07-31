@@ -1859,7 +1859,7 @@ struct ScriptView: View {
                 Button {
                     showingOutline = true
                 } label: {
-                    Label("Outline", systemImage: "list.bullet.indent")
+                    Label("Navigator", systemImage: "list.bullet.indent")
                 }
                 // ⌘⇧O is outline *mode*, in the View menu below and in the Mac
                 // menu bar. The panel took the same keys until now, which meant

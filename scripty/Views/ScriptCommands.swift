@@ -442,7 +442,7 @@ struct ScriptCommands: Commands {
         }
         .keyboardShortcut("o", modifiers: [.command, .shift])
 
-        Button("Outline") { actions?.outline?() }
+        Button("Navigator") { actions?.outline?() }
             .keyboardShortcut("o", modifiers: [.command, .option])
             .disabled(actions?.outline == nil)
 
