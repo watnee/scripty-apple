@@ -2085,13 +2085,11 @@ struct ScriptView: View {
                 }
             }
 
+            // Pins and bookmarks used to head this section. They now live on
+            // the Outline panel's own Pins and Bookmarks tabs, beside the list
+            // of the marks each switch hides. ⌘⇧N and ⌘⇧B still reach them
+            // from anywhere, through the View commands.
             Section("Show") {
-                Toggle(isOn: option(\.showsPins, set: { options.showsPins = $0 })) {
-                    Label("Pins", systemImage: "pin")
-                }
-                Toggle(isOn: option(\.showsBookmarks, set: { options.showsBookmarks = $0 })) {
-                    Label("Bookmarks", systemImage: "bookmark")
-                }
                 Toggle(isOn: option(\.showsElementLabels,
                                     set: { options.showsElementLabels = $0 })) {
                     Label("Element Labels", systemImage: "tag")

@@ -484,8 +484,10 @@ struct ScriptCommands: Commands {
         }
         .keyboardShortcut("y", modifiers: [.command, .shift])
 
-        // The per-project marks the toolbar's "Show" section carries, given the
-        // same keyboard route the web binds. These come through the focused
+        // The per-project marks, given the same keyboard route the web binds.
+        // Pins and bookmarks are switched from the Outline panel's own tabs and
+        // element labels from the toolbar's "Show" section; these are the way
+        // to all three without going there. They come through the focused
         // script (nil when none is open) because the marks are per project,
         // where word count above is a device preference. Notes has no chord on
         // the web, so it stays a toolbar-only toggle.

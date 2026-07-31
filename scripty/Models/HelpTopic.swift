@@ -396,10 +396,13 @@ extension HelpTopic {
                 systemImage: "bookmark",
                 paragraphs: [
                     "Bookmark an element to find it again from the outline; pin one to "
-                    + "keep it in reach. The Show section of the View menu turns pins, "
-                    + "bookmarks, element labels and inline notes on and off — each "
-                    + "setting belongs to this screenplay, so marking up one draft "
-                    + "leaves the others alone."
+                    + "keep it in reach. The Outline panel's Pins and Bookmarks tabs "
+                    + "list what you have marked, and each carries a switch for showing "
+                    + "those marks beside the script — the list still takes you to a "
+                    + "line whose mark is hidden. The Show section of the View menu "
+                    + "turns element labels and inline notes on and off. Every one of "
+                    + "these settings belongs to this screenplay, so marking up one "
+                    + "draft leaves the others alone."
                 ],
                 keywords: ["star", "pin", "flag", "highlight", "labels", "markers",
                            "favourite"]),
