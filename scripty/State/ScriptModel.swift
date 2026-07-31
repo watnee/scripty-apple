@@ -213,6 +213,7 @@ final class ScriptModel {
         isLoading = true
         defer { isLoading = false }
         await loadBlocks()
+        await seedInitialBlockIfEmpty()
         await loadCharacters()
         await refreshUndoRedo()
     }
@@ -1404,6 +1405,29 @@ final class ScriptModel {
         } catch {
             report(error)
         }
+    }
+
+    /// The same seed, done as part of opening rather than waiting to be asked.
+    ///
+    /// A brand new screenplay used to land on an empty state whose only move
+    /// was "Start Writing" — a button that answers its own question, standing
+    /// between naming a screenplay and typing into it. Naming one is the writer
+    /// saying they want to write it, so the first element is theirs already.
+    ///
+    /// Called from `loadEverything` so it runs inside the opening load: the
+    /// spinner is still up, and the writer never sees the empty state blink
+    /// past. The button stays for every case this deliberately skips.
+    ///
+    /// Only on a live load that worked. Offline the create would fail at the
+    /// client's own gate and turn opening a script into an error alert; a
+    /// cached copy's links are last session's; and a load that already failed
+    /// has told the writer once, which is enough. The demo backend is always
+    /// reachable whatever the route says, as elsewhere.
+    private func seedInitialBlockIfEmpty() async {
+        guard blocks.isEmpty, canSeedScript,
+              errorMessage == nil, !isShowingOfflineCopy,
+              app.connectivity.isOnline || app.isDemo else { return }
+        await seedInitialBlock()
     }
 
     /// Append an empty element at the end and focus it (the toolbar +).

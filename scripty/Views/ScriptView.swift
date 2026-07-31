@@ -1767,8 +1767,9 @@ struct ScriptView: View {
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
-        // No "add element" button here. An empty script offers "Start Writing",
-        // and in a script with anything in it a return at the end of the last
+        // No "add element" button here. An empty script seeds its first element
+        // as it opens (and still offers "Start Writing" when it couldn't), and
+        // in a script with anything in it a return at the end of the last
         // element does the same thing without a trip to the toolbar — so the
         // button only crowded the bar. The menu bar keeps ⌘N for the keyboard.
         ToolbarItemGroup(placement: .primaryAction) {

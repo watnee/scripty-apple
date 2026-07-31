@@ -164,6 +164,9 @@ extension HelpTopic {
                 title: "Typing Straight Through",
                 systemImage: "text.cursor",
                 paragraphs: [
+                    "A new screenplay opens with its first element already there and "
+                    + "the caret in it, so naming one and typing into it are the same "
+                    + "move.",
                     "Tap an element and type. Return splits it and starts the next one "
                     + "— a character cue is followed by dialogue, everything else by "
                     + "action. Backspace with the caret at the very start merges the "
@@ -172,7 +175,7 @@ extension HelpTopic {
                     + "look for."
                 ],
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
-                           "autosave", "editing"]),
+                           "autosave", "editing", "new", "first element", "empty"]),
             HelpTopic(
                 id: "fountain",
                 title: "Fountain as You Type",
