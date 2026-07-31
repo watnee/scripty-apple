@@ -591,8 +591,9 @@ extension HelpTopic {
                     + "step at a time. A note's history stays on this device and starts "
                     + "fresh each time the note is opened.",
                     "A song has a reading mode of its own, the book button in the "
-                    + "editor's toolbar. It sets the lyric as verse in a serif face at a "
-                    + "comfortable measure, with the editing put away, and reads a blank "
+                    + "editor's toolbar. It sets the lyric as verse in the screenplay's "
+                    + "own typeface at a comfortable measure, with the editing put away, "
+                    + "and reads a blank "
                     + "line as the verse break it is rather than an empty line of words. "
                     + "The pencil beside it puts the writing back, on the same lines you "
                     + "left. It is the songs' answer to Read Script, and it takes the "
