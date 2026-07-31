@@ -479,9 +479,24 @@ extension HelpTopic {
                     + "your way to typing a real title is not.",
                     "The notes editor carries lists down a line at a time on Return, "
                     + "nests them on Tab, and sets headings; the prefixes stay plain "
-                    + "text, so what reaches the script is what you typed. Songs can be "
-                    + "opened one at a time, or all together on the workspace screen for "
-                    + "a change that runs through several of them.",
+                    + "text, so what reaches the script is what you typed. Either kind "
+                    + "can be opened one at a time, or all together on the workspace "
+                    + "screen — Edit All on One Page — for a change that runs through "
+                    + "several of them.",
+                    "Songs and notes are offered the same things. Both export as text, "
+                    + "PDF, Word or EPUB, on their own or as one file of the whole list; "
+                    + "both can be emailed to a collaborator; and Edit selects several "
+                    + "at once to delete, archive, email or export together. The one "
+                    + "format that stays with songs is MusicXML, which is a score to "
+                    + "open in a notation program, and a page of scene notes is not a "
+                    + "thing to set to music.",
+                    "Archiving is not deleting. A song or note set aside from its "
+                    + "menu leaves the list whole and readable, with nothing counting "
+                    + "down against it; Archived Songs & Notes lists what is on the "
+                    + "shelf and Put Back returns it. Delete still sends things to the "
+                    + "trash, which is where a countdown does apply, and an archived "
+                    + "document can be deleted from the shelf without coming back "
+                    + "first.",
                     "A song being worked on is rarely far away. The script has a Songs "
                     + "button and a Notes button, each opening its own list; holding "
                     + "one opens the last few of that kind you edited, each going "
@@ -528,7 +543,9 @@ extension HelpTopic {
                            "offline", "unsaved", "sync", "cloud", "badge",
                            "save", "autosave", "title", "undo", "redo",
                            "archive", "archived", "unarchive", "put aside",
-                           "hide", "finished", "cut", "shelve", "old"]),
+                           "hide", "finished", "cut", "shelve", "old",
+                           "export", "email", "share", "put back", "select",
+                           "musicxml"]),
             HelpTopic(
                 id: "title-page",
                 title: "Title Page",

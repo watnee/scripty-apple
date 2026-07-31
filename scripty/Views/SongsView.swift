@@ -3,13 +3,21 @@
 //  scripty
 //
 //  Songs & Notes for a project — the iPad counterpart of the web app's
-//  Songs / Notes screens. Add, edit, rename, delete, insert into the
-//  screenplay, share a song by email, and import from a file. Every
+//  Songs / Notes screens. Add, edit, rename, delete, archive, insert into the
+//  screenplay, email to a collaborator, export, and import from a file. Every
 //  affordance is gated on the links the server advertised.
 //
-//  Edit mode also selects: several songs can be trashed, or exported as a
-//  songbook of just those songs, which is what the web list's checkbox column
-//  is for. Notes have no checkboxes there and none here.
+//  Edit mode also selects: several documents can be trashed, archived, emailed,
+//  or exported as one file, which is what the web list's checkbox column is
+//  for. That column used to be the songs list's alone — the services behind it
+//  skipped anything that was not a song — and it is not any more. Nothing on
+//  this screen now asks which list is showing in order to decide whether an
+//  action exists; it asks the rels, and the two lists answer the same.
+//
+//  What still differs is what genuinely differs: a song is lyric lines with
+//  versions and editions behind them, so it opens the block editor and can be
+//  exported as a score. A note is prose. Those are the only two places `.song`
+//  is still tested for.
 //
 
 import SwiftUI
@@ -124,6 +132,9 @@ struct SongsView: View {
     @State private var selection = Set<Int>()
     @State private var editMode: EditMode = .inactive
     @State private var confirmingBulkDelete = false
+    /// Presented from the link the document collection advertised, like the
+    /// trash beside it.
+    @State private var archiveLink: HALLink?
     /// Emailing the ticked songs asks for the address in its own alert: the
     /// single-song one keys off `sharingDocument`, and there is no one
     /// document here to hang it on.
@@ -175,17 +186,39 @@ struct SongsView: View {
     /// sort flips to "Custom order" so what was saved is what stays on screen.
     private var canReorder: Bool { model.canReorderDocuments }
 
-    /// Selecting several used to be a song affordance, because everything a
-    /// selection could feed was: the bulk delete is advertised only where there
-    /// is a song to delete, and the songbook is the only export it fills.
+    /// Whether there is anything a selection could be used for.
     ///
-    /// The bulk archive is the first that is not — the server archives notes as
-    /// readily as songs — so the notes list can now select too, and there it is
-    /// the only reason to.
+    /// No longer a question about which list is on screen. The bulk rels are
+    /// advertised for a project with any document in it, and each list has its
+    /// own collection export — so a writer ticking three notes has exactly the
+    /// three things to do with them that a writer ticking three songs has.
     private var canSelect: Bool {
-        if model.canBulkArchiveDocuments { return true }
-        return listType == .song
-            && (model.canBulkDeleteDocuments || !model.songbookExportOptions.isEmpty)
+        model.canBulkDeleteDocuments
+            || model.canBulkArchiveDocuments
+            || !exportOptions.isEmpty
+    }
+
+    /// The collection export belonging to the list on screen: the songbook, or
+    /// the same file made of notes.
+    private var exportOptions: [ScriptModel.ExportOption] {
+        model.collectionExportOptions(for: listType)
+    }
+
+    /// How many documents the list on screen holds, before any search narrows
+    /// it. The controls that need "is there more than one of these?" ask this
+    /// rather than `shown`, so searching down to a single row cannot take a
+    /// control away mid-search.
+    private var shownListCount: Int {
+        listType == .song ? model.songs.count : model.notes.count
+    }
+
+    /// The word for what this list holds, for the sentences that need it.
+    private var kindWord: String { listType == .song ? "song" : "note" }
+    private var kindWordPlural: String { listType == .song ? "songs" : "notes" }
+
+    /// "3 songs" / "1 note" — the phrase most of the copy below is built from.
+    private func counted(_ n: Int) -> String {
+        "\(n) \(n == 1 ? kindWord : kindWordPlural)"
     }
 
     /// The selection in list order, so a songbook of it reads in the order the
@@ -373,8 +406,15 @@ struct SongsView: View {
             .sheet(item: $exportedSong) { export in
                 ShareSheet(items: [export.url])
             }
+            // Whichever list the button was pressed on. The two workspaces
+            // share a shape and nothing else: a song pane is a stack of lyric
+            // lines, a note pane is one field of prose.
             .sheet(isPresented: $showingWorkspace) {
-                SongsWorkspaceView(app: model.app, model: model)
+                if listType == .song {
+                    SongsWorkspaceView(app: model.app, model: model)
+                } else {
+                    NotesWorkspaceView(app: model.app, model: model)
+                }
             }
             .sheet(item: $editingDocument) { document in
                 // A song is lyric lines on the server, so it opens the line
@@ -397,31 +437,35 @@ struct SongsView: View {
                 Button("Cancel", role: .cancel) { renamingDocument = nil }
                 Button("Save") { commitRename() }
             }
-            .alert("Email this song", isPresented: shareBinding) {
+            .alert("Email this \(kindWord)", isPresented: shareBinding) {
                 TextField("Recipient email", text: $shareEmail)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) { sharingDocument = nil }
                 Button("Send") { commitShare() }
             } message: {
-                Text("Send the lyrics to a collaborator.")
+                Text(listType == .song
+                     ? "Send the lyrics to a collaborator."
+                     : "Send the note to a collaborator.")
             }
-            .alert("Email \(selection.count) \(selection.count == 1 ? "Song" : "Songs")",
-                   isPresented: $promptingBulkShare) {
+            .alert("Email \(counted(selection.count))", isPresented: $promptingBulkShare) {
                 TextField("Recipient email", text: $shareEmail)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Send") { commitBulkShare() }
             } message: {
-                Text("Send the lyrics to a collaborator in one message.")
+                Text(listType == .song
+                     ? "Send the lyrics to a collaborator in one message."
+                     : "Send the notes to a collaborator in one message.")
             }
-            .alert("Delete Songs", isPresented: $confirmingBulkDelete) {
+            .alert(listType == .song ? "Delete Songs" : "Delete Notes",
+                   isPresented: $confirmingBulkDelete) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) { bulkDelete() }
             } message: {
-                Text("Move \(selection.count) \(selection.count == 1 ? "song" : "songs") "
-                     + "to the trash. They can be restored from there.")
+                Text("Move \(counted(selection.count)) to the trash. "
+                     + "They can be restored from there.")
             }
             .alert("Songs & Notes",
                    isPresented: Binding(get: { statusMessage != nil },
@@ -470,7 +514,7 @@ struct SongsView: View {
                 // Between Delete and Rename by weight: it removes the row like
                 // a delete, but loses nothing, so it is not destructive-tinted.
                 Button {
-                    Task { await model.archiveDocument(document) }
+                    archive(document)
                 } label: {
                     Label("Archive", systemImage: "archivebox")
                 }
@@ -563,7 +607,7 @@ struct SongsView: View {
                 // one tap from undone. It sits above Delete because it is the
                 // gentler of the two ways to clear a finished song off the list.
                 Button {
-                    Task { await model.archiveDocument(document) }
+                    archive(document)
                 } label: {
                     Label("Archive", systemImage: "archivebox")
                 }
@@ -645,10 +689,11 @@ struct SongsView: View {
             // song count proved to come and go unreliably as the list diffed
             // itself, and the bar is rebuilt whole every time.
             //
-            // Same gate as the toolbar item: only where the songs are, and
-            // only with more than one — a workspace of one song is the editor
-            // with extra steps.
-            if listType == .song, model.songs.count > 1 {
+            // Same gate as the toolbar item: only with more than one — a
+            // workspace of a single document is the editor with extra steps.
+            // Offered on either list now; a page of every note is as useful as
+            // a page of every song, and for the same reason.
+            if shownListCount > 1 {
                 Button {
                     showingWorkspace = true
                 } label: {
@@ -717,11 +762,12 @@ struct SongsView: View {
                     }
                 }
                 Spacer()
-                let exports = model.songbookExportOptions(for: selectedDocuments.map(\.id))
+                let exports = model.collectionExportOptions(
+                    for: listType, ids: selectedDocuments.map(\.id))
                 if !exports.isEmpty {
                     Menu {
                         ForEach(exports) { option in
-                            Button(option.label) { exportSongbook(option, of: selectedDocuments) }
+                            Button(option.label) { exportCollection(option, of: selectedDocuments) }
                         }
                     } label: {
                         Label("Export \(selection.count)…", systemImage: "square.and.arrow.up")
@@ -732,15 +778,15 @@ struct SongsView: View {
         // Nothing to put in an order until there are two of them. Gated on the
         // whole list rather than on `shown`, so searching down to one row
         // cannot take the control away mid-search.
-        if (listType == .song ? model.songs.count : model.notes.count) > 1 {
+        if shownListCount > 1 {
             ToolbarItem(placement: .secondaryAction) {
                 sortPicker
             }
         }
-        // Every song on one screen, for the edits that span several of them.
-        // Only where the songs are, and only with more than one — a workspace
-        // of a single song is just the editor with extra steps.
-        if listType == .song, model.songs.count > 1 {
+        // Every song — or every note — on one screen, for the edits that span
+        // several of them. Only with more than one: a workspace of a single
+        // document is just the editor with extra steps.
+        if shownListCount > 1 {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     showingWorkspace = true
@@ -749,17 +795,19 @@ struct SongsView: View {
                 }
             }
         }
-        // The whole songbook in one file. Exporting is a read, so this is
-        // offered to a view-only collaborator too, and only while the songs
-        // are on screen — the notes list has no songbook to take away.
-        if listType == .song, !model.songbookExportOptions.isEmpty {
+        // The whole list in one file — the songbook, or the same thing made of
+        // notes. Exporting is a read, so this is offered to a view-only
+        // collaborator too. Each list advertises its own, so whichever is on
+        // screen is what comes down.
+        if !exportOptions.isEmpty {
             ToolbarItem(placement: .secondaryAction) {
                 Menu {
-                    ForEach(model.songbookExportOptions) { option in
-                        Button(option.label) { exportSongbook(option) }
+                    ForEach(exportOptions) { option in
+                        Button(option.label) { exportCollection(option) }
                     }
                 } label: {
-                    Label("Export All Songs…", systemImage: "square.and.arrow.up.on.square")
+                    Label(listType == .song ? "Export All Songs…" : "Export All Notes…",
+                          systemImage: "square.and.arrow.up.on.square")
                 }
             }
         }
@@ -781,6 +829,19 @@ struct SongsView: View {
                         archiveLink = archived
                     } label: {
                         Label("Archive", systemImage: "archivebox")
+                    }
+                }
+            }
+            // The shelf beside the bin. Always offered where the server
+            // advertises it, empty or not — unlike the bulk rels it needs no
+            // document to be useful, since a project's list can be empty
+            // precisely because everything in it was archived.
+            if let archive = model.archivedDocumentsLink {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        archiveLink = archive
+                    } label: {
+                        Label("Archived Songs & Notes", systemImage: "archivebox")
                     }
                 }
             }
@@ -820,8 +881,9 @@ struct SongsView: View {
         case .document(let id):
             editingDocument = model.documents.first { $0.id == id }
         case .songWorkspace:
-            // Same gate the toolbar button has: a workspace needs songs to stack.
-            guard model.songs.count > 1 else { return }
+            // Same gate the toolbar button has: a workspace needs more than one
+            // document to stack — of whichever list is being restored onto.
+            guard shownListCount > 1 else { return }
             showingWorkspace = true
         default:
             break
@@ -924,6 +986,34 @@ struct SongsView: View {
         Task { await model.reorderDocuments(merged) }
     }
 
+    private func archive(_ document: TextDocument) {
+        Task {
+            if await model.archiveDocument(document) == false {
+                statusMessage = model.errorMessage
+                    ?? "Could not archive \"\(document.displayTitle)\"."
+            }
+        }
+    }
+
+    /// Archives the ticked rows. The selection is dropped either way, for the
+    /// same reason the bulk delete drops it: on success those rows have left
+    /// the list, and on failure the list came back from the server, so keeping
+    /// ids that may no longer be on screen would leave the bar counting
+    /// phantoms.
+    private func bulkArchive() {
+        let ids = selectedDocuments.map(\.id)
+        let count = ids.count
+        selection.removeAll()
+        Task {
+            if await model.bulkArchiveDocuments(ids) {
+                statusMessage = "Archived \(counted(count))."
+            } else {
+                statusMessage = model.errorMessage
+                    ?? "Could not archive those \(kindWordPlural)."
+            }
+        }
+    }
+
     private func exportSong(_ document: TextDocument, _ option: ScriptModel.ExportOption) {
         Task {
             do {
@@ -935,24 +1025,27 @@ struct SongsView: View {
         }
     }
 
-    /// The songbook is named after the project, not after any one song, since
-    /// that is what the file holds — unless the writer picked a single song,
-    /// where its own title says more than "Project Songs" would.
-    private func exportSongbook(_ option: ScriptModel.ExportOption,
-                                of selected: [TextDocument] = []) {
-        let project = model.project.displayTitle.isEmpty ? "songs" : model.project.displayTitle + " Songs"
+    /// The file is named after the project, not after any one document, since
+    /// that is what it holds — unless the writer picked exactly one, where its
+    /// own title says more than "Project Songs" would.
+    private func exportCollection(_ option: ScriptModel.ExportOption,
+                                  of selected: [TextDocument] = []) {
+        let suffix = listType == .song ? " Songs" : " Notes"
+        let project = model.project.displayTitle.isEmpty
+            ? kindWordPlural
+            : model.project.displayTitle + suffix
         let name = selected.count == 1 ? selected[0].displayTitle : project
         Task {
             do {
                 let url = try await model.downloadExport(option, named: name)
                 exportedSong = ExportedSong(url: url)
             } catch {
-                statusMessage = "Could not export the songs."
+                statusMessage = "Could not export the \(kindWordPlural)."
             }
         }
     }
 
-    /// Trashes the ticked songs. The selection is dropped either way: on
+    /// Trashes the ticked rows. The selection is dropped either way: on
     /// success those rows are gone, and on failure the list has been reloaded
     /// from the server, so keeping ids that may no longer be on screen would
     /// leave the bottom bar counting phantoms.
@@ -962,9 +1055,10 @@ struct SongsView: View {
         selection.removeAll()
         Task {
             if await model.bulkDeleteDocuments(ids) {
-                statusMessage = "Moved \(count) \(count == 1 ? "song" : "songs") to the trash."
+                statusMessage = "Moved \(counted(count)) to the trash."
             } else {
-                statusMessage = model.errorMessage ?? "Could not delete those songs."
+                statusMessage = model.errorMessage
+                    ?? "Could not delete those \(kindWordPlural)."
             }
         }
     }
@@ -997,23 +1091,24 @@ struct SongsView: View {
             let ok = await model.shareDocument(document, email: email)
             statusMessage = ok
                 ? "Emailed \"\(document.displayTitle)\" to \(email)."
-                : (model.errorMessage ?? "Could not email that song.")
+                : (model.errorMessage ?? "Could not email that \(kindWord).")
         }
     }
 
-    /// Emails the ticked songs. The count reported back is the server's, not
-    /// the selection's: a note swept up in the ticks is skipped there, and
-    /// saying "emailed 3" when two went would be a lie about someone's inbox.
+    /// Emails the ticked rows. The count reported back is the server's, not
+    /// the selection's: an id it declines is not sent, and saying "emailed 3"
+    /// when two went would be a lie about someone's inbox.
     private func commitBulkShare() {
         let email = shareEmail.trimmingCharacters(in: .whitespaces)
         let chosen = selectedDocuments.map(\.id)
         guard !email.isEmpty, !chosen.isEmpty else { return }
         Task {
             guard let sent = await model.bulkShareDocuments(chosen, email: email) else {
-                statusMessage = model.errorMessage ?? "Could not email those songs."
+                statusMessage = model.errorMessage
+                    ?? "Could not email those \(kindWordPlural)."
                 return
             }
-            statusMessage = "Emailed \(sent) \(sent == 1 ? "song" : "songs") to \(email)."
+            statusMessage = "Emailed \(counted(sent)) to \(email)."
             editMode = .inactive
         }
     }
