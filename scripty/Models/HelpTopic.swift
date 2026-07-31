@@ -467,14 +467,17 @@ extension HelpTopic {
                     "The formatting bar behind the Aa button carries the same three, so "
                     + "the size can be changed mid-sentence without dismissing the "
                     + "keyboard: the percentage in the middle is the reset.",
-                    "Both are settings for this device rather than for the account: the "
-                    + "same screenplay is read on a bright rehearsal-room iPad and in a "
-                    + "dark editing suite.",
+                    "All of these are settings for this device rather than for the "
+                    + "account: the same screenplay is read on a bright rehearsal-room "
+                    + "iPad and in a dark editing suite. Printing and PDF export stay at "
+                    + "12pt whatever you are reading at, so the pages still count the "
+                    + "way a screenplay's pages are supposed to.",
                     "Songs and notes are set in the screenplay's own typeface and scale "
                     + "with it, so a lyric reads at the size of the scene it belongs to."
                 ],
                 keywords: ["zoom", "font size", "larger", "smaller", "dark mode",
-                           "light", "theme", "readability", "format bar"]),
+                           "light", "theme", "readability", "format bar",
+                           "points", "pt", "10", "12", "14", "16"]),
             HelpTopic(
                 id: "stats",
                 title: "Script Stats and Word Count",

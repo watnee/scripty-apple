@@ -57,6 +57,68 @@ final class PresentationSettings {
     func decreaseTextSize() { textSize -= Self.textSizeStep }
     func resetTextSize() { textSize = Self.defaultTextSize }
 
+    // MARK: - Type size in points
+
+    /// The same setting said the way a writer says it. A screenplay is set in
+    /// 12pt, so the percentage above and a point size are one number in two
+    /// units — and points are the unit anyone who has opened a word processor
+    /// reaches for. Nothing new is stored: this reads and writes `textSize`,
+    /// which keeps the web app's key and its `⌘+` / `⌘−` stepping intact.
+    ///
+    /// Like the percentage, it is how big the script is *drawn* — in the
+    /// editor, the page view and the reader. Printing and PDF export stay at
+    /// the standard 12pt, because a page that paginates differently from
+    /// everyone else's is not a screenplay any more.
+    ///
+    /// Rounded to a tenth of a point, which is what makes the presets
+    /// round-trip: 14pt is 116.67% of 12, stored as the whole 117%, and 117%
+    /// of 12 comes back as 14.04.
+    var fontSizePt: Double {
+        get { ((ScreenplayLayout.fontSizePt * textScale) * 10).rounded() / 10 }
+        set { textSize = Self.textSize(forFontSizePt: newValue) }
+    }
+
+    /// The sizes the menu offers: the familiar ones, then every other point up
+    /// to the ceiling. 13pt and 15pt are reachable by typing a number, but
+    /// listing them would make the menu a ruler rather than a choice.
+    static let fontSizePresets: [Double] = [10, 11, 12, 14, 16, 18, 20, 24]
+
+    /// The range the scale can express, in points. The floor is 9.6 — 80% of
+    /// 12 — and rounding it up rather than down keeps every size the writer can
+    /// ask for a size the writer can be given back.
+    static var minFontSizePt: Double {
+        (ScreenplayLayout.fontSizePt * Double(minTextSize) / 100).rounded(.up)
+    }
+
+    static var maxFontSizePt: Double {
+        (ScreenplayLayout.fontSizePt * Double(maxTextSize) / 100).rounded(.down)
+    }
+
+    /// What a point size works out to as a stored percentage. Out-of-range
+    /// sizes are pulled to the nearest end rather than refused: someone typing
+    /// 72 into the size field wants the biggest type there is.
+    static func textSize(forFontSizePt points: Double) -> Int {
+        let clamped = min(maxFontSizePt, max(minFontSizePt, points))
+        return Int((clamped / ScreenplayLayout.fontSizePt * 100).rounded())
+    }
+
+    /// How a size is written on a chip or in a menu — "12", not "12.0", since
+    /// whole points are the ordinary case and a trailing zero reads as noise.
+    static func fontSizeLabel(_ points: Double) -> String {
+        points == points.rounded()
+            ? String(Int(points))
+            : String(format: "%.1f", points)
+    }
+
+    var fontSizeLabel: String { Self.fontSizeLabel(fontSizePt) }
+
+    /// Whether the script is currently set in this size, for the checkmark
+    /// beside a preset. Compared with a tenth of a point's slack because both
+    /// sides came through a percentage.
+    func isSetIn(fontSizePt points: Double) -> Bool {
+        abs(fontSizePt - points) < 0.05
+    }
+
     // MARK: - Modes
 
     /// Renders the script as discrete paper sheets instead of one column.
