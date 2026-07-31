@@ -93,6 +93,12 @@ struct SongEditorView: View {
     /// "H1" while the title field has focus would silently head a line the
     /// writer cannot see.
     @State private var isWritingBody = false
+    /// Whether a song is being read rather than written. Only songs are
+    /// offered it — a note is prose with its own list and heading formatting,
+    /// and setting that as verse would misrepresent it — and only songs the
+    /// server already holds, since a song being typed for the first time has
+    /// nothing to read back.
+    @State private var isReading = false
     @State private var confirmingDiscard = false
     /// In flight to the screenplay. Guards the button rather than showing a
     /// spinner: the send is a save, one POST and a reload, over in a beat.
@@ -285,9 +291,16 @@ struct SongEditorView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                titleField
-                Divider()
-                editor
+                // Reading takes the whole sheet, title field included: the
+                // reader sets the title itself, in the face the rest of the
+                // page is in.
+                if isReading {
+                    reader
+                } else {
+                    titleField
+                    Divider()
+                    editor
+                }
             }
             .overlay {
                 if isLoading { ProgressView() }
@@ -473,6 +486,31 @@ struct SongEditorView: View {
             .accessibilityLabel(type == .song ? "Lyrics" : "Notes")
     }
 
+    /// The reading surface, in place of the title and the writing. Reads the
+    /// text on screen rather than the last saved copy, so a verse typed a
+    /// moment ago is there to be read whether or not its save has landed.
+    private var reader: some View {
+        ReadSongView(title: trimmedTitle,
+                     lines: content.components(separatedBy: .newlines),
+                     textScale: settings.textScale)
+    }
+
+    /// Whether this document can be read as a song. Nothing to offer for a
+    /// note, for a song that has never been saved, or for one with no words in
+    /// it — but always a way back out once the mode is on.
+    private var offersReading: Bool {
+        type == .song && document != nil && (!content.isEmpty || isReading)
+    }
+
+    /// Enters or leaves reading. The writing surface goes away on the way in,
+    /// so the formatting bar's "the caret is in the body" flag has to be let
+    /// go of with it — nothing will fire the text view's blur once it has been
+    /// taken off screen.
+    private func setReading(_ reading: Bool) {
+        isReading = reading
+        if reading { isWritingBody = false }
+    }
+
     private var placeholder: String {
         if !canEdit { return "" }   // nothing to invite; this note is read-only
         return type == .song ? "Write the lyrics here…" : "Write your notes here…"
@@ -552,6 +590,20 @@ struct SongEditorView: View {
                 CloudSyncBadge(state: cloud, label: cloudLabel)
             }
             .sharedBackgroundVisibility(.hidden)
+        }
+        // The mode the lyric-line editor offers, for a song the server keeps as
+        // plain text: the words set as verse, with the writing put away. Out in
+        // the bar rather than in the "…", because a mode is not an errand — and
+        // with no chord, since the screenplay this sheet opens over owns ⌘⇧X.
+        if offersReading {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    setReading(!isReading)
+                } label: {
+                    Label(isReading ? "Edit Lyrics" : "Read Song",
+                          systemImage: isReading ? "square.and.pencil" : "book")
+                }
+            }
         }
         // The list's context-menu action, reachable without leaving the
         // editor. Same gate — the server advertised an `insert` link on this

@@ -564,6 +564,13 @@ extension HelpTopic {
                     + "typing, a bullet the bar added, or an edit made offline, one "
                     + "step at a time. A note's history stays on this device and starts "
                     + "fresh each time the note is opened.",
+                    "A song has a reading mode of its own, the book button in the "
+                    + "editor's toolbar. It sets the lyric as verse in a serif face at a "
+                    + "comfortable measure, with the editing put away, and reads a blank "
+                    + "line as the verse break it is rather than an empty line of words. "
+                    + "The pencil beside it puts the writing back, on the same lines you "
+                    + "left. It is the songs' answer to Read Script, and it takes the "
+                    + "same device-wide text size.",
                     "A song being worked on is rarely far away. The script has a Songs "
                     + "button and a Notes button, each opening its own list; holding "
                     + "one opens the last few of that kind you edited, each going "
@@ -619,6 +626,7 @@ extension HelpTopic {
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
+                           "read", "reading", "verse", "stanza", "distraction",
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
                            "save", "autosave", "title", "undo", "redo",
