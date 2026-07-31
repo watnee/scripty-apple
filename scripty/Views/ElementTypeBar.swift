@@ -30,7 +30,7 @@ struct ElementTypeBar: View {
          .transition, .shot, .centered, .lyrics, .section, .synopsis, .note]
 
     private var types: [BlockType] {
-        settings.isOutlineMode ? PresentationSettings.outlineTypes : Self.types
+        settings.isOutlineMode ? BlockType.outlineTypes : Self.types
     }
 
     var body: some View {

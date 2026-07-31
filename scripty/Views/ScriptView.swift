@@ -840,7 +840,7 @@ struct ScriptView: View {
     /// a note is not a scene, a section or a synopsis.
     private var visibleBlocks: [Block] {
         if settings.isOutlineMode {
-            let outline = Set(PresentationSettings.outlineTypes)
+            let outline = Set(BlockType.outlineTypes)
             return model.blocks.filter { outline.contains($0.blockType) }
         }
         guard !options.showsNotes else { return model.blocks }
@@ -1416,12 +1416,18 @@ struct ScriptView: View {
             if model.isLoading {
                 ProgressView()
             } else if model.canSeedScript {
+                // Outline mode is a way of starting a script, not only of
+                // taking one apart, so the first element it seeds is a scene
+                // heading and the button says which — see `seedInitialBlock`.
                 ContentUnavailableView {
-                    Label("Empty Script", systemImage: "doc.plaintext")
+                    Label("Empty Script", systemImage: settings.isOutlineMode
+                          ? "list.bullet.indent" : "doc.plaintext")
                 } description: {
-                    Text("Start writing to add the first element.")
+                    Text(settings.isOutlineMode
+                         ? "Start outlining to add the first scene heading."
+                         : "Start writing to add the first element.")
                 } actions: {
-                    Button("Start Writing") {
+                    Button(settings.isOutlineMode ? "Start Outlining" : "Start Writing") {
                         Task { await model.seedInitialBlock() }
                     }
                     .buttonStyle(.glassProminent)
@@ -1434,15 +1440,23 @@ struct ScriptView: View {
             }
         } else if visibleBlocks.isEmpty && settings.isOutlineMode {
             // A script with plenty in it but no skeleton yet. Saying so beats a
-            // blank page that reads as "your writing is gone".
+            // blank page that reads as "your writing is gone" — and the way out
+            // is to write the skeleton, so the first offer is a scene heading
+            // rather than the door back to the whole script.
             ContentUnavailableView {
                 Label("No Outline Yet", systemImage: "list.bullet.indent")
             } description: {
                 Text("Outline mode shows only scenes, sections and synopses. "
                      + "This script has none of them.")
             } actions: {
-                Button("Show Whole Script") { settings.isOutlineMode = false }
-                    .buttonStyle(.glassProminent)
+                if canEditScript && !options.isEditingLocked {
+                    Button("Add a Scene") { Task { await model.appendBlock() } }
+                        .buttonStyle(.glassProminent)
+                    Button("Show Whole Script") { settings.isOutlineMode = false }
+                } else {
+                    Button("Show Whole Script") { settings.isOutlineMode = false }
+                        .buttonStyle(.glassProminent)
+                }
             }
         }
     }

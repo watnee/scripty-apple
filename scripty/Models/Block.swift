@@ -132,6 +132,25 @@ enum BlockType: String, CaseIterable, Identifiable {
         isCharacterCue ? .dialogue : .action
     }
 
+    /// The elements outline mode keeps — the story's skeleton — and, while it
+    /// is on, the only types anything may create or retype into: every other
+    /// one would take the element straight off the screen the moment it was
+    /// applied, carrying whatever the writer had just typed with it.
+    static let outlineTypes: [BlockType] = [.scene, .section, .synopsis]
+
+    var isOutlineType: Bool { BlockType.outlineTypes.contains(self) }
+
+    /// The type a new element gets when Return is pressed after this one while
+    /// the script is collapsed to its outline.
+    ///
+    /// `followingType`'s answer is action, which outline mode does not show, so
+    /// the writer's next line would land somewhere they cannot see it. A new
+    /// outline line carries on as the one above it instead — the way Return in
+    /// a list gives another item at the same level — and the element-type bar,
+    /// already narrowed to these three, retypes it in a tap. Only an outline
+    /// element can be focused while outlining, so the fallback is defensive.
+    var followingOutlineType: BlockType { isOutlineType ? self : .scene }
+
     /// Classic Final-Draft-style Tab order (mirrors `TAB_CYCLE`).
     static let tabCycle: [BlockType] =
         [.scene, .action, .character, .parenthetical, .dialogue, .transition, .shot]
@@ -156,6 +175,18 @@ enum BlockType: String, CaseIterable, Identifiable {
         let step = backward ? -1 : 1
         let next = (index + step + cycle.count) % cycle.count
         return cycle[next]
+    }
+
+    /// Tab / Shift-Tab while outlining, walking the three outline types alone.
+    ///
+    /// The ordinary cycle's very next stop after a scene heading is action, so
+    /// one press of Tab would erase the line from the screen — the same trap
+    /// `followingOutlineType` steps around, reached by the other hand.
+    func cyclingOutlineType(backward: Bool) -> BlockType {
+        let cycle = BlockType.outlineTypes
+        guard let index = cycle.firstIndex(of: self) else { return .scene }
+        let step = backward ? -1 : 1
+        return cycle[(index + step + cycle.count) % cycle.count]
     }
 }
 

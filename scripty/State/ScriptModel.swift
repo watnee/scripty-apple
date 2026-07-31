@@ -1061,6 +1061,21 @@ final class ScriptModel {
         }
     }
 
+    /// Whether the script is collapsed to its outline right now.
+    ///
+    /// Writing has to know: outline mode narrows what may be *created* as well
+    /// as what is shown, or Return, Tab and the + button would each put a fresh
+    /// element into a script the writer cannot see and hand them a caret in
+    /// mid-air. Read off the shared settings rather than threaded down from the
+    /// view, the way `ScriptExportModel` reads the page setup — there is one
+    /// script on screen and one answer.
+    private var isOutlining: Bool { PresentationSettings.shared.isOutlineMode }
+
+    /// The type a fresh element gets below one of `type`, honouring the mode.
+    private func typeFollowing(_ type: BlockType) -> BlockType {
+        isOutlining ? type.followingOutlineType : type.followingType
+    }
+
     /// Return at `caret`: the text before the caret stays (with Fountain
     /// detection applied), the text after moves into a new element below whose
     /// type follows screenplay convention. Mirrors the web editor's Enter.
@@ -1072,7 +1087,13 @@ final class ScriptModel {
         let after = String(full[splitIndex...])
 
         var currentType = block.blockType
-        if let detected = FountainDetector.detect(before) {
+        // A detection that would leave the outline is dropped while outlining,
+        // not applied and then hidden: `.`, `#` and `=` are exactly the markers
+        // an outliner reaches for and all three land inside the mode, while the
+        // rest would take the line the writer is on off the screen. The typed
+        // text stays as typed, so nothing is lost — only unconverted.
+        if let detected = FountainDetector.detect(before),
+           !isOutlining || detected.type.isOutlineType {
             before = detected.content
             currentType = detected.type
         }
@@ -1101,7 +1122,7 @@ final class ScriptModel {
             // Only when there is nowhere to queue the tail does the split
             // back out whole, exactly as a refused write does.
             if let created = createLocalBlock(below: heldBlock,
-                                              type: currentType.followingType,
+                                              type: typeFollowing(currentType),
                                               content: after, personId: nil) {
                 focus(created.id, caret: 0)
             } else {
@@ -1118,7 +1139,7 @@ final class ScriptModel {
         }
         liveText[block.id] = nil
 
-        let newType = currentType.followingType
+        let newType = typeFollowing(currentType)
         // A source that is itself pending has no createBelow link to use, so
         // the new line is queued behind it rather than refused.
         if source.isLocal {
@@ -1275,7 +1296,10 @@ final class ScriptModel {
 
     /// Tab / Shift-Tab: advance the focused block through the logical cycle.
     func cycleType(_ block: Block, backward: Bool) async {
-        await changeType(block, to: block.blockType.cyclingType(backward: backward))
+        let type = block.blockType
+        await changeType(block, to: isOutlining
+                         ? type.cyclingOutlineType(backward: backward)
+                         : type.cyclingType(backward: backward))
     }
 
     @discardableResult
@@ -1394,11 +1418,21 @@ final class ScriptModel {
 
     /// Seed the single element an untouched script needs before there is
     /// anything to type into.
+    ///
+    /// The server decides what that element is, and it makes an action line —
+    /// which outline mode does not show, so a writer starting a script while
+    /// outlining would press the button and be left staring at the same empty
+    /// page. Turn it into a scene heading before handing over the caret; a
+    /// refused retype leaves the seeded element as it is rather than losing it.
     func seedInitialBlock() async {
         guard let link = blocksLinks[.createInitial] else { return }
         do {
             let created: Block = try await app.client.fetch(from: link, method: "POST")
             await loadBlocks()
+            if isOutlining, let seeded = blocks.first(where: { $0.id == created.id }),
+               !seeded.blockType.isOutlineType {
+                await retype(seeded, to: .scene, content: nil)
+            }
             await refreshUndoRedo()
             focus(created.id, caret: 0)
             errorMessage = nil
@@ -1431,36 +1465,41 @@ final class ScriptModel {
     }
 
     /// Append an empty element at the end and focus it (the toolbar +).
+    ///
+    /// An action line ordinarily, a scene heading while outlining: the + is the
+    /// one way to add an element with nothing focused, and in outline mode it
+    /// is the way a writer starts a script's outline from nothing at all.
     func appendBlock() async {
         if blocks.isEmpty {
             await seedInitialBlock()
             return
         }
         guard let last = blocks.last else { return }
+        let type: BlockType = isOutlining ? .scene : .action
         // A pending last element can't anchor a server create, but it can
         // anchor another pending one.
         if last.isLocal {
-            if let created = createLocalBlock(below: last, type: .action,
+            if let created = createLocalBlock(below: last, type: type,
                                               content: "", personId: nil) {
                 focus(created.id, caret: 0)
             }
             return
         }
         guard let link = last.link(.createBelow) else {
-            await createBlock(content: "", type: .action, personId: nil)
+            await createBlock(content: "", type: type, personId: nil)
             return
         }
         do {
             let created: Block = try await app.client.fetch(
                 from: link, method: "POST",
-                body: CreateBelowCommand(content: "", personId: nil, type: BlockType.action.rawValue))
+                body: CreateBelowCommand(content: "", personId: nil, type: type.rawValue))
             insert(created, below: last)
             refreshUndoRedoSoon()
             focus(created.id, caret: 0)
             errorMessage = nil
         } catch {
             guard error.isRetryableAPIError,
-                  let created = createLocalBlock(below: last, type: .action,
+                  let created = createLocalBlock(below: last, type: type,
                                                  content: "", personId: nil) else {
                 report(error)
                 return
