@@ -60,10 +60,21 @@ struct SongBlockEditorView: View {
     /// filter.
     @State private var matchedLines: Set<Int> = []
 
+    /// Whether the song is up to be read rather than written in — where a
+    /// lyric opens now, the way Pages and Word open a document on iOS. The
+    /// lines are the same lines in the same order; they simply take no caret,
+    /// and the swipes that would delete or tint one are put away with it.
+    @State private var isReadingView: Bool
+
+    /// Whether documents open to be read, and which way this song was last put.
+    private let readingViews = ReadingViewSettings.shared
+
     init(app: AppModel, document: TextDocument, scriptModel: ScriptModel,
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
+        _isReadingView = State(initialValue: ReadingViewSettings.shared
+            .opensInReadingView(.document(id: document.id)))
         self.scriptModel = scriptModel
         self.onInserted = onInserted
     }
@@ -96,7 +107,8 @@ struct SongBlockEditorView: View {
                     ForEach(shownBlocks) { block in
                         SongLineRow(model: model,
                                     block: block,
-                                    focusedLine: $focusedLine)
+                                    focusedLine: $focusedLine,
+                                    isReadingView: isReadingView)
                             .id(block.id)
                             // No hairline between one lyric line and the next.
                             // A plain list rules off every row, which turns a
@@ -145,6 +157,15 @@ struct SongBlockEditorView: View {
             }
             .task {
                 await model.load()
+                // Two things the opening decision could not know until the
+                // lyric was in hand. A song with no lines is nothing to read —
+                // what it has instead is an Add Line button, which reading
+                // view would have hidden. And lines this device is still
+                // holding are writing in progress that has not reached the
+                // server, which is not a song anyone opened to read.
+                if model.blocks.isEmpty || model.hasUnsavedChanges {
+                    isReadingView = false
+                }
                 await editions.load()
                 // A reloaded lyric is a different set of lines; re-match so a
                 // search left running does not keep hiding rows by stale id.
@@ -219,6 +240,35 @@ struct SongBlockEditorView: View {
                     break
                 }
             }
+        }
+    }
+
+    // MARK: - Reading view
+
+    /// Whether the server left this lyric open to be changed at all. Asks the
+    /// links rather than the mode: a reader who was never given an editable
+    /// line has no edit view to be offered, and a button promising one would
+    /// be a promise this app cannot keep.
+    private var isSongEditable: Bool {
+        model.canAddLine || model.blocks.contains(where: \.isEditable)
+    }
+
+    /// Hands the song to the writer, and remembers that this is one they write
+    /// in — so Edit is a cost paid once per song rather than on every visit.
+    private func beginEditing() {
+        isReadingView = false
+        readingViews.remember(false, for: .document(id: model.document.id))
+    }
+
+    /// Puts it back up to be read, and remembers that too. Half-typed lines go
+    /// first: the rows stop taking a caret the moment the flag flips, and a
+    /// line still holding uncommitted text would have nowhere left to send it
+    /// from.
+    private func enterReadingView() {
+        Task {
+            await model.commitAll()
+            isReadingView = true
+            readingViews.remember(true, for: .document(id: model.document.id))
         }
     }
 
@@ -385,6 +435,19 @@ struct SongBlockEditorView: View {
                 Label("Word Count", systemImage: "number")
             }
         }
+        // The way back into reading, in the "…" where Pages keeps its own.
+        // Without it the remembered choice could only ever travel toward the
+        // editor, and a song a writer only ever reads would have no way to say
+        // so after the first tap on Edit.
+        if isSongEditable && !isReadingView {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    enterReadingView()
+                } label: {
+                    Label("Reading View", systemImage: "book")
+                }
+            }
+        }
         // The same device-wide spelling controls the screenplay's View menu
         // carries. A lyric is where they are needed most — invented words,
         // dialect spellings and names by the verse — and this editor had no way
@@ -423,6 +486,17 @@ struct SongBlockEditorView: View {
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            // The way into writing, leading this group so a phone — which
+            // draws about two controls on the trailing side before the rest go
+            // to the "…" — always draws it. Gone once it is used: the sheet is
+            // then the editor it has always been.
+            if isSongEditable && isReadingView {
+                Button {
+                    beginEditing()
+                } label: {
+                    Label("Edit", systemImage: "square.and.pencil")
+                }
+            }
             // No keyboard shortcut on Search: the screenplay's own button owns
             // ⌘F, and this editor opens over it — the same reason the text-size
             // menu below claims no keys.
@@ -496,7 +570,7 @@ struct SongBlockEditorView: View {
                 } description: {
                     Text("Add the first line to start writing.")
                 } actions: {
-                    if model.canAddLine {
+                    if model.canAddLine && !isReadingView {
                         Button("Add Line") {
                             Task {
                                 if let created = await model.appendLine() {

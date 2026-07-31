@@ -277,6 +277,38 @@ extension HelpTopic {
         ]),
         HelpSection(id: "reading", title: "Reading and Layout", topics: [
             HelpTopic(
+                id: "reading-view",
+                title: "Documents Open for Reading",
+                systemImage: "book",
+                paragraphs: [
+                    "A screenplay, song or note opens to be read rather than to "
+                    + "be typed into, the way Pages and Word open a file on iPhone "
+                    + "and iPad. A phone is a thing you scroll with your thumb, and "
+                    + "a document that is live to the keyboard while you scroll "
+                    + "through it is one you will eventually type into by accident.",
+                    "Tap Edit to start writing. On iPhone the screenplay's Edit "
+                    + "button sits in the bar at the foot of the screen, beside "
+                    + "Songs and Notes, where there is room for it; on iPad and Mac "
+                    + "it is in the top corner. Songs and notes keep theirs in the "
+                    + "top corner everywhere.",
+                    "That choice is remembered for that document, so it opens ready "
+                    + "to type in from then on — the button is a one-time cost, not "
+                    + "a toll on every visit. To put a document back, choose Read "
+                    + "Script in the View menu, or Reading View in a song or note's "
+                    + "“…” menu.",
+                    "Open in Edit View, in the account menu on the project list, "
+                    + "turns the default round for every document you have never "
+                    + "made a choice about; documents you have chosen for keep the "
+                    + "choice you made. A script with nothing in it, or one holding "
+                    + "words this device has not managed to send yet, always opens "
+                    + "for writing — there is nothing to read, or something to "
+                    + "finish."
+                ],
+                keywords: ["read only", "read-only", "reading mode", "read mode",
+                           "edit button", "pencil", "accidental", "accident",
+                           "locked", "cannot type", "can't type", "won't let me type",
+                           "keyboard", "open", "opens", "default", "pages", "word"]),
+            HelpTopic(
                 id: "page-view",
                 title: "Page View",
                 systemImage: "doc.richtext",
@@ -313,9 +345,12 @@ extension HelpTopic {
                     "Read Script sets the screenplay as prose in a serif face, with the "
                     + "editing controls and the working annotations — synopses and notes "
                     + "— left out. It swaps in on the script screen itself, opening at "
-                    + "the place you were writing; choose it again in the View menu to "
-                    + "put the writing back. It is for reading on a screen; page view is "
-                    + "the one for reading it as paper.",
+                    + "the place you were writing; the Edit button, or choosing it "
+                    + "again in the View menu, puts the writing back. It is for "
+                    + "reading on a screen; page view is the one for reading it as "
+                    + "paper. This is also the surface a screenplay opens on — see "
+                    + "Documents Open for Reading, which is also where the Edit "
+                    + "button is described.",
                     "Read Aloud (⌘⇧A) speaks the script from wherever you are, on "
                     + "whichever surface is up. The element being read is highlighted "
                     + "and scrolls itself into view, and the transport at the foot of "

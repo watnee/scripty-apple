@@ -95,8 +95,18 @@ struct ProjectsSidebarView: View {
     /// Light or dark, for the whole app rather than this list.
     private let appearance = AppearanceSettings.shared
 
+    /// Whether documents open to be read or ready to type in — for the whole
+    /// app too, which is why the switch lives up here beside appearance rather
+    /// than inside any one screenplay's View menu.
+    private let readingViews = ReadingViewSettings.shared
+
     private var appearanceBinding: Binding<AppearanceSettings.Appearance> {
         Binding(get: { appearance.appearance }, set: { appearance.appearance = $0 })
+    }
+
+    private var editViewBinding: Binding<Bool> {
+        Binding(get: { readingViews.opensInEditView },
+                set: { readingViews.opensInEditView = $0 })
     }
 
     /// Its own property rather than inline in the toolbar: the toolbar builder
@@ -317,6 +327,19 @@ struct ProjectsSidebarView: View {
             // reason, and because that is where the web app's account menu keeps
             // its two help entries.
             appearancePicker
+
+            // Documents open to be read, the way Pages and Word open one on
+            // iOS; this is the switch for anyone who would rather they opened
+            // ready to type in. Ungated for the same reason appearance is, and
+            // filed beside it because both are choices about this device
+            // rather than about any one screenplay.
+            //
+            // It only answers for documents nobody has chosen for: a script
+            // you have tapped Edit in already opens in the editor, and one you
+            // have deliberately put back into reading view stays there.
+            Toggle(isOn: editViewBinding) {
+                Label("Open in Edit View", systemImage: "square.and.pencil")
+            }
 
             Button {
                 HelpPresentation.shared.screen = .help

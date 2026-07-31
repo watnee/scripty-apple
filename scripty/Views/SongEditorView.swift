@@ -86,6 +86,15 @@ struct SongEditorView: View {
     /// Set by Discard on the way out, so the parting save knows the words on
     /// screen are not wanted.
     @State private var discarding = false
+    /// Whether this document is up to be read rather than written in — where
+    /// an existing song or note opens, the way Pages and Word open a file on
+    /// iOS. Nothing about the sheet moves: the same title and the same words,
+    /// with no caret in them and Edit in the corner.
+    ///
+    /// State rather than a constant because the sheet leaves the mode two
+    /// ways: the writer tapping Edit, and the load finding an empty document,
+    /// which is nothing to read and so belongs to the writer.
+    @State private var isReadingView: Bool
     /// The formatting bar's handle on the text view.
     @State private var formatting = NoteEditorController()
     @FocusState private var titleFocused: Bool
@@ -118,14 +127,35 @@ struct SongEditorView: View {
         _content = State(initialValue: content)
         _savedTitle = State(initialValue: title)
         _savedContent = State(initialValue: content)
+        // A document being written for the first time is never opened to be
+        // read: there is nothing in it yet, and the writer asked for a blank
+        // one. Everything else opens the way it was last left, or the way the
+        // "Open in Edit View" switch says if it has never been put either way.
+        _isReadingView = State(initialValue: document.map {
+            ReadingViewSettings.shared.opensInReadingView(.document(id: $0.id))
+        } ?? false)
     }
+
+    /// Whether documents open to be read, and which way this one was last put.
+    private let readingViews = ReadingViewSettings.shared
 
     /// The document being written: the one this sheet was opened on, or the one
     /// its first save created. Nil only while a new document has yet to land.
     private var target: TextDocument? { document ?? created }
 
     private var isNew: Bool { target == nil }
-    private var canEdit: Bool { document?.hasLink(.update) ?? true }
+
+    /// Whether the server left this document open to be changed at all. The
+    /// standing permission, as against `canEdit` below, which is that *and*
+    /// the writer having asked for the keyboard.
+    private var isDocumentEditable: Bool { document?.hasLink(.update) ?? true }
+
+    /// Whether the words on screen can be typed into right now. Every save
+    /// path in this sheet already guards on it, which is what makes reading
+    /// view inert here rather than merely quiet: nothing autosaves, nothing is
+    /// flushed on the way out, and nothing is counted as unsaved, because
+    /// nothing can have changed.
+    private var canEdit: Bool { isDocumentEditable && !isReadingView }
     private var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -206,9 +236,15 @@ struct SongEditorView: View {
     /// rules but not the bar, which is the split the browser makes too.
     private var showsFormatBar: Bool { type != .song && canEdit }
 
-    /// Fixed for the life of the sheet, on how it was opened rather than on
-    /// whether the document exists yet. A create landing mid-sentence is not a
-    /// reason for the screen the writer is looking at to rename itself.
+    /// What the sheet calls itself. Settled on how it was opened rather than
+    /// on whether the document exists yet: a create landing mid-sentence is not
+    /// a reason for the screen the writer is looking at to rename itself.
+    ///
+    /// It does follow the one change that is the writer's own doing. A note up
+    /// to be read is "Note"; tapping Edit makes it "Edit Note", which is the
+    /// title saying what the sheet has just become rather than renaming itself
+    /// behind anyone's back — and the same words a read-only note has always
+    /// carried, since to a reader the two states look alike.
     private var navTitle: String {
         if document == nil { return type == .song ? "New Song" : "New Note" }
         return canEdit ? "Edit \(type.label)" : type.label
@@ -413,6 +449,21 @@ struct SongEditorView: View {
                 }
             }
         }
+        // The way into writing, where Pages and Word both keep it. Beside Done
+        // on the leading edge would put it under the thumb that just opened
+        // the sheet; the trailing corner is where a document app has taught
+        // everyone to look for Edit, and it is the only thing this sheet draws
+        // there. Gone the moment it is used, since the sheet is then the
+        // editor it has always been.
+        if isDocumentEditable && isReadingView {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    beginEditing()
+                } label: {
+                    Label("Edit", systemImage: "square.and.pencil")
+                }
+            }
+        }
         // The list's context-menu action, reachable without leaving the
         // editor. Same gate — the server advertised an `insert` link on this
         // document — and the same landing: the end of the script, a song as
@@ -432,6 +483,19 @@ struct SongEditorView: View {
         ToolbarItem(placement: .secondaryAction) {
             Toggle(isOn: wordCountBinding) {
                 Label("Word Count", systemImage: "number")
+            }
+        }
+        // The way back, in the "…" where Pages keeps its own Reading View
+        // item. Without it the remembered choice could only ever travel one
+        // way — every document a writer had tapped Edit in would stay an
+        // editor for good, with nothing to say "this one I only read".
+        if isDocumentEditable && !isReadingView && !isNew {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    enterReadingView()
+                } label: {
+                    Label("Reading View", systemImage: "book")
+                }
             }
         }
         // Only where there is typing to check. Reached from here rather than
@@ -479,6 +543,33 @@ struct SongEditorView: View {
         Binding(get: { settings.showsWordCount }, set: { settings.showsWordCount = $0 })
     }
 
+    // MARK: - Reading view
+
+    /// Hands the document to the writer, and remembers that this is one they
+    /// write in — so the Edit button is a cost paid once per document rather
+    /// than on every visit.
+    private func beginEditing() {
+        isReadingView = false
+        guard let target else { return }
+        readingViews.remember(false, for: .document(id: target.id))
+    }
+
+    /// Puts it back up to be read, and remembers that too.
+    ///
+    /// The save goes first and the mode follows it, rather than the other way
+    /// round: `saveNow` is guarded on `canEdit`, so a flag flipped ahead of the
+    /// send would silently make the send a no-op and leave the last sentence
+    /// typed sitting in a text view nobody is going to look at again.
+    private func enterReadingView() {
+        autosave?.cancel()
+        Task {
+            await saveNow()
+            isReadingView = true
+            guard let target else { return }
+            readingViews.remember(true, for: .document(id: target.id))
+        }
+    }
+
     // MARK: - Actions
 
     /// The list only has a preview, so pull the full document once on open.
@@ -505,6 +596,20 @@ struct SongEditorView: View {
         savedTitle = title
         savedContent = content
         haveServerBaseline = full != nil
+        // Two things the opening decision could not know until the document
+        // was in hand, both of which mean this one belongs to the writer.
+        //
+        // Words this device is still holding are writing in progress that has
+        // not reached the server — and `adoptHeldDraft` below is itself
+        // guarded on `canEdit`, so leaving the sheet in reading view would put
+        // the server's older copy on screen and quietly leave the writer's own
+        // paragraph out of sight.
+        //
+        // An empty document is nothing to read: a blank sheet with no caret
+        // and no placeholder, waiting to be tapped past.
+        if model.heldDocumentDraft(for: document) != nil || content.isEmpty {
+            isReadingView = false
+        }
         adoptHeldDraft(for: document, sawServerCopy: full != nil)
     }
 
