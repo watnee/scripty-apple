@@ -372,6 +372,11 @@ extension HelpTopic {
                     + "and iPad. A phone is a thing you scroll with your thumb, and "
                     + "a document that is live to the keyboard while you scroll "
                     + "through it is one you will eventually type into by accident.",
+                    "Reading is a surface of its own in all three, not the writing "
+                    + "with the keyboard taken away: a screenplay set in screenplay "
+                    + "format, a song set as verse, a note set as prose — each in a "
+                    + "reading measure with the editing controls left out. See Read "
+                    + "Script, and Songs and Notes for the other two.",
                     "Tap Edit to start writing. On iPhone the screenplay's Edit "
                     + "button sits in the bar at the foot of the screen, beside "
                     + "Songs and Notes, where there is room for it; on iPad and Mac "
@@ -380,8 +385,8 @@ extension HelpTopic {
                     "That choice is remembered for that document, so it opens ready "
                     + "to type in from then on — the button is a one-time cost, not "
                     + "a toll on every visit. To put a document back, choose Read "
-                    + "Script in the View menu, or Reading View in a song or note's "
-                    + "“…” menu.",
+                    + "Script in the View menu, or Read Song or Read Note in a song "
+                    + "or note's “…” menu.",
                     "Open in Edit View, in the account menu on the project list, "
                     + "turns the default round for every document you have never "
                     + "made a choice about; documents you have chosen for keep the "
@@ -590,13 +595,21 @@ extension HelpTopic {
                     + "typing, a bullet the bar added, or an edit made offline, one "
                     + "step at a time. A note's history stays on this device and starts "
                     + "fresh each time the note is opened.",
-                    "A song has a reading mode of its own, the book button in the "
-                    + "editor's toolbar. It sets the lyric as verse in a serif face at a "
-                    + "comfortable measure, with the editing put away, and reads a blank "
-                    + "line as the verse break it is rather than an empty line of words. "
-                    + "The pencil beside it puts the writing back, on the same lines you "
-                    + "left. It is the songs' answer to Read Script, and it takes the "
-                    + "same device-wide text size.",
+                    "Songs and notes each have a reading mode, the songs' and notes' "
+                    + "answer to Read Script — and, as with a screenplay, the surface "
+                    + "an existing one opens on. Read Song sets the lyric as verse in "
+                    + "a serif face at a comfortable measure, reading a blank line as "
+                    + "the verse break it is rather than an empty line of words. Read "
+                    + "Note sets the note as prose at a wider measure, and gives its "
+                    + "headings and bullets their shape — the note itself is the plain "
+                    + "text it always was, hashes and dashes and all, and typing is "
+                    + "where you see them. It reads a blank line as a paragraph break, "
+                    + "and leaves out a bullet you have not written anything after yet. "
+                    + "Both are in the editor's “…” menu; Edit, in "
+                    + "the top corner, puts the writing back where you left it, and "
+                    + "both take the same device-wide text size. A document with "
+                    + "nothing in it opens for writing instead — there is nothing to "
+                    + "read.",
                     "Both editors show a keyboard key above the keyboard while you "
                     + "write — it puts the keyboard away and leaves the words where "
                     + "they are.",
@@ -609,15 +622,21 @@ extension HelpTopic {
                     + "songs, New Note over the notes. An element's own menu inserts a "
                     + "song below it. Swipe a row to rename or delete it; touch and "
                     + "hold for everything else.",
-                    "A finished song can be locked. Lock Editing in the song "
-                    + "editor's menu closes that lyric to typing — the lines stop "
-                    + "taking keystrokes and stop offering delete and highlight — "
-                    + "so a song being read from at a rehearsal cannot pick up a "
-                    + "stray character. A banner across the top says it is locked "
-                    + "and unlocks it when tapped. The lock is kept on this device, "
-                    + "one song at a time, and applies to that song's own edition "
-                    + "when you are in one; the all-songs workspace honours it too "
-                    + "and marks the locked songs.",
+                    "A finished song or note can be locked. Lock Editing in the "
+                    + "editor's menu closes it to typing — a lyric's lines stop "
+                    + "taking keystrokes and stop offering delete and highlight, and "
+                    + "a note stops taking them at all — so a song being read from "
+                    + "at a rehearsal, or a shot list held up on set, cannot pick up "
+                    + "a stray character. Whatever you had just typed is saved on "
+                    + "the way in. A banner across the top says it is locked and "
+                    + "unlocks it when tapped. The lock is kept on this device, one "
+                    + "document at a time, and applies to a song's own edition when "
+                    + "you are in one; the all-songs workspace honours it too and "
+                    + "marks the locked songs.",
+                    "Locking is not reading. A locked document is still the writing "
+                    + "surface — the same lines, the same lists — with the keyboard "
+                    + "taken away from it; Read Song and Read Note set the words for "
+                    + "reading instead. Either can be on without the other.",
                     "The lists, the editors and the workspace each take the whole "
                     + "screen rather than a card over the script; Done, at the top "
                     + "left, is the way back.",
@@ -655,7 +674,8 @@ extension HelpTopic {
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
-                           "read", "reading", "verse", "stanza", "distraction",
+                           "read", "reading", "read song", "read note", "prose",
+                           "verse", "stanza", "distraction",
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
                            "save", "autosave", "title", "undo", "redo",

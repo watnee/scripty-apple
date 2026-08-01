@@ -38,13 +38,6 @@ struct SongLineRow: View {
     /// this points at it and reports back when the writer taps it directly, so
     /// the shared value stays the single source of truth across both hosts.
     @FocusState.Binding var focusedLine: Int?
-    /// Whether the host has the song up to be read rather than written in.
-    ///
-    /// Off by default, which is what the all-songs workspace wants: that
-    /// screen is a writing surface by definition — every song in the project,
-    /// open at once, to be worked through — and has no reading posture to be
-    /// in. Only the song editor sets it, and only until Edit is tapped.
-    var isReadingView = false
 
     /// Whether the highlight swipe is showing its colours.
     @State private var pickingHighlight = false
@@ -73,7 +66,7 @@ struct SongLineRow: View {
     var body: some View {
         SongLineField(text: text,
                       isFocused: isFocused,
-                      isEditable: block.isEditable && !isReadingView && !isLocked,
+                      isEditable: block.isEditable && !isLocked,
                       textScale: textScale,
                       spellChecks: spellChecks,
                       spellcheckRevision: spellcheckRevision,
@@ -126,11 +119,12 @@ struct SongLineRow: View {
         // editor. Horizontal stays at the plain list's usual 16pt.
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowBackground(rowBackground)
-        // Both swipes change the lyric, so both go while the song is up to be
-        // read. A reading view that still deleted a verse under the thumb
-        // would be the accident the mode exists to prevent, in its worst form.
+        // Both swipes change the lyric, so both go while the song is locked. A
+        // locked song that still deleted a verse under the thumb would be the
+        // accident the lock exists to prevent, in its worst form. Reading needs
+        // no test of its own: that mode takes these rows off screen entirely.
         .swipeActions(edge: .trailing) {
-            if block.hasLink(.delete), !isReadingView, !isLocked {
+            if block.hasLink(.delete), !isLocked {
                 Button(role: .destructive) {
                     Task { await model.delete(block) }
                 } label: {
@@ -143,7 +137,7 @@ struct SongLineRow: View {
         // and a long press cannot replace the menu because the text field
         // swallows it, so the tint rides the same gesture Delete already uses.
         .swipeActions(edge: .leading) {
-            if block.hasLink(.setHighlight), !isReadingView, !isLocked {
+            if block.hasLink(.setHighlight), !isLocked {
                 Button {
                     pickingHighlight = true
                 } label: {
