@@ -165,6 +165,14 @@ swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
 run_suite "$BUILD/notes" || status=1
 
 echo
+echo "== A note as the reader sees it =="
+swiftc "${FLAGS[@]}" -o "$BUILD/notereading" \
+    "$SRC/Models/NoteFormatting.swift" \
+    "$SRC/Models/NoteReading.swift" \
+    "$ROOT/Tests/NoteReading/main.swift"
+run_suite "$BUILD/notereading" || status=1
+
+echo
 echo "== Note undo/redo =="
 swiftc "${FLAGS[@]}" -o "$BUILD/notehistory" \
     "$SRC/State/NoteHistory.swift" \
@@ -192,7 +200,7 @@ echo
 echo "== Script view options =="
 swiftc "${FLAGS[@]}" -o "$BUILD/viewoptions" \
     "$SRC/State/ScriptViewOptions.swift" \
-    "$SRC/State/SongViewOptions.swift" \
+    "$SRC/State/DocumentViewOptions.swift" \
     "$SRC/State/LastOpenedProject.swift" \
     "$SRC/State/SongWorkspaceOpenState.swift" \
     "$ROOT/Tests/ViewOptions/main.swift"

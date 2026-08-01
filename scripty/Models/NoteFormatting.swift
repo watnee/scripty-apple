@@ -5,11 +5,16 @@
 //  Lists, indents and headings while typing a note, ported from the web
 //  editor's text-document-edit.js.
 //
-//  Notes stay plain text end to end: nothing here is ever parsed or rendered
-//  as markup, and the prefixes survive verbatim into the script when a note is
-//  inserted into it. All this does is save the writer typing them by hand —
-//  Return carries the bullet down to the next line, Tab nests it, and a
-//  numbered list renumbers itself when something is added in the middle.
+//  Notes stay plain text end to end: nothing here is ever rewritten into markup
+//  on the way to the server, and the prefixes survive verbatim into the script
+//  when a note is inserted into it. All this does is save the writer typing them
+//  by hand — Return carries the bullet down to the next line, Tab nests it, and
+//  a numbered list renumbers itself when something is added in the middle.
+//
+//  The one place the prefixes are *read* rather than written is the reading
+//  surface — see `kind(of:)` at the foot of this file and `NoteReading` next
+//  door. That is display only: a heading is set as a heading on screen and the
+//  stored line still says "# Act One".
 //
 //  Kept as pure text-in, text-out so the rules can be checked without a running
 //  text view; the view layer only has to decide *when* to call them.
@@ -265,6 +270,65 @@ enum NoteFormatting {
             stripped.removeFirst()
         }
         return stripped
+    }
+
+    // MARK: - Reading
+
+    /// What one line of a note is, as a surface that only shows it sees it.
+    ///
+    /// The same prefixes the typing rules above maintain, recognised rather
+    /// than written — which is why this reuses their parsers instead of
+    /// carrying a second idea of what a bullet looks like. `text` is the line
+    /// with its marker taken off, for setting; nothing here changes the note.
+    enum LineKind: Equatable {
+        /// Nothing but whitespace: the writer's own paragraph break.
+        case blank
+        case heading(level: Int, text: String)
+        case bullet(depth: Int, text: String)
+        case numbered(depth: Int, number: Int, text: String)
+        /// An ordinary line, with whatever it was indented by. The indent is
+        /// counted rather than kept as spaces because a reader sets it as a
+        /// margin — leading spaces in a `Text` are not a reliable indent.
+        case plain(depth: Int, text: String)
+
+        /// What the line actually says, with its marker off. A marker and
+        /// nothing else — the empty bullet Return leaves waiting for the next
+        /// item, a heading whose words have not been typed yet — says nothing,
+        /// which is what lets a reader leave it out.
+        var words: String {
+            switch self {
+            case .blank: return ""
+            case .heading(_, let text), .bullet(_, let text),
+                 .numbered(_, _, let text), .plain(_, let text):
+                return text
+            }
+        }
+    }
+
+    static func kind(of line: String) -> LineKind {
+        if line.trimmingCharacters(in: .whitespaces).isEmpty { return .blank }
+        if let list = listParts(line) {
+            let depth = depth(of: list.indent)
+            if let number = list.number {
+                return .numbered(depth: depth, number: number, text: list.body)
+            }
+            return .bullet(depth: depth, text: list.body)
+        }
+        let (indent, prefix, body) = parts(of: line)
+        if case .heading(let level) = prefix {
+            return .heading(level: level, text: body)
+        }
+        return .plain(depth: depth(of: indent), text: body)
+    }
+
+    /// How deeply a line is nested, from the whitespace in front of it. A tab
+    /// is one level, as it is to the outdent rule above; spaces go by the
+    /// indent unit, and a part-level of stray spaces rounds down rather than
+    /// promoting the line.
+    private static func depth(of indent: String) -> Int {
+        let tabs = indent.filter { $0 == "\t" }.count
+        let spaces = indent.filter { $0 == " " }.count
+        return tabs + spaces / indentUnit.count
     }
 
     // MARK: - Caret arithmetic

@@ -43,7 +43,7 @@ struct SongsWorkspaceView: View {
     /// the switch itself stays in the song's own editor, where a writer is
     /// looking at one song and means it. Made beside the lyric, so a song
     /// nobody opened still costs nothing.
-    @State private var locks: [Int: SongViewOptions] = [:]
+    @State private var locks: [Int: DocumentViewOptions] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
     @State private var showingIgnoredWords = false
@@ -505,7 +505,7 @@ struct SongsWorkspaceView: View {
         lyrics[song.id] = lyric
         // No edition named: this screen always reads the default lyric, which
         // is the one a song-level lock covers.
-        locks[song.id] = SongViewOptions(documentId: song.id)
+        locks[song.id] = DocumentViewOptions(documentId: song.id, kind: .song)
         Task { await lyric.load() }
     }
 

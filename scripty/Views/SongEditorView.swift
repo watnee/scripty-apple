@@ -93,12 +93,6 @@ struct SongEditorView: View {
     /// "H1" while the title field has focus would silently head a line the
     /// writer cannot see.
     @State private var isWritingBody = false
-    /// Whether a song is being read rather than written. Only songs are
-    /// offered it — a note is prose with its own list and heading formatting,
-    /// and setting that as verse would misrepresent it — and only songs the
-    /// server already holds, since a song being typed for the first time has
-    /// nothing to read back.
-    @State private var isReading = false
     @State private var confirmingDiscard = false
     /// In flight to the screenplay. Guards the button rather than showing a
     /// spinner: the send is a save, one POST and a reload, over in a beat.
@@ -111,13 +105,29 @@ struct SongEditorView: View {
     @State private var discarding = false
     /// Whether this document is up to be read rather than written in — where
     /// an existing song or note opens, the way Pages and Word open a file on
-    /// iOS. Nothing about the sheet moves: the same title and the same words,
-    /// with no caret in them and Edit in the corner.
+    /// iOS, and the mode the screenplay calls Read Script.
+    ///
+    /// One flag, as the screenplay has one. This sheet used to keep two: a
+    /// remembered "reading view" that left the writing surface on screen with
+    /// the caret taken out of it, and — for songs only — a separate, forgotten
+    /// Read Song that swapped in the reader. Two names for one posture, and
+    /// the one that was remembered was the one that did the least: a note
+    /// opened for reading was a text view nobody could type in. Reading means
+    /// the reading surface here now, for both kinds, and the writing surface
+    /// left inert is what the lock is for.
     ///
     /// State rather than a constant because the sheet leaves the mode two
     /// ways: the writer tapping Edit, and the load finding an empty document,
     /// which is nothing to read and so belongs to the writer.
-    @State private var isReadingView: Bool
+    @State private var isReading: Bool
+    /// Whether this document is closed to typing. Per document, kept on the
+    /// device — see `DocumentViewOptions`, which the lyric editor shares.
+    ///
+    /// Optional because a document that has never reached the server has no id
+    /// to file a lock under, and nothing to lock either: it is being written
+    /// this minute. The one this sheet creates gets its options the moment the
+    /// create lands, so a song typed here can be locked without reopening it.
+    @State private var options: DocumentViewOptions?
     /// The formatting bar's handle on the text view, and the note's own undo
     /// history. Seeded with whatever the sheet opens showing — see
     /// `NoteHistory`.
@@ -157,9 +167,12 @@ struct SongEditorView: View {
         // read: there is nothing in it yet, and the writer asked for a blank
         // one. Everything else opens the way it was last left, or the way the
         // "Open in Edit View" switch says if it has never been put either way.
-        _isReadingView = State(initialValue: document.map {
+        _isReading = State(initialValue: document.map {
             ReadingViewSettings.shared.opensInReadingView(.document(id: $0.id))
         } ?? false)
+        _options = State(initialValue: document.map {
+            DocumentViewOptions(documentId: $0.id, kind: Self.lockKind(for: type))
+        })
     }
 
     /// Whether documents open to be read, and which way this one was last put.
@@ -177,11 +190,17 @@ struct SongEditorView: View {
     private var isDocumentEditable: Bool { document?.hasLink(.update) ?? true }
 
     /// Whether the words on screen can be typed into right now. Every save
-    /// path in this sheet already guards on it, which is what makes reading
-    /// view inert here rather than merely quiet: nothing autosaves, nothing is
-    /// flushed on the way out, and nothing is counted as unsaved, because
+    /// path in this sheet already guards on it, which is what makes reading and
+    /// the lock inert here rather than merely quiet: nothing autosaves, nothing
+    /// is flushed on the way out, and nothing is counted as unsaved, because
     /// nothing can have changed.
-    private var canEdit: Bool { isDocumentEditable && !isReadingView }
+    private var canEdit: Bool { isDocumentEditable && !isReading && !isLocked }
+
+    /// Whether this device has closed the document to typing. A choice about
+    /// this phone, as against `isDocumentEditable`, which is what the server
+    /// allows — a locked document is still one the writer may unlock, which is
+    /// why the switch stays offered while it is on.
+    private var isLocked: Bool { options?.isEditingLocked ?? false }
     private var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -309,6 +328,10 @@ struct SongEditorView: View {
             .overlay {
                 if isLoading { ProgressView() }
             }
+            // Above the words, where the lyric editor keeps its own: a locked
+            // note looks exactly like an unlocked one, so a tap that does
+            // nothing needs something on screen to say why.
+            .safeAreaInset(edge: .top, spacing: 0) { lockBanner }
             .safeAreaBar(edge: .bottom, spacing: 0) { footer }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -491,29 +514,43 @@ struct SongEditorView: View {
             .accessibilityLabel(type == .song ? "Lyrics" : "Notes")
     }
 
-    /// The reading surface, in place of the title and the writing. Reads the
-    /// text on screen rather than the last saved copy, so a verse typed a
-    /// moment ago is there to be read whether or not its save has landed.
+    /// The reading surface, in place of the title and the writing: a song set
+    /// as verse, a note set as prose. Reads the text on screen rather than the
+    /// last saved copy, so a verse typed a moment ago is there to be read
+    /// whether or not its save has landed.
+    @ViewBuilder
     private var reader: some View {
-        ReadSongView(title: trimmedTitle,
-                     lines: content.components(separatedBy: .newlines),
-                     textScale: settings.textScale)
+        if type == .song {
+            ReadSongView(title: trimmedTitle,
+                         lines: content.components(separatedBy: .newlines),
+                         textScale: settings.textScale)
+        } else {
+            ReadNoteView(title: trimmedTitle,
+                         text: content,
+                         textScale: settings.textScale)
+        }
     }
 
-    /// Whether this document can be read as a song. Nothing to offer for a
-    /// note, for a song that has never been saved, or for one with no words in
-    /// it — but always a way back out once the mode is on.
-    private var offersReading: Bool {
-        type == .song && document != nil && (!content.isEmpty || isReading)
+    /// Says the document is closed to typing, and unlocks it when tapped. Not
+    /// while it is being read: the reader takes no keystrokes either, and a
+    /// strip explaining why a surface that has no caret has no caret would be
+    /// the app talking to itself.
+    @ViewBuilder
+    private var lockBanner: some View {
+        if isLocked && !isReading {
+            EditingLockBanner { options?.setEditingLocked(false) }
+        }
     }
 
-    /// Enters or leaves reading. The writing surface goes away on the way in,
-    /// so the formatting bar's "the caret is in the body" flag has to be let
-    /// go of with it — nothing will fire the text view's blur once it has been
-    /// taken off screen.
-    private func setReading(_ reading: Bool) {
-        isReading = reading
-        if reading { isWritingBody = false }
+    /// Whether there is anything here to read. A document with no words in it
+    /// is nothing to open a reader on — the same test the screenplay's Read
+    /// Script toggle makes against the script having elements — and neither is
+    /// one that has yet to reach the server, since there would be nothing to
+    /// remember the choice against. `isNew` rather than `document`: a song
+    /// written in this sheet and created a moment ago is a document like any
+    /// other, and should not have to be reopened to be read.
+    private var hasSomethingToRead: Bool {
+        !isNew && !content.isEmpty
     }
 
     private var placeholder: String {
@@ -603,7 +640,7 @@ struct SongEditorView: View {
         // everyone to look for Edit, and it is the only thing this sheet draws
         // there. Gone the moment it is used, since the sheet is then the
         // editor it has always been.
-        if isDocumentEditable && isReadingView {
+        if isDocumentEditable && isReading {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     beginEditing()
@@ -620,20 +657,6 @@ struct SongEditorView: View {
                 CloudSyncBadge(state: cloud, label: cloudLabel)
             }
             .sharedBackgroundVisibility(.hidden)
-        }
-        // The mode the lyric-line editor offers, for a song the server keeps as
-        // plain text: the words set as verse, with the writing put away. Out in
-        // the bar rather than in the "…", because a mode is not an errand — and
-        // with no chord, since the screenplay this sheet opens over owns ⌘⇧X.
-        if offersReading {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    setReading(!isReading)
-                } label: {
-                    Label(isReading ? "Edit Lyrics" : "Read Song",
-                          systemImage: isReading ? "square.and.pencil" : "book")
-                }
-            }
         }
         // The list's context-menu action, reachable without leaving the
         // editor. Same gate — the server advertised an `insert` link on this
@@ -656,16 +679,19 @@ struct SongEditorView: View {
                 Label("Word Count", systemImage: "number")
             }
         }
-        // The way back, in the "…" where Pages keeps its own Reading View
-        // item. Without it the remembered choice could only ever travel one
-        // way — every document a writer had tapped Edit in would stay an
-        // editor for good, with nothing to say "this one I only read".
-        if isDocumentEditable && !isReadingView && !isNew {
+        // The mode itself, in the "…" this sheet has instead of a View menu —
+        // the screenplay's Read Script toggle, wearing this document's word for
+        // itself. A toggle rather than a one-way "Reading View" button because
+        // the mode has to travel both ways for everyone: the Edit button above
+        // is the way out for a writer, and this is the way out for a reader the
+        // server never gave the keyboard to.
+        //
+        // Offered wherever there is something to read, as the screenplay's is —
+        // and always while the mode is on, so it is never a room with no door.
+        if hasSomethingToRead || isReading {
             ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    enterReadingView()
-                } label: {
-                    Label("Reading View", systemImage: "book")
+                Toggle(isOn: readingBinding) {
+                    Label(type == .song ? "Read Song" : "Read Note", systemImage: "book")
                 }
             }
         }
@@ -676,6 +702,20 @@ struct SongEditorView: View {
         if canEdit {
             ToolbarItem(placement: .secondaryAction) {
                 SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
+            }
+        }
+        // Beside the spelling controls, where the lyric editor and the
+        // screenplay's View menu both keep it and for the same reason: both are
+        // about typing, and neither means anything to someone the server never
+        // gave the keyboard to. Offered even while locked — it is the way back —
+        // and only once there is a document to file the lock against. No
+        // keyboard shortcut: the screenplay owns ⌘⇧Q and this sheet opens over
+        // it, the same reason nothing else here claims a key.
+        if isDocumentEditable, let options {
+            ToolbarItem(placement: .secondaryAction) {
+                Toggle(isOn: lockBinding(options)) {
+                    Label("Lock Editing", systemImage: "lock")
+                }
             }
         }
         // The same device-wide type size the lyric and screenplay editors set.
@@ -716,11 +756,21 @@ struct SongEditorView: View {
 
     // MARK: - Reading view
 
+    /// The mode, as a Toggle can use it. Through the two functions below rather
+    /// than straight at the state, so choosing it here is remembered — and
+    /// saved on the way in — exactly as choosing it with the Edit button is.
+    private var readingBinding: Binding<Bool> {
+        Binding(get: { isReading },
+                set: { reading in
+                    if reading { enterReadingView() } else { beginEditing() }
+                })
+    }
+
     /// Hands the document to the writer, and remembers that this is one they
     /// write in — so the Edit button is a cost paid once per document rather
     /// than on every visit.
     private func beginEditing() {
-        isReadingView = false
+        isReading = false
         guard let target else { return }
         readingViews.remember(false, for: .document(id: target.id))
     }
@@ -735,10 +785,45 @@ struct SongEditorView: View {
         autosave?.cancel()
         Task {
             await saveNow()
-            isReadingView = true
+            isReading = true
+            // The writing surface goes away with the flag, so the formatting
+            // bar's "the caret is in the body" answer has to be let go of too —
+            // nothing will fire the text view's blur once it is off screen.
+            isWritingBody = false
             guard let target else { return }
             readingViews.remember(true, for: .document(id: target.id))
         }
+    }
+
+    // MARK: - Editing lock
+
+    /// Which family of keys this document's lock is filed under — a note's and
+    /// a song's are kept apart, so a key says what it locks. "Other" is a note,
+    /// as it is everywhere else on these screens.
+    private static func lockKind(for type: DocumentType) -> DocumentViewOptions.Kind {
+        type == .song ? .song : .note
+    }
+
+    /// The lock, as a Toggle can use it.
+    ///
+    /// Locking saves first, and the flag follows the save rather than leading
+    /// it: `saveNow` is guarded on `canEdit`, so a lock set ahead of the send
+    /// would quietly make the send a no-op and leave the last sentence typed
+    /// sitting in a text view nobody is going to look at again. The same order,
+    /// and the same reason, as entering the reader.
+    private func lockBinding(_ options: DocumentViewOptions) -> Binding<Bool> {
+        Binding(get: { options.isEditingLocked },
+                set: { locked in
+                    guard locked else {
+                        options.setEditingLocked(false)
+                        return
+                    }
+                    autosave?.cancel()
+                    Task {
+                        await saveNow()
+                        options.setEditingLocked(true)
+                    }
+                })
     }
 
     // MARK: - Actions
@@ -781,10 +866,13 @@ struct SongEditorView: View {
         // the server's older copy on screen and quietly leave the writer's own
         // paragraph out of sight.
         //
-        // An empty document is nothing to read: a blank sheet with no caret
-        // and no placeholder, waiting to be tapped past.
+        // An empty document is nothing to read: the reader's own "Nothing to
+        // Read", with the writing waiting behind a button nobody asked to
+        // press. Not remembered, as the screenplay's empty-script fallback is
+        // not — the document has said nothing about how it wants to open, and
+        // once there are words in it the answer changes.
         if model.heldDocumentDraft(for: document) != nil || content.isEmpty {
-            isReadingView = false
+            isReading = false
         }
         adoptHeldDraft(for: document, sawServerCopy: full != nil)
     }
@@ -1013,6 +1101,11 @@ struct SongEditorView: View {
         switch outcome {
         case .created(let document):
             created = document
+            // There is a document to file a lock against now, so the switch
+            // can be offered without the writer having to reopen what they are
+            // already looking at.
+            options = DocumentViewOptions(documentId: document.id,
+                                          kind: Self.lockKind(for: type))
             savedTitle = sentTitle
             savedContent = sentContent
             // The server has just told us what it holds, which is as good a

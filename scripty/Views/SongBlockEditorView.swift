@@ -17,8 +17,8 @@ struct SongBlockEditorView: View {
     @State private var model: SongBlockModel
     @State private var editions: EditionsModel
     /// Whether this song is closed to typing. Per song and per edition, kept
-    /// on the device — see `SongViewOptions`.
-    @State private var options: SongViewOptions
+    /// on the device — see `DocumentViewOptions`.
+    @State private var options: DocumentViewOptions
     /// The screenplay behind this sheet, so the song can be sent into it from
     /// here — the list's context menu carries the same action, but the writer
     /// who has just finished polishing a verse is standing in this editor, not
@@ -51,9 +51,15 @@ struct SongBlockEditorView: View {
     /// Whether the lyric is being read rather than written. The song's answer
     /// to the screenplay's Read Script: the editable lines are swapped for the
     /// reading column in place, and everything around them — the toolbar, the
-    /// banners, the saving — stays put. Not persisted, for the same reason the
-    /// script's reading mode is not: it is a posture, not a preference.
-    @State private var isReading = false
+    /// banners, the saving — stays put.
+    ///
+    /// Where the song opens, and remembered like the screenplay's: this editor
+    /// used to keep two flags, a remembered "reading view" that left the lines
+    /// on screen with the caret taken out of them and a forgotten Read Song
+    /// that swapped in the verse. Two names for one posture, and the one a song
+    /// opened in was the one that did the least. Reading means the reading
+    /// surface here now; the lines left inert is what the lock is for.
+    @State private var isReading: Bool
     /// In flight to the screenplay. Guards the button rather than showing a
     /// spinner: the send is one POST and a reload, over in a beat.
     @State private var isInserting = false
@@ -71,12 +77,6 @@ struct SongBlockEditorView: View {
     /// filter.
     @State private var matchedLines: Set<Int> = []
 
-    /// Whether the song is up to be read rather than written in — where a
-    /// lyric opens now, the way Pages and Word open a document on iOS. The
-    /// lines are the same lines in the same order; they simply take no caret,
-    /// and the swipes that would delete or tint one are put away with it.
-    @State private var isReadingView: Bool
-
     /// Whether documents open to be read, and which way this song was last put.
     private let readingViews = ReadingViewSettings.shared
 
@@ -84,9 +84,9 @@ struct SongBlockEditorView: View {
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
-        _isReadingView = State(initialValue: ReadingViewSettings.shared
+        _isReading = State(initialValue: ReadingViewSettings.shared
             .opensInReadingView(.document(id: document.id)))
-        _options = State(initialValue: SongViewOptions(documentId: document.id))
+        _options = State(initialValue: DocumentViewOptions(documentId: document.id, kind: .song))
         self.scriptModel = scriptModel
         self.onInserted = onInserted
     }
@@ -183,12 +183,14 @@ struct SongBlockEditorView: View {
                 await model.load()
                 // Two things the opening decision could not know until the
                 // lyric was in hand. A song with no lines is nothing to read —
-                // what it has instead is an Add Line button, which reading
-                // view would have hidden. And lines this device is still
-                // holding are writing in progress that has not reached the
-                // server, which is not a song anyone opened to read.
+                // what it has instead is an Add Line button, which the reader
+                // has no room for. And lines this device is still holding are
+                // writing in progress that has not reached the server, which is
+                // not a song anyone opened to read. Neither is remembered: the
+                // song has said nothing about how it wants to open, and once
+                // there are lines in it the answer changes.
                 if model.blocks.isEmpty || model.hasUnsavedChanges {
-                    isReadingView = false
+                    isReading = false
                 }
                 await editions.load()
                 // A reloaded lyric is a different set of lines; re-match so a
@@ -277,21 +279,39 @@ struct SongBlockEditorView: View {
         model.canAddLine || model.blocks.contains(where: \.isEditable)
     }
 
+    /// The mode, as a Toggle can use it. Through the two functions below rather
+    /// than straight at the state, so choosing it in the menu is remembered —
+    /// and commits the half-typed line — exactly as tapping Edit is.
+    private var readingBinding: Binding<Bool> {
+        Binding(get: { isReading },
+                set: { reading in
+                    if reading { enterReadingView() } else { beginEditing() }
+                })
+    }
+
     /// Hands the song to the writer, and remembers that this is one they write
     /// in — so Edit is a cost paid once per song rather than on every visit.
     private func beginEditing() {
-        isReadingView = false
+        isReading = false
         readingViews.remember(false, for: .document(id: model.document.id))
     }
 
     /// Puts it back up to be read, and remembers that too. Half-typed lines go
-    /// first: the rows stop taking a caret the moment the flag flips, and a
-    /// line still holding uncommitted text would have nowhere left to send it
-    /// from.
+    /// first: the rows leave the screen the moment the flag flips, and a line
+    /// still holding uncommitted text would have nowhere left to send it from.
+    ///
+    /// Focus goes with them, because a `focusedLine` still pointing at a row
+    /// would have that row grant itself first responder the moment the list
+    /// came back, putting the keyboard up over a lyric nobody asked to type
+    /// into. Search goes too: its bar draws over the lines and it works by
+    /// narrowing them, and neither means anything on a surface with no rows.
     private func enterReadingView() {
         Task {
             await model.commitAll()
-            isReadingView = true
+            isReading = true
+            focusedLine = nil
+            isSearching = false
+            searchText = ""
             readingViews.remember(true, for: .document(id: model.document.id))
         }
     }
@@ -306,8 +326,7 @@ struct SongBlockEditorView: View {
                     SongLineRow(model: model,
                                 block: block,
                                 isLocked: options.isEditingLocked,
-                                focusedLine: $focusedLine,
-                                isReadingView: isReadingView)
+                                focusedLine: $focusedLine)
                         .id(block.id)
                         // No hairline between one lyric line and the next.
                         // A plain list rules off every row, which turns a
@@ -349,22 +368,6 @@ struct SongBlockEditorView: View {
         ReadSongView(title: model.document.displayTitle,
                      lines: model.blocks.map { model.currentText($0) },
                      textScale: settings.textScale)
-    }
-
-    /// Enters or leaves reading.
-    ///
-    /// Focus is dropped on the way in because the lines themselves are going
-    /// away: a `focusedLine` still pointing at one would have the row grant
-    /// itself first responder the moment the list came back, putting the
-    /// keyboard up over a lyric nobody asked to type into.
-    private func setReading(_ reading: Bool) {
-        isReading = reading
-        guard reading else { return }
-        focusedLine = nil
-        // Search draws its bar over the lines and works by narrowing them —
-        // neither means anything on a surface that has no rows to narrow.
-        isSearching = false
-        searchText = ""
     }
 
     // MARK: - Actions
@@ -461,40 +464,12 @@ struct SongBlockEditorView: View {
         }
     }
 
-    /// Says the lyric is closed to typing, and takes the lock off when tapped.
-    ///
-    /// The screenplay needs no such banner: a locked script visibly loses its
-    /// editing bars, and the toggle sits in a menu that is always on screen.
-    /// This editor is a sheet whose toolbar keeps the switch behind an
-    /// overflow menu, and a locked lyric looks exactly like an unlocked one —
-    /// so without this, a tap that does nothing has nothing to say for itself.
+    /// Says the lyric is closed to typing — see `EditingLockBanner`, which the
+    /// note editor shows in the same place for the same reason.
     @ViewBuilder
     private var lockBanner: some View {
         if options.isEditingLocked {
-            Button {
-                options.setEditingLocked(false)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "lock.fill")
-                        .font(.caption)
-                    Text("Locked")
-                        .fontWeight(.medium)
-                    Text("— tap to edit")
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .font(.footnote)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity)
-                .background(.secondary.opacity(0.12))
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(.separator).frame(height: 0.5)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Editing is locked. Unlock editing.")
+            EditingLockBanner { options.setEditingLocked(false) }
         }
     }
 
@@ -602,16 +577,22 @@ struct SongBlockEditorView: View {
                 Label("Word Count", systemImage: "number")
             }
         }
-        // The way back into reading, in the "…" where Pages keeps its own.
-        // Without it the remembered choice could only ever travel toward the
-        // editor, and a song a writer only ever reads would have no way to say
-        // so after the first tap on Edit.
-        if isSongEditable && !isReadingView {
+        // The mode itself, in the "…" this sheet has instead of a View menu —
+        // the screenplay's Read Script toggle, in the song's own words. A
+        // toggle rather than a one-way "Reading View" button because the mode
+        // has to travel both ways for everyone: the Edit button below is the
+        // way out for a writer, and this is the way out for a reader the server
+        // never gave the keyboard to. Without it the remembered choice could
+        // only ever travel toward the editor, and a song a writer only ever
+        // reads would have no way to say so after the first tap on Edit.
+        //
+        // Offered wherever there are lines to read, as the screenplay's toggle
+        // is — and always while the mode is on, even if the last line went
+        // while it was, so it is never a room with no door.
+        if !model.blocks.isEmpty || isReading {
             ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    enterReadingView()
-                } label: {
-                    Label("Reading View", systemImage: "book")
+                Toggle(isOn: readingBinding) {
+                    Label("Read Song", systemImage: "book")
                 }
             }
         }
@@ -668,30 +649,17 @@ struct SongBlockEditorView: View {
         ToolbarItemGroup(placement: .primaryAction) {
             // The way into writing, leading this group so a phone — which
             // draws about two controls on the trailing side before the rest go
-            // to the "…" — always draws it. Gone once it is used: the sheet is
-            // then the editor it has always been.
-            if isSongEditable && isReadingView {
+            // to the "…" — always draws it. It is the one thing a reader most
+            // needs, which is why it is out here rather than two taps deep in
+            // the overflow beside the toggle that also reaches it. Gone once it
+            // is used: the sheet is then the editor it has always been.
+            if isSongEditable && isReading {
                 Button {
                     beginEditing()
                 } label: {
                     Label("Edit", systemImage: "square.and.pencil")
                 }
             }
-            // First in the group, so on a phone — where this bar's trailing
-            // side draws two controls and an overflow — the mode is the one
-            // that stays out where it can be seen. It carries no chord for the
-            // same reason nothing else in this sheet does: the screenplay
-            // underneath owns ⌘⇧X, and this editor opens over it.
-            Button {
-                setReading(!isReading)
-            } label: {
-                Label(isReading ? "Edit Lyrics" : "Read Song",
-                      systemImage: isReading ? "square.and.pencil" : "book")
-            }
-            // Nothing to read in a song with no lines — but always a way back
-            // out of the mode, even if the last line went while it was on.
-            .disabled(model.blocks.isEmpty && !isReading)
-
             // No keyboard shortcut on Search: the screenplay's own button owns
             // ⌘F, and this editor opens over it — the same reason the text-size
             // menu below claims no keys.
@@ -815,7 +783,9 @@ struct SongBlockEditorView: View {
                 } description: {
                     Text("Add the first line to start writing.")
                 } actions: {
-                    if model.canAddLine, !isReadingView, !options.isEditingLocked {
+                    // No reading test: this state belongs to the writing
+                    // surface, and the reader has an empty state of its own.
+                    if model.canAddLine, !options.isEditingLocked {
                         Button("Add Line") {
                             Task {
                                 if let created = await model.appendLine() {
