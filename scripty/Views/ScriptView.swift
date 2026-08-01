@@ -398,18 +398,23 @@ struct ScriptView: View {
         // switch changes this view's identity and re-runs the .task above,
         // which happens to repaginate — but that is incidental, and the sheets
         // would come up empty if the Group were ever restructured.
-        .onChange(of: settings.isPageView) { _, _ in
+        .onChange(of: settings.isPageView) { _, on in
             repaginate()
-            // Asking for paper (or the column) is asking to leave the reader:
-            // a Page View toggle that visibly did nothing because reading sat
-            // on top of it would read as broken. Not remembered as a choice
-            // about reading, though — asking for paper is not the same as
-            // saying this script should open ready to type in.
-            setReading(false, remember: false)
+            // Asking for paper is asking to leave the reader: a Page View
+            // toggle that visibly did nothing because reading sat on top of it
+            // would read as broken. Not remembered as a choice about reading,
+            // though — asking for paper is not the same as saying this script
+            // should open ready to type in. Only on the way *on*: paper going
+            // off is `setReading` clearing it as the reader comes up, and
+            // answering that by leaving the reader would undo the mode the
+            // writer just asked for.
+            if on { setReading(false, remember: false) }
             // Changing surface is not leaving the page: the paper opens on the
             // sheet the column was showing, and the column comes back to the
             // element the sheet started with. Both read the position the other
-            // has been keeping, so the switch is where it changes hands.
+            // has been keeping, so the switch is where it changes hands. The
+            // reader is not part of that handoff — it restores its own place.
+            guard !isReading else { return }
             if let id = options.rememberedBlockId,
                model.blocks.contains(where: { $0.id == id }) {
                 scroll(toRemembered: id)
@@ -1230,6 +1235,14 @@ struct ScriptView: View {
     private func setReading(_ reading: Bool, remember: Bool = true) {
         guard isReading != reading else { return }
         isReading = reading
+        // Paper comes down with it. Page View is a posture of its own and the
+        // reader covers it whole, so leaving it selected underneath means a
+        // ticked menu item describing a surface nobody can see — and then a
+        // script that drops back onto paper when the reading ends, which is
+        // not what someone who tapped Edit was asking for. Off rather than
+        // suspended, for the same reason outline mode clears it: the writer
+        // asked for a different way to look at the script.
+        if reading { settings.isPageView = false }
         guard remember else { return }
         readingViews.remember(reading, for: .screenplay(project: model.project.id))
     }
