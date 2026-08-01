@@ -147,27 +147,36 @@ extension FocusedValues {
     }
 }
 
-/// What Undo and Redo mean while a note is open on top of everything else.
+/// What Undo and Redo mean while a song or a note is open on top of everything
+/// else — either editor, and either workspace.
 ///
-/// Its own focused value rather than a corner of `ScriptActions`: a note is
-/// written in a sheet that can be opened with no screenplay under it at all —
-/// from the songs list, from the workspace — and `ScriptActions` is published
-/// by `ScriptView`, which in that case is nowhere on screen to publish it.
-struct NoteEditorActions {
+/// Its own focused value rather than a corner of `ScriptActions`, for two
+/// reasons. A document is written in a sheet that can be opened with no
+/// screenplay under it at all — from the songs list, from the workspace — and
+/// `ScriptActions` is published by `ScriptView`, which in that case is nowhere
+/// on screen to publish it. And where there *is* a script underneath, a scene's
+/// focused value is not covered up by a sheet over it: without this, ⌘Z in a
+/// lyric reached the screenplay's server undo and silently rewound the script
+/// behind the sheet, which is the one place an undo must never land.
+///
+/// So `ScriptCommands` prefers this value whenever it is present, *including
+/// when both sides are empty*: a nil closure here means "nothing to step in
+/// this document", never "ask the script behind me".
+struct DocumentEditorActions {
+    var undo: (() -> Void)?
+    var redo: (() -> Void)?
     var canUndo = false
     var canRedo = false
-    var undo: () -> Void
-    var redo: () -> Void
 }
 
-struct NoteEditorActionsKey: FocusedValueKey {
-    typealias Value = NoteEditorActions
+struct DocumentEditorActionsKey: FocusedValueKey {
+    typealias Value = DocumentEditorActions
 }
 
 extension FocusedValues {
-    var noteEditorActions: NoteEditorActions? {
-        get { self[NoteEditorActionsKey.self] }
-        set { self[NoteEditorActionsKey.self] = newValue }
+    var documentEditorActions: DocumentEditorActions? {
+        get { self[DocumentEditorActionsKey.self] }
+        set { self[DocumentEditorActionsKey.self] = newValue }
     }
 }
 
@@ -191,13 +200,13 @@ struct ScriptCommands: Commands {
 
     @FocusedValue(\.scriptActions) private var actions
 
-    /// Present only while a note is being written, and while it is, it owns
-    /// ⌘Z outright — including when its own history is still empty. Falling
-    /// through to the screenplay would revert the script *behind* the sheet,
-    /// which is never what a writer pressing ⌘Z over a paragraph of prose
-    /// means; the browser refuses to escalate out of a note for the same
-    /// reason.
-    @FocusedValue(\.noteEditorActions) private var noteActions
+    /// Present only while a song or a note is being written, and while it is,
+    /// it owns ⌘Z outright — including when its own history is still empty.
+    /// Falling through to the screenplay would revert the script *behind* the
+    /// sheet, which is never what a writer pressing ⌘Z over a verse or a
+    /// paragraph of prose means; the browser refuses to escalate out of a
+    /// document for the same reason. See `DocumentEditorActions`.
+    @FocusedValue(\.documentEditorActions) private var documentActions
 
     var body: some Commands {
         // Replacing the stock New Item keeps ⌘N meaningful: in a screenplay
@@ -238,16 +247,15 @@ struct ScriptCommands: Commands {
         }
 
         CommandGroup(replacing: .undoRedo) {
-            Button("Undo") {
-                if let noteActions { noteActions.undo() } else { actions?.undo?() }
-            }
-            .keyboardShortcut("z", modifiers: .command)
-            .disabled(!(noteActions?.canUndo ?? actions?.canUndo ?? false))
-            Button("Redo") {
-                if let noteActions { noteActions.redo() } else { actions?.redo?() }
-            }
-            .keyboardShortcut("z", modifiers: [.command, .shift])
-            .disabled(!(noteActions?.canRedo ?? actions?.canRedo ?? false))
+            // A song or note editor on screen owns these outright — see
+            // `DocumentEditorActions` for why "present" rather than "has a
+            // stack".
+            Button("Undo") { undoTarget.step?() }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!undoTarget.enabled)
+            Button("Redo") { redoTarget.step?() }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!redoTarget.enabled)
         }
 
         CommandGroup(after: .pasteboard) {
@@ -298,6 +306,19 @@ struct ScriptCommands: Commands {
             Button("Keyboard Shortcuts") { help.screen = .shortcuts }
                 .keyboardShortcut("/", modifiers: .command)
         }
+    }
+
+    /// Whose history ⌘Z walks, and whether it has anywhere to go. A document
+    /// editor takes the whole answer while it is up — its `nil` closure means
+    /// "nothing to step here", never "ask the script behind me".
+    private var undoTarget: (step: (() -> Void)?, enabled: Bool) {
+        if let document = documentActions { return (document.undo, document.canUndo) }
+        return (actions?.undo, actions?.canUndo ?? false)
+    }
+
+    private var redoTarget: (step: (() -> Void)?, enabled: Bool) {
+        if let document = documentActions { return (document.redo, document.canRedo) }
+        return (actions?.redo, actions?.canRedo ?? false)
     }
 
     /// The two lists, and the documents under them.

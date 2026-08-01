@@ -46,6 +46,11 @@ struct NotesWorkspaceView: View {
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
+    /// Which note holds the caret, so a keyboard ⌘Z has an unambiguous answer.
+    /// Reported by the panes themselves rather than kept in a `@FocusState`:
+    /// these are bridged text views that grant themselves first responder, and
+    /// SwiftUI discards a focus value no view claimed with `.focused()`.
+    @State private var focusedNote: Int?
 
     private var openStore: SongWorkspaceOpenState {
         SongWorkspaceOpenState(projectId: model.project.id)
@@ -81,6 +86,11 @@ struct NotesWorkspaceView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            // Same claim the note editor makes, and for the same reason: this
+            // is a cover over the screenplay, and without it the menu's ⌘Z
+            // would rewind the script behind it. Published even when it can do
+            // nothing, so a step here never falls through to the script.
+            .focusedSceneValue(\.documentEditorActions, menuActions)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -137,11 +147,65 @@ struct NotesWorkspaceView: View {
             .accessibilityLabel(note.displayTitle)
             .accessibilityHint(expanded.contains(note.id) ? "Hide this note" : "Show this note")
             .accessibilityAddTraits(expanded.contains(note.id) ? [.isSelected] : [])
+            historyButtons(note)
             if canReorder {
                 reorderMenu(note)
             }
         }
         .textCase(nil)
+    }
+
+    // MARK: - Undo and redo
+
+    /// Undo and redo for one note's prose, in the header that names it.
+    ///
+    /// Per note rather than per screen, because that is what the history is:
+    /// each pane is its own document with its own stack, and a single pair in
+    /// the toolbar could only ever guess which one a press meant. They appear
+    /// on a note that is open — there is nothing to watch change in a collapsed
+    /// one — and never on one the server will not take an edit for. Same order
+    /// and same symbols as the note editor's own pair, so the gesture reads the
+    /// same in both. The songs workspace puts its own pair here too.
+    @ViewBuilder
+    private func historyButtons(_ note: TextDocument) -> some View {
+        if expanded.contains(note.id), let draft = drafts[note.id], draft.canEdit {
+            Button {
+                draft.history.undo()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .disabled(!draft.history.canUndo)
+            .accessibilityLabel("Undo in \(note.displayTitle)")
+
+            Button {
+                draft.history.redo()
+            } label: {
+                Image(systemName: "arrow.uturn.forward")
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .disabled(!draft.history.canRedo)
+            .accessibilityLabel("Redo in \(note.displayTitle)")
+        }
+    }
+
+    /// What the menu bar's ⌘Z means here: the note holding the caret. With the
+    /// caret nowhere the chord does nothing rather than guessing at a note, or
+    /// reaching past this cover to the script.
+    private var menuActions: DocumentEditorActions {
+        guard let id = focusedNote, let draft = drafts[id], draft.canEdit else {
+            return DocumentEditorActions()
+        }
+        return DocumentEditorActions(undo: { draft.history.undo() },
+                                     redo: { draft.history.redo() },
+                                     canUndo: draft.history.canUndo,
+                                     canRedo: draft.history.canRedo)
     }
 
     /// What the header says on the right: how far a save has got while one is
@@ -219,11 +283,23 @@ struct NotesWorkspaceView: View {
                 // nobody can navigate, and the point of this screen is seeing
                 // several at once. Each field scrolls inside itself.
                 NoteTextView(text: contentBinding(for: note),
+                             controller: draft.history,
                              isEditable: draft.canEdit,
                              spellChecks: settings.isSpellcheckEnabled,
                              spellcheckRevision: SpellcheckDictionary.shared.revision,
                              textScale: settings.textScale,
-                             placeholder: draft.canEdit ? "Write your notes here…" : "")
+                             placeholder: draft.canEdit ? "Write your notes here…" : "",
+                             // Which note a keyboard ⌘Z means. Cleared only
+                             // when the caret leaves *this* pane for something
+                             // that is not another one, so tabbing between two
+                             // notes never leaves the chord pointing at neither.
+                             onFocusChange: { focused in
+                                 if focused {
+                                     focusedNote = note.id
+                                 } else if focusedNote == note.id {
+                                     focusedNote = nil
+                                 }
+                             })
                     .frame(height: 240)
                     .accessibilityLabel(note.displayTitle)
                 if case .failed(let message) = draft.status {
@@ -331,6 +407,10 @@ struct NotesWorkspaceView: View {
             let full = await model.fetchDocument(note)
             draft.content = full?.content ?? note.content ?? ""
             draft.savedContent = draft.content
+            // These are the words the pane opens showing, so they are where a
+            // step back stops. Anything the history held before them described
+            // the truncated preview it was seeded with.
+            draft.history.reset(to: draft.content)
             // Only a real fetch is evidence of what the server holds; opened
             // offline, the row's preview is truncated and passing *that* as a
             // held draft's base would make the staleness gate read the
@@ -435,6 +515,14 @@ final class NoteDraft {
     }
 
     let document: TextDocument
+
+    /// This note's own undo stack, and the handle the header's two buttons
+    /// hold on the text view drawing it. One per note, like everything else
+    /// here: each pane is a separate document, and a single history across the
+    /// screen could only ever guess which one a step back meant. See
+    /// `NoteHistory` for why it is the app's stack rather than UIKit's.
+    let history = NoteEditorController()
+
     var content = ""
     /// What the server last confirmed it holds.
     var savedContent = ""

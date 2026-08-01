@@ -109,6 +109,11 @@ struct SongsWorkspaceView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            // Same claim the song editor makes, and for the same reason: this
+            // is a cover over the screenplay, and without it the menu's ⌘Z
+            // would rewind the script behind it. Published even when it can do
+            // nothing, so a step here never falls through to the script.
+            .focusedSceneValue(\.documentEditorActions, menuActions)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -185,6 +190,68 @@ struct SongsWorkspaceView: View {
         lyrics.compactMapValues { $0.offlineCopySavedAt.map(offlineState) }
     }
 
+    // MARK: - Undo and redo
+
+    /// The lyric a keyboard step applies to: the one holding the caret.
+    ///
+    /// Every song here keeps its own history, so there is no single stack for a
+    /// screen-wide ⌘Z to walk — but there is always an unambiguous answer while
+    /// the writer is typing, which is the only time the chord is reached for.
+    /// Asked of the lyrics rather than of `focusedLine`, for the reason the
+    /// hide-keyboard bar above asks them: no row claims SwiftUI's focus value,
+    /// so it is discarded. With the caret nowhere the chord does nothing rather
+    /// than guessing at a song, or reaching past this cover to the script.
+    private var focusedLyric: SongBlockModel? {
+        lyrics.values.first { $0.focusedBlockId != nil }
+    }
+
+    private var menuActions: DocumentEditorActions {
+        guard let lyric = focusedLyric else { return DocumentEditorActions() }
+        return DocumentEditorActions(
+            undo: { Task { await lyric.undo() } },
+            redo: { Task { await lyric.redo() } },
+            canUndo: lyric.canUndo,
+            canRedo: lyric.canRedo)
+    }
+
+    /// Undo and redo for one song's lyric, in the header that names it.
+    ///
+    /// Per song rather than per screen, because that is what the history is:
+    /// each lyric keeps its own, on the server and on this device, and a single
+    /// pair in the toolbar could only ever guess which one a press meant. They
+    /// appear on a song that is open — there is nothing to watch change in a
+    /// collapsed one — and only where there is a history to walk, which offline
+    /// means the steps this device is holding. Same order and same symbols as
+    /// the song editor's own pair, so the gesture reads the same in both.
+    @ViewBuilder
+    private func historyButtons(_ song: TextDocument) -> some View {
+        if expanded.contains(song.id), let lyric = lyrics[song.id], lyric.offersUndoRedo {
+            Button {
+                Task { await lyric.undo() }
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .disabled(!lyric.canUndo)
+            .accessibilityLabel("Undo in \(song.displayTitle)")
+
+            Button {
+                Task { await lyric.redo() }
+            } label: {
+                Image(systemName: "arrow.uturn.forward")
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .disabled(!lyric.canRedo)
+            .accessibilityLabel("Redo in \(song.displayTitle)")
+        }
+    }
+
     private func syncOpenLyrics() async {
         for lyric in lyrics.values
         where lyric.hasUnsavedChanges || lyric.isShowingOfflineCopy {
@@ -225,6 +292,7 @@ struct SongsWorkspaceView: View {
                                 : song.displayTitle)
             .accessibilityHint(expanded.contains(song.id) ? "Hide lyrics" : "Show lyrics")
             .accessibilityAddTraits(expanded.contains(song.id) ? [.isSelected] : [])
+            historyButtons(song)
             if canReorder {
                 reorderMenu(song)
             }

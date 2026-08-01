@@ -596,12 +596,24 @@ extension HelpTopic {
                     + "trash, which is where a countdown does apply, and an archived "
                     + "document can be deleted from the shelf without coming back "
                     + "first.",
-                    "Undo and redo sit at the left of the notes editor's own bar, and "
-                    + "answer to ⌘Z and ⌘⇧Z. They belong to the note while it is open — "
-                    + "never to the screenplay behind it — and take back a burst of "
-                    + "typing, a bullet the bar added, or an edit made offline, one "
-                    + "step at a time. A note's history stays on this device and starts "
-                    + "fresh each time the note is opened.",
+                    "Undo and redo are offered wherever songs and notes are written, "
+                    + "and answer to ⌘Z and ⌘⇧Z. They belong to the document while it "
+                    + "is open — never to the screenplay behind it — so a step back in "
+                    + "a verse can never rewind the script you left. In the notes and "
+                    + "plain song editors the pair sits at the left of the bar above "
+                    + "the keyboard and walks the words themselves: a burst of typing, "
+                    + "a bullet the bar added, an edit made offline, one step at a "
+                    + "time. That history stays on this device and starts fresh each "
+                    + "time the document is opened.",
+                    "A song with lyric lines keeps a longer memory. The pair at the top "
+                    + "of its editor steps through the same history the browser shows "
+                    + "while you have a connection; without one it steps back through "
+                    + "the lyric edits still waiting on this device, newest first, so a "
+                    + "line typed offline can be taken back offline. Once those edits "
+                    + "reach the server they become part of its history and undo goes "
+                    + "back to walking that. On either workspace screen the pair sits "
+                    + "beside each title instead, since every song and every note keeps "
+                    + "a history of its own.",
                     "A song has a reading mode of its own, the book button in the "
                     + "editor's toolbar. It sets the lyric as verse in a serif face at a "
                     + "comfortable measure, with the editing put away, and reads a blank "
@@ -674,7 +686,8 @@ extension HelpTopic {
                            "archive", "archived", "unarchive", "put aside",
                            "hide", "finished", "cut", "shelve", "old",
                            "export", "email", "share", "put back", "select",
-                           "musicxml", "mistake", "history", "dismiss", "close",
+                           "musicxml", "mistake", "history", "step back",
+                           "dismiss", "close",
                            "lock", "locked", "read only", "protect",
                            "hide keyboard", "dismiss keyboard", "keyboard"]),
             HelpTopic(
