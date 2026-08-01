@@ -353,7 +353,43 @@ func runFontSizePoints() {
     check("and a fractional size keeps its decimal", settings.fontSizeLabel, "13.2")
 }
 
+@MainActor
+func runDefaultFont() {
+    print("")
+    print("Default font")
+    let store = scratch("defaultfont")
+    let settings = PresentationSettings(defaults: store)
+    check("Courier Prime until asked otherwise", settings.defaultFont, ScriptFont.courierPrime)
+
+    // What a block says still wins; the setting only answers for the ones that
+    // say nothing, which is most of them.
+    check("a block's own font is what it is drawn in",
+          settings.font(for: "Arial"), ScriptFont.arial)
+    check("and the enum spelling the server may send resolves too",
+          settings.font(for: "TIMES_NEW_ROMAN"), ScriptFont.timesNewRoman)
+    check("a block with no font gets the default",
+          settings.font(for: nil), ScriptFont.courierPrime)
+    check("and so does one with an empty one", settings.font(for: ""), ScriptFont.courierPrime)
+
+    settings.defaultFont = .timesNewRoman
+    check("the choice lands under a key of ours",
+          store.string(forKey: "scripty-default-font") ?? "", "Times New Roman")
+    check("and survives a relaunch",
+          PresentationSettings(defaults: store).defaultFont, ScriptFont.timesNewRoman)
+    check("an unset block now follows it", settings.font(for: nil), ScriptFont.timesNewRoman)
+    check("while a block that named a face does not",
+          settings.font(for: "Arial"), ScriptFont.arial)
+
+    // A face dropped from a later build — or a key someone edited — is no font
+    // at all, and the shipped default is the honest answer then.
+    let stale = scratch("defaultfont-stale")
+    stale.set("Comic Sans", forKey: "scripty-default-font")
+    check("a name nothing recognises falls back",
+          PresentationSettings(defaults: stale).defaultFont, ScriptFont.courierPrime)
+}
+
 MainActor.assumeIsolated {
+    runDefaultFont()
     runWordCount()
     runOutlineMode()
     runSpellcheck()

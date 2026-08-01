@@ -405,7 +405,7 @@ struct BlockRowView: View {
     }
 
     private var baseFont: Font {
-        let family = ScriptFont(serverValue: block.font) ?? .default
+        let family = PresentationSettings.shared.font(for: block.font)
         // Fixed size: the script's own type-size control is the scale here,
         // and letting Dynamic Type multiply it again would compound the two.
         return .custom(family.postScriptName, fixedSize: 16 * textScale)

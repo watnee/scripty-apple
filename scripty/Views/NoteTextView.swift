@@ -140,13 +140,19 @@ struct NoteTextView: UIViewRepresentable {
     /// formatting bar only while there is something for it to format.
     var onFocusChange: ((Bool) -> Void)?
 
+    /// The face the writer chose for everything with no font of its own,
+    /// resolved as this view is built rather than inside `updateUIView`: an
+    /// observation registered from there belongs to no body, and a note left
+    /// open behind the settings sheet would stay in the old face.
+    private let defaultFont = PresentationSettings.shared.defaultFont
+
     /// The editor's face at the writer's chosen size — the screenplay's own
     /// typeface, resolved through the one place that knows it. This asked for
     /// the system monospace before, which is a different face from the script
     /// this note is about.
     @MainActor
     private var scaledFont: UIFont {
-        ProseFont.editor(scale: textScale)
+        ProseFont.editor(scale: textScale, face: defaultFont)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }

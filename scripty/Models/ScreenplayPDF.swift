@@ -30,10 +30,17 @@ enum ScreenplayPDF {
     /// `cased` is the presentation casing hook — the caller passes the shared
     /// CapitalizationSettings transform. A parameter rather than a direct call
     /// so this file stays free of app state and deterministic under test.
+    ///
+    /// `defaultFont` is the writer's chosen face, and arrives the same way and
+    /// for the same reason: it is a setting, and this renderer draws what it is
+    /// handed. It answers for every element that names no font of its own, and
+    /// for the page furniture — markers, page numbers, the cover — which never
+    /// has one. A caller with no writer to ask leaves it, and gets Courier.
     static func render(pages: [ScriptPage],
                        cover: ScreenplayCover?,
                        setup: PageSetup,
                        title: String? = nil,
+                       defaultFont: ScriptFont = .default,
                        cased: (String, BlockType) -> String = { text, _ in text }) -> Data {
         var mediaBox = CGRect(x: 0, y: 0,
                               width: setup.paper.widthIn * pointsPerInch,
@@ -49,12 +56,14 @@ enum ScreenplayPDF {
 
         if let cover {
             context.beginPDFPage(nil)
-            drawCover(cover, setup: setup, in: context, mediaBox: mediaBox)
+            drawCover(cover, setup: setup, defaultFont: defaultFont,
+                      in: context, mediaBox: mediaBox)
             context.endPDFPage()
         }
         for page in pages {
             context.beginPDFPage(nil)
-            drawPage(page, setup: setup, cased: cased, in: context, mediaBox: mediaBox)
+            drawPage(page, setup: setup, defaultFont: defaultFont, cased: cased,
+                     in: context, mediaBox: mediaBox)
             context.endPDFPage()
         }
         context.closePDF()
@@ -86,6 +95,7 @@ enum ScreenplayPDF {
     // MARK: - Pages
 
     private static func drawPage(_ page: ScriptPage, setup: PageSetup,
+                                 defaultFont: ScriptFont,
                                  cased: (String, BlockType) -> String,
                                  in context: CGContext, mediaBox: CGRect) {
         // Non-standard margins widen the column, so the wrap uses the same
@@ -97,27 +107,30 @@ enum ScreenplayPDF {
             top += Double(row.spacing) * lineHeight
             switch row.kind {
             case .more:
-                drawMarker("(MORE)", setup: setup, top: top,
+                drawMarker("(MORE)", setup: setup, defaultFont: defaultFont, top: top,
                            in: context, mediaBox: mediaBox)
             case .continued(let speaker):
-                drawMarker("\(speaker) (CONT'D)", setup: setup, top: top,
-                           in: context, mediaBox: mediaBox)
+                drawMarker("\(speaker) (CONT'D)", setup: setup, defaultFont: defaultFont,
+                           top: top, in: context, mediaBox: mediaBox)
             case .block(let block):
                 let type = block.blockType
                 if type != .pageBreak, ScriptPagination.isPrintable(type) {
                     drawBlock(block, setup: setup, columnScale: columnScale,
-                              budget: row.lines, cased: cased, top: top,
+                              budget: row.lines, defaultFont: defaultFont,
+                              cased: cased, top: top,
                               in: context, mediaBox: mediaBox)
                 }
             }
             top += Double(row.lines) * lineHeight
         }
 
-        drawPageNumber(page.number, setup: setup, in: context, mediaBox: mediaBox)
+        drawPageNumber(page.number, setup: setup, defaultFont: defaultFont,
+                       in: context, mediaBox: mediaBox)
     }
 
     private static func drawBlock(_ block: Block, setup: PageSetup,
                                   columnScale: Double, budget: Int,
+                                  defaultFont: ScriptFont,
                                   cased: (String, BlockType) -> String, top: Double,
                                   in context: CGContext, mediaBox: CGRect) {
         let type = block.blockType
@@ -130,7 +143,7 @@ enum ScreenplayPDF {
         // the row's budget, and paper does the same.
         let lines = ScriptPagination.wrappedLines(text, columns: columns).prefix(budget)
 
-        let family = ScriptFont(serverValue: block.font) ?? .default
+        let family = ScriptFont(serverValue: block.font) ?? defaultFont
         let font = resolvedFont(
             family: family,
             bold: isBold(type),
@@ -147,10 +160,11 @@ enum ScreenplayPDF {
         }
     }
 
-    private static func drawMarker(_ label: String, setup: PageSetup, top: Double,
+    private static func drawMarker(_ label: String, setup: PageSetup,
+                                   defaultFont: ScriptFont, top: Double,
                                    in context: CGContext, mediaBox: CGRect) {
         let box = ScreenplayLayout.characterBox
-        draw(label, font: resolvedFont(family: .default, bold: false, italic: false),
+        draw(label, font: resolvedFont(family: defaultFont, bold: false, italic: false),
              underlined: false, top: top,
              left: (setup.margins.leftIn + box.indentIn) * pointsPerInch,
              boxWidth: box.textWidthIn * pointsPerInch, alignment: .leading,
@@ -159,9 +173,10 @@ enum ScreenplayPDF {
 
     /// Page one is unnumbered by screenplay convention, as on the sheet view.
     private static func drawPageNumber(_ number: Int, setup: PageSetup,
+                                       defaultFont: ScriptFont,
                                        in context: CGContext, mediaBox: CGRect) {
         guard setup.pageNumbers != .none, number > 1 else { return }
-        let font = resolvedFont(family: .default, bold: false, italic: false)
+        let font = resolvedFont(family: defaultFont, bold: false, italic: false)
         let pad = setup.margins.rightIn * pointsPerInch
         let width = mediaBox.width - 2 * pad
         switch setup.pageNumbers {
@@ -188,6 +203,7 @@ enum ScreenplayPDF {
     /// gaps are rounded up to whole lines here — a cover is not paginated, so
     /// nothing downstream counts on their exact height.
     private static func drawCover(_ cover: ScreenplayCover, setup: PageSetup,
+                                  defaultFont: ScriptFont,
                                   in context: CGContext, mediaBox: CGRect) {
         let wrap = { (text: String) in
             ScriptPagination.wrappedLines(
@@ -195,8 +211,8 @@ enum ScreenplayPDF {
         }
         let width = setup.textWidthIn * pointsPerInch
         let left = setup.margins.leftIn * pointsPerInch
-        let regular = resolvedFont(family: .default, bold: false, italic: false)
-        let bold = resolvedFont(family: .default, bold: true, italic: false)
+        let regular = resolvedFont(family: defaultFont, bold: false, italic: false)
+        let bold = resolvedFont(family: defaultFont, bold: true, italic: false)
 
         // nil is a blank line between parts of the block.
         var block: [(text: String, font: CTFont)?] = wrap(cover.title).map { ($0, bold) }

@@ -96,7 +96,9 @@ final class ScriptExportModel {
     /// The script on screen drawn into a PDF here on the device, for printing
     /// with no route to the server. Page setup and casing are read at the
     /// moment of printing, exactly as the online path sends them along with
-    /// the export request. Nil when there is nothing to put on paper — no
+    /// the export request; the default face is read the same way, though it
+    /// has no counterpart to send — the server sets its own exports in Courier
+    /// whatever any block says, so this is the one PDF the setting reaches. Nil when there is nothing to put on paper — no
     /// pages and no cover — or the file cannot be written; the caller shows
     /// the ordinary failure alert then.
     private func offlinePrintFile() -> URL? {
@@ -108,6 +110,7 @@ final class ScriptExportModel {
         let title = model.project.displayTitle
         let data = ScreenplayPDF.render(
             pages: pages, cover: cover, setup: setup, title: title,
+            defaultFont: PresentationSettings.shared.defaultFont,
             cased: { CapitalizationSettings.shared.displayCased($0, forBlockType: $1) })
         guard !data.isEmpty else { return nil }
 

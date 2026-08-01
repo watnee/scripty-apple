@@ -21,10 +21,14 @@ import UIKit
 #endif
 
 extension ScriptFont {
-    /// The face a block is set in when the server has not named one, which is
-    /// most of them: the web app only records a font once someone picks one.
-    /// Courier is the screenplay convention and Courier Prime is the Courier
-    /// the web stylesheet asks for first.
+    /// The face the app ships set in: Courier is the screenplay convention and
+    /// Courier Prime is the Courier the web stylesheet asks for first.
+    ///
+    /// This is the *shipped* default, not the one in force — a writer can name
+    /// another in Editor Preferences, and what a block with no font of its own
+    /// is drawn in is `PresentationSettings.font(for:)`. This stays the value
+    /// that setting starts at, and the answer anywhere there is no writer to
+    /// have chosen: a widget, a test, a renderer handed no preference.
     static let `default`: ScriptFont = .courierPrime
 
     /// The PostScript name to ask the font system for. Courier Prime ships in
@@ -120,10 +124,22 @@ enum ProseFont {
     /// `baseSize` at the writer's chosen scale, then scaled again by the
     /// system's Dynamic Type setting — prose has no page geometry to protect
     /// and so no Courier-fidelity excuse to ignore either.
+    ///
+    /// In the default face, which is the writer's to choose. Lyrics and notes
+    /// have no font of their own to override it with — nothing in either
+    /// editor sets one — so for them the setting is simply the face they are
+    /// written in, and a script reset to Times brings its songs and notes with
+    /// it rather than leaving them in Courier.
+    ///
+    /// `face` is a parameter, and a required one, because the text views that
+    /// draw prose are UIKit representables: resolving the setting inside
+    /// `updateUIView` reads it outside any body, so nothing would redraw an
+    /// editor left open behind the settings sheet. Asking for the face here
+    /// makes each of them read it where their parent builds its body instead.
     @MainActor
-    static func editor(scale: Double) -> UIFont {
+    static func editor(scale: Double, face: ScriptFont) -> UIFont {
         UIFontMetrics(forTextStyle: .body)
-            .scaledFont(for: ScriptFont.default.uiFont(size: baseSize * scale))
+            .scaledFont(for: face.uiFont(size: baseSize * scale))
     }
 }
 #endif

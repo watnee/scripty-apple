@@ -132,8 +132,14 @@ struct TitlePageView: View {
 private struct TitlePagePreview: View {
     let model: TitlePageModel
 
-    private static let bodyFont = Font.custom(ScriptFont.default.postScriptName,
-                                              fixedSize: 14)
+    /// A title page carries no elements to set fonts on, so the whole sheet is
+    /// in the default face. Computed rather than a stored constant: the writer
+    /// can change what that face is, and a preview still showing the old one
+    /// would be a preview of nothing.
+    private var bodyFont: Font {
+        Font.custom(PresentationSettings.shared.defaultFont.postScriptName,
+                    fixedSize: 14)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -141,20 +147,20 @@ private struct TitlePagePreview: View {
 
             VStack(spacing: 12) {
                 Text(model.previewTitle)
-                    .font(Self.bodyFont.weight(.bold))
+                    .font(bodyFont.weight(.bold))
                     .multilineTextAlignment(.center)
 
                 if let writers = model.previewWriters {
                     Text("written by")
-                        .font(Self.bodyFont)
+                        .font(bodyFont)
                     Text(writers)
-                        .font(Self.bodyFont)
+                        .font(bodyFont)
                         .multilineTextAlignment(.center)
                 }
 
                 if let version = model.previewVersion {
                     Text(version)
-                        .font(Self.bodyFont)
+                        .font(bodyFont)
                         .padding(.top, 8)
                 }
             }
@@ -163,7 +169,7 @@ private struct TitlePagePreview: View {
             Spacer(minLength: 36)
 
             Text(model.previewContact ?? " ")
-                .font(Self.bodyFont)
+                .font(bodyFont)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(24)

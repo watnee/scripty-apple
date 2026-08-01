@@ -334,14 +334,18 @@ struct ScreenplaySheetRow: View {
         ScreenplayLayout.lineHeightPt * unit / ScreenplayLayout.pointsPerInch
     }
 
-    /// The page's own face, which is what a sheet is set in unless a block
-    /// says otherwise — and what the markers and page furniture always use.
+    /// The page's own face — the writer's default — which is what a sheet is
+    /// set in unless a block says otherwise, and what the markers and page
+    /// furniture always use. `(MORE)` and a `(CONT'D)` belong to the page
+    /// rather than to any one element, so they follow the setting and never a
+    /// block's override.
     private var baseFont: Font {
-        ScreenplayFont.sheet(.default, lineHeight: lineHeight)
+        ScreenplayFont.sheet(PresentationSettings.shared.defaultFont,
+                             lineHeight: lineHeight)
     }
 
     private func font(for block: Block) -> Font {
-        ScreenplayFont.sheet(ScriptFont(serverValue: block.font) ?? .default,
+        ScreenplayFont.sheet(PresentationSettings.shared.font(for: block.font),
                              lineHeight: lineHeight)
     }
 

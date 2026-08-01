@@ -409,8 +409,11 @@ struct EditableBlockRow: View {
         if block.textItalic ?? false { traits.insert(.traitItalic) }
 
         // Sized from the same base as the note and lyric surfaces, through the
-        // same resolver — see `ProseFont`.
-        return (ScriptFont(serverValue: block.font) ?? .default)
+        // same resolver — see `ProseFont`. The face is the block's own where it
+        // has one and the writer's default where it has not, read here for the
+        // same reason spellcheck is: the observation is what redraws the rows
+        // when the default changes under them.
+        return settings.font(for: block.font)
             .uiFont(size: ProseFont.baseSize * textScale, traits: traits)
     }
 }

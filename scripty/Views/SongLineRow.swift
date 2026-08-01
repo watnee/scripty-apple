@@ -221,6 +221,12 @@ private struct SongLineField: UIViewRepresentable {
     let spellChecks: Bool
     let spellcheckRevision: Int
     let accessibilityLabel: String
+    /// The face the writer chose for everything with no font of its own.
+    /// Resolved here, where the initialiser runs as the row builds its body,
+    /// rather than down in `apply(to:)` — an observation registered from
+    /// inside `updateUIView` belongs to no body and would leave a lyric
+    /// editor left open behind the settings sheet in the old face.
+    private let defaultFont = PresentationSettings.shared.defaultFont
     /// Where the caret should go once this line has taken focus, in Characters.
     /// Only a merge asks; the rest of the time UIKit's own placement is right.
     let caret: Int?
@@ -304,7 +310,7 @@ private struct SongLineField: UIViewRepresentable {
         // The same face and size the note editor and the screenplay rows use —
         // a lyric line was the last surface still set in the proportional
         // system font.
-        let font = ProseFont.editor(scale: textScale)
+        let font = ProseFont.editor(scale: textScale, face: defaultFont)
         if view.font != font { view.font = font }
         if view.isEditable != isEditable { view.isEditable = isEditable }
 
