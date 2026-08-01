@@ -4,11 +4,18 @@
 //
 //  Read mode for a song: the lyric as verse, for reading rather than writing.
 //
-//  The sibling of `ReadScriptView`, and built to the same rules — a serif face,
-//  a held measure, the editing chrome left out — because they are the same
-//  posture. What differs is what a lyric is: short lines that must break where
-//  the writer broke them, and blank lines that mean a verse ended rather than a
-//  line with no words in it.
+//  The sibling of `ReadScriptView`, and built to the same rules — the app's
+//  own face, a held measure, the editing chrome left out — because they are the
+//  same posture. What differs is what a lyric is: short lines that must break
+//  where the writer broke them, and blank lines that mean a verse ended rather
+//  than a line with no words in it.
+//
+//  Both readers were serif prose once. The screenplay reader gave that up for
+//  Courier so the script would read as a script, and this one kept it — so a
+//  writer switching from a scene to the song in it met a different typeface
+//  for the length of one tap. It is set in `ScriptFont.default` now, at the
+//  size the lyric is written at, the way the script reader re-typesets rather
+//  than resizes.
 //
 //  Not a screen of its own. Like the script reader, this is one of the song
 //  editor's surfaces: the mode swaps the editable lines for this column in
@@ -38,6 +45,11 @@ struct ReadSongView: View {
     /// prose paragraph — set to the script's width, a verse becomes a narrow
     /// ribbon of text stranded down the left of a very wide column. Scaled with
     /// the type for the reason the script reader scales its own.
+    ///
+    /// Left where it was when the reader gave up its serif face: Courier is the
+    /// wider of the two, so the same width now holds about fifty characters
+    /// rather than sixty — still more than a lyric line asks for, and still
+    /// visibly narrower than the script.
     private var measure: CGFloat { 520 * scale }
 
     /// The OS text-size setting as a multiplier, so the reader honours Dynamic
@@ -47,18 +59,29 @@ struct ReadSongView: View {
 
     private var scale: CGFloat { CGFloat(textScale) * dynamicTypeScale }
 
+    /// The lyric's type size: what it is written at, scaled. Reading a song is
+    /// meant to re-set the words, not enlarge them.
+    private var fontSize: CGFloat { ProseFont.baseSize * scale }
+
+    /// The song's own face, which is the screenplay's — see `ProseFont`.
+    private var face: String { ScriptFont.default.postScriptName }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24 * scale) {
+                // A step up from the lyric rather than the display size a serif
+                // face carried: Courier sets wide, and a title big enough to
+                // eat the measure would wrap before the verses did.
                 Text(title.isEmpty ? "Untitled Song" : title)
-                    .font(.system(size: 28 * scale, weight: .bold, design: .serif))
+                    .font(.custom(face, fixedSize: fontSize * 1.5))
+                    .fontWeight(.bold)
                     .accessibilityAddTraits(.isHeader)
 
                 ForEach(Array(stanzas.enumerated()), id: \.offset) { _, stanza in
                     VStack(alignment: .leading, spacing: 3 * scale) {
                         ForEach(Array(stanza.enumerated()), id: \.offset) { _, line in
                             Text(line)
-                                .font(.system(size: 17 * scale, design: .serif))
+                                .font(.custom(face, fixedSize: fontSize))
                         }
                     }
                     // One stanza is one thing to hear, not a list of lines:
