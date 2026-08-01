@@ -41,29 +41,34 @@ struct EditableBlockRow: View {
         settings.isOutlineMode ? BlockType.outlineTypes : BlockType.allCases
     }
 
-    private var pageWidth: CGFloat { chrome.columnWidth }
-    private var dialogueWidth: CGFloat { chrome.dialogueWidth }
-    private var parentheticalWidth: CGFloat { chrome.parentheticalWidth }
-
     var body: some View {
-        BlockTextView(model: model, block: block, autocomplete: autocomplete,
-                      // Read here, not inside the representable: the row body
-                      // is cheap to re-evaluate on another block's keystroke,
-                      // the representable's UIKit work is not — and Equatable
-                      // lets untouched rows skip it entirely.
-                      liveText: model.liveText[block.id],
-                      caretRequest: model.caretRequests[block.id],
-                      isFocused: model.focusedBlockId == block.id,
-                      font: uiFont, alignment: nsAlignment, autocapitalize: capitalization,
-                      spellChecks: spellChecks,
-                      spellcheckRevision: spellcheckRevision,
-                      accessibilityLabel: accessibilityDescription)
-            .equatable()
-            .blockHighlight(block)
-            .frame(maxWidth: columnWidth, alignment: .leading)
-            // Speech is centred inside the page column rather than inside the
-            // window, so the label below can hang off the column's own margin.
-            .frame(maxWidth: pageWidth, alignment: pageAlignment)
+        VStack(alignment: .leading, spacing: 2) {
+            BlockTextView(model: model, block: block, autocomplete: autocomplete,
+                          // Read here, not inside the representable: the row body
+                          // is cheap to re-evaluate on another block's keystroke,
+                          // the representable's UIKit work is not — and Equatable
+                          // lets untouched rows skip it entirely.
+                          liveText: model.liveText[block.id],
+                          caretRequest: model.caretRequests[block.id],
+                          isFocused: model.focusedBlockId == block.id,
+                          font: uiFont, alignment: nsAlignment,
+                          autocapitalize: capitalization,
+                          spellChecks: spellChecks,
+                          spellcheckRevision: spellcheckRevision,
+                          accessibilityLabel: accessibilityDescription)
+                .equatable()
+                .blockHighlight(block)
+                .noteCard(block.blockType)
+                // At the element's own screenplay indent inside the page column,
+                // which is where the reading surface and the printed page put it
+                // too — so a line does not move when the script is handed between
+                // them. The label below hangs off the column's own margin.
+                .screenplayBox(block.blockType, in: chrome, alignment: boxAlignment)
+            // Under the element, as the read-only row draws them: an element
+            // that grew a badge only once editing was locked took the rest of
+            // the script down the page with it.
+            BlockTagRow(block: block)
+        }
             .padding(.top, topPadding)
             .overlay(alignment: .topLeading) { elementLabel }
             .blockMarkers(block,
@@ -324,32 +329,24 @@ struct EditableBlockRow: View {
 
     // MARK: - Per-type layout
 
-    private var columnWidth: CGFloat {
-        let base: CGFloat
+    /// Where the element sits inside its own box. Speech has a box of its own
+    /// and starts at the left of it; everything else has the whole column and
+    /// sits where its type belongs on the page.
+    private var boxAlignment: Alignment {
         switch block.blockType {
-        case .dialogue, .lyrics: base = dialogueWidth
-        case .parenthetical: base = parentheticalWidth
-        default: base = pageWidth
-        }
-        // A full-width column was measured against the window, so it is already
-        // as wide as it can be; the type grows inside it rather than pushing it
-        // off the edge of the screen.
-        return chrome.isFullWidth ? base : base * textScale
-    }
-
-    private var pageAlignment: Alignment {
-        switch block.blockType {
-        case .character, .dualDialogue, .dialogue, .parenthetical, .lyrics, .centered:
-            return .center
-        case .transition:
-            return .trailing
-        default:
-            return .leading
+        case .centered: return .center
+        case .transition: return .trailing
+        default: return .leading
         }
     }
 
     /// An explicit alignment set by the writer wins; otherwise the element
     /// type's screenplay-convention default applies.
+    ///
+    /// A cue is *placed* at its indent rather than centred now, so its text is
+    /// set from the left of the box it was placed in — centring it inside a box
+    /// that already begins at 2.2 inches would push the name off to the right
+    /// of where the reader and the printed page put it.
     private var nsAlignment: NSTextAlignment {
         if let override = TextAlign(serverValue: block.textAlign) {
             switch override {
@@ -359,22 +356,23 @@ struct EditableBlockRow: View {
             }
         }
         switch block.blockType {
-        case .character, .dualDialogue, .centered: return .center
+        case .centered: return .center
         case .transition: return .right
         default: return .left
         }
     }
 
+    /// The air above the element, in the screenplay's own line units — the rule
+    /// the reader and the paginator use, so the rhythm holds across a mode
+    /// change: two lines above a scene heading, none between a cue and what it
+    /// says, one everywhere else.
     private var topPadding: CGFloat {
-        let base: CGFloat
-        switch block.blockType {
-        case .scene: base = 18
-        case .character, .dualDialogue, .transition, .shot: base = 10
-        case .section: base = 14
-        default: base = 4
-        }
-        return base * textScale
+        CGFloat(ScreenplayLayout.spacing(for: block.blockType,
+                                         lineHeight: Double(fontSize)))
     }
+
+    /// One line of the writing column, in points.
+    private var fontSize: CGFloat { ProseFont.baseSize * CGFloat(textScale) }
 
     /// Whether this line auto-capitalizes as the writer types. Scene headings,
     /// cues, transitions and shots default to caps, but each is a preference the
@@ -397,20 +395,10 @@ struct EditableBlockRow: View {
         SpellcheckDictionary.shared.revision
     }
 
+    /// Sized from the same base as the note and lyric surfaces, and resolved
+    /// through the same one the locked rows and the reader use — see
+    /// `ScriptFont.element`.
     private var uiFont: UIFont {
-        var traits: UIFontDescriptor.SymbolicTraits = []
-        switch block.blockType {
-        case .scene: traits.insert(.traitBold)
-        case .shot: traits.insert(.traitBold)
-        case .parenthetical, .lyrics, .synopsis: traits.insert(.traitItalic)
-        default: break
-        }
-        if block.textBold ?? false { traits.insert(.traitBold) }
-        if block.textItalic ?? false { traits.insert(.traitItalic) }
-
-        // Sized from the same base as the note and lyric surfaces, through the
-        // same resolver — see `ProseFont`.
-        return (ScriptFont(serverValue: block.font) ?? .default)
-            .uiFont(size: ProseFont.baseSize * textScale, traits: traits)
+        ScriptFont.element(block, size: fontSize)
     }
 }

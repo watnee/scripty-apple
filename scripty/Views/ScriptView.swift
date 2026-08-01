@@ -124,9 +124,14 @@ struct ScriptView: View {
     /// belongs to has actually arrived. Nil the rest of the time.
     @State private var pendingBookmarkBlockId: Int?
 
-    /// How much room the writing column actually has, for full-width mode.
-    /// Zero until the first layout, which reads as "use the printed measure".
+    /// How much room the script actually has, whichever surface is up. Zero
+    /// until the first layout, which reads as "use the printed measure".
     @State private var availableWidth: CGFloat = 0
+
+    /// The OS text-size setting, as a multiplier. Folded into `textScale` with
+    /// the writer's own type-size control, so the two compose rather than one
+    /// overriding the other.
+    @ScaledMetric(relativeTo: .body) private var dynamicTypeScale: CGFloat = 1
 
     /// Whether the toolbar and the reading bars are folded away because the
     /// writer is scrolling down through the script — the reading posture
@@ -225,6 +230,15 @@ struct ScriptView: View {
                 editor
             }
         }
+        // Measured out here rather than inside a surface, because the answer has
+        // to be the same for all three: a reader that measured for itself put
+        // the column somewhere slightly different from the one the writer had
+        // just been typing in, and every line moved on the way into the mode.
+        // It is also the only place that *can* measure when the script opens
+        // straight into reading — the editor is never built to do it.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
+        .environment(\.scriptTextScale, Double(textScale))
+        .environment(\.scriptRowChrome, rowChrome)
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 unsavedBanner
@@ -895,15 +909,12 @@ struct ScriptView: View {
         // than sliding under a hard line — the right treatment for a column of
         // text, where a hard edge cuts a sentence in half mid-scroll.
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .overlay { emptyState }
         // Each writing bar is mounted with `.safeAreaBar`, so the three stack
         // as Liquid Glass strips over the script instead of opaque slabs.
         .safeAreaBar(edge: .bottom) { editingBars }
         .safeAreaBar(edge: .bottom) { searchBar }
         .safeAreaBar(edge: .bottom) { bulkBar }
-        .environment(\.scriptTextScale, settings.textScale)
-        .environment(\.scriptRowChrome, rowChrome)
     }
 
     /// Word-splitting every element on every body evaluation is real work on a
@@ -943,14 +954,31 @@ struct ScriptView: View {
         return model.blocks.filter { $0.blockType != .note }
     }
 
-    /// What the rows should draw, gathered from the project's view options and
-    /// the room the window has.
+    /// The type size everything on this screen is set at, as a multiplier: the
+    /// writer's own control and the system's Dynamic Type setting together.
+    ///
+    /// One value for every surface. The reader used to fold Dynamic Type in and
+    /// the writing column ignored it, so at any OS text size but the default the
+    /// two were set in different type — and text that is set differently cannot
+    /// land in the same place however carefully the column is measured. Folding
+    /// it in as a multiplier is safe for the column too, because the measure is
+    /// resolved against it below: the type grows and the column grows with it,
+    /// leaving the same characters to the line.
+    private var textScale: CGFloat {
+        CGFloat(settings.textScale) * dynamicTypeScale
+    }
+
+    /// What the rows should draw and where they should sit, gathered from the
+    /// project's view options and the room the window has. Read by the writing
+    /// column and by the reading surface alike — see `ScriptRowChrome`.
     private var rowChrome: ScriptRowChrome {
         var chrome = ScriptRowChrome()
         chrome.showsPins = options.showsPins
         chrome.showsBookmarks = options.showsBookmarks
         chrome.showsElementLabels = options.showsElementLabels
-        guard availableWidth > 0 else { return chrome }
+        chrome.scale = textScale
+        chrome.columnWidth = ScriptRowChrome.printedMeasure * textScale
+        guard availableWidth > 0, textScale > 0 else { return chrome }
         // Each row is padded by 24 either side, so that much of the window was
         // never the column's to use.
         let usable = availableWidth - 48
@@ -960,13 +988,22 @@ struct ScriptView: View {
         // column overhangs the screen, and the speech boxes measured against it
         // come out wider than the window itself: dialogue then renders full
         // bleed, indistinguishable from action.
-        chrome.columnWidth = min(chrome.columnWidth, max(280, usable))
+        //
+        // Resolved at 100% type and scaled back up, so growing the type grows
+        // the column with it rather than re-wrapping the script into a narrower
+        // and narrower page — a measure is a count of characters before it is a
+        // width. The `min` against `usable` is the floor case: a phone at the
+        // largest type cannot pay for even the minimum measure, and text that
+        // runs off the screen would be worse than text set small.
+        let measure = min(ScriptRowChrome.printedMeasure, max(280, usable / textScale))
+        chrome.columnWidth = min(measure * textScale, usable)
 
-        // The marks sit in the margin beyond the column, so full width leaves
-        // them room rather than running the text underneath them.
+        // Full width is a request for the window rather than for a measure, so
+        // it takes the room the window has and the type grows inside it. The
+        // marks still sit in the margin beyond the column, so it leaves them
+        // theirs rather than running the text underneath them.
         if settings.isFullWidth {
             chrome.columnWidth = max(320, usable - BlockMarkerBadges.gutter)
-            chrome.isFullWidth = true
         }
 
         // Both margins now have something in them: the element labels hang off
@@ -1204,7 +1241,6 @@ struct ScriptView: View {
         ReadScriptView(
             title: model.project.displayTitle,
             blocks: model.blocks,
-            textScale: settings.textScale,
             narrator: narrator,
             isLoading: model.isLoading,
             navigator: navigator,
@@ -1558,10 +1594,13 @@ struct ScriptView: View {
             // A locked or read-only element has no context menu, so the bubble
             // is the only way in to its thread — and commenting needs no more
             // than read access.
+            // No padding of its own: the row already leaves the element the air
+            // the screenplay gives it, and a locked line that sat four points
+            // lower than the editable one it replaced would move the whole
+            // script the moment editing was locked.
             BlockRowView(block: block,
                          commentCount: model.commentCount(for: block),
                          onComment: block.hasLink(.comments) ? { commentTarget = block } : nil)
-                .padding(.vertical, 4)
         }
     }
 

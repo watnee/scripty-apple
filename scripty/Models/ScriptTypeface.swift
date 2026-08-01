@@ -85,6 +85,36 @@ extension ScriptFont {
         return resolved
     }
 
+    /// The type one screenplay element is set in: its own face at the size the
+    /// surface is drawn at, carrying the element type's own emphasis — a scene
+    /// heading's weight, a parenthetical's italics — folded in with whatever
+    /// the writer asked for on top.
+    ///
+    /// Shared by the three continuous surfaces: the text views the writer types
+    /// into, the rows of a locked script, and the reading surface. A face
+    /// resolved two ways is a face with two sets of metrics, and text that
+    /// measures differently wraps differently — which moves every line below it.
+    /// One resolver, one wrap, one place on the page.
+    ///
+    /// Emphasis is carried as symbolic traits rather than as a weight because a
+    /// `UITextView` sets its whole content in one font: semibold is not
+    /// available to the surface the writer types into, so it is not available to
+    /// the two that have to agree with it either.
+    @MainActor
+    static func element(_ block: Block, size: CGFloat) -> UIFont {
+        var traits: UIFontDescriptor.SymbolicTraits = []
+        switch block.blockType {
+        case .scene, .shot, .section: traits.insert(.traitBold)
+        case .parenthetical, .lyrics, .synopsis: traits.insert(.traitItalic)
+        default: break
+        }
+        if block.textBold ?? false { traits.insert(.traitBold) }
+        if block.textItalic ?? false { traits.insert(.traitItalic) }
+
+        return (ScriptFont(serverValue: block.font) ?? .default)
+            .uiFont(size: size, traits: traits)
+    }
+
     /// Resolved fonts, kept between updates.
     ///
     /// Every keystroke invalidates the observed editing state, so SwiftUI
