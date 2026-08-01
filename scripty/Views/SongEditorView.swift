@@ -270,9 +270,13 @@ struct SongEditorView: View {
     /// dismissing is the one gesture that ends them.
     private var leavingLosesWork: Bool { isNew && saveFailed }
 
-    /// Notes get the list and heading controls; lyrics take the same keyboard
-    /// rules but not the bar, which is the split the browser makes too.
-    private var showsFormatBar: Bool { type != .song && canEdit }
+    /// Both kinds get the bar, because both get undo — which on a device with
+    /// no hardware keyboard has no other route here, and which a writer needs
+    /// as much in a verse as in a note. Only the *structure* half is a note's:
+    /// lyrics take the same keyboard rules but have no bullets and no headings,
+    /// which is the split the browser makes too.
+    private var showsFormatBar: Bool { canEdit }
+    private var showsFormatStructure: Bool { type != .song }
 
     /// What the sheet calls itself. Settled on how it was opened rather than
     /// on whether the document exists yet: a create landing mid-sentence is not
@@ -312,10 +316,11 @@ struct SongEditorView: View {
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
-            // ⌘Z belongs to the note while the note is on screen — see
-            // `NoteEditorActions`, and `NoteHistory` for why the note's own
-            // history is the only thing it could sensibly mean.
-            .focusedSceneValue(\.noteEditorActions, undoActions)
+            // ⌘Z belongs to the words in here, not to the script this sheet
+            // covers — see `DocumentEditorActions`, and `NoteHistory` for why
+            // this document's own history is the only thing it could sensibly
+            // mean.
+            .focusedSceneValue(\.documentEditorActions, undoActions)
             .task { await loadFullContentIfNeeded() }
             .onChange(of: title) { _, _ in scheduleAutosave() }
             .onChange(of: content) { _, _ in scheduleAutosave() }
@@ -378,16 +383,16 @@ struct SongEditorView: View {
         }
     }
 
-    /// The menu bar's Undo and Redo while this sheet is up. Nil on a note the
-    /// server won't take an edit for: there is nothing to walk back, and
-    /// claiming the chord anyway would leave ⌘Z doing nothing at all on a
-    /// screenplay the writer can still edit.
-    private var undoActions: NoteEditorActions? {
-        guard canEdit else { return nil }
-        return NoteEditorActions(canUndo: formatting.canUndo,
-                                 canRedo: formatting.canRedo,
-                                 undo: { formatting.undo() },
-                                 redo: { formatting.redo() })
+    /// The menu bar's Undo and Redo while this sheet is up: the text view's own
+    /// history, the same one the bar's two buttons drive. A document that
+    /// cannot be typed into offers neither, but still claims the pair — falling
+    /// through to the script behind would be worse than doing nothing.
+    private var undoActions: DocumentEditorActions {
+        guard canEdit else { return DocumentEditorActions() }
+        return DocumentEditorActions(undo: { formatting.undo() },
+                                     redo: { formatting.redo() },
+                                     canUndo: formatting.canUndo,
+                                     canRedo: formatting.canRedo)
     }
 
     private var insertMessageBinding: Binding<Bool> {
@@ -540,14 +545,14 @@ struct SongEditorView: View {
                 WordCountBar(words: ScriptStats.countWords(content))
             }
             if showsFormatBar && isWritingBody {
-                NoteFormatBar(controller: formatting)
+                NoteFormatBar(controller: formatting, showsStructure: showsFormatStructure)
             } else if isTyping {
-                // The formatting bar carries the way out of the keyboard for a
-                // note being written. Everywhere else the keyboard covers this
-                // sheet — a song's lyrics, which get the keyboard rules but not
-                // the bar, and either kind's title field — the chip needs a
-                // strip of its own, wearing the same chrome so the two read as
-                // one bar appearing and disappearing rather than two.
+                // The formatting bar carries the way out of the keyboard while
+                // the caret is in the words. Where the keyboard covers this
+                // sheet without the bar being up — either kind's title field —
+                // the chip needs a strip of its own, wearing the same chrome so
+                // the two read as one bar appearing and disappearing rather
+                // than two.
                 // The title field's focus is SwiftUI's, so it is dropped the
                 // way SwiftUI understands rather than left to be re-asserted.
                 HideKeyboardBar(releaseFocus: { titleFocused = false })

@@ -164,7 +164,17 @@ final class SongBlockModel {
     /// half, a lyric opened offline — its status never fetched, from a cached
     /// collection that may predate the link — would hide the buttons exactly
     /// when the local steps exist.
-    var hasUndoStack: Bool { links.contains(.undoRedoStatus) || !localHistory.isEmpty }
+    var hasUndoStack: Bool { links.contains(.undoRedoStatus) }
+
+    /// Whether the pair belongs in the editor's chrome at all: the server keeps
+    /// a history for this song, or this device is holding steps of its own.
+    /// Without the second half, a song opened offline for the first time — its
+    /// links never fetched — would hide the pair exactly when the local steps
+    /// are the only undo there is. `ScriptModel.offersUndoRedo` is the same
+    /// question about the screenplay.
+    var offersUndoRedo: Bool {
+        hasUndoStack || undoRedo != nil || !localHistory.isEmpty
+    }
 
     init(app: AppModel, document: TextDocument, draftStore: UnsavedDraftStore? = nil,
          offlineStore: OfflineStore? = nil) {
@@ -789,6 +799,10 @@ final class SongBlockModel {
         // Fresh words earn a fresh set of retries, as typing them would.
         retryAttempts[id] = nil
         failedBlockIds.remove(id)
+        // The copy on disk is out of date the moment the screen changes: a
+        // relaunch before the debounce fires must not bring back the words this
+        // step has just walked away from.
+        persistDraft(id)
         scheduleCommit(id)
     }
 

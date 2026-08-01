@@ -361,7 +361,11 @@ func checkLyricUndoOffline() async {
     model.edit(first, text: "First verse, rewritten.")
     await model.commit(first)
     check("a held edit arms undo", model.canUndo)
-    check("and puts the pair in the bar", model.hasUndoStack)
+    // `offersUndoRedo`, not `hasUndoStack`: opened with no connection this
+    // lyric never fetched its links, so the server's stack is unknown and the
+    // steps held here are the only undo there is — which is exactly when the
+    // pair has to be in the bar.
+    check("and puts the pair in the bar", model.offersUndoRedo)
     check("with nothing to redo yet", !model.canRedo)
 
     await model.undo()

@@ -101,6 +101,22 @@ struct SongBlockEditorView: View {
         query.isEmpty ? model.blocks : model.blocks.filter { matchedLines.contains($0.id) }
     }
 
+    /// What the menu bar's Undo and Redo do while this editor is up. Both
+    /// rewind the lyric to a different set of lines, so the search has to be
+    /// re-run behind them, exactly as the toolbar buttons do it.
+    ///
+    /// Empty while the song is being read — there is nothing on that surface a
+    /// step back would be a step back from — but still published, so ⌘Z over a
+    /// song can never fall through to the script the cover is hiding.
+    private var menuActions: DocumentEditorActions {
+        guard !isReading else { return DocumentEditorActions() }
+        return DocumentEditorActions(
+            undo: { Task { await model.undo(); runSearch() } },
+            redo: { Task { await model.redo(); runSearch() } },
+            canUndo: model.canUndo,
+            canRedo: model.canRedo)
+    }
+
     /// Recomputes the matched set from what the lines currently say.
     private func runSearch() {
         let needle = query.lowercased()
@@ -148,6 +164,12 @@ struct SongBlockEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { toolbar }
+            // ⌘Z belongs to this lyric while it is open. Without this the menu
+            // bar's Undo still reaches the screenplay behind the cover — a
+            // scene's focused value is not covered up by a sheet over it — and
+            // stepping back in a song would rewind the script instead. See
+            // `DocumentEditorActions`.
+            .focusedSceneValue(\.documentEditorActions, menuActions)
             .onChange(of: searchText) { _, _ in
                 runSearch()
             }
@@ -536,7 +558,7 @@ struct SongBlockEditorView: View {
         // where the server keeps a stack for this song, or where this device is
         // holding edits of its own to take back. Not while reading: there is
         // nothing on that surface for a step back to be a step back from.
-        if model.hasUndoStack && !isReading {
+        if model.offersUndoRedo && !isReading {
             ToolbarItemGroup(placement: .navigation) {
                 // Both rewind the lyric to a different set of lines, so the
                 // matched set has to be taken again or a search would keep
