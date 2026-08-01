@@ -39,6 +39,19 @@ struct ScriptView: View {
     /// Whether the rename sheet is up for the screenplay on screen. The name
     /// is the thing being reached for, so it is offered under the name.
     @State private var showingRename = false
+    /// Whether the heading at the top of the writing column is being typed
+    /// over, and the name being typed. The sheet above is still the way in
+    /// from the menus; this is the way in from the title itself, which is
+    /// where the web app has always renamed a screenplay.
+    @State private var isRetitling = false
+    @State private var titleDraft = ""
+    @FocusState private var titleFieldFocused: Bool
+    /// The armed rename, cancelled and replaced on every keystroke — a name is
+    /// sent a beat after typing stops rather than once per character.
+    @State private var retitleSave: Task<Void, Never>?
+    /// The wait a note's title takes, for the same reason: a name half-typed
+    /// is not a name.
+    private static let retitleDelay: Duration = .milliseconds(1200)
     @State private var showingOutline = false
     @State private var showingStats = false
     @State private var showingIgnoredWords = false
@@ -824,6 +837,8 @@ struct ScriptView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    titleHeading
+
                     ForEach(visibleBlocks) { block in
                         row(for: block)
                             .padding(.horizontal, 24)
@@ -904,6 +919,148 @@ struct ScriptView: View {
         .safeAreaBar(edge: .bottom) { bulkBar }
         .environment(\.scriptTextScale, settings.textScale)
         .environment(\.scriptRowChrome, rowChrome)
+    }
+
+    /// The screenplay's name at the head of the column, set the way the reader
+    /// heads its own page: centred, in caps, in the script's own face.
+    ///
+    /// The writing surface used to carry the title only in the navigation bar,
+    /// so leaving reading mode dropped it off the page — the same document,
+    /// headed on one surface and bare on the other, with the position handed
+    /// across between them. It is the same heading on both now, so switching
+    /// modes moves the words under it and nothing else.
+    ///
+    /// Tapping it types over it, which is what a click of the title does in
+    /// the web header. Sized against this column rather than the reader's: the
+    /// elements here hold the printed measure by ignoring Dynamic Type (see
+    /// `EditableBlockRow`), and a heading that grew when the rows under it did
+    /// not would belong to a different document.
+    @ViewBuilder
+    private var titleHeading: some View {
+        let name = model.project.displayTitle
+        Group {
+            if isRetitling {
+                TextField("Title", text: $titleDraft)
+                    .focused($titleFieldFocused)
+                    .multilineTextAlignment(.center)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                    // Return in a title means "that's the name", not a second
+                    // line: a screenplay is headed with one.
+                    .onSubmit { commitRetitle() }
+                    .accessibilityLabel("Screenplay title")
+            } else {
+                Text(name.uppercased())
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    // The whole line rather than the glyphs: a title is a
+                    // small target sitting in the middle of a wide column.
+                    .contentShape(.rect)
+                    .onTapGesture { beginRetitling() }
+                    // Spoken as it is stored. The capitals are typesetting —
+                    // a title page sets a title in caps — and VoiceOver
+                    // spelling them out letter by letter is not the title.
+                    .accessibilityLabel(name)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityAction(named: "Rename") { beginRetitling() }
+            }
+        }
+        .font(.custom(ScriptFont.default.postScriptName, fixedSize: headingFontSize))
+        .fontWeight(.bold)
+        .padding(.horizontal, 24)
+        .padding(.bottom, headingFontSize * 2)
+        // The name lands as it is typed, a beat after typing stops, exactly as
+        // a note's title does. Deliberately not left to the field losing focus:
+        // this screen's elements are UIKit text views that take first responder
+        // for themselves, and SwiftUI's focus engine stops agreeing with UIKit
+        // about who holds it the moment one of them has — the same disagreement
+        // `SoftwareKeyboard` exists for. A rename that depended on being told
+        // the caret had left would be a rename that sometimes never happened.
+        .onChange(of: titleDraft) { _, _ in scheduleRetitle() }
+        // Three ways to be finished, because no one of them can be relied on
+        // here. The caret leaving is the honest signal where SwiftUI still
+        // knows where the caret is. The software keyboard going away covers
+        // the case where it does not — but says nothing on a device with a
+        // hardware keyboard, where there is no software keyboard to go. Return
+        // covers that one. Whichever arrives first ends it; the rest find
+        // `isRetitling` already false and do nothing.
+        .onChange(of: titleFieldFocused) { _, focused in
+            guard !focused, isRetitling else { return }
+            commitRetitle()
+        }
+        .onChange(of: SoftwareKeyboard.shared.isVisible) { _, visible in
+            guard !visible, isRetitling else { return }
+            commitRetitle()
+        }
+        // The reader draws a heading of its own, so an edit still open when
+        // the mode changes has nowhere left to be finished.
+        .onChange(of: isReading) { _, reading in
+            guard reading, isRetitling else { return }
+            commitRetitle()
+        }
+    }
+
+    /// The type the heading is set in: the column's own size, as the reader
+    /// sets its heading at the reader's.
+    private var headingFontSize: CGFloat { ProseFont.baseSize * settings.textScale }
+
+    /// What is actually stored behind the heading — the screenplay title where
+    /// the title page sets one, else the project's name. Empty where the
+    /// project has neither, so an untitled screenplay opens the field on its
+    /// placeholder rather than on the words "Untitled Project", which nobody
+    /// typed and nobody wants to delete before typing.
+    private var headingSourceTitle: String {
+        let screenplay = (model.project.screenplayTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !screenplay.isEmpty { return screenplay }
+        return (model.project.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Puts the caret in the heading. Gated on the same `update` link the
+    /// menu's Rename is, so a reader's tap does nothing rather than opening a
+    /// field whose contents the server would refuse.
+    private func beginRetitling() {
+        guard model.canRenameProject else { return }
+        // The stored name, not the capitals on screen — those are how a title
+        // page is set, and handing them back would have every rename shout.
+        titleDraft = headingSourceTitle
+        isRetitling = true
+        titleFieldFocused = true
+    }
+
+    /// Arms the debounce. Long enough that a name still being typed — "The
+    /// Long", on its way to "The Long Way Home" — is not filed as one, and the
+    /// same wait a note's title takes.
+    private func scheduleRetitle() {
+        guard isRetitling else { return }
+        retitleSave?.cancel()
+        retitleSave = Task {
+            try? await Task.sleep(for: Self.retitleDelay)
+            guard !Task.isCancelled else { return }
+            await sendRetitle()
+        }
+    }
+
+    /// Finishes: the heading goes back to being a heading, and whatever was
+    /// typed goes now rather than waiting out the debounce.
+    private func commitRetitle() {
+        isRetitling = false
+        titleFieldFocused = false
+        retitleSave?.cancel()
+        Task { await sendRetitle() }
+    }
+
+    /// Sends the typed name.
+    ///
+    /// A blank field is a rename to nothing, which the server refuses and which
+    /// no writer means: it is left alone rather than reported. So is a name
+    /// typed back to what it already was — there is nothing to say.
+    private func sendRetitle() async {
+        let trimmed = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != headingSourceTitle else { return }
+        guard let updated = await model.retitleScreenplay(to: trimmed) else { return }
+        // This screen is right the moment the model adopts it; the list behind
+        // it is not, so hand the new resource back.
+        await onProjectChanged(updated)
     }
 
     /// Word-splitting every element on every body evaluation is real work on a

@@ -25,6 +25,21 @@
 
 import SwiftUI
 
+/// The type a song's name is set in wherever the song itself is on screen.
+///
+/// Shared because both editors head their own surface with it now, and a title
+/// that changed face or size on the way into reading would be the one part of
+/// the page that moved when the mode did. The lines underneath change — set as
+/// verse here, as editable lines there — and the title deliberately does not.
+enum SongTitleType {
+    /// The size at 100%, against the reader's 17pt lyric line.
+    static let baseSize: CGFloat = 28
+
+    static func font(scale: CGFloat) -> Font {
+        .system(size: baseSize * scale, weight: .bold, design: .serif)
+    }
+}
+
 struct ReadSongView: View {
     let title: String
     /// The lyric, one string per line, in order. Blank entries are the writer's
@@ -51,7 +66,7 @@ struct ReadSongView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24 * scale) {
                 Text(title.isEmpty ? "Untitled Song" : title)
-                    .font(.system(size: 28 * scale, weight: .bold, design: .serif))
+                    .font(SongTitleType.font(scale: scale))
                     .accessibilityAddTraits(.isHeader)
 
                 ForEach(Array(stanzas.enumerated()), id: \.offset) { _, stanza in

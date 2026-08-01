@@ -29,7 +29,11 @@ import Observation
 @MainActor
 final class SongBlockModel {
     let app: AppModel
-    let document: TextDocument
+    /// The song being written. Its name can change while this editor is open —
+    /// the heading at the top of the lyric is typed over in place — so the
+    /// resource is replaced rather than fixed at the opening, and every screen
+    /// drawing from it (the navigation bar, the insert messages) follows.
+    private(set) var document: TextDocument
 
     private(set) var blocks: [SongBlock] = []
     private(set) var links = HALLinks()
@@ -173,6 +177,17 @@ final class SongBlockModel {
         self.draftStore = draftStore
             ?? app.draftScope.map { UnsavedDraftStore(scope: $0, folder: "SongDrafts") }
         self.offlineStore = offlineStore ?? app.offlineStore
+    }
+
+    /// Takes the name a rename has just landed on the server.
+    ///
+    /// Only the title moves: the links this editor works through are the ones
+    /// it was opened with, and a rename changes nothing about them. Replacing
+    /// the whole resource from the response would be the tidier-looking move
+    /// and the wrong one — the document that comes back from the list's
+    /// refresh is a *row*, carrying a truncated preview in place of the lyric.
+    func adoptTitle(_ title: String) {
+        document.title = title
     }
 
     // MARK: - Loading
