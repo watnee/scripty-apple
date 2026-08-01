@@ -13,9 +13,9 @@
 //  Both readers were serif prose once. The screenplay reader gave that up for
 //  Courier so the script would read as a script, and this one kept it — so a
 //  writer switching from a scene to the song in it met a different typeface
-//  for the length of one tap. It is set in `ScriptFont.default` now, at the
-//  size the lyric is written at, the way the script reader re-typesets rather
-//  than resizes.
+//  for the length of one tap. It is set in the default face now — the writer's
+//  own choice, Courier Prime until they say otherwise — at the size the lyric
+//  is written at, the way the script reader re-typesets rather than resizes.
 //
 //  Not a screen of its own. Like the script reader, this is one of the song
 //  editor's surfaces: the mode swaps the editable lines for this column in
@@ -64,7 +64,13 @@ struct ReadSongView: View {
     private var fontSize: CGFloat { ProseFont.baseSize * scale }
 
     /// The song's own face, which is the screenplay's — see `ProseFont`.
-    private var face: String { ScriptFont.default.postScriptName }
+    ///
+    /// The chosen default rather than the shipped one: a lyric has no font of
+    /// its own to override it with, so the Default Font setting simply is the
+    /// face a song is written and read in, and a script reset to Times brings
+    /// its songs with it. Read here, in a property the body reaches, rather
+    /// than stored — that is what registers the observation.
+    private var face: String { PresentationSettings.shared.defaultFont.postScriptName }
 
     var body: some View {
         ScrollView {
