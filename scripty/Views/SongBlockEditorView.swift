@@ -32,6 +32,22 @@ struct SongBlockEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedLine: Int?
+    /// The name being typed at the head of the lyric, and whether the caret is
+    /// in it. Held apart from the document until it is sent: a rename goes a
+    /// beat after typing stops, not once per keystroke the way a lyric line
+    /// saves — a song's name is short, and every character of it would
+    /// otherwise be a write the list behind this sheet has to follow.
+    @State private var titleDraft: String
+    @FocusState private var titleFocused: Bool
+    /// The armed rename, cancelled and replaced on every keystroke.
+    @State private var renameSave: Task<Void, Never>?
+    /// The wait a note's title takes, for the same reason: a name half-typed
+    /// is not a name.
+    private static let renameDelay: Duration = .milliseconds(1200)
+    /// The OS text-size setting as a multiplier, folded into the heading's
+    /// scale the way `ReadSongView` folds it into the reader's — the lines
+    /// below already honour it through `ProseFont`.
+    @ScaledMetric(relativeTo: .body) private var dynamicTypeScale: CGFloat = 1
 
     /// The same device-wide readout preference the screenplay honours.
     private let settings = PresentationSettings.shared
@@ -87,6 +103,11 @@ struct SongBlockEditorView: View {
         _isReading = State(initialValue: ReadingViewSettings.shared
             .opensInReadingView(.document(id: document.id)))
         _options = State(initialValue: DocumentViewOptions(documentId: document.id, kind: .song))
+        // The stored name, not `displayTitle`: a song the server holds
+        // untitled opens on the field's placeholder rather than on the words
+        // "Untitled Song", which nobody typed and nobody should have to delete
+        // before typing a real one.
+        _titleDraft = State(initialValue: document.title ?? "")
         self.scriptModel = scriptModel
         self.onInserted = onInserted
     }
@@ -322,6 +343,8 @@ struct SongBlockEditorView: View {
     private var lyricList: some View {
         ScrollViewReader { proxy in
             List {
+                titleHeading
+
                 ForEach(shownBlocks) { block in
                     SongLineRow(model: model,
                                 block: block,
@@ -356,6 +379,123 @@ struct SongBlockEditorView: View {
         // empty state of its own, and "Add Line" is an offer that makes no
         // sense on a page being read.
         .overlay { emptyState }
+    }
+
+    /// The song's name at the head of the lyric, in the face, the size and the
+    /// place the reader heads its own page with — see `SongTitleType`. The
+    /// lines were the whole of this surface before, so a song read and then
+    /// written in lost its title on the way in and the writer was left looking
+    /// at a verse with nothing over it.
+    ///
+    /// Typed over in place, where a writer's eye already is. Renaming was a
+    /// swipe on a row in the list one screen back, which is a journey from
+    /// inside the song it names — the same gap the title page's project name
+    /// closed for a screenplay.
+    ///
+    /// The row insets are the lyric rows' own, so the title and the lines it
+    /// heads share a left edge with the reader's column.
+    @ViewBuilder
+    private var titleHeading: some View {
+        Group {
+            if canRenameSong {
+                TextField("Song title", text: $titleDraft)
+                    .focused($titleFocused)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                    // Return in a title means "that's the name": a song is
+                    // headed with one line, unlike the verse below it, where
+                    // Return makes the next line.
+                    .onSubmit { commitRename() }
+            } else {
+                Text(model.document.displayTitle)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
+        .font(SongTitleType.font(scale: titleScale))
+        .accessibilityLabel("Title")
+        .padding(.horizontal, 4)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        // The name lands a beat after typing stops, the way a note's title
+        // does. Deliberately not left to the field losing focus: the lines
+        // under it are UIKit text views that take first responder for
+        // themselves, and SwiftUI's focus engine stops agreeing with UIKit
+        // about who holds it once one of them has — the disagreement
+        // `SoftwareKeyboard` exists for. A rename that waited to be told the
+        // caret had left would be one that sometimes never happened.
+        .onChange(of: titleDraft) { _, _ in scheduleRename() }
+        // Leaving the field sends it now rather than waiting the debounce out.
+        // Two signals, because neither covers everything: SwiftUI's own focus,
+        // where it still knows where the caret is, and the software keyboard
+        // going away where it does not. On a device with a hardware keyboard
+        // there is no software keyboard to go, which is what Return is for.
+        .onChange(of: titleFocused) { _, focused in
+            guard !focused else { return }
+            commitRename()
+        }
+        .onChange(of: SoftwareKeyboard.shared.isVisible) { _, visible in
+            guard !visible else { return }
+            commitRename()
+        }
+    }
+
+    /// Whether the heading takes a caret. The server's own `update` link
+    /// first — a reader is shown the name, not a field — and then the two
+    /// postures that close this lyric to typing, since a song that cannot have
+    /// a line changed should not be renameable by a stray tap either.
+    private var canRenameSong: Bool {
+        model.document.hasLink(.update) && !isReadingView && !options.isEditingLocked
+    }
+
+    private var titleScale: CGFloat { CGFloat(settings.textScale) * dynamicTypeScale }
+
+    /// Arms the debounce. Long enough that a name still being typed —
+    /// "Ballad", on its way to "Ballad of the Lost Hour" — is not filed as one,
+    /// and the same wait a note's title takes.
+    private func scheduleRename() {
+        guard canRenameSong else { return }
+        renameSave?.cancel()
+        renameSave = Task {
+            try? await Task.sleep(for: Self.renameDelay)
+            guard !Task.isCancelled else { return }
+            sendRename()
+        }
+    }
+
+    /// Sends whatever is typed now rather than waiting the debounce out.
+    private func commitRename() {
+        renameSave?.cancel()
+        sendRename()
+    }
+
+    /// Sends the typed name, or puts the heading back.
+    ///
+    /// A blank one is restored rather than sent: the server requires a name and
+    /// every list in the app has to draw something for this song. So is a name
+    /// a failed rename left on screen — the heading must not go on showing
+    /// words the server never took.
+    private func sendRename() {
+        let trimmed = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = model.document.title ?? ""
+        guard trimmed != current else { return }
+        guard !trimmed.isEmpty else {
+            titleDraft = current
+            return
+        }
+        Task {
+            // The script's model rather than this one, because a rename is a
+            // whole-document PUT — it fetches the lyric first so the words are
+            // preserved — and because the lists behind this sheet are its to
+            // refresh.
+            if await scriptModel.renameDocument(model.document, title: trimmed) {
+                model.adoptTitle(trimmed)
+            } else {
+                titleDraft = current
+            }
+        }
     }
 
     /// The reading surface: the lyric as verse, in place of the lines.
@@ -740,6 +880,15 @@ struct SongBlockEditorView: View {
                 model.focusedBlockId = nil
                 model.focusRequest = nil
             })
+        } else if SoftwareKeyboard.shared.isVisible {
+            // The keyboard is up over something that is not a lyric line — the
+            // heading, or the search field. Asked of the keyboard rather than
+            // of the heading's `@FocusState`, which stays false when the writer
+            // taps into it: the lines are UIKit text views that have held first
+            // responder, and SwiftUI's focus engine no longer agrees with UIKit
+            // about who holds it. Same reasoning, and the same fix, as the note
+            // sheet's own title.
+            HideKeyboardBar(releaseFocus: { titleFocused = false })
         }
     }
 

@@ -150,6 +150,15 @@ struct SongEditorView: View {
 
     private let settings = PresentationSettings.shared
 
+    /// The OS text-size setting as a multiplier, folded into the title's own
+    /// scale the way `ReadSongView` folds it into the reader's. The words below
+    /// already honour it — `NoteTextView` sizes its type through
+    /// `UIFontMetrics` — so a title that ignored it would be the one line on
+    /// the sheet that did.
+    @ScaledMetric(relativeTo: .body) private var dynamicTypeScale: CGFloat = 1
+
+    private var titleScale: CGFloat { CGFloat(settings.textScale) * dynamicTypeScale }
+
     init(model: ScriptModel, document: TextDocument?, type: DocumentType,
          onInserted: (() -> Void)? = nil) {
         self.model = model
@@ -484,9 +493,17 @@ struct SongEditorView: View {
 
     // MARK: - Surfaces
 
+    /// The name, at the head of the sheet — set the way the reader sets it, so
+    /// a song read and then written in is headed by the same words in the same
+    /// face in the same place. It was a smaller sans-serif field before, which
+    /// made the title the one thing on the page that changed when the mode did.
+    ///
+    /// Still a field rather than a heading with a rename behind it: this sheet
+    /// has always saved the name as it is typed, and there was never a reason
+    /// to make the writer ask for the caret it already had.
     private var titleField: some View {
         TextField(type == .song ? "Song title" : "Note title", text: $title)
-            .font(.title3.weight(.semibold))
+            .font(SongTitleType.font(scale: titleScale))
             .textInputAutocapitalization(.words)
             .submitLabel(.next)
             .focused($titleFocused)

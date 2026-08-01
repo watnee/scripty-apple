@@ -99,13 +99,20 @@ extension HelpTopic {
                     + "or delete it. A screenplay already open can be renamed where you "
                     + "are: Rename Screenplay sits under its name in the script's "
                     + "toolbar, beside the title page and the rest of its affairs.",
+                    "The script itself is headed with the name, at the top of the "
+                    + "writing column as well as in reading mode, and tapping that "
+                    + "heading types over it. Where a title page sets a screenplay "
+                    + "title, that is the name you are editing — the project keeps the "
+                    + "name it is filed under in the list, which the title page can "
+                    + "change too.",
                     "The star marks a default project. Tap it on the row you keep "
                     + "coming back to, and Scripty opens that screenplay for you "
                     + "the next time it starts — the same landing the web editor "
                     + "gives you. With nothing starred you begin here, on the list."
                 ],
                 keywords: ["sidebar", "list", "screenplays", "sort", "rename", "default",
-                           "star", "swipe", "launch", "open", "startup"]),
+                           "star", "swipe", "launch", "open", "startup",
+                           "title", "heading", "retitle", "name", "tap the title"]),
             HelpTopic(
                 id: "project-transfer",
                 title: "Importing and Exporting a Project",
@@ -658,6 +665,10 @@ extension HelpTopic {
                     + "writing back where you left it, and both take the same "
                     + "device-wide text size. A document with nothing in it opens for "
                     + "writing instead — there is nothing to read.",
+                    "The name sits at the head of a song or note either way — over the "
+                    + "words while you read, over the lines while you write, in the "
+                    + "same face and the same place — and you can type over it there "
+                    + "instead of going back to the list to rename it.",
                     "Both editors show a keyboard key above the keyboard while you "
                     + "write — it puts the keyboard away and leaves the words where "
                     + "they are.",
@@ -746,7 +757,11 @@ extension HelpTopic {
                     + "The project name, which the same sheet also holds, is only what "
                     + "your list calls it — so on a screenplay with a title of its own, "
                     + "renaming the project changes the list and leaves the heading "
-                    + "alone. Leave the title blank and the two are the same thing."
+                    + "alone. Leave the title blank and the two are the same thing.",
+                    "That heading can also be typed over where it stands, at the top "
+                    + "of the script: it edits whichever of the two names it is "
+                    + "showing, so a screenplay with a title of its own is retitled "
+                    + "there and keeps the name it is filed under."
                 ],
                 keywords: ["front matter", "credits", "author", "byline", "contact",
                            "draft", "name", "rename", "project name", "heading"]),

@@ -32,6 +32,30 @@
 
 import SwiftUI
 
+/// The type a song's name is set in wherever the song itself is on screen.
+///
+/// Shared because both editors head their own surface with it now, and a title
+/// that changed face or size on the way into reading would be the one part of
+/// the page that moved when the mode did. The lines underneath change — set as
+/// verse here, as editable lines there — and the title deliberately does not.
+///
+/// In the lyric's own face, which is the script's: the reader gave up its serif
+/// prose so a writer moving between a scene and the song in it would not meet a
+/// second typeface, and a heading left behind in the old one would be the whole
+/// of what that change was meant to stop.
+@MainActor
+enum SongTitleType {
+    /// A step up from the lyric rather than the display size the serif face
+    /// carried: Courier sets wide, and a title big enough to eat the measure
+    /// would wrap before the verses did.
+    static let baseSize: CGFloat = ProseFont.baseSize * 1.5
+
+    static func font(scale: CGFloat) -> Font {
+        .custom(PresentationSettings.shared.defaultFont.postScriptName,
+                fixedSize: baseSize * scale)
+    }
+}
+
 struct ReadSongView: View {
     let title: String
     /// The lyric, one string per line, in order. Blank entries are the writer's
@@ -75,11 +99,8 @@ struct ReadSongView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24 * scale) {
-                // A step up from the lyric rather than the display size a serif
-                // face carried: Courier sets wide, and a title big enough to
-                // eat the measure would wrap before the verses did.
                 Text(title.isEmpty ? "Untitled Song" : title)
-                    .font(.custom(face, fixedSize: fontSize * 1.5))
+                    .font(SongTitleType.font(scale: scale))
                     .fontWeight(.bold)
                     .accessibilityAddTraits(.isHeader)
 

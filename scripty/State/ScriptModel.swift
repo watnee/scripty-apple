@@ -1868,6 +1868,41 @@ final class ScriptModel {
         }
     }
 
+    /// Retitles the screenplay from the heading at the top of the script —
+    /// which is not always the project's own name.
+    ///
+    /// `displayTitle`, what both the writing column and the reader head the
+    /// page with, shows the screenplay title where the title page sets one and
+    /// the project name otherwise. So the field this writes to follows the one
+    /// on screen: typing over a heading that reads "THE LONG WAY HOME" edits
+    /// the title page's field and leaves the filing name alone, and typing
+    /// over one showing the project name is the ordinary rename above. Either
+    /// way the writer changed the words they were looking at, which is the only
+    /// rule an edit made in place can be judged by — the alternative is a
+    /// heading that visibly does not take.
+    ///
+    /// The project name still rides along, because `EditProjectCommand`
+    /// requires it; sending back the one already stored leaves it unchanged.
+    @discardableResult
+    func retitleScreenplay(to title: String) async -> Project? {
+        let screenplay = (project.screenplayTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !screenplay.isEmpty else { return await renameProject(to: title) }
+        guard let link = project.link(.update) else { return nil }
+        do {
+            let updated: Project = try await app.client.fetch(
+                from: link, method: "PUT",
+                body: EditProjectCommand(title: project.title ?? title,
+                                         screenplayTitle: title))
+            adopt(updated)
+            errorMessage = nil
+            return updated
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
     // MARK: - Characters
 
     @discardableResult
