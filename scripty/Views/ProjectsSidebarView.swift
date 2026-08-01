@@ -374,9 +374,10 @@ struct ProjectsSidebarView: View {
         }
         Section {
             // Nothing to sign out of without an account, and nowhere better to
-            // be sent: this session *is* where a signed-out device lives. What
-            // it offers instead is the way to keep the writing — signing in,
-            // which then asks whether to bring it along.
+            // be sent: this session *is* where a signed-out device lives, and
+            // what is written here stays here between launches. What it offers
+            // instead is the way to get the writing off the device — signing
+            // in, which then asks whether to bring it along.
             if app.isDemo {
                 Button {
                     app.isPresentingSignIn = true
@@ -887,8 +888,9 @@ private struct DemoBanner: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Not Signed In")
                         .font(.subheadline.weight(.semibold))
-                    Text("Write as much as you like — it stays on this device, "
-                         + "and is discarded when you quit. Sign in to keep it.")
+                    Text("Write as much as you like — it's kept on this device "
+                         + "and will be here next time. Sign in to back it up "
+                         + "and reach it from anywhere.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

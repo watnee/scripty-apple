@@ -31,6 +31,23 @@ final class AppModel {
     /// happens, and it is still exactly what `scripty://demo` opens.
     private(set) var isDemo = false
 
+    /// Whether this local session is the throwaway kind: the screenshot runs,
+    /// entered by `-scripty.demo YES` and nothing else.
+    ///
+    /// The distinction `isDemo` no longer draws. A signed-out device's
+    /// workspace is kept on disk and its ids mean the same thing next launch,
+    /// so everything that remembers a place — the project reopened at launch,
+    /// the screen above it, the Home Screen menu, the widgets — works there
+    /// exactly as it does in an account. None of that holds for a session that
+    /// is reseeded every run: its project 1 is a different screenplay each
+    /// time, and letting it write those records would mean a screenshot pass
+    /// costing the writer their place.
+    ///
+    /// So: `isDemo` asks "is there an account behind this?", which is what the
+    /// cloud badges and the sign-in offer want. This asks "will any of it be
+    /// here tomorrow?", which is what anything *recording* something wants.
+    private(set) var isEphemeralDemo = false
+
     /// Whether the sign-in screen is being shown over the app.
     ///
     /// The signed-out *phase* is now the narrow case — a session the server
@@ -121,29 +138,62 @@ final class AppModel {
     }
 
     /// Where the offline copies of this account's documents live. Nil exactly
-    /// when `draftScope` is nil (signed out, demo), and scoped the same way,
-    /// so cached scripts can never leak between accounts or servers.
+    /// when `draftScope` is nil (a local session), and scoped the same way, so
+    /// cached scripts can never leak between accounts or servers.
     var offlineStore: OfflineStore? {
         draftScope.map { OfflineStore(scope: $0) }
     }
 
-    /// Set via launch arguments (`-scripty.demo YES`) to boot straight into
-    /// demo mode — used by scripts/demo.sh and never persisted.
+    /// Set via launch arguments (`-scripty.demo YES`) to boot straight into a
+    /// throwaway local session — used by scripts/demo.sh and never persisted.
     ///
-    /// The only way in. Demo mode is a development and screenshot tool, not
-    /// something the app offers: nothing in the interface reaches it, and no
-    /// URL opens it.
+    /// The backend behind it is the same one a signed-out device writes in;
+    /// what this flag picks is the *ephemeral* variant, seeded fresh every
+    /// launch and never written to disk. That is what makes it a demo: the
+    /// screenshot runs need the same app every time, and one that remembered
+    /// yesterday's fiddling would be no use to them. Nothing in the interface
+    /// reaches this and no URL opens it.
     static let demoLaunchKey = "scripty.demo"
 
     /// Whose unsaved drafts the disk store holds: server + account, so drafts
-    /// can never leak between accounts or servers. Nil while signed out and in
-    /// demo — the demo's blocks don't survive a relaunch, so a persisted draft
-    /// would point at ids that no longer exist.
+    /// can never leak between accounts or servers.
+    ///
+    /// Nil in a local session, and deliberately so even now that one survives a
+    /// relaunch. Everything downstream of this — `UnsavedDraftStore`,
+    /// `OfflineBlockQueue`, `OfflineStore` — exists because a save can fail or
+    /// a read can find no network, and neither can happen against a backend in
+    /// this process: a local write is answered and on disk before the call
+    /// returns. A store here would be a second copy of `LocalWorkspaceStore`
+    /// that never held anything.
+    ///
+    /// The debounce window is covered without it. `flushPendingCommits()` runs
+    /// the outstanding saves on the way to the background, and locally each one
+    /// lands in the workspace file synchronously — which is as far as a
+    /// signed-in session gets too.
     var draftScope: String? {
         guard !isDemo, let username = client.credentials?.username else { return nil }
         let host = client.baseURL.host ?? client.baseURL.absoluteString
         return host + "|" + username.lowercased()
     }
+
+    /// Which set of screenplays a device-wide record is about.
+    ///
+    /// The records that remember a *place* — `LastOpenedProject`,
+    /// `OpenEditorState` — are one per device rather than one per account,
+    /// because they are the app window's state and not the writer's. That works
+    /// only as long as a stored id is either found in the list that comes back
+    /// or is not; it breaks the moment two workspaces number their screenplays
+    /// the same way, which a local session and a fresh account both do, from 1.
+    /// Signing in after writing without an account would then reopen whichever
+    /// of the account's screenplays happened to share a number with the local
+    /// one — the right kind of thing, from the wrong place.
+    ///
+    /// So each record carries this, and one written elsewhere reads as no
+    /// record. `draftScope` already spells an account uniquely (server plus
+    /// user); the local session has exactly one workspace per device and needs
+    /// no more than a name. It contains no `|`, which every account scope does,
+    /// so the two can never collide.
+    var workspaceScope: String { draftScope ?? "local" }
 
     /// Counts the offers made, so each gets an identity of its own.
     private var nextOfferId = 0
@@ -165,7 +215,7 @@ final class AppModel {
     /// useful thing to say is that it needs signing into again.
     func bootstrap() async {
         if UserDefaults.standard.bool(forKey: Self.demoLaunchKey) {
-            await enterDemo()
+            await enterDemo(persisted: false)
             return
         }
         guard let stored = KeychainStore.load() else {
@@ -297,6 +347,7 @@ final class AppModel {
         client = attempt
         guestSignInClient = nil
         isDemo = false
+        isEphemeralDemo = false
         apiRoot = root
         isOfflineSession = false
         offlineStore?.save(rootData, .root)
@@ -382,24 +433,33 @@ final class AppModel {
         return phase
     }
 
-    /// Enters the local session: a fresh in-memory backend seeded with a sample
-    /// screenplay. Stored real credentials are left untouched.
+    /// Enters the local session: the workspace this device last wrote, or a
+    /// sample screenplay on one that never has. Stored real credentials are
+    /// left untouched.
     ///
     /// This is what a launch with no account lands in, as well as what
     /// `scripty://demo` and the Try Scripty script open. Everything here is
-    /// writable and none of it leaves the device — or survives the app being
-    /// quit, which is what the offer to upload it on sign-in is for.
+    /// writable and none of it leaves the device — but it does now outlive the
+    /// app being quit, so a writer without an account has somewhere to keep
+    /// working rather than a session that expires when they put the phone down.
+    /// Signing in still offers to take it with them.
+    ///
+    /// `persisted: false` is the demo proper — the screenshot runs, which want
+    /// the same app every time and would be worse than useless if they showed
+    /// yesterday's fiddling.
     ///
     /// Re-entering while already in it is a no-op, so opening `scripty://demo`
     /// again doesn't throw away the edits being demoed.
-    func enterDemo() async {
+    func enterDemo(persisted: Bool = true) async {
         guard !isDemo else { return }
         session += 1
-        let demoClient = APIClient(baseURL: DemoBackend.baseURL, demo: DemoBackend())
+        let backend = DemoBackend(store: persisted ? LocalWorkspaceStore() : nil)
+        let demoClient = APIClient(baseURL: DemoBackend.baseURL, demo: backend)
         do {
             apiRoot = try await demoClient.fetch(APIRoot.self, from: demoClient.rootLink)
             client = demoClient
             isDemo = true
+            isEphemeralDemo = !persisted
             signInError = nil
             phase = .signedIn
             loadEditorPreferences()
@@ -420,8 +480,9 @@ final class AppModel {
 
     /// Ends the session and goes back to the local one, which is where a device
     /// with no account belongs: signing out is not a reason to be shut out of
-    /// the app. What was written in the account stays in the account; the local
-    /// session starts fresh, on its sample screenplay.
+    /// the app. What was written in the account stays in the account, and the
+    /// local session comes back to whatever *it* was last left holding —
+    /// including anything a previous sign-in was offered and declined.
     func signOutToLocal() async {
         endSession()
         await enterDemo()
@@ -431,6 +492,7 @@ final class AppModel {
         session += 1
         if isDemo {
             isDemo = false
+            isEphemeralDemo = false
             client = APIClient()
             wireOfflineCheck()
         } else {
@@ -506,6 +568,11 @@ final class AppModel {
                                         fileName: "Scripty.scripty.json",
                                         fileData: bundle,
                                         mimeType: "application/json")
+            // Only now, and only what was taken: the local workspace outlives
+            // this session, so a screenplay left in it after the account has a
+            // copy would come back as a stale second one at the next sign-out.
+            // Anything the writer left unticked stays put.
+            await offer.backend.handOff(projectIds: ids)
             guestWorkImports += 1
             return nil
         } catch {

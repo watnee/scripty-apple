@@ -52,9 +52,9 @@ func runSignedIn() {
     print("Signing in with a star set")
 
     check("opens the starred project",
-          id(LaunchProject.opened(in: [recent, starred], isDemo: false)), "1")
+          id(LaunchProject.opened(in: [recent, starred], isEphemeralDemo: false)), "1")
     check("whichever way round the list arrives",
-          id(LaunchProject.opened(in: [starred, recent], isDemo: false)), "1")
+          id(LaunchProject.opened(in: [starred, recent], isEphemeralDemo: false)), "1")
 
     print("")
     print("Signing in with no star")
@@ -63,27 +63,40 @@ func runSignedIn() {
     // Nobody asked for anything, so the list is the honest answer.
     check("stays on the list rather than guessing",
           id(LaunchProject.opened(in: [recent, project(id: 3, title: "Old", lastEdited: daysAgo(9))],
-                                  isDemo: false)),
+                                  isEphemeralDemo: false)),
           "none")
     // `default: false` is a real answer from the server, not a missing one.
     check("an unstarred flag is not a star",
           id(LaunchProject.opened(in: [project(id: 4, title: "Not it",
                                                lastEdited: daysAgo(40), isDefault: false)],
-                                  isDemo: false)),
+                                  isEphemeralDemo: false)),
           "none")
     check("an account with no projects opens nothing",
-          id(LaunchProject.opened(in: [], isDemo: false)), "none")
+          id(LaunchProject.opened(in: [], isEphemeralDemo: false)), "none")
+}
+
+func runSignedOut() {
+    print("")
+    print("Signed out, on this device's own workspace")
+
+    // The same rule as an account. A device with no account keeps what it
+    // wrote, stars included, so the star here is a choice the writer made and
+    // not a leftover of the seed.
+    check("honours the star like any other session",
+          id(LaunchProject.opened(in: [recent, starred], isEphemeralDemo: false)), "1")
+    check("and stays on the list without one",
+          id(LaunchProject.opened(in: [recent], isEphemeralDemo: false)), "none")
 }
 
 func runDemo() {
     print("")
-    print("The demo")
+    print("The throwaway demo")
 
-    // The demo exists to show the editor, and nothing in it is ever starred.
+    // Reseeded every launch, and nothing in it is ever starred.
     check("opens the sample screenplay it leads with",
-          id(LaunchProject.opened(in: [recent, starred], isDemo: true)), "2")
+          id(LaunchProject.opened(in: [recent, starred], isEphemeralDemo: true)), "2")
     check("with nothing to show, nothing opens",
-          id(LaunchProject.opened(in: [], isDemo: true)), "none")
+          id(LaunchProject.opened(in: [], isEphemeralDemo: true)), "none")
 }
 
 func runStarLookup() {
@@ -97,6 +110,7 @@ func runStarLookup() {
 
 print("== What a launch opens ==")
 runSignedIn()
+runSignedOut()
 runDemo()
 runStarLookup()
 

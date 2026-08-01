@@ -25,13 +25,18 @@ enum WidgetPublisher {
     /// deleting, importing, restoring from the trash — is covered by the one
     /// call site watching the list.
     ///
-    /// The demo publishes nothing, exactly as the Home Screen menu's recents
-    /// do not. Its songs live in memory for as long as the app is running, so
-    /// a row naming one is a row that could only ever fail to open — and it
-    /// would sit on the Home Screen long after the demo was over, since
-    /// nothing but this app can take it back down.
-    static func publish(_ documents: [TextDocument], project: Project, isDemo: Bool) {
-        guard !isDemo else { return }
+    /// A signed-out device publishes like any other: its workspace is kept on
+    /// disk, so a row naming one of its songs opens that song tomorrow just as
+    /// it does now.
+    ///
+    /// Only the throwaway demo publishes nothing, exactly as the Home Screen
+    /// menu's recents do not. Its songs live in memory for as long as the app
+    /// is running, so a row naming one is a row that could only ever fail to
+    /// open — and it would sit on the Home Screen long after the demo was over,
+    /// since nothing but this app can take it back down.
+    static func publish(_ documents: [TextDocument], project: Project,
+                        isEphemeralDemo: Bool) {
+        guard !isEphemeralDemo else { return }
         let rows = documents.compactMap { document -> WidgetDocument? in
             // A document the server never dated is left out rather than sorted
             // as ancient — the same rule `mostRecentlyEdited` follows, and for
@@ -82,7 +87,8 @@ extension View {
     /// all gone still publishes, because that is a change from what it held.
     func publishingSongsAndNotes(from model: ScriptModel) -> some View {
         onChange(of: model.documents) { _, documents in
-            WidgetPublisher.publish(documents, project: model.project, isDemo: model.app.isDemo)
+            WidgetPublisher.publish(documents, project: model.project,
+                                    isEphemeralDemo: model.app.isEphemeralDemo)
         }
     }
 }

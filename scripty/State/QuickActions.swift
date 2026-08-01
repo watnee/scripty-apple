@@ -65,12 +65,16 @@ final class QuickActions {
 
     /// Republishes the "recent projects" half of the menu.
     ///
-    /// The demo publishes nothing. Its projects live in memory for as long as
-    /// the app is running, so an entry naming one would be an entry that could
-    /// only ever fail — and it would sit on the Home Screen long after the demo
-    /// was over, since nothing but this app can take it back down.
-    func publishRecents(_ projects: [Project], isDemo: Bool) {
-        guard !isDemo else {
+    /// A signed-out device publishes like any other: its workspace is kept on
+    /// disk, so an entry naming one of its screenplays still opens it tomorrow.
+    ///
+    /// Only the throwaway demo publishes nothing. Its projects live in memory
+    /// for as long as the app is running, so an entry naming one would be an
+    /// entry that could only ever fail — and it would sit on the Home Screen
+    /// long after the demo was over, since nothing but this app can take it
+    /// back down.
+    func publishRecents(_ projects: [Project], isEphemeralDemo: Bool) {
+        guard !isEphemeralDemo else {
             clearRecents()
             return
         }

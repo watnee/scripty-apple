@@ -177,7 +177,7 @@ struct LoginView: View {
 
                         Text(isModal
                              ? "Your work stays on this device until you sign in."
-                             : "Start writing right away — everything stays on this device.")
+                             : "Start writing right away — it's kept on this device.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)

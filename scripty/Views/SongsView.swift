@@ -364,8 +364,9 @@ struct SongsView: View {
             // up — the script view set it on the way in and does not hear about
             // this. The editor or workspace over the list is the rung above.
             .remembersOpenEditor(.songsAndNotes(listType), atDepth: 0,
-                                 isEnabled: !model.app.isDemo)
-            .remembersOpenEditor(openEditor, atDepth: 1, isEnabled: !model.app.isDemo)
+                                 isEnabled: !model.app.isEphemeralDemo)
+            .remembersOpenEditor(openEditor, atDepth: 1,
+                                 isEnabled: !model.app.isEphemeralDemo)
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }
             }

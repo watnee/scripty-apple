@@ -17,7 +17,7 @@ actor DemoBackend {
 
     // MARK: - Store
 
-    private struct DemoProject {
+    private struct DemoProject: Codable {
         var id: Int
         var title: String
         var writers: String?
@@ -36,7 +36,7 @@ actor DemoBackend {
         var archivedAt: Date?
     }
 
-    private struct DemoBlock {
+    private struct DemoBlock: Codable {
         var id: Int
         var order: Int
         var content: String
@@ -53,7 +53,7 @@ actor DemoBackend {
         var textUnderline: Bool?
     }
 
-    private struct DemoPerson {
+    private struct DemoPerson: Codable {
         var id: Int
         var name: String
         var fullName: String
@@ -62,7 +62,7 @@ actor DemoBackend {
 
     /// Actors live outside any one project — the same person can be cast in
     /// several — so they are stored flat and filtered by `projectIds`.
-    private struct DemoActor {
+    private struct DemoActor: Codable {
         var id: Int
         var first: String
         var last: String
@@ -75,7 +75,7 @@ actor DemoBackend {
         var projectIds: [Int]
     }
 
-    private struct DemoDocument {
+    private struct DemoDocument: Codable {
         var id: Int
         var projectId: Int
         var title: String
@@ -140,13 +140,294 @@ actor DemoBackend {
     /// the sidebar already sorts on.
     private var writtenProjectIds: Set<Int> = []
 
+    // MARK: - Persistence
+
+    /// Where this workspace is kept between launches, or nil for a session that
+    /// is meant to evaporate.
+    ///
+    /// Nil is the demo proper — `-scripty.demo YES`, which `scripts/demo.sh`
+    /// and the screenshot runs use. That mode exists to show the same app every
+    /// time, and a demo that remembered yesterday's fiddling would stop being a
+    /// demo. A device with no account is the other caller, and everything it
+    /// writes here is the writer's only copy, so it gets a store.
+    private let store: LocalWorkspaceStore?
+
+    /// Every store in the actor, in one document.
+    ///
+    /// Flat and exhaustive on purpose. These stores point at each other by id,
+    /// so a snapshot missing one of them is not a smaller workspace but an
+    /// inconsistent one — a project whose blocks are gone, or a `nextBlockId`
+    /// that hands out an id something already answers to. Anything added to the
+    /// actor's state belongs here too; `Tests/LocalWorkspace` round-trips a
+    /// mutated backend to catch the ones that are forgotten.
+    private struct Snapshot: Codable {
+        var projects: [DemoProject]
+        var blocks: [Int: [DemoBlock]]
+        var people: [Int: [DemoPerson]]
+        var documents: [Int: [DemoDocument]]
+        var actors: [DemoActor]
+        var undoStacks: [Int: [[DemoBlock]]]
+        var redoStacks: [Int: [[DemoBlock]]]
+        var versions: [Int: [DemoVersion]]
+        var nextVersionId: Int
+        var comments: [DemoComment]
+        var nextCommentId: Int
+        var songBlocks: [Int: [DemoSongBlock]]
+        var nextSongBlockId: Int
+        var songEditions: [DemoSongEdition]
+        var nextSongEditionId: Int
+        var deletedSongBlocks: [Int: [DeletedDemoSongBlock]]
+        var nextDeletedSongBlockId: Int
+        var songUndoStacks: [Int: [[DemoSongBlock]]]
+        var songRedoStacks: [Int: [[DemoSongBlock]]]
+        var songVersions: [Int: [DemoSongVersion]]
+        var deletedDocuments: [Int: [DeletedDemoDocument]]
+        var archivedDocuments: [Int: [ArchivedDemoDocument]]
+        var invitations: [DemoInvitation]
+        var nextInvitationId: Int
+        var activity: [DemoActivity]
+        var nextActivityId: Int
+        var editions: [DemoEdition]
+        var editionBlocks: [Int: [DemoBlock]]
+        var nextEditionId: Int
+        var trashedProjects: [TrashedDemoProject]
+        var deletedBlocks: [Int: [DeletedDemoBlock]]
+        var nextDeletedBlockId: Int
+        var defaultProjectId: Int?
+        var nextProjectId: Int
+        var nextBlockId: Int
+        var nextPersonId: Int
+        var nextDocumentId: Int
+        var nextActorId: Int
+        var writtenProjectIds: Set<Int>
+        var capitalization: [String: Bool]
+        var auditions: [Int: [Int: Set<Int>]]
+        var teamsStore: [DemoTeam]
+        var nextTeamId: Int
+        var usersStore: [DemoUser]
+        var nextUserId: Int
+        var accountPassword: String
+        var passkeyStore: [DemoPasskey]
+    }
+
+    init(store: LocalWorkspaceStore? = nil) {
+        self.store = store
+    }
+
+    /// The stored workspace, restored whole — or nil, which means seed.
+    ///
+    /// Read on the first request rather than in `init`, both because an actor's
+    /// initialiser cannot reach its own isolated state to fill it and because
+    /// this is where the seed already happens: the two are the same decision.
+    ///
+    /// A copy that no longer decodes — the app updated and a field moved — is
+    /// treated as no copy, so that device opens on the sample screenplay rather
+    /// than on an empty list it cannot explain. That is a real loss, which is
+    /// why the format is one private struct in one file: the shape should move
+    /// rarely, and never by accident.
+    private func restoreStoredWorkspace() -> Bool {
+        guard let data = store?.load(),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
+            return false
+        }
+        restore(snapshot)
+        return true
+    }
+
+    private func capture() -> Snapshot {
+        Snapshot(projects: projects,
+                 blocks: blocks,
+                 people: people,
+                 documents: documents,
+                 actors: actors,
+                 undoStacks: undoStacks,
+                 redoStacks: redoStacks,
+                 versions: versions,
+                 nextVersionId: nextVersionId,
+                 comments: comments,
+                 nextCommentId: nextCommentId,
+                 songBlocks: songBlocks,
+                 nextSongBlockId: nextSongBlockId,
+                 songEditions: songEditions,
+                 nextSongEditionId: nextSongEditionId,
+                 deletedSongBlocks: deletedSongBlocks,
+                 nextDeletedSongBlockId: nextDeletedSongBlockId,
+                 songUndoStacks: songUndoStacks,
+                 songRedoStacks: songRedoStacks,
+                 songVersions: songVersions,
+                 deletedDocuments: deletedDocuments,
+                 archivedDocuments: archivedDocuments,
+                 invitations: invitations,
+                 nextInvitationId: nextInvitationId,
+                 activity: activity,
+                 nextActivityId: nextActivityId,
+                 editions: editions,
+                 editionBlocks: editionBlocks,
+                 nextEditionId: nextEditionId,
+                 trashedProjects: trashedProjects,
+                 deletedBlocks: deletedBlocks,
+                 nextDeletedBlockId: nextDeletedBlockId,
+                 defaultProjectId: defaultProjectId,
+                 nextProjectId: nextProjectId,
+                 nextBlockId: nextBlockId,
+                 nextPersonId: nextPersonId,
+                 nextDocumentId: nextDocumentId,
+                 nextActorId: nextActorId,
+                 writtenProjectIds: writtenProjectIds,
+                 capitalization: capitalization,
+                 auditions: auditions,
+                 teamsStore: teamsStore,
+                 nextTeamId: nextTeamId,
+                 usersStore: usersStore,
+                 nextUserId: nextUserId,
+                 accountPassword: accountPassword,
+                 passkeyStore: passkeyStore)
+    }
+
+    private func restore(_ snapshot: Snapshot) {
+        projects = snapshot.projects
+        blocks = snapshot.blocks
+        people = snapshot.people
+        documents = snapshot.documents
+        actors = snapshot.actors
+        undoStacks = snapshot.undoStacks
+        redoStacks = snapshot.redoStacks
+        versions = snapshot.versions
+        nextVersionId = snapshot.nextVersionId
+        comments = snapshot.comments
+        nextCommentId = snapshot.nextCommentId
+        songBlocks = snapshot.songBlocks
+        nextSongBlockId = snapshot.nextSongBlockId
+        songEditions = snapshot.songEditions
+        nextSongEditionId = snapshot.nextSongEditionId
+        deletedSongBlocks = snapshot.deletedSongBlocks
+        nextDeletedSongBlockId = snapshot.nextDeletedSongBlockId
+        songUndoStacks = snapshot.songUndoStacks
+        songRedoStacks = snapshot.songRedoStacks
+        songVersions = snapshot.songVersions
+        deletedDocuments = snapshot.deletedDocuments
+        archivedDocuments = snapshot.archivedDocuments
+        invitations = snapshot.invitations
+        nextInvitationId = snapshot.nextInvitationId
+        activity = snapshot.activity
+        nextActivityId = snapshot.nextActivityId
+        editions = snapshot.editions
+        editionBlocks = snapshot.editionBlocks
+        nextEditionId = snapshot.nextEditionId
+        trashedProjects = snapshot.trashedProjects
+        deletedBlocks = snapshot.deletedBlocks
+        nextDeletedBlockId = snapshot.nextDeletedBlockId
+        defaultProjectId = snapshot.defaultProjectId
+        nextProjectId = snapshot.nextProjectId
+        nextBlockId = snapshot.nextBlockId
+        nextPersonId = snapshot.nextPersonId
+        nextDocumentId = snapshot.nextDocumentId
+        nextActorId = snapshot.nextActorId
+        writtenProjectIds = snapshot.writtenProjectIds
+        capitalization = snapshot.capitalization
+        auditions = snapshot.auditions
+        teamsStore = snapshot.teamsStore
+        nextTeamId = snapshot.nextTeamId
+        usersStore = snapshot.usersStore
+        nextUserId = snapshot.nextUserId
+        accountPassword = snapshot.accountPassword
+        passkeyStore = snapshot.passkeyStore
+    }
+
+    /// Written out synchronously, on the request that changed something.
+    ///
+    /// The client already debounces its saves, so this runs about once per
+    /// pause in the typing rather than once per keystroke, and one atomic write
+    /// of a screenplay-sized document is cheaper than the round trip it is
+    /// standing in for. Deferring it would buy little and cost the last edit
+    /// every time the app is killed from the switcher.
+    private func persist() {
+        guard let store, let data = try? JSONEncoder().encode(capture()) else { return }
+        store.save(data)
+    }
+
+    /// Lets go of the screenplays an account has just taken a copy of.
+    ///
+    /// Only the ones actually uploaded, and outright rather than into the trash:
+    /// these now live in the account, and a local copy left behind would come
+    /// back the next time the writer signed out — as a second, older copy of a
+    /// screenplay they are still working on somewhere else. Anything they chose
+    /// *not* to hand over stays exactly where it is, which is the point of
+    /// keeping the workspace at all.
+    func handOff(projectIds ids: [Int]) {
+        let handed = Set(ids)
+        // Read before anything is removed: the song and comment stores are
+        // keyed by the children of these projects, so their keys have to be
+        // collected while the projects still have children.
+        let handedDocuments = Set(handed.flatMap { documents[$0] ?? [] }.map(\.id))
+        let handedEditions = Set(songEditions
+            .filter { handedDocuments.contains($0.documentId) }
+            .map(\.id))
+        let handedBlocks = Set(handed.flatMap { blocks[$0] ?? [] }.map(\.id))
+
+        projects.removeAll { handed.contains($0.id) }
+        for id in handed {
+            blocks[id] = nil
+            people[id] = nil
+            documents[id] = nil
+            undoStacks[id] = nil
+            redoStacks[id] = nil
+            versions[id] = nil
+            deletedBlocks[id] = nil
+            deletedDocuments[id] = nil
+            archivedDocuments[id] = nil
+            auditions[id] = nil
+            writtenProjectIds.remove(id)
+            if defaultProjectId == id { defaultProjectId = nil }
+        }
+        for documentId in handedDocuments { songVersions[documentId] = nil }
+        for editionId in handedEditions {
+            songBlocks[editionId] = nil
+            deletedSongBlocks[editionId] = nil
+            songUndoStacks[editionId] = nil
+            songRedoStacks[editionId] = nil
+        }
+        songEditions.removeAll { handedDocuments.contains($0.documentId) }
+        for editionId in editions.filter({ handed.contains($0.projectId) }).map(\.id) {
+            editionBlocks[editionId] = nil
+        }
+        editions.removeAll { handed.contains($0.projectId) }
+        activity.removeAll { handed.contains($0.projectId) }
+        invitations.removeAll { handed.contains($0.projectId) }
+        comments.removeAll { handedBlocks.contains($0.blockId) }
+        // Actors are shared across projects, so this narrows the cast list
+        // rather than emptying it — one left in no project at all is nobody's
+        // any more and goes.
+        for index in actors.indices {
+            actors[index].projectIds.removeAll { handed.contains($0) }
+        }
+        actors.removeAll { $0.projectIds.isEmpty }
+        persist()
+    }
+
     // MARK: - Router
 
     func respond(method: String, url: URL, body: Data?) -> (status: Int, data: Data) {
+        // What this session opens on: whatever was left here last time, or the
+        // sample screenplay on a device that has never written one. The seed is
+        // then this device's workspace rather than a fixture regenerated each
+        // launch, so it is written out straight away — before anything can be
+        // built on the ids it just handed out.
         if !seeded {
             seeded = true
-            seed()
+            if !restoreStoredWorkspace() {
+                seed()
+                persist()
+            }
         }
+        let result = route(method: method, url: url, body: body)
+        // Everything that changes the store arrives as a write. A GET can only
+        // read, so the common case — a script being scrolled — costs nothing.
+        if method != "GET" { persist() }
+        return result
+    }
+
+    private func route(method: String, url: URL, body: Data?) -> (status: Int, data: Data) {
         let path = url.pathComponents.filter { $0 != "/" }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?
@@ -206,7 +487,7 @@ actor DemoBackend {
 
     // MARK: - Account (own password and passkeys)
 
-    private struct DemoPasskey {
+    private struct DemoPasskey: Codable {
         var credentialId: String
         var label: String
         var created: Date
@@ -1545,7 +1826,7 @@ actor DemoBackend {
     /// Someone invited to a screenplay. The demo enables this surface where a
     /// real deployment keeps it behind a flag, because nothing here leaves the
     /// process: no mail is sent and no account can be created.
-    private struct DemoInvitation {
+    private struct DemoInvitation: Codable {
         var id: Int
         var projectId: Int
         var email: String
@@ -1679,7 +1960,7 @@ actor DemoBackend {
     /// One entry in a project's activity log. Written by the demo's own
     /// mutations, never by a caller — the log records what happened, not what
     /// someone claimed happened.
-    private struct DemoActivity {
+    private struct DemoActivity: Codable {
         var id: Int
         var projectId: Int
         var actor: String
@@ -1725,7 +2006,7 @@ actor DemoBackend {
 
     // MARK: - Comments
 
-    private struct DemoComment {
+    private struct DemoComment: Codable {
         var id: Int
         var blockId: Int
         var authorName: String
@@ -1822,7 +2103,7 @@ actor DemoBackend {
 
     /// A named variant of a script. Blocks belong to an edition; the demo keys
     /// them by edition id so switching genuinely shows different text.
-    private struct DemoEdition {
+    private struct DemoEdition: Codable {
         var id: Int
         var projectId: Int
         var name: String
@@ -1958,7 +2239,7 @@ actor DemoBackend {
     // MARK: - Song blocks
 
     /// One lyric line. Keyed by edition, since that is what an edition scopes.
-    private struct DemoSongBlock {
+    private struct DemoSongBlock: Codable {
         var id: Int
         var order: Int
         var content: String
@@ -2160,7 +2441,7 @@ actor DemoBackend {
 
     /// A deleted lyric line. Like a screenplay element it comes back as a new
     /// line rather than the original id, which is what the server does too.
-    private struct DeletedDemoSongBlock {
+    private struct DeletedDemoSongBlock: Codable {
         var id: Int
         var block: DemoSongBlock
         var deletedAt: Date
@@ -2315,7 +2596,7 @@ actor DemoBackend {
     /// A named edition of a song. Songs are lyric blocks on the server, so an
     /// edition scopes those; the demo tracks the count rather than the lines,
     /// since this client edits a song as plain text and never reads its blocks.
-    private struct DemoSongEdition {
+    private struct DemoSongEdition: Codable {
         var id: Int
         var documentId: Int
         var name: String
@@ -2452,7 +2733,7 @@ actor DemoBackend {
     // MARK: - Trash
 
     /// A deleted screenplay, kept whole so a restore returns everything.
-    private struct TrashedDemoProject {
+    private struct TrashedDemoProject: Codable {
         var project: DemoProject
         var deletedAt: Date
         var blocks: [DemoBlock]
@@ -2462,7 +2743,7 @@ actor DemoBackend {
 
     /// A deleted element. Restoring makes a *new* element at the old position —
     /// the original id does not come back, matching the server.
-    private struct DeletedDemoBlock {
+    private struct DeletedDemoBlock: Codable {
         var id: Int
         var block: DemoBlock
         var deletedAt: Date
@@ -2470,7 +2751,7 @@ actor DemoBackend {
 
     /// A deleted song or note. Unlike an element, it keeps its id: the server
     /// restores the document itself rather than re-creating it.
-    private struct DeletedDemoDocument {
+    private struct DeletedDemoDocument: Codable {
         var document: DemoDocument
         var deletedAt: Date
     }
@@ -2507,7 +2788,7 @@ actor DemoBackend {
 
     /// An archived song or note. Keeps its id and everything else: the archive
     /// is a place the document sits, not a copy of it.
-    private struct ArchivedDemoDocument {
+    private struct ArchivedDemoDocument: Codable {
         var document: DemoDocument
         var archivedAt: Date
     }
@@ -2849,7 +3130,7 @@ actor DemoBackend {
 
     /// A saved snapshot. Holds the blocks themselves, so restoring is just
     /// putting them back.
-    private struct DemoVersion {
+    private struct DemoVersion: Codable {
         var id: Int
         var label: String?
         var createdAt: Date
@@ -2964,7 +3245,7 @@ actor DemoBackend {
     /// A song's snapshot history, kept per document. Mirrors the project one but
     /// counts lyric lines instead of scenes, which is what the shared history
     /// view shows for a song.
-    private struct DemoSongVersion {
+    private struct DemoSongVersion: Codable {
         var id: Int
         var label: String?
         var title: String
@@ -3105,7 +3386,7 @@ actor DemoBackend {
 
     // MARK: - Teams
 
-    private struct DemoTeam {
+    private struct DemoTeam: Codable {
         var id: Int
         var name: String
     }
@@ -3185,7 +3466,7 @@ actor DemoBackend {
 
     // MARK: - Users (admin)
 
-    private struct DemoUser {
+    private struct DemoUser: Codable {
         var id: Int
         var username: String
         var firstName: String

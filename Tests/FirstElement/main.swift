@@ -53,7 +53,7 @@ func decode<T: Decodable>(_ type: T.Type, _ json: String) -> T {
 func checkNewProjectOpensReadyToType() async {
     print("== A new screenplay opens with its first element already there ==")
     let app = AppModel()
-    await app.enterDemo()
+    await app.enterDemo(persisted: false)
     let list = ProjectListModel(app: app)
     await list.refresh()
 
@@ -88,7 +88,7 @@ func checkSecondOpenAddsNothing() async {
     print()
     print("== Opening it again adds nothing ==")
     let app = AppModel()
-    await app.enterDemo()
+    await app.enterDemo(persisted: false)
     let list = ProjectListModel(app: app)
     await list.refresh()
 
@@ -116,7 +116,7 @@ func checkExistingScriptIsUntouched() async {
     print()
     print("== A screenplay with a script in it is left alone ==")
     let app = AppModel()
-    await app.enterDemo()
+    await app.enterDemo(persisted: false)
     let list = ProjectListModel(app: app)
     await list.refresh()
 

@@ -40,7 +40,7 @@ func checkEqual<T: Equatable>(_ label: String, _ actual: T, _ expected: T) {
 @MainActor
 func openASong() async -> SongBlockModel? {
     let app = AppModel()
-    await app.enterDemo()
+    await app.enterDemo(persisted: false)
     guard let projectsLink = app.apiRoot?.link(.projects),
           let projects: HALCollection<Project> = try? await app.client.fetch(from: projectsLink),
           let project = projects.items.first

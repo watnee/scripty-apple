@@ -37,13 +37,46 @@ func scratch(_ name: String) -> UserDefaults {
 let pathKey = "scripty-open-editors"
 let projectKey = "scripty-open-project"
 
+/// The workspace every case below is written from — an account, spelled the way
+/// `AppModel.workspaceScope` spells one. `elsewhere` is a different one.
+let here = "scripty.example.com|writer"
+let elsewhere = "local"
+
 @MainActor
 func runFirstRun() {
     print("A first run remembers nothing")
     let store = scratch("firstrun")
     let state = OpenEditorState(defaults: store)
-    check("no project", state.rememberedProjectId as Int? ?? -1, -1)
-    check("no path", state.claimReopenPath(forProject: 7).count, 0)
+    check("no project", state.rememberedProjectId(in: here) as Int? ?? -1, -1)
+    check("no path", state.claimReopenPath(forProject: 7, in: here).count, 0)
+}
+
+@MainActor
+func runAnotherWorkspace() {
+    print("")
+    print("A record from another workspace is no record")
+
+    // The case this stamp exists for: a writer works without an account, then
+    // signs in. Both workspaces number their screenplays from 1, so without it
+    // the account would reopen whichever of *its* projects was number 7 — and
+    // the songs that were open above someone else's.
+    let store = scratch("workspace")
+    let local = OpenEditorState(defaults: store)
+    local.rememberProject(7, in: elsewhere)
+    local.record(.songsAndNotes(.song), atDepth: 0)
+
+    let account = OpenEditorState(defaults: store)
+    check("the project is not offered to another workspace",
+          account.rememberedProjectId(in: here) as Int? ?? -1, -1)
+    check("nor is what was open above it",
+          account.claimReopenPath(forProject: 7, in: here).count, 0)
+
+    // And the workspace it belongs to still gets it.
+    let back = OpenEditorState(defaults: store)
+    check("its own workspace still comes back to it",
+          back.rememberedProjectId(in: elsewhere) ?? -1, 7)
+    check("with the screen it left open",
+          back.claimReopenPath(forProject: 7, in: elsewhere).count, 1)
 }
 
 @MainActor
@@ -52,7 +85,7 @@ func runRoundTrip() {
     print("What was open comes back")
     let store = scratch("roundtrip")
     let writing = OpenEditorState(defaults: store)
-    writing.rememberProject(7)
+    writing.rememberProject(7, in: here)
     writing.record(.songsAndNotes(.song), atDepth: 0)
     writing.record(.document(42), atDepth: 1)
 
@@ -61,8 +94,8 @@ func runRoundTrip() {
 
     // A fresh instance is what the next launch gets.
     let reopening = OpenEditorState(defaults: store)
-    check("the project comes back", reopening.rememberedProjectId ?? -1, 7)
-    let path = reopening.claimReopenPath(forProject: 7)
+    check("the project comes back", reopening.rememberedProjectId(in: here) ?? -1, 7)
+    let path = reopening.claimReopenPath(forProject: 7, in: here)
     check("both screens come back", path.count, 2)
     check("the list is outermost", path.first == .songsAndNotes(.song), true)
     check("the editor is on top of it", path.last == .document(42), true)
@@ -74,12 +107,12 @@ func runClaimIsOneShot() {
     print("The record is handed over once")
     let store = scratch("oneshot")
     let writing = OpenEditorState(defaults: store)
-    writing.rememberProject(7)
+    writing.rememberProject(7, in: here)
     writing.record(.outline, atDepth: 0)
 
     let state = OpenEditorState(defaults: store)
-    check("the first asker gets it", state.claimReopenPath(forProject: 7).count, 1)
-    check("the second gets nothing", state.claimReopenPath(forProject: 7).count, 0)
+    check("the first asker gets it", state.claimReopenPath(forProject: 7, in: here).count, 1)
+    check("the second gets nothing", state.claimReopenPath(forProject: 7, in: here).count, 0)
     // Asking must not erase the record — closing the app again has to have
     // something to write over, and a crash before the first record would
     // otherwise lose the place.
@@ -93,14 +126,14 @@ func runClaimIsPerProject() {
     print("Only the remembered project reopens anything")
     let store = scratch("perproject")
     let writing = OpenEditorState(defaults: store)
-    writing.rememberProject(7)
+    writing.rememberProject(7, in: here)
     writing.record(.characters, atDepth: 0)
 
     let state = OpenEditorState(defaults: store)
-    check("another script gets nothing", state.claimReopenPath(forProject: 9).count, 0)
+    check("another script gets nothing", state.claimReopenPath(forProject: 9, in: here).count, 0)
     // Still spent: reaching past the restore for a different script is the
     // writer saying where they want to be.
-    check("and the restore is over", state.claimReopenPath(forProject: 7).count, 0)
+    check("and the restore is over", state.claimReopenPath(forProject: 7, in: here).count, 0)
 }
 
 @MainActor
@@ -109,17 +142,17 @@ func runProjectChange() {
     print("Switching project forgets the screens")
     let store = scratch("projectchange")
     let state = OpenEditorState(defaults: store)
-    state.rememberProject(7)
+    state.rememberProject(7, in: here)
     state.record(.songsAndNotes(.notes), atDepth: 0)
 
-    state.rememberProject(9)
+    state.rememberProject(9, in: here)
     check("the path is dropped", store.string(forKey: pathKey) ?? "—", "—")
-    check("the new project is kept", state.rememberedProjectId ?? -1, 9)
+    check("the new project is kept", state.rememberedProjectId(in: here) ?? -1, 9)
 
     // Deselecting on iPad is a place too, and it is the one the app was left in.
     state.record(.outline, atDepth: 0)
-    state.rememberProject(nil)
-    check("deselecting forgets the project", state.rememberedProjectId as Int? ?? -1, -1)
+    state.rememberProject(nil, in: here)
+    check("deselecting forgets the project", state.rememberedProjectId(in: here) as Int? ?? -1, -1)
     check("and the path with it", store.string(forKey: pathKey) ?? "—", "—")
 }
 
@@ -129,14 +162,14 @@ func runReRecordingIsNotAChange() {
     print("Re-recording what is already stored leaves the path alone")
     let store = scratch("rerecord")
     let writing = OpenEditorState(defaults: store)
-    writing.rememberProject(7)
+    writing.rememberProject(7, in: here)
     writing.record(.songsAndNotes(.song), atDepth: 0)
     writing.record(.document(42), atDepth: 1)
 
     // The project restore notices the same project it stored. If that counted
     // as a change it would drop the screens it came to reopen.
     let state = OpenEditorState(defaults: store)
-    state.rememberProject(7)
+    state.rememberProject(7, in: here)
     check("the same project keeps the path",
           store.string(forKey: pathKey) ?? "", "songs-and-notes:SONG/document:42")
 
@@ -153,7 +186,7 @@ func runTruncation() {
     print("A screen that closed takes what was on it")
     let store = scratch("truncation")
     let state = OpenEditorState(defaults: store)
-    state.rememberProject(7)
+    state.rememberProject(7, in: here)
     state.record(.songsAndNotes(.song), atDepth: 0)
     state.record(.document(42), atDepth: 1)
 
@@ -207,6 +240,7 @@ func runTokens() {
 
 MainActor.assumeIsolated {
     runFirstRun()
+    runAnotherWorkspace()
     runRoundTrip()
     runClaimIsOneShot()
     runClaimIsPerProject()

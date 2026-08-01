@@ -292,26 +292,42 @@ func run() {
     print("")
     print("Last opened project")
     do {
+        // How `AppModel.workspaceScope` spells an account and a signed-out
+        // device. Both number their screenplays from 1, which is the whole
+        // reason the record carries one.
+        let account = "scripty.example.com|writer"
+        let local = "local"
+
         let store = scratch("lastproject")
         let last = LastOpenedProject(defaults: store)
         // A first run has nothing open, and lands on the projects list.
-        check("nothing to reopen to begin with", last.projectId == nil, true)
+        check("nothing to reopen to begin with", last.projectId(in: account) == nil, true)
 
-        last.remember(12)
+        last.remember(12, in: account)
         check("the screenplay lands in this client's key",
               store.object(forKey: "scripty-last-project") as? Int ?? -1, 12)
         check("relaunching offers it back",
-              LastOpenedProject(defaults: store).projectId ?? -1, 12)
+              LastOpenedProject(defaults: store).projectId(in: account) ?? -1, 12)
 
-        last.remember(13)
+        last.remember(13, in: account)
         check("opening another replaces it",
-              LastOpenedProject(defaults: store).projectId ?? -1, 13)
+              LastOpenedProject(defaults: store).projectId(in: account) ?? -1, 13)
+
+        // The case the stamp is for: signing in must not reopen the account's
+        // screenplay number 13 because a local session left off at its own.
+        check("a record from another workspace is not offered",
+              LastOpenedProject(defaults: store).projectId(in: local) == nil, true)
+        last.remember(4, in: local)
+        check("the workspace that wrote last is the one that is answered",
+              LastOpenedProject(defaults: store).projectId(in: local) ?? -1, 4)
+        check("and the one before it no longer is",
+              LastOpenedProject(defaults: store).projectId(in: account) == nil, true)
 
         // Going back to the projects list closes the script — the opposite of
         // what losing focus means inside one, and deliberately so.
-        last.remember(nil)
+        last.remember(nil, in: local)
         check("going back to the list forgets",
-              LastOpenedProject(defaults: store).projectId == nil, true)
+              LastOpenedProject(defaults: store).projectId(in: local) == nil, true)
         check("and leaves no key behind",
               store.object(forKey: "scripty-last-project") == nil, true)
     }

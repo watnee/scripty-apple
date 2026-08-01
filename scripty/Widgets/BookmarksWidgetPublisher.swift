@@ -26,17 +26,21 @@ enum BookmarksWidgetPublisher {
     /// deleting one, undoing any of that, and the sync poll bringing in a
     /// collaborator's change.
     ///
-    /// The demo publishes nothing, exactly as the other two widgets do not. Its
-    /// script lives in memory for as long as the app is running, so a row
-    /// quoting it is a row that could only ever fail to open — and it would sit
-    /// on the Home Screen long after the demo was over, since nothing but this
-    /// app can take it back down.
+    /// A signed-out device publishes like any other: its workspace is kept on
+    /// disk, so a row quoting one of its lines opens that line tomorrow just as
+    /// it does now.
+    ///
+    /// Only the throwaway demo publishes nothing, exactly as the other two
+    /// widgets do not. Its script lives in memory for as long as the app is
+    /// running, so a row quoting it is a row that could only ever fail to open
+    /// — and it would sit on the Home Screen long after the demo was over,
+    /// since nothing but this app can take it back down.
     ///
     /// An unflagged script still publishes: an empty list for this project is
     /// how the last bookmark coming off it takes its row away.
-    static func publish(_ blocks: [Block], project: Project, isDemo: Bool,
+    static func publish(_ blocks: [Block], project: Project, isEphemeralDemo: Bool,
                         at now: Date = .now) {
-        guard !isDemo else { return }
+        guard !isEphemeralDemo else { return }
         let rows = blocks.filter(\.isBookmarked).map { block in
             WidgetBookmark(blockId: block.id,
                            projectId: project.id,

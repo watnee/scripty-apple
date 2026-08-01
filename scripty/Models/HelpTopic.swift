@@ -79,12 +79,16 @@ extension HelpTopic {
                     + "headings, action, character cues, dialogue and the rest — rather "
                     + "than as pages of text. Everything else follows from that: an "
                     + "element can be retyped, moved, commented on or restored on its own.",
-                    "This app is the same screenplay as the web editor, on the same "
-                    + "account. What you can do to a script is whatever the server says "
-                    + "you can do to it, so a reader sees no editing controls at all "
-                    + "rather than controls that fail."
+                    "Signed in, this app is the same screenplay as the web editor, on "
+                    + "the same account. What you can do to a script is whatever the "
+                    + "server says you can do to it, so a reader sees no editing "
+                    + "controls at all rather than controls that fail.",
+                    "An account is not needed to start. Scripty opens on a workspace "
+                    + "kept on this device, and everything below works there too — see "
+                    + "Using Scripty Without an Account."
                 ],
-                keywords: ["introduction", "overview", "start", "beginning", "what is"]),
+                keywords: ["introduction", "overview", "start", "beginning", "what is",
+                           "account", "sign in", "without an account"]),
             HelpTopic(
                 id: "projects",
                 title: "Your Projects",
@@ -163,19 +167,27 @@ extension HelpTopic {
                 paragraphs: [
                     "Scripty opens straight into a workspace with a sample screenplay in "
                     + "it, with no sign-in first. Everything works — writing, songs, "
-                    + "notes, printing — with no server behind it: nothing is sent "
-                    + "anywhere, and everything is discarded when you quit.",
+                    + "notes, printing — with no server behind it, and nothing is sent "
+                    + "anywhere.",
+                    "What you write is kept on this device and is still here next time "
+                    + "you open Scripty. Projects, songs and notes behave exactly as "
+                    + "they do in an account: the app reopens on the screenplay you "
+                    + "left, the star still picks which one that is, and the Home "
+                    + "Screen widgets and long-press menu list your work as usual.",
+                    "The one thing a local workspace cannot do is leave the device. "
+                    + "There is no backup, no second device, and nobody to share with; "
+                    + "deleting the app takes the writing with it.",
                     "Sign In, in the sidebar menu or on the banner above the list, "
                     + "attaches an account. Keep Your Work? then lists everything you "
                     + "wrote before signing in, ticked to begin with: Keep copies those "
-                    + "screenplays into your account, and anything you untick is left "
-                    + "behind with the rest of this session.",
-                    "Signing out brings this session back rather than shutting you out; "
-                    + "the screenplays in your account stay in your account."
+                    + "screenplays into your account and takes them off the device, and "
+                    + "anything you untick stays here, waiting.",
+                    "Signing out brings this workspace back rather than shutting you "
+                    + "out; the screenplays in your account stay in your account."
                 ],
                 keywords: ["sample", "try", "offline", "test", "example", "demo",
                            "guest", "sign in", "sign out", "account", "no account",
-                           "without an account", "local"])
+                           "without an account", "local", "kept", "saved", "backup"])
         ]),
         HelpSection(id: "writing", title: "Writing", topics: [
             HelpTopic(

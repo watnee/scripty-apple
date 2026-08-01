@@ -7,10 +7,16 @@
 //  script is `ScriptViewOptions`' remembered element; this is the step before
 //  it, and without it that one never gets a chance to run.
 //
-//  Device-wide rather than per account: it is the app window's state, not the
-//  writer's. A stored id belonging to somebody else's account — or to a project
-//  since deleted — is simply not found in the list that comes back, and the app
-//  opens as it always did.
+//  One record for the device, but stamped with the workspace it was written in.
+//  The id on its own is not enough to tell workspaces apart: a local session and
+//  a fresh account both number their screenplays from 1, so a writer who signs
+//  in after working without an account would be dropped into whichever of
+//  *their* screenplays happened to be number 3. The stamp is what makes a
+//  record from somewhere else read as no record at all.
+//
+//  Within a workspace an id can still go stale — a screenplay since deleted —
+//  and that case needs nothing: it is simply not found in the list that comes
+//  back, and the app opens as it always did.
 //
 //  This client's own key. The web has no counterpart to mirror: a browser
 //  reopens whatever URL the tab was left on, which is the same idea arrived at
@@ -28,9 +34,10 @@ struct LastOpenedProject {
     }
 
     /// The project to reopen, or nil when the writer left the app on the
-    /// projects list.
-    var projectId: Int? {
-        defaults.object(forKey: Self.key) as? Int
+    /// projects list — or left it in a different workspace entirely.
+    func projectId(in workspace: String) -> Int? {
+        guard defaults.string(forKey: Self.workspaceKey) == workspace else { return nil }
+        return defaults.object(forKey: Self.key) as? Int
     }
 
     /// Called as the selection changes. Nil is stored as "nothing open" rather
@@ -39,7 +46,8 @@ struct LastOpenedProject {
     /// thing the writer just did. (The element position inside a script takes
     /// the opposite view for the opposite reason — tapping out of the text is
     /// not leaving the page.)
-    func remember(_ projectId: Int?) {
+    func remember(_ projectId: Int?, in workspace: String) {
+        defaults.set(workspace, forKey: Self.workspaceKey)
         if let projectId {
             defaults.set(projectId, forKey: Self.key)
         } else {
@@ -48,4 +56,5 @@ struct LastOpenedProject {
     }
 
     private static let key = "scripty-last-project"
+    private static let workspaceKey = "scripty-last-project-workspace"
 }

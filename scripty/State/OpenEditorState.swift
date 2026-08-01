@@ -106,11 +106,18 @@ final class OpenEditorState {
 
     // MARK: - Coming back
 
-    /// The project the writer was last in, if any. An id belonging to a
-    /// screenplay since deleted — or to another account — is simply not found
+    /// The project the writer was last in, if any.
+    ///
+    /// Stamped with the workspace it was written in, and nil when asked from a
+    /// different one. Without that stamp a local session's project 3 and an
+    /// account's project 3 are the same record, and signing in would reopen the
+    /// songs of a screenplay nobody was looking at — see `AppModel`'s
+    /// `workspaceScope`. An id that is merely stale within its own workspace —
+    /// a screenplay since deleted — needs no such care: it is simply not found
     /// among the projects, and the list opens as it always did.
-    var rememberedProjectId: Int? {
-        defaults.object(forKey: Key.project) as? Int
+    func rememberedProjectId(in workspace: String) -> Int? {
+        guard defaults.string(forKey: Key.workspace) == workspace else { return nil }
+        return defaults.object(forKey: Key.project) as? Int
     }
 
     /// The screens that were open above the script, handed over once.
@@ -123,10 +130,10 @@ final class OpenEditorState {
     /// Answers empty for any project but the remembered one: a writer who
     /// reached past the restore for a different script has said where they want
     /// to be, and that is not inside the last one's songs.
-    func claimReopenPath(forProject projectId: Int) -> [OpenEditor] {
+    func claimReopenPath(forProject projectId: Int, in workspace: String) -> [OpenEditor] {
         guard !hasHandedOverPath else { return [] }
         hasHandedOverPath = true
-        guard projectId == rememberedProjectId else { return [] }
+        guard projectId == rememberedProjectId(in: workspace) else { return [] }
         return storedPath
     }
 
@@ -138,8 +145,9 @@ final class OpenEditorState {
     /// project, and a lyric editor left open in one draft has nothing to reopen
     /// in another. Re-recording the same project deliberately leaves the path
     /// alone, which is what makes a restored selection survive being noticed.
-    func rememberProject(_ projectId: Int?) {
-        guard projectId != rememberedProjectId else { return }
+    func rememberProject(_ projectId: Int?, in workspace: String) {
+        guard projectId != rememberedProjectId(in: workspace) else { return }
+        defaults.set(workspace, forKey: Key.workspace)
         if let projectId {
             defaults.set(projectId, forKey: Key.project)
         } else {
@@ -198,5 +206,6 @@ final class OpenEditorState {
     private enum Key {
         static let project = "scripty-open-project"
         static let path = "scripty-open-editors"
+        static let workspace = "scripty-open-workspace"
     }
 }

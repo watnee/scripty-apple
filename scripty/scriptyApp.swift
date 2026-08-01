@@ -190,6 +190,11 @@ struct RootView: View {
             // the same moment by its other name, and the same reasoning: what
             // the menu and the widgets are still holding belongs to the account
             // that has just been left.
+            //
+            // It clears rather than replaces. The local workspace publishes its
+            // own screenplays the moment its list lands, from `ContentView` —
+            // this only has to make sure the gap between the two shows nobody
+            // else's titles.
             .onChange(of: app.isDemo) { _, isDemo in
                 guard isDemo else { return }
                 forgetTheAccount()

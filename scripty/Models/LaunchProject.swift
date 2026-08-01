@@ -27,10 +27,15 @@ import Foundation
 enum LaunchProject {
     /// The project to open on its own, or nil to leave the writer on the list.
     ///
-    /// The demo opens whatever comes first instead, which is the sample
-    /// screenplay: the demo exists to show the editor, and its projects live in
-    /// memory with no star ever set on them.
-    static func opened(in projects: [Project], isDemo: Bool) -> Project? {
-        isDemo ? projects.first : Project.starred(in: projects)
+    /// The rule is the same signed out: a device with no account keeps its
+    /// workspace between launches, stars included, so honouring the star there
+    /// is honouring a choice the writer actually made.
+    ///
+    /// `isEphemeralDemo` is the one exception — the screenshot runs, which are
+    /// reseeded every launch with no star ever set on anything. Those open
+    /// whatever comes first, which is the sample screenplay: the demo exists to
+    /// show the editor, not the projects list.
+    static func opened(in projects: [Project], isEphemeralDemo: Bool) -> Project? {
+        isEphemeralDemo ? projects.first : Project.starred(in: projects)
     }
 }

@@ -8,9 +8,12 @@
 //  Everything written locally is ticked to begin with — the writer wrote it,
 //  so the answer is almost always "all of it" — and the sample screenplay is
 //  not on the list at all unless it was changed (see `DemoBackend.guestWork`).
-//  Declining is a real answer and costs nothing to reach: the local session is
-//  gone either way, so the sheet says what that means rather than pretending
-//  the choice can be revisited.
+//  Declining is a real answer and costs nothing to reach: the local workspace
+//  outlives the session either way, so what is left unticked is waiting there
+//  the next time this device is signed out rather than thrown away.
+//
+//  What *is* ticked leaves the device — `handOff` drops it once the upload
+//  lands — so the two copies never diverge behind the writer's back.
 //
 
 import SwiftUI
@@ -63,8 +66,9 @@ struct GuestWorkView: View {
                 } header: {
                     Text("Written on this device")
                 } footer: {
-                    Text("Anything left unticked stays out of your account, "
-                         + "and is gone when you quit Scripty.")
+                    Text("Anything left unticked stays out of your account. "
+                         + "It keeps waiting on this device, and is here again "
+                         + "next time you sign out.")
                 }
 
                 if let errorMessage {

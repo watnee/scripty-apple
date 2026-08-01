@@ -303,6 +303,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/API/Credentials.swift" \
     "$SRC/API/KeychainStore.swift" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
@@ -333,6 +334,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
     "$SRC/API/Credentials.swift" \
     "$SRC/API/KeychainStore.swift" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
@@ -390,6 +392,7 @@ echo
 echo "== Demo backend API contract =="
 swiftc "${FLAGS[@]}" -o "$BUILD/api" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/API/APIClient.swift" \
     "$SRC/API/APIError.swift" \
@@ -402,6 +405,22 @@ swiftc "${FLAGS[@]}" -o "$BUILD/api" \
 run_suite "$BUILD/api" || status=1
 
 echo
+echo "== The signed-out workspace survives a relaunch =="
+swiftc "${FLAGS[@]}" -o "$BUILD/localworkspace" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/Models/"*.swift \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/LocalWorkspace/main.swift"
+run_suite "$BUILD/localworkspace" || status=1
+
+echo
 echo "== Unsaved work survives a failed save =="
 swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/API/APIClient.swift" \
@@ -410,6 +429,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/API/Credentials.swift" \
     "$SRC/API/KeychainStore.swift" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
@@ -437,6 +457,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/API/Credentials.swift" \
     "$SRC/API/KeychainStore.swift" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
@@ -467,6 +488,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/firstelement" \
     "$SRC/API/Credentials.swift" \
     "$SRC/API/KeychainStore.swift" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
@@ -498,6 +520,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$SRC/API/Credentials.swift" \
     "$SRC/API/KeychainStore.swift" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \

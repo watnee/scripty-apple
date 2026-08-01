@@ -367,7 +367,8 @@ struct ScriptView: View {
         .onChange(of: model.focusedBlockId) { _, id in options.rememberBlock(id) }
         // Which screen is up over the script, kept the same way and for the same
         // reason.
-        .remembersOpenEditor(openEditor, atDepth: 0, isEnabled: !model.app.isDemo)
+        .remembersOpenEditor(openEditor, atDepth: 0,
+                             isEnabled: !model.app.isEphemeralDemo)
         .onChange(of: model.blocks) { _, _ in
             repaginate()
             // What the Bookmarks widget draws is whichever of these elements
@@ -1416,7 +1417,7 @@ struct ScriptView: View {
     /// frequent as the elements landing.
     private func publishBookmarks() {
         BookmarksWidgetPublisher.publish(model.blocks, project: model.project,
-                                         isDemo: model.app.isDemo)
+                                         isEphemeralDemo: model.app.isEphemeralDemo)
     }
 
     /// Takes down the element a tapped Bookmarks row asked for, and jumps to it
@@ -1495,11 +1496,13 @@ struct ScriptView: View {
     /// invitation to reopen the last one's songs. Every case is gated the way the
     /// toolbar gates the button that opens it: a project whose links no longer
     /// offer songs, or a script since emptied, reopens onto the script itself
-    /// rather than onto a screen with nothing on it. The demo is left out for the
-    /// same reason it keeps no record — it is a walkthrough, not someone's place.
+    /// rather than onto a screen with nothing on it. The throwaway demo is left
+    /// out for the same reason it keeps no record — it is a walkthrough, not
+    /// someone's place. A signed-out device is someone's place, and gets this.
     private func reopenRememberedEditor() {
-        guard !model.app.isDemo else { return }
-        let path = openEditors.claimReopenPath(forProject: model.project.id)
+        guard !model.app.isEphemeralDemo else { return }
+        let path = openEditors.claimReopenPath(forProject: model.project.id,
+                                               in: model.app.workspaceScope)
         // Claimed either way, then dropped if a Home Screen quick action has
         // already opened something: tapping Songs is someone asking for the
         // songs now, which outranks where they happened to be last night — and

@@ -121,22 +121,22 @@ struct ContentView: View {
         // records nothing rather than the last one, since an empty detail pane
         // is a place too — and it is the one they left the app in.
         .onChange(of: selectedProject) { _, project in
-            guard !app.isDemo else { return }
-            openEditors.rememberProject(project?.id)
+            guard !app.isEphemeralDemo else { return }
+            openEditors.rememberProject(project?.id, in: app.workspaceScope)
         }
         .onChange(of: projectList.projects) { _, projects in
-            quickActions.publishRecents(projects, isDemo: app.isDemo)
-            ProjectsWidgetPublisher.publish(projects, isDemo: app.isDemo)
+            quickActions.publishRecents(projects, isEphemeralDemo: app.isEphemeralDemo)
+            ProjectsWidgetPublisher.publish(projects, isEphemeralDemo: app.isEphemeralDemo)
         }
         // Opening a screenplay is the other thing that makes it recent, and the
         // only one the menu can hear about while the app is running: an edit
         // moves the server's date, but nothing here would learn that until the
-        // sidebar next reloads. The demo is left out for the same reason its
-        // projects are never named — it has no screenplays to come back to.
+        // sidebar next reloads. Only the throwaway demo is left out — its
+        // screenplays are gone by the time anyone could tap one.
         .onChange(of: selectedProject) { _, project in
-            guard !app.isDemo, let project else { return }
+            guard !app.isEphemeralDemo, let project else { return }
             quickActions.noteOpened(project)
-            quickActions.publishRecents(projectList.projects, isDemo: app.isDemo)
+            quickActions.publishRecents(projectList.projects, isEphemeralDemo: app.isEphemeralDemo)
         }
         // Leaving is the moment before the menu is next read, and the entries
         // say things like "Edited yesterday" that are only true as of when they
@@ -145,7 +145,7 @@ struct ContentView: View {
         // otherwise leaves the menu insisting all of it happened today.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background else { return }
-            quickActions.publishRecents(projectList.projects, isDemo: app.isDemo)
+            quickActions.publishRecents(projectList.projects, isEphemeralDemo: app.isEphemeralDemo)
         }
         // A load landing is the other moment an action can become answerable:
         // one taken while the list was still in flight has been sitting here
@@ -168,12 +168,14 @@ struct ContentView: View {
         .onChange(of: app.pendingBookmarkDestination) { _, _ in openBookmarkDestination() }
         // Where the app was left, kept as it changes rather than on the way
         // out: a screenplay open when the app is killed should be the one that
-        // comes back. The demo is excluded — its sample project is chosen for
-        // it every run, and letting it overwrite the writer's own choice would
-        // mean a look at the demo lost their place.
+        // comes back. True signed out as well — a device with no account keeps
+        // its workspace, so its ids still mean something next launch. Only the
+        // throwaway demo is excluded: its sample project is regenerated every
+        // run, and letting it write this record would mean a screenshot pass
+        // cost the writer their place.
         .onChange(of: selectedProject) { _, project in
-            guard hasRestoredSelection, !app.isDemo else { return }
-            lastOpened.remember(project?.id)
+            guard hasRestoredSelection, !app.isEphemeralDemo else { return }
+            lastOpened.remember(project?.id, in: app.workspaceScope)
         }
     }
 
@@ -196,10 +198,13 @@ struct ContentView: View {
     private func openLaunchProject() {
         defer { hasRestoredSelection = true }
         guard selectedProjectId == nil, quickActions.pending == nil else { return }
-        let remembered = app.isDemo ? nil : lastOpened.projectId
-            .flatMap { id in projectList.projects.first { $0.id == id } }
-        selectedProjectId = (remembered ?? LaunchProject.opened(in: projectList.projects,
-                                                                isDemo: app.isDemo))?.id
+        let remembered = app.isEphemeralDemo
+            ? nil
+            : lastOpened.projectId(in: app.workspaceScope)
+                .flatMap { id in projectList.projects.first { $0.id == id } }
+        selectedProjectId = (remembered
+                             ?? LaunchProject.opened(in: projectList.projects,
+                                                     isEphemeralDemo: app.isEphemeralDemo))?.id
     }
 
     /// Takes on a project the screenplay screen renamed or re-imported.

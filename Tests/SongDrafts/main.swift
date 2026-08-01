@@ -466,7 +466,7 @@ func checkHeldNoteSave() async {
 func checkNoteDraftDrain() async {
     print("== The reconnect sweep sends held notes — but never over newer words ==")
     let app = AppModel()
-    await app.enterDemo()
+    await app.enterDemo(persisted: false)
     guard let projectsLink = app.apiRoot?.link(.projects),
           let projects: HALCollection<Project> = try? await app.client.fetch(from: projectsLink),
           let project = projects.items.first else {
@@ -525,7 +525,7 @@ func checkDocumentCreate() async {
     // editing, or the second autosave would be a second POST and the writer
     // would end the sitting with a list full of half-typed duplicates.
     let app = AppModel()
-    await app.enterDemo()
+    await app.enterDemo(persisted: false)
     guard let projectsLink = app.apiRoot?.link(.projects),
           let projects: HALCollection<Project> = try? await app.client.fetch(from: projectsLink),
           let project = projects.items.first else {

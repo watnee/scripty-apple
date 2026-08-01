@@ -24,16 +24,20 @@ enum ProjectsWidgetPublisher {
     /// creating, renaming, starring, importing, deleting, restoring from the
     /// trash — is covered without each having to remember to.
     ///
-    /// The demo publishes nothing, exactly as the Home Screen menu's recents do
-    /// not. Its projects live in memory for as long as the app is running, so a
-    /// row naming one is a row that could only ever fail to open — and it would
-    /// sit on the Home Screen long after the demo was over, since nothing but
-    /// this app can take it back down.
+    /// A signed-out device publishes like any other: its workspace is kept on
+    /// disk, so a row naming one of its screenplays opens that screenplay
+    /// tomorrow just as it does now.
+    ///
+    /// Only the throwaway demo publishes nothing, exactly as the Home Screen
+    /// menu's recents do not. Its projects live in memory for as long as the
+    /// app is running, so a row naming one is a row that could only ever fail
+    /// to open — and it would sit on the Home Screen long after the demo was
+    /// over, since nothing but this app can take it back down.
     ///
     /// An empty list still publishes when it is genuinely empty and not merely
     /// unloaded; see the caller, which does not fire on the initial value.
-    static func publish(_ projects: [Project], isDemo: Bool) {
-        guard !isDemo else { return }
+    static func publish(_ projects: [Project], isEphemeralDemo: Bool) {
+        guard !isEphemeralDemo else { return }
         let rows = projects.map { project in
             WidgetProject(id: project.id,
                           title: project.displayTitle,
