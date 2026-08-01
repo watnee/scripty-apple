@@ -52,6 +52,11 @@ struct ReadScriptView: View {
     /// Reports the element at the top of the screen as the reading scrolls,
     /// so the surfaces keep handing one position back and forth.
     var onTopVisibleBlock: (Int) -> Void = { _ in }
+    /// Start writing at this element — the double tap's counterpart of the Edit
+    /// button, which the screen owns because leaving the reader is its business
+    /// and not this surface's. Nil where there is nowhere to type: a reader who
+    /// was given the screenplay to read stays reading, whatever they tap.
+    var onEdit: ((Int) -> Void)?
     /// The context menu's "Read Aloud From Here". A closure rather than a call
     /// on the narrator, because starting a reading means preparing the run
     /// first and the blocks belong to the screen that owns the voice.
@@ -139,6 +144,12 @@ struct ReadScriptView: View {
                         row(block, isFirst: block.id == firstId)
                             .background(alignment: .center) { spotlight(block) }
                             .id(block.id)
+                            // Two taps on a line are "let me write this one" —
+                            // the gesture Pages and Word both use to leave view
+                            // mode, and the reader is exactly that mode.
+                            .doubleTapToEdit(onEdit.map { edit in
+                                { edit(block.id) }
+                            })
                             .contextMenu {
                                 Button("Read Aloud From Here", systemImage: "play") {
                                     onReadFrom(block.id)

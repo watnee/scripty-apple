@@ -123,6 +123,14 @@ struct ScriptView: View {
     /// An element a Bookmarks widget row asked for, held until the script it
     /// belongs to has actually arrived. Nil the rest of the time.
     @State private var pendingBookmarkBlockId: Int?
+    /// An element a double tap asked to write in, held until the writing column
+    /// is the surface on screen. Nil the rest of the time.
+    ///
+    /// Held rather than focused on the spot, for the same reason the navigator
+    /// holds a scroll target: the tap that asks is made on the reader, and the
+    /// column it names does not exist yet. Focus set against a surface that is
+    /// on its way out is focus nothing ever claims.
+    @State private var pendingWriteTarget: Int?
 
     /// How much room the writing column actually has, for full-width mode.
     /// Zero until the first layout, which reads as "use the printed measure".
@@ -844,6 +852,12 @@ struct ScriptView: View {
                 .frame(maxWidth: settings.isFocusMode ? 720 : .infinity)
                 .frame(maxWidth: .infinity)
             }
+            // The caret a double tap asked for, claimed the moment this column
+            // is the surface — `initial`, because the tap that asked was made
+            // on the reader and this view did not exist to hear it.
+            .onChange(of: pendingWriteTarget, initial: true) { _, _ in
+                claimWriteTarget()
+            }
             // `initial` so a target set while the paper was on screen — the
             // handoff when the writer switches back to the column — is not
             // dropped by a scroll view that did not exist when it was set.
@@ -1210,6 +1224,7 @@ struct ScriptView: View {
             navigator: navigator,
             initialBlockId: options.rememberedBlockId,
             onTopVisibleBlock: { options.rememberBlock($0) },
+            onEdit: isReadyToEdit ? { startWriting(atBlockId: $0) } : nil,
             onReadFrom: { id in
                 narrator.prepare(model.blocks, title: model.project.displayTitle)
                 narrator.play(from: id)
@@ -1562,7 +1577,58 @@ struct ScriptView: View {
                          commentCount: model.commentCount(for: block),
                          onComment: block.hasLink(.comments) ? { commentTarget = block } : nil)
                 .padding(.vertical, 4)
+                .doubleTapToEdit(startWriting(at: block))
         }
+    }
+
+    /// The double-tap way out of a locked script, as Pages and Word both offer
+    /// it: two taps on a line take the lock off and put the caret in that line.
+    ///
+    /// Nil unless the lock is the only thing in the way. An element the server
+    /// never made editable is read-only however this device is set, and a
+    /// gesture that quietly unlocked the script around it would promise a
+    /// keyboard that is not coming.
+    ///
+    /// The caret goes to the end of the line rather than under the finger: this
+    /// row is SwiftUI text, laid out by the type rather than by a text view, so
+    /// there is no character to ask for at that point — and the end of the line
+    /// tapped is where writing carries on from anyway.
+    private func startWriting(at block: Block) -> (() -> Void)? {
+        guard options.isEditingLocked, block.isEditable else { return nil }
+        return { startWriting(atBlockId: block.id) }
+    }
+
+    /// Hands the script to the writer with the caret in one named element:
+    /// whatever posture is in the way comes off, the column scrolls to the
+    /// element, and the caret lands at the end of its line.
+    ///
+    /// Shared by the two double taps — the reader's and the locked column's —
+    /// because a script can be both at once, and one gesture should not leave a
+    /// writer facing the other. The display modes are left alone: page view and
+    /// outline mode are not on screen when either gesture can be made.
+    ///
+    /// Where the writer is now is recorded before the surfaces change hands, so
+    /// the handoff that follows leaving the reader scrolls to the element they
+    /// tapped rather than to whatever the reading had at the top. That matters
+    /// for more than the view: the column is lazy, so an element it never
+    /// scrolls to is never built, and focus on a row that does not exist is a
+    /// keyboard that never comes up.
+    private func startWriting(atBlockId id: Int) {
+        if options.isEditingLocked { options.setEditingLocked(false) }
+        options.rememberBlock(id)
+        pendingWriteTarget = id
+        setReading(false)
+    }
+
+    /// Puts the caret in the element a double tap named, once the column is the
+    /// surface on screen — see `pendingWriteTarget`. The caret goes to the end
+    /// of the line, which is where writing carries on from.
+    private func claimWriteTarget() {
+        guard let id = pendingWriteTarget else { return }
+        pendingWriteTarget = nil
+        guard let block = model.blocks.first(where: { $0.id == id }), block.isEditable
+        else { return }
+        model.focus(id, caret: model.currentText(block).count)
     }
 
     @ViewBuilder

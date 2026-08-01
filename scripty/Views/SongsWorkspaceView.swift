@@ -303,7 +303,8 @@ struct SongsWorkspaceView: View {
                 SongLineRow(model: lyric,
                             block: block,
                             isLocked: isLocked(song),
-                            focusedLine: $focusedLine)
+                            focusedLine: $focusedLine,
+                            startWriting: startWriting(song))
             }
             if lyric.canAddLine, !isLocked(song) {
                 Button {
@@ -446,6 +447,19 @@ struct SongsWorkspaceView: View {
     /// into.
     private func isLocked(_ song: TextDocument) -> Bool {
         locks[song.id]?.isEditingLocked ?? false
+    }
+
+    /// The double tap that takes a locked song's lock off, so a writer working
+    /// down this screen can start typing in the one song they meant without
+    /// hunting for its lock in the row's menu. Nil for a song that is already
+    /// open to be typed in — there is nothing to undo.
+    ///
+    /// Only this song's lock: the others on screen were each locked on purpose,
+    /// one at a time, and a gesture that cleared them all would be the accident
+    /// the lock exists to prevent.
+    private func startWriting(_ song: TextDocument) -> (() -> Void)? {
+        guard isLocked(song) else { return nil }
+        return { locks[song.id]?.setEditingLocked(false) }
     }
 
     /// Reopens the songs left open last time. Runs after the documents load so

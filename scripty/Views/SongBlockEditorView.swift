@@ -262,6 +262,23 @@ struct SongBlockEditorView: View {
         readingViews.remember(false, for: .document(id: model.document.id))
     }
 
+    /// The double-tap way in, for both of the things that can stand between a
+    /// writer and a lyric: the reading view it opened in, and the lock. Whatever
+    /// is in the way comes off — a locked song opened to be read is one gesture
+    /// away from the keyboard, not two — and the line takes the caret where the
+    /// finger landed, which the row's own text view arranges.
+    ///
+    /// Nil where nothing is in the way, or where the server never offered this
+    /// song to be written in: the lines are already taking a caret, or no lock
+    /// of this device's would give them one.
+    private var startWriting: (() -> Void)? {
+        guard isSongEditable, isReadingView || options.isEditingLocked else { return nil }
+        return {
+            if options.isEditingLocked { options.setEditingLocked(false) }
+            if isReadingView { beginEditing() }
+        }
+    }
+
     /// Puts it back up to be read, and remembers that too. Half-typed lines go
     /// first: the rows stop taking a caret the moment the flag flips, and a
     /// line still holding uncommitted text would have nowhere left to send it
@@ -285,7 +302,8 @@ struct SongBlockEditorView: View {
                                 block: block,
                                 isLocked: options.isEditingLocked,
                                 focusedLine: $focusedLine,
-                                isReadingView: isReadingView)
+                                isReadingView: isReadingView,
+                                startWriting: startWriting)
                         .id(block.id)
                         // No hairline between one lyric line and the next.
                         // A plain list rules off every row, which turns a
@@ -326,7 +344,14 @@ struct SongBlockEditorView: View {
     private var reader: some View {
         ReadSongView(title: model.document.displayTitle,
                      lines: model.blocks.map { model.currentText($0) },
-                     textScale: settings.textScale)
+                     textScale: settings.textScale,
+                     // The reading posture comes off, and with it anything else
+                     // standing between the writer and the lines underneath.
+                     onEdit: isSongEditable ? {
+                         setReading(false)
+                         if options.isEditingLocked { options.setEditingLocked(false) }
+                         if isReadingView { beginEditing() }
+                     } : nil)
     }
 
     /// Enters or leaves reading.

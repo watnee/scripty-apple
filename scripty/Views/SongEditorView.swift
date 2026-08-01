@@ -479,6 +479,13 @@ struct SongEditorView: View {
                      spellcheckRevision: SpellcheckDictionary.shared.revision,
                      textScale: settings.textScale,
                      placeholder: placeholder,
+                     // Two taps in the words are the same instruction as Edit
+                     // in the corner, the way they are in Pages and Word — and
+                     // the caret lands where the finger did rather than at the
+                     // top. Offered only where Edit itself is: a document the
+                     // server sent read-only has nowhere for this to go.
+                     startWriting: isDocumentEditable && isReadingView
+                         ? { beginEditing() } : nil,
                      onFocusChange: { isWritingBody = $0 })
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -492,7 +499,13 @@ struct SongEditorView: View {
     private var reader: some View {
         ReadSongView(title: trimmedTitle,
                      lines: content.components(separatedBy: .newlines),
-                     textScale: settings.textScale)
+                     textScale: settings.textScale,
+                     // Both postures at once, since a song can be up to be read
+                     // *and* opened in the reading view the sheet starts in.
+                     onEdit: isDocumentEditable ? {
+                         setReading(false)
+                         if isReadingView { beginEditing() }
+                     } : nil)
     }
 
     /// Whether this document can be read as a song. Nothing to offer for a

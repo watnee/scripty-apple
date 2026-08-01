@@ -45,6 +45,11 @@ struct SongLineRow: View {
     /// open at once, to be worked through — and has no reading posture to be
     /// in. Only the song editor sets it, and only until Edit is tapped.
     var isReadingView = false
+    /// What a double tap on a line nobody can type into should do: leave the
+    /// reading view, take the lock off, or whatever else the host has put in the
+    /// way. Nil where the host has nothing to undo, and never offered on a line
+    /// the server itself made read-only — see `DoubleTapToEdit`.
+    var startWriting: (() -> Void)?
 
     /// Whether the highlight swipe is showing its colours.
     @State private var pickingHighlight = false
@@ -78,6 +83,11 @@ struct SongLineRow: View {
                       spellChecks: spellChecks,
                       spellcheckRevision: spellcheckRevision,
                       accessibilityLabel: "Lyric line \(block.order ?? 0)",
+                      // Only where the words are the writer's to change. A line
+                      // the server sent read-only stays read-only, and the
+                      // gesture is not attached at all rather than unlocking a
+                      // song around a line that would still refuse the caret.
+                      startWriting: block.isEditable ? startWriting : nil,
                       caret: model.caretRequests[block.id],
                       onCaretApplied: { model.caretRequests[block.id] = nil },
                       onBeginEditing: {
@@ -221,6 +231,10 @@ private struct SongLineField: UIViewRepresentable {
     let spellChecks: Bool
     let spellcheckRevision: Int
     let accessibilityLabel: String
+    /// The way into a line that is being read rather than written in. Nil where
+    /// there is no way in; the gesture is enabled only while the field is not
+    /// editable, so it never competes with the caret.
+    let startWriting: (() -> Void)?
     /// Where the caret should go once this line has taken focus, in Characters.
     /// Only a merge asks; the rest of the time UIKit's own placement is right.
     let caret: Int?
@@ -252,7 +266,15 @@ private struct SongLineField: UIViewRepresentable {
             coordinator?.parent.onBackspaceAtStart()
         }
         context.coordinator.textView = view
+        // Through the coordinator's copy of the parent rather than this one:
+        // the closure outlives this struct, and the host's answer to "start
+        // writing" changes with the mode it is in.
+        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.startWriting?()
+        }
+        context.coordinator.doubleTap.attach(to: view)
         apply(to: view)
+        offerDoubleTap(in: context.coordinator, for: view)
         return view
     }
 
@@ -277,6 +299,7 @@ private struct SongLineField: UIViewRepresentable {
         // value in after a reload, move or undo rewrote the line.
         if view.text != text { view.text = text }
         apply(to: view)
+        offerDoubleTap(in: context.coordinator, for: view)
 
         if isFocused, !view.isFirstResponder {
             // A row just inserted into the list is not in the window during its
@@ -299,6 +322,15 @@ private struct SongLineField: UIViewRepresentable {
         }
     }
 
+    /// Two taps mean "let me write here" only while writing is exactly what
+    /// this line will not do. Applied after `apply(to:)`, which is what settles
+    /// whether it is editable this time round.
+    @MainActor
+    private func offerDoubleTap(in coordinator: Coordinator,
+                                for view: SongLineUITextView) {
+        coordinator.doubleTap.setOffered(!view.isEditable && startWriting != nil)
+    }
+
     @MainActor
     private func apply(to view: SongLineUITextView) {
         // The same face and size the note editor and the screenplay rows use —
@@ -318,6 +350,10 @@ private struct SongLineField: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: SongLineField
         weak var textView: SongLineUITextView?
+        /// The double tap that asks for the keyboard on a line that has none.
+        /// Kept here because the recogniser has to outlive the struct that
+        /// describes the row, which SwiftUI rebuilds on every redraw.
+        let doubleTap = DoubleTapToEditGesture()
 
         init(_ parent: SongLineField) {
             self.parent = parent

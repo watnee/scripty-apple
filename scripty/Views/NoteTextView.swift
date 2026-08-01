@@ -136,6 +136,11 @@ struct NoteTextView: UIViewRepresentable {
     /// exactly: the prompt has to share the editor's font, its metrics and its
     /// container insets, and a SwiftUI overlay can only approximate all three.
     var placeholder = ""
+    /// What a double tap on a document being read should do — leave the reading
+    /// view, in the one host that has one. Nil where there is nothing to leave,
+    /// and ignored while the note is editable anyway; the caret goes where the
+    /// finger landed, which is `DoubleTapToEdit`'s half of the bargain.
+    var startWriting: (() -> Void)?
     /// Reports whether the caret is in here, so the host can show the
     /// formatting bar only while there is something for it to format.
     var onFocusChange: ((Bool) -> Void)?
@@ -180,6 +185,14 @@ struct NoteTextView: UIViewRepresentable {
         controller?.restore = { [weak coordinator = context.coordinator] snapshot in
             coordinator?.restore(snapshot)
         }
+        // Through the coordinator's copy of the parent: this struct is rebuilt
+        // on every redraw, and what "start writing" means changes with the mode
+        // the host is in.
+        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.startWriting?()
+        }
+        context.coordinator.doubleTap.attach(to: view)
+        context.coordinator.doubleTap.setOffered(!isEditable && startWriting != nil)
         view.placeholder = placeholder
         return view
     }
@@ -196,6 +209,9 @@ struct NoteTextView: UIViewRepresentable {
             controller?.syncExternal(text)
         }
         if view.isEditable != isEditable { view.isEditable = isEditable }
+        // After the line above, which is what settles whether there is anything
+        // for the gesture to do this time round.
+        context.coordinator.doubleTap.setOffered(!isEditable && startWriting != nil)
         if view.placeholder != placeholder { view.placeholder = placeholder }
 
         // Only when the size preference really moved — reassigning the font
@@ -216,6 +232,9 @@ struct NoteTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: NoteTextView
         weak var textView: NoteUITextView?
+        /// The double tap that asks for the keyboard on a document put up to be
+        /// read. Held here so the recogniser outlives the struct describing it.
+        let doubleTap = DoubleTapToEditGesture()
 
         /// Set while the coordinator is the one writing, so a state put back by
         /// undo is not mistaken for typing and pushed onto the stack it just

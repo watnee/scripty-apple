@@ -377,6 +377,16 @@ extension HelpTopic {
                     + "Songs and Notes, where there is room for it; on iPad and Mac "
                     + "it is in the top corner. Songs and notes keep theirs in the "
                     + "top corner everywhere.",
+                    "Or double tap the words themselves, as you would in Pages or "
+                    + "Word. Two taps on a line start writing in that line: the "
+                    + "screenplay hands you the element you tapped with the cursor "
+                    + "at the end of it, and a song or note takes the cursor to "
+                    + "where your finger landed. It works the same way on a "
+                    + "screenplay or song you have locked with Lock Editing: two "
+                    + "taps take the lock off and put you in the line you tapped. "
+                    + "Nothing happens where the words were never yours to change: "
+                    + "a script shared with you to read stays read-only however "
+                    + "many times you tap it.",
                     "That choice is remembered for that document, so it opens ready "
                     + "to type in from then on — the button is a one-time cost, not "
                     + "a toll on every visit. To put a document back, choose Read "
@@ -393,7 +403,8 @@ extension HelpTopic {
                 keywords: ["read only", "read-only", "reading mode", "read mode",
                            "edit button", "pencil", "accidental", "accident",
                            "locked", "cannot type", "can't type", "won't let me type",
-                           "keyboard", "open", "opens", "default", "pages", "word"]),
+                           "keyboard", "open", "opens", "default", "pages", "word",
+                           "double tap", "double-tap", "two taps", "tap twice"]),
             HelpTopic(
                 id: "page-view",
                 title: "Page View",
@@ -437,7 +448,9 @@ extension HelpTopic {
                     + "continuously, without page breaks or page numbers: page view "
                     + "is the one for reading it as paper. This is also the surface a "
                     + "screenplay opens on — see Documents Open for Reading, which is "
-                    + "also where the Edit button is described.",
+                    + "also where the Edit button is described. Double tapping a "
+                    + "line does the same thing and lands you in that line, the way "
+                    + "it does in Pages and Word.",
                     "Read Aloud (⌘⇧A) speaks the script from wherever you are, on "
                     + "whichever surface is up. The element being read is highlighted "
                     + "and scrolls itself into view, and the transport at the foot of "
@@ -485,10 +498,16 @@ extension HelpTopic {
                     + "still on. It is greyed when the plain writing column is already "
                     + "up, and it is offered only where you have editing rights — "
                     + "unlocking here changes what this device shows you, never what "
-                    + "the screenplay lets you do."
+                    + "the screenplay lets you do.",
+                    "A locked script has one other way back: double tap the line you "
+                    + "want. The lock comes off and the cursor lands at the end of "
+                    + "that line, the way it does in Pages and Word. Display modes "
+                    + "are left alone — that gesture is about the keyboard, not about "
+                    + "how the script is laid out."
                 ],
                 keywords: ["edit", "write", "writing", "back", "exit", "leave", "modes",
-                           "unlock", "locked", "read only"]),
+                           "unlock", "locked", "read only",
+                           "double tap", "double-tap", "tap twice"]),
             HelpTopic(
                 id: "marks",
                 title: "Bookmarks, Pins and Labels",
@@ -614,10 +633,13 @@ extension HelpTopic {
                     + "taking keystrokes and stop offering delete and highlight — "
                     + "so a song being read from at a rehearsal cannot pick up a "
                     + "stray character. A banner across the top says it is locked "
-                    + "and unlocks it when tapped. The lock is kept on this device, "
-                    + "one song at a time, and applies to that song's own edition "
-                    + "when you are in one; the all-songs workspace honours it too "
-                    + "and marks the locked songs.",
+                    + "and unlocks it when tapped — as does a double tap on the "
+                    + "lines themselves, which unlocks the song and puts the "
+                    + "cursor where your finger landed. The lock is kept on this "
+                    + "device, one song at a time, and applies to that song's own "
+                    + "edition when you are in one; the all-songs workspace honours "
+                    + "it too, marks the locked songs, and takes the same double "
+                    + "tap to unlock the one song you meant.",
                     "The lists, the editors and the workspace each take the whole "
                     + "screen rather than a card over the script; Done, at the top "
                     + "left, is the way back.",
