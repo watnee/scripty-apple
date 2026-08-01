@@ -13,6 +13,14 @@
 //  `ScreenplayLayout` with the writing column and the paper, so all three
 //  surfaces are the same document at different distances.
 //
+//  It shares that geometry literally rather than by agreement: the column, the
+//  margins, the indents and the type size all arrive in `ScriptRowChrome`,
+//  worked out once by the screen for whichever surface is up. This view used to
+//  measure the window and resolve a column of its own, and being a *slightly*
+//  different answer is what made entering the mode slide every line of the
+//  script sideways — which is a worse fault than being wrong, because the writer
+//  cannot say what moved, only that something did.
+//
 //  Still deliberately not page-accurate; that is what page view is for. The
 //  reader runs continuously — no sheets, no page numbers, no (MORE)/(CONT'D) —
 //  and its type is sized to be read on a screen rather than to fit 55 lines on
@@ -30,7 +38,6 @@ import SwiftUI
 struct ReadScriptView: View {
     let title: String
     let blocks: [Block]
-    let textScale: Double
     /// The script screen's narrator, watched so the element being read is
     /// spotlighted and kept on screen. Playing is asked for through
     /// `onReadFrom`, so preparing the run stays the owner's job.
@@ -60,30 +67,26 @@ struct ReadScriptView: View {
     /// and the paper have — reading is the posture the fold exists for.
     var onUserScroll: (_ delta: CGFloat, _ fromTop: CGFloat) -> Void = { _, _ in }
 
-    /// The type size the writing column is set at, so switching into the mode
-    /// re-typesets the script rather than resizing it.
-    private static let baseFontSize: CGFloat = 16
-
-    /// Room kept either side of the column, and the part of the window the
-    /// column therefore never had.
-    private static let horizontalPadding: CGFloat = 20
-
-    /// The OS text-size setting, as a multiplier.
+    /// The column, the margins and every element's indent, worked out once for
+    /// the whole script screen — the writing surface draws from the same value.
     ///
-    /// This view sets its type in fixed points — a screenplay is measured in
-    /// characters, so the type has to hold still against the column it is
-    /// measured into — which meant it ignored Dynamic Type entirely. Folding
-    /// the setting in as a *multiplier* scales the column with the type so the
-    /// measure survives, and composes with the script's own type-size control
-    /// rather than overriding it.
-    @ScaledMetric(relativeTo: .body) private var dynamicTypeScale: CGFloat = 1
+    /// This view used to measure the window and resolve a column of its own,
+    /// which is what made entering the mode move the script sideways: two
+    /// surfaces answering the same question, each with a slightly different
+    /// margin and each placing speech its own way. The answer is the screen's
+    /// now, so a line is in the same place in both.
+    @Environment(\.scriptRowChrome) private var chrome
+    /// The type size the writing column is set at, so switching into the mode
+    /// re-typesets the script rather than resizing it. It carries the writer's
+    /// own type-size control and the system's Dynamic Type setting together —
+    /// see `ScriptView.textScale`.
+    @Environment(\.scriptTextScale) private var textScale
 
-    private var scale: CGFloat { CGFloat(textScale) * dynamicTypeScale }
+    /// Room kept either side of the column, matching the writing column's own
+    /// row padding — the chrome's widths were measured against it.
+    private static let horizontalPadding: CGFloat = 24
 
-    private var fontSize: CGFloat { Self.baseFontSize * scale }
-
-    /// The window, so the column can be given up where there isn't room for it.
-    @State private var availableWidth: CGFloat = 0
+    private var fontSize: CGFloat { ProseFont.baseSize * CGFloat(textScale) }
 
     /// Whether the remembered position has been restored. Until it has, the
     /// scroll spy stays quiet — the first rows to appear are the top of the
@@ -91,28 +94,6 @@ struct ReadScriptView: View {
     /// restored. State rather than a constant because the blocks may land
     /// after the mode is entered, and the restore has to wait for them.
     @State private var hasRestoredPosition = false
-
-    // MARK: - Column
-
-    /// The column at 100% type, which is what the screenplay proportions are
-    /// reckoned against: the printed six-inch measure, or whatever a narrower
-    /// window can pay for. Resolved before the type size is applied so that
-    /// growing the type grows the column with it, leaving the same sixty
-    /// characters to the line — a measure is a count of characters before it is
-    /// a width, and `ScriptRowChrome` already knows how the speech boxes
-    /// narrow when the column cannot hold the full measure.
-    private var baseChrome: ScriptRowChrome {
-        var chrome = ScriptRowChrome()
-        guard availableWidth > 0, scale > 0 else { return chrome }
-        let usable = max(0, availableWidth - Self.horizontalPadding * 2)
-        chrome.columnWidth = min(ScriptRowChrome.printedMeasure,
-                                 max(240, usable / scale))
-        return chrome
-    }
-
-    private var columnWidth: CGFloat { baseChrome.columnWidth * scale }
-    private var dialogueWidth: CGFloat { baseChrome.dialogueWidth * scale }
-    private var parentheticalWidth: CGFloat { baseChrome.parentheticalWidth * scale }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -155,16 +136,19 @@ struct ReadScriptView: View {
                 // — and, being centred, its left edge — would shift as
                 // scrolling brought a longer line into the window.
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(maxWidth: columnWidth, alignment: .leading)
+                .frame(maxWidth: chrome.columnWidth, alignment: .leading)
+                // The margins the writing column keeps for what hangs in them —
+                // the element labels on the left, the marks on the right. The
+                // reader draws neither, but it leaves the same room: giving the
+                // column back those points would slide every line of the script
+                // sideways on the way into the mode, which is the whole thing
+                // this surface is trying not to do.
+                .padding(.leading, chrome.leadingGutter)
+                .padding(.trailing, chrome.trailingGutter)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, Self.horizontalPadding)
                 .padding(.vertical, 24)
                 .textSelection(.enabled)
-            }
-            // The indents are fractions of the column, so the column has to be
-            // measured before a single one of them is right.
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
-                availableWidth = $0
             }
             // Follow the voice. Centred rather than at the top, because a
             // line read at the very top of the screen has no context above
@@ -271,17 +255,39 @@ struct ReadScriptView: View {
 
     // MARK: - Rows
 
-    /// Blank lines above an element, in the same line units the paginator and
-    /// the printed page use: two above a scene heading, none between a cue and
-    /// what it says, one everywhere else. Set solid, so a line is the type size.
+    /// Blank lines above an element, in the same line units the paginator, the
+    /// printed page and the writing column use: two above a scene heading, none
+    /// between a cue and what it says, one everywhere else. Set solid, so a
+    /// line is the type size.
     private func spacing(for type: BlockType) -> CGFloat {
-        CGFloat(ScreenplayLayout.spacingLines(for: type)) * fontSize
+        CGFloat(ScreenplayLayout.spacing(for: type, lineHeight: Double(fontSize)))
     }
 
     @ViewBuilder
     private func row(_ block: Block, isFirst: Bool) -> some View {
         element(block)
+            // How the lines of a wrapped element line up with each other, the
+            // way the writing column's text views set it — a centred element
+            // centres each of its lines rather than centring as a block.
+            .multilineTextAlignment(multilineAlignment(block))
             .padding(.top, isFirst ? 0 : spacing(for: block.blockType))
+    }
+
+    /// See `EditableBlockRow.nsAlignment`, which answers the same question for
+    /// the surface this one replaces.
+    private func multilineAlignment(_ block: Block) -> TextAlignment {
+        if let override = TextAlign(serverValue: block.textAlign) {
+            switch override {
+            case .left: return .leading
+            case .center: return .center
+            case .right: return .trailing
+            }
+        }
+        switch block.blockType {
+        case .centered: return .center
+        case .transition: return .trailing
+        default: return .leading
+        }
     }
 
     @ViewBuilder
@@ -311,19 +317,15 @@ struct ReadScriptView: View {
         case .character, .dualDialogue:
             line(cased(text, block), block)
                 .accessibilityLabel(text)
-                .indented(by: indent(ScreenplayLayout.characterBox))
+                .screenplayBox(block.blockType, in: chrome)
 
         case .parenthetical:
             line(parenthesized(text), block)
-                .speechBox(width: parentheticalWidth,
-                           indent: indent(ScreenplayLayout.parentheticalBox,
-                                          width: parentheticalWidth))
+                .screenplayBox(block.blockType, in: chrome)
 
         case .dialogue, .lyrics:
             line(text, block)
-                .speechBox(width: dialogueWidth,
-                           indent: indent(ScreenplayLayout.dialogueBox,
-                                          width: dialogueWidth))
+                .screenplayBox(block.blockType, in: chrome)
 
         case .transition:
             line(cased(text, block), block)
@@ -343,7 +345,7 @@ struct ReadScriptView: View {
                    !block.blockType.isCharacterCue {
                     line(name.uppercased(), block)
                         .accessibilityLabel(name)
-                        .indented(by: indent(ScreenplayLayout.characterBox))
+                        .screenplayBox(.character, in: chrome)
                 }
                 line(text, block)
                     .frame(maxWidth: .infinity, alignment: alignment(block))
@@ -355,27 +357,15 @@ struct ReadScriptView: View {
     /// The screenplay's own emphasis — a parenthetical's italics, a heading's
     /// weight — is folded in with the writer's, so a bolded word inside a
     /// scene heading does not un-bold the heading around it.
+    ///
+    /// Resolved through `ScriptFont.element`, which is what the writing column
+    /// asks for too: the same face at the same size measures the same, so a
+    /// line breaks in the same place on both surfaces and everything under it
+    /// stays where it was.
     private func line(_ text: String, _ block: Block) -> Text {
-        let family = PresentationSettings.shared.font(for: block.font)
-        return Text(text.isEmpty ? " " : text)
-            .font(.custom(family.postScriptName, fixedSize: fontSize))
-            .fontWeight(weight(for: block))
-            .italic(isItalic(block))
+        Text(text.isEmpty ? " " : text)
+            .font(Font(ScriptFont.element(block, size: fontSize)))
             .underline(block.textUnderline ?? false)
-    }
-
-    private func weight(for block: Block) -> Font.Weight {
-        if block.textBold ?? false { return .bold }
-        switch block.blockType {
-        case .scene: return .bold
-        case .shot, .section: return .semibold
-        default: return .regular
-        }
-    }
-
-    private func isItalic(_ block: Block) -> Bool {
-        if block.textItalic ?? false { return true }
-        return block.blockType == .parenthetical || block.blockType == .lyrics
     }
 
     /// An explicit alignment set by the writer wins; otherwise the element sits
@@ -386,18 +376,6 @@ struct ReadScriptView: View {
         case .right: return .trailing
         case .left, .none: return .leading
         }
-    }
-
-    /// An element's indent from the left of the column, as the fraction of the
-    /// printed six inches it occupies on paper. Clamped against the box's own
-    /// width so a narrowed column — a phone, a split-view slice, where the
-    /// speech boxes have already given up their proportions to stay writable —
-    /// cannot indent a box off its own right edge.
-    private func indent(_ box: ScreenplayLayout.ElementBox,
-                        width: CGFloat? = nil) -> CGFloat {
-        let full = columnWidth * CGFloat(box.indentFraction)
-        guard let width else { return full }
-        return min(full, max(0, columnWidth - width))
     }
 
     private func parenthesized(_ text: String) -> String {
@@ -424,21 +402,5 @@ struct ReadScriptView: View {
                     description: Text("This script has no elements yet."))
             }
         }
-    }
-}
-
-private extension View {
-    /// Placed at a screenplay indent, in a row that still spans the column —
-    /// the row has to keep its full width or the lazy stack would size itself
-    /// to whichever element it happened to have built.
-    func indented(by indent: CGFloat) -> some View {
-        padding(.leading, indent)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// A speech element: a box of its own width, at its own indent.
-    func speechBox(width: CGFloat, indent: CGFloat) -> some View {
-        frame(maxWidth: width, alignment: .leading)
-            .indented(by: indent)
     }
 }

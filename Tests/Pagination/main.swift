@@ -46,6 +46,23 @@ check("character indent fraction",
 check("dialogue width fraction",
       (ScreenplayLayout.dialogueBox.widthFraction * 1000).rounded(), 583.0)
 
+// The rule the writing column and the reading surface both space their
+// elements by. They used to space themselves — the column by a hand-picked
+// number of points per element type, the reader by these line units — so the
+// script changed shape on the way between them. One rule now, in points, at
+// whatever size the surface happens to be set at.
+check("a scene heading gets two blank lines",
+      ScreenplayLayout.spacing(for: .scene, lineHeight: 16), 32.0)
+check("an action line gets one",
+      ScreenplayLayout.spacing(for: .action, lineHeight: 16), 16.0)
+check("dialogue hugs the cue above it",
+      ScreenplayLayout.spacing(for: .dialogue, lineHeight: 16), 0.0)
+check("and so does a parenthetical",
+      ScreenplayLayout.spacing(for: .parenthetical, lineHeight: 16), 0.0)
+// A bigger type size is a taller line, and the air scales with it.
+check("the air scales with the type",
+      ScreenplayLayout.spacing(for: .scene, lineHeight: 24), 48.0)
+
 print("\nPageSetup")
 check("letter/standard lines per page", PageSetup.default.linesPerPage, 54)
 check("letter/standard text column", PageSetup.default.textWidthIn, 6.0)

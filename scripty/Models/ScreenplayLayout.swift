@@ -105,4 +105,12 @@ enum ScreenplayLayout {
         default: return Int(elementSpacingPt / lineHeightPt)
         }
     }
+
+    /// The same rule in points, for the continuous surfaces — the writing
+    /// column and the reader, where a line is the type size rather than a
+    /// twelfth of an inch. They share it so an element leaves the same air
+    /// above itself whichever of the two the script is being read in.
+    static func spacing(for type: BlockType, lineHeight: Double) -> Double {
+        Double(spacingLines(for: type)) * lineHeight
+    }
 }

@@ -460,7 +460,10 @@ extension HelpTopic {
                     + "editing controls and the working annotations — synopses and notes "
                     + "— left out. It swaps in on the script screen itself, opening at "
                     + "the place you were writing; the Edit button, or choosing it "
-                    + "again in the View menu, puts the writing back. It runs "
+                    + "again in the View menu, puts the writing back. Both surfaces "
+                    + "measure the page the same way, so switching does not move the "
+                    + "script: an element keeps its indent, its line breaks and the air "
+                    + "around it, and so does a script with editing locked. It runs "
                     + "continuously, without page breaks or page numbers: page view "
                     + "is the one for reading it as paper. This is also the surface a "
                     + "screenplay opens on — see Documents Open for Reading, which is "
@@ -528,10 +531,14 @@ extension HelpTopic {
                     + "line whose mark is hidden. The Show section of the View menu "
                     + "turns element labels and inline notes on and off. Every one of "
                     + "these settings belongs to this screenplay, so marking up one "
-                    + "draft leaves the others alone."
+                    + "draft leaves the others alone.",
+                    "Tags, set from an element's own menu or on a whole selection at "
+                    + "once, sit under the line they belong to as small badges — while "
+                    + "you are writing as well as while you are reading, so a tag you "
+                    + "set is a tag you can see."
                 ],
                 keywords: ["star", "pin", "flag", "highlight", "labels", "markers",
-                           "favourite"]),
+                           "favourite", "tags", "badges"]),
             HelpTopic(
                 id: "text-size",
                 title: "Text Size and Appearance",
@@ -543,6 +550,12 @@ extension HelpTopic {
                     "The formatting bar behind the Aa button carries the same three, so "
                     + "the size can be changed mid-sentence without dismissing the "
                     + "keyboard: the percentage in the middle is the reset.",
+                    "The size you set here composes with the one in the Settings app "
+                    + "under Display & Brightness, rather than overriding it: the script "
+                    + "follows the type size the rest of your device is set at, and "
+                    + "Bigger and Smaller move it from there. The column grows with the "
+                    + "type either way, so the same number of characters stays on the "
+                    + "line and the script keeps the shape of a script.",
                     "All of these are settings for this device rather than for the "
                     + "account: the same screenplay is read on a bright rehearsal-room "
                     + "iPad and in a dark editing suite. Printing and PDF export stay at "
@@ -553,6 +566,7 @@ extension HelpTopic {
                 ],
                 keywords: ["zoom", "font size", "larger", "smaller", "dark mode",
                            "light", "theme", "readability", "format bar",
+                           "dynamic type", "accessibility", "display brightness",
                            "points", "pt", "10", "12", "14", "16"]),
             HelpTopic(
                 id: "stats",
