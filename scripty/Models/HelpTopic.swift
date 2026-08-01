@@ -472,7 +472,9 @@ extension HelpTopic {
                     + "script: an element keeps its indent, its line breaks and the air "
                     + "around it, and so does a script with editing locked. It runs "
                     + "continuously, without page breaks or page numbers: page view "
-                    + "is the one for reading it as paper. This is also the surface a "
+                    + "is the one for reading it as paper, and turning Read Script on "
+                    + "switches page view off rather than leaving it waiting "
+                    + "underneath. This is also the surface a "
                     + "screenplay opens on — see Documents Open for Reading, which is "
                     + "also where the Edit button is described.",
                     "Read Aloud (⌘⇧A) speaks the script from wherever you are, on "
