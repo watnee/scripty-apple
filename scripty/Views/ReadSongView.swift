@@ -44,7 +44,7 @@ import SwiftUI
 /// second typeface, and a heading left behind in the old one would be the whole
 /// of what that change was meant to stop.
 @MainActor
-enum SongTitleType {
+enum DocumentTitleType {
     /// A step up from the lyric rather than the display size the serif face
     /// carried: Courier sets wide, and a title big enough to eat the measure
     /// would wrap before the verses did.
@@ -62,6 +62,15 @@ struct ReadSongView: View {
     /// own verse breaks; see `stanzas`.
     let lines: [String]
     let textScale: Double
+    /// Start writing the lyric — the double tap's counterpart of the Edit
+    /// button in the toolbar. Nil where there is nothing to write in: a song
+    /// the server sent to be read only.
+    ///
+    /// No line is named, unlike the script reader's. This surface is handed
+    /// plain strings — a song with no blocks reaches it as one text — so there
+    /// is no element to put a caret in, and the editor comes back where it was
+    /// left rather than where the finger landed.
+    var onEdit: (() -> Void)?
 
     /// The reader's measure, narrower than the screenplay reader's 640.
     ///
@@ -100,7 +109,7 @@ struct ReadSongView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24 * scale) {
                 Text(title.isEmpty ? "Untitled Song" : title)
-                    .font(SongTitleType.font(scale: scale))
+                    .font(DocumentTitleType.font(scale: scale))
                     .fontWeight(.bold)
                     .accessibilityAddTraits(.isHeader)
 
@@ -127,6 +136,11 @@ struct ReadSongView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 24)
             .textSelection(.enabled)
+            // Two taps in the verse are the same instruction as Edit in the
+            // toolbar, the way they are in Pages and Word. On the column rather
+            // than on each line: a stanza is one thing here, and the gesture
+            // means "write this song" rather than "write this line".
+            .doubleTapToEdit(onEdit)
         }
         .overlay { emptyState }
     }

@@ -375,6 +375,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songhistory" \
     "$SRC/API/Credentials.swift" \
     "$SRC/API/KeychainStore.swift" \
     "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \

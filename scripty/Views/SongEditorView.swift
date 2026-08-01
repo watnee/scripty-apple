@@ -210,6 +210,25 @@ struct SongEditorView: View {
     /// allows — a locked document is still one the writer may unlock, which is
     /// why the switch stays offered while it is on.
     private var isLocked: Bool { options?.isEditingLocked ?? false }
+
+    /// The double-tap way in, for both of the things that can stand between a
+    /// writer and the words: the reading surface the document opened on, and
+    /// the lock. Whatever is in the way comes off — a locked note opened to be
+    /// read is one gesture away from the keyboard, not two — which is why this
+    /// is one closure rather than one per posture.
+    ///
+    /// Nil where nothing is in the way, or where the server never offered this
+    /// document to be written in: the words are already taking a caret, or no
+    /// lock of this device's would give them one. The reader and the text view
+    /// both take it, so the gesture means the same thing on either surface.
+    private var startWriting: (() -> Void)? {
+        guard isDocumentEditable, isReading || isLocked else { return nil }
+        return {
+            options?.setEditingLocked(false)
+            if isReading { beginEditing() }
+        }
+    }
+
     private var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -503,7 +522,7 @@ struct SongEditorView: View {
     /// to make the writer ask for the caret it already had.
     private var titleField: some View {
         TextField(type == .song ? "Song title" : "Note title", text: $title)
-            .font(SongTitleType.font(scale: titleScale))
+            .font(DocumentTitleType.font(scale: titleScale))
             .textInputAutocapitalization(.words)
             .submitLabel(.next)
             .focused($titleFocused)
@@ -524,6 +543,12 @@ struct SongEditorView: View {
                      spellcheckRevision: SpellcheckDictionary.shared.revision,
                      textScale: settings.textScale,
                      placeholder: placeholder,
+                     // Two taps in the words are the same instruction as Edit
+                     // in the corner, the way they are in Pages and Word — and
+                     // the caret lands where the finger did rather than at the
+                     // top. Offered only where Edit itself is: a document the
+                     // server sent read-only has nowhere for this to go.
+                     startWriting: startWriting,
                      onFocusChange: { isWritingBody = $0 })
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -540,11 +565,13 @@ struct SongEditorView: View {
         if type == .song {
             ReadSongView(title: trimmedTitle,
                          lines: content.components(separatedBy: .newlines),
-                         textScale: settings.textScale)
+                         textScale: settings.textScale,
+                         onEdit: startWriting)
         } else {
             ReadNoteView(title: trimmedTitle,
                          text: content,
-                         textScale: settings.textScale)
+                         textScale: settings.textScale,
+                         onEdit: startWriting)
         }
     }
 

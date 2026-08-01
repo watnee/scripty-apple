@@ -317,6 +317,23 @@ struct SongBlockEditorView: View {
         readingViews.remember(false, for: .document(id: model.document.id))
     }
 
+    /// The double-tap way in, for both of the things that can stand between a
+    /// writer and a lyric: the reading view it opened in, and the lock. Whatever
+    /// is in the way comes off — a locked song opened to be read is one gesture
+    /// away from the keyboard, not two — and the line takes the caret where the
+    /// finger landed, which the row's own text view arranges.
+    ///
+    /// Nil where nothing is in the way, or where the server never offered this
+    /// song to be written in: the lines are already taking a caret, or no lock
+    /// of this device's would give them one.
+    private var startWriting: (() -> Void)? {
+        guard isSongEditable, isReading || options.isEditingLocked else { return nil }
+        return {
+            if options.isEditingLocked { options.setEditingLocked(false) }
+            if isReading { beginEditing() }
+        }
+    }
+
     /// Puts it back up to be read, and remembers that too. Half-typed lines go
     /// first: the rows leave the screen the moment the flag flips, and a line
     /// still holding uncommitted text would have nowhere left to send it from.
@@ -349,7 +366,9 @@ struct SongBlockEditorView: View {
                     SongLineRow(model: model,
                                 block: block,
                                 isLocked: options.isEditingLocked,
-                                focusedLine: $focusedLine)
+                                focusedLine: $focusedLine,
+                                isReadingView: isReading,
+                                startWriting: startWriting)
                         .id(block.id)
                         // No hairline between one lyric line and the next.
                         // A plain list rules off every row, which turns a
@@ -382,7 +401,7 @@ struct SongBlockEditorView: View {
     }
 
     /// The song's name at the head of the lyric, in the face, the size and the
-    /// place the reader heads its own page with — see `SongTitleType`. The
+    /// place the reader heads its own page with — see `DocumentTitleType`. The
     /// lines were the whole of this surface before, so a song read and then
     /// written in lost its title on the way in and the writer was left looking
     /// at a verse with nothing over it.
@@ -411,7 +430,7 @@ struct SongBlockEditorView: View {
                     .accessibilityAddTraits(.isHeader)
             }
         }
-        .font(SongTitleType.font(scale: titleScale))
+        .font(DocumentTitleType.font(scale: titleScale))
         .accessibilityLabel("Title")
         .padding(.horizontal, 4)
         .padding(.top, 8)
@@ -447,7 +466,7 @@ struct SongBlockEditorView: View {
     /// postures that close this lyric to typing, since a song that cannot have
     /// a line changed should not be renameable by a stray tap either.
     private var canRenameSong: Bool {
-        model.document.hasLink(.update) && !isReadingView && !options.isEditingLocked
+        model.document.hasLink(.update) && !isReading && !options.isEditingLocked
     }
 
     private var titleScale: CGFloat { CGFloat(settings.textScale) * dynamicTypeScale }
@@ -507,7 +526,11 @@ struct SongBlockEditorView: View {
     private var reader: some View {
         ReadSongView(title: model.document.displayTitle,
                      lines: model.blocks.map { model.currentText($0) },
-                     textScale: settings.textScale)
+                     textScale: settings.textScale,
+                     // The same closure the lines themselves take: the reading
+                     // posture comes off, and with it anything else standing
+                     // between the writer and the lyric underneath.
+                     onEdit: startWriting)
     }
 
     // MARK: - Actions

@@ -28,6 +28,20 @@ struct ReadNoteView: View {
     let title: String
     let text: String
     let textScale: Double
+    /// Start writing the note — the double tap's counterpart of the Edit button
+    /// in the toolbar. Nil where there is nothing to write in: a note the
+    /// server sent to be read only.
+    ///
+    /// No line is named, as none is in the lyric reader: this surface is handed
+    /// one string, so there is no element to put a caret in, and the editor
+    /// comes back where it was left rather than where the finger landed.
+    var onEdit: (() -> Void)?
+
+    /// The face the note is set in, which is the one it is written in — the
+    /// writer's chosen default, and so the script's. Serif prose here would put
+    /// the whole note in a different typeface the moment the mode changed,
+    /// which is the fault the lyric reader gave up its own serif to fix.
+    private var face: String { PresentationSettings.shared.defaultFont.postScriptName }
 
     /// The reader's measure — wider than the lyric's 520 and a little wider
     /// than the screenplay's column, because prose is measured in characters
@@ -54,7 +68,8 @@ struct ReadNoteView: View {
             let groups = paragraphs
             LazyVStack(alignment: .leading, spacing: 18 * scale) {
                 Text(title.isEmpty ? "Untitled Notes" : title)
-                    .font(.system(size: 28 * scale, weight: .bold, design: .serif))
+                    .font(DocumentTitleType.font(scale: scale))
+                    .fontWeight(.bold)
                     .accessibilityAddTraits(.isHeader)
 
                 ForEach(Array(groups.enumerated()), id: \.offset) { _, paragraph in
@@ -78,6 +93,11 @@ struct ReadNoteView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 24)
             .textSelection(.enabled)
+            // Two taps in the prose are the same instruction as Edit in the
+            // corner, the way they are in Pages and Word. On the column rather
+            // than on each paragraph: this surface holds one string, so the
+            // gesture means "write this note" rather than "write this line".
+            .doubleTapToEdit(onEdit)
         }
         .overlay { emptyState }
     }
@@ -89,8 +109,8 @@ struct ReadNoteView: View {
         switch kind {
         case .heading(let level, let text):
             Text(text)
-                .font(.system(size: headingSize(level), weight: headingWeight(level),
-                              design: .serif))
+                .font(.custom(face, fixedSize: headingSize(level)))
+                .fontWeight(headingWeight(level))
                 .accessibilityAddTraits(.isHeader)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // Air above a heading, the way the script reader gives a scene
@@ -130,10 +150,11 @@ struct ReadNoteView: View {
         .padding(.leading, CGFloat(depth + 1) * indentUnit)
     }
 
-    /// One line of prose, in the reader's face and size.
+    /// One line of prose, in the reader's face and size — the size the note is
+    /// written at, so reading it re-sets the words rather than enlarging them.
     private func prose(_ text: String) -> Text {
         Text(text.isEmpty ? " " : text)
-            .font(.system(size: 17 * scale, design: .serif))
+            .font(.custom(face, fixedSize: ProseFont.baseSize * scale))
     }
 
     /// Headings step down towards the body size and stop there: a note is a
@@ -144,7 +165,7 @@ struct ReadNoteView: View {
         case 1: return 24 * scale
         case 2: return 21 * scale
         case 3: return 19 * scale
-        default: return 17 * scale
+        default: return ProseFont.baseSize * scale
         }
     }
 
