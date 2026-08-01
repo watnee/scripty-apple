@@ -208,7 +208,8 @@ struct ReadScriptView: View {
     /// somewhere else.
     private var titleHeading: some View {
         Text((title.isEmpty ? "Untitled Project" : title).uppercased())
-            .font(.custom(ScriptFont.default.postScriptName, fixedSize: fontSize))
+            .font(.custom(PresentationSettings.shared.defaultFont.postScriptName,
+                          fixedSize: fontSize))
             .fontWeight(.bold)
             .accessibilityLabel(title.isEmpty ? "Untitled Project" : title)
             .accessibilityAddTraits(.isHeader)
@@ -355,7 +356,7 @@ struct ReadScriptView: View {
     /// weight — is folded in with the writer's, so a bolded word inside a
     /// scene heading does not un-bold the heading around it.
     private func line(_ text: String, _ block: Block) -> Text {
-        let family = ScriptFont(serverValue: block.font) ?? .default
+        let family = PresentationSettings.shared.font(for: block.font)
         return Text(text.isEmpty ? " " : text)
             .font(.custom(family.postScriptName, fixedSize: fontSize))
             .fontWeight(weight(for: block))

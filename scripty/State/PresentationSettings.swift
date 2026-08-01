@@ -119,6 +119,37 @@ final class PresentationSettings {
         abs(fontSizePt - points) < 0.05
     }
 
+    // MARK: - Typeface
+
+    /// The face an element is set in when it carries no font of its own, which
+    /// is most of them: a block only records a font once someone picks one from
+    /// the Format menu, and that menu's "Default" is what puts it back here.
+    ///
+    /// Courier Prime until the writer says otherwise — the screenplay
+    /// convention, and the face the web stylesheet asks for first, so a script
+    /// that has never met this setting reads the same in both clients.
+    ///
+    /// A device preference like the type size above it, and for the same
+    /// reason: it is how the script is *drawn*, not what any block stores. It
+    /// has no counterpart in the web app, so unlike its neighbours the key is
+    /// ours rather than one of theirs. What a block itself says still wins —
+    /// this only answers for the ones that say nothing.
+    var defaultFont: ScriptFont {
+        didSet {
+            guard defaultFont != oldValue else { return }
+            defaults.set(defaultFont.rawValue, forKey: Key.defaultFont)
+        }
+    }
+
+    /// The face a block is drawn in: its own where it names one, the writer's
+    /// default where it does not. Every surface that sets type resolves through
+    /// here — editor rows, page sheets, the reader and the offline print — so
+    /// one setting answers for all of them at once, and reading it from a
+    /// SwiftUI `body` is what redraws them when it changes.
+    func font(for serverValue: String?) -> ScriptFont {
+        ScriptFont(serverValue: serverValue) ?? defaultFont
+    }
+
     // MARK: - Modes
 
     /// Renders the script as discrete paper sheets instead of one column.
@@ -303,6 +334,9 @@ final class PresentationSettings {
         /// What the zoom key holds when fit-to-width is on — the web's spelling.
         static let fitValue = "fit"
         static let pageSetup = "scripty-page-setup"
+        /// Ours alone — the web app has no default-font setting to borrow a
+        /// key from — but spelled its way, so it sits with the rest.
+        static let defaultFont = "scripty-default-font"
         /// Stored as "1"/"0" rather than a boolean — the web's spelling.
         static let outlineMode = "scripty-outline-mode"
         /// Names the hidden state, not the shown one — the web's spelling.
@@ -337,6 +371,12 @@ final class PresentationSettings {
         // The web writes "1" and reads anything else as off, so an old boolean
         // or a missing key both mean the whole script is showing.
         isOutlineMode = defaults.string(forKey: Key.outlineMode) == "1"
+
+        // A name nothing recognises — a face dropped from a later build, or a
+        // key someone edited — is no font at all, and the shipped default is
+        // the honest answer then rather than a script drawn in nothing.
+        defaultFont = ScriptFont(serverValue: defaults.string(forKey: Key.defaultFont))
+            ?? .default
 
         isPageView = defaults.bool(forKey: Key.pageView)
         isFocusMode = defaults.bool(forKey: Key.focusMode)

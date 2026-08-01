@@ -260,7 +260,10 @@ struct BulkActionBar: View {
                             run { await model.bulkSetFont(ids, font: font) }
                         }
                     }
-                    Button("Default") {
+                    // Named for the same reason the format bar names it: this
+                    // clears the override, and what the elements fall back to
+                    // is the writer's own choice in Editor Preferences.
+                    Button("Default (\(PresentationSettings.shared.defaultFont.label))") {
                         run { await model.bulkClearFont(ids) }
                     }
                 }

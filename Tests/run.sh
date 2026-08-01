@@ -219,6 +219,7 @@ echo "== Presentation / appearance settings =="
 swiftc "${FLAGS[@]}" -o "$BUILD/viewsettings" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/AppearanceSettings.swift" \
+    "$SRC/Models/ScriptTypeface.swift" \
     "$SRC/State/SpellcheckDictionary.swift" \
     "$SRC/Models/SpellcheckWord.swift" \
     "$SRC/Models/PageSetup.swift" \

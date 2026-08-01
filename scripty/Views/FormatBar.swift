@@ -84,7 +84,12 @@ struct FormatBar: View {
             // "Font: Default". It clears through the bulk endpoint's `clearFont`
             // flag, since the per-block PUT can only set a named font — a blank
             // one there is treated as "leave alone", not "reset".
-            fontOption(nil, label: "Default")
+            //
+            // Named, because the writer chose what it is: Editor Preferences
+            // sets the face an element with no font of its own is drawn in, and
+            // a bare "Default" here would be the one place that choice is
+            // invisible.
+            fontOption(nil, label: "Default (\(settings.defaultFont.label))")
             ForEach(ScriptFont.allCases) { option in
                 fontOption(option, label: option.label)
             }

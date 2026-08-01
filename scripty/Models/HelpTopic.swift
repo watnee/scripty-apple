@@ -353,13 +353,23 @@ extension HelpTopic {
                 title: "Editor Preferences",
                 systemImage: "textformat",
                 paragraphs: [
-                    "Editor Preferences in the sidebar menu decides which elements are "
-                    + "typed in capitals — scene headings, character cues and "
-                    + "transitions, each on its own. The choice is stored on your "
-                    + "account, so it follows you to the web editor and back."
+                    "Default Font in Editor Preferences, on the sidebar menu, sets the "
+                    + "typeface everything is written in — Courier Prime, Arial or "
+                    + "Times New Roman. It is what an element is drawn in unless you "
+                    + "give that one a font of its own from the Format bar, and it "
+                    + "carries to songs, notes and a script printed from this device. "
+                    + "The choice is this device's, so an iPad and a phone can differ, "
+                    + "and files exported through the server are set in Courier "
+                    + "whatever you pick here.",
+                    "The same screen decides which elements are typed in capitals — "
+                    + "scene headings, character cues and transitions, each on its "
+                    + "own. That choice is stored on your account, so it follows you "
+                    + "to the web editor and back, and the toggles appear only once "
+                    + "you are signed in. The font is there either way."
                 ],
                 keywords: ["capitalisation", "capitalization", "caps", "uppercase",
-                           "settings", "automatic"])
+                           "settings", "automatic", "font", "typeface", "default font",
+                           "courier", "arial", "times"])
         ]),
         HelpSection(id: "reading", title: "Reading and Layout", topics: [
             HelpTopic(

@@ -310,14 +310,15 @@ struct ProjectsSidebarView: View {
                     Label("Account", systemImage: "person.badge.key")
                 }
             }
-            // Editor preferences (auto-capitalization) — advertised on the root
-            // only for a signed-in account, since they are stored per user.
-            if app.apiRoot?.hasLink(.capitalizationPreferences) == true {
-                Button {
-                    showingPreferences = true
-                } label: {
-                    Label("Editor Preferences", systemImage: "textformat")
-                }
+            // Editor preferences: the default typeface, and auto-capitalization
+            // where the account offers it. Ungated now that the sheet holds a
+            // choice about this device — the caps toggles are still advertised
+            // to a signed-in account alone and the sheet shows them only then,
+            // but a writer in a demo session still has a font to pick.
+            Button {
+                showingPreferences = true
+            } label: {
+                Label("Editor Preferences", systemImage: "textformat")
             }
         }
         Section {
