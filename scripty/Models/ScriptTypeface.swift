@@ -156,7 +156,23 @@ extension ScriptFont {
 enum ProseFont {
     /// The base point size at 100%, shared with `EditableBlockRow` so a lyric
     /// and the scene it sits under are set at the same size.
-    static let baseSize: CGFloat = 16
+    ///
+    /// Eighteen because that is what the measure asks for. The column is
+    /// `ScriptRowChrome.printedMeasure` — 640pt standing for the printed six
+    /// inches — and six inches of screenplay is sixty characters; Courier Prime
+    /// advances 0.6em, so sixty of them fill 640pt at 17.8pt of type. Set at 16
+    /// the same column held sixty-six: type drawn smaller than the page it was
+    /// measured against, and lines that ran on past where paper would have
+    /// broken them. Rounding up rather than down wraps a character early rather
+    /// than a character late, which is the safe direction here for the reason
+    /// `naturalLeading` errs high.
+    ///
+    /// Every continuous surface reads this — the writing column, the reader,
+    /// both song editors and the note editor — so it is the one number that
+    /// says how big the app's prose is drawn. The page view is deliberately not
+    /// among them: a sheet is geometry, and `ScreenplayFont.sheet` sizes type
+    /// to the line it has to fit.
+    static let baseSize: CGFloat = 18
 
     /// `baseSize` at the writer's chosen scale, then scaled again by the
     /// system's Dynamic Type setting — prose has no page geometry to protect
