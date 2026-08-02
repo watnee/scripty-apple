@@ -228,6 +228,13 @@ extension HelpTopic {
                     + "element back into the one above.",
                     "Edits save themselves as you pause, so there is no save button to "
                     + "look for.",
+                    "Undo sits in the top bar, where it can be seen — greyed out when "
+                    + "there is nothing to take back, and there whether or not the rest "
+                    + "of the chrome is. Hold it and Redo is there too, once there is "
+                    + "something to redo; Redo is also in the “…” menu, and both answer "
+                    + "to ⌘Z and ⌘⇧Z on a keyboard. Steps taken without a connection "
+                    + "come back one at a time on this device, and the screenplay's own "
+                    + "history takes over once they have been saved.",
                     "The keyboard key at the end of the element bar puts the keyboard "
                     + "away and gives the screen back to the script, without leaving "
                     + "what you were writing. The lyric and note editors carry the "
@@ -244,6 +251,8 @@ extension HelpTopic {
                 ],
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
                            "autosave", "editing", "new", "first element", "empty",
+                           "undo", "redo", "mistake", "step back", "take back",
+                           "hold", "long press", "history",
                            "cloud", "sync", "offline", "saved", "badge",
                            "hide keyboard", "dismiss keyboard", "close keyboard",
                            "keyboard"]),
