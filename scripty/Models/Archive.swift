@@ -73,3 +73,13 @@ struct ArchivedProject: Decodable, Identifiable, Hashable, HALResource {
 struct BulkArchiveDocumentsCommand: Encodable {
     let ids: [Int]
 }
+
+/// Bringing several things back at once, from a selection in the archive.
+///
+/// The same shape as the command above and deliberately its own type: the two
+/// travel in opposite directions, from selections made in different places, and
+/// this one serves both archives — a set of songs and notes, or a set of
+/// screenplays. What is in the ids is whatever the sheet was listing.
+struct BulkUnarchiveCommand: Encodable {
+    let ids: [Int]
+}

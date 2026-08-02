@@ -14,6 +14,12 @@
 //  Tapping a row opens the song or note. An archived document is still whole,
 //  which is the whole difference between putting something aside and binning it.
 //
+//  Edit mode ticks rows, as the songs list does, and for the one action worth
+//  repeating: a writer who archived a batch at the end of a draft is here to
+//  take a batch back. There is no bulk delete to go with it — sending several
+//  archived documents to the trash in one tap is not a thing anyone has needed,
+//  and the swipe is right there for the odd one.
+//
 
 import SwiftUI
 
@@ -27,6 +33,9 @@ struct ArchiveView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var opening: Int?
+    /// The ticked rows, by id, and whether anything is being ticked at all.
+    @State private var selection = Set<Int>()
+    @State private var editMode: EditMode = .inactive
 
     init(app: AppModel,
          source: HALLink,
@@ -39,7 +48,7 @@ struct ArchiveView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            List(selection: $selection) {
                 ForEach(model.items) { item in
                     Button {
                         open(item)
@@ -91,10 +100,19 @@ struct ArchiveView: View {
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
+            .toolbar { toolbarContent }
+            .environment(\.editMode, $editMode)
+            // Leaving edit mode drops the ticks with the bar that acted on them,
+            // so reopening it never starts with someone else's selection.
+            .onChange(of: editMode) { _, mode in
+                if !mode.isEditing { selection.removeAll() }
+            }
+            // Anything can leave the archive behind this sheet's back — another
+            // device, or the swipe on the row beside it. Drop ids that are no
+            // longer here rather than posting them.
+            .onChange(of: model.items) { _, items in
+                let present = Set(items.map(\.id))
+                selection.formIntersection(present)
             }
             .task { await model.load() }
             .refreshable { await model.load() }
@@ -102,6 +120,53 @@ struct ArchiveView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(model.errorMessage ?? "")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { dismiss() }
+        }
+        // Worth entering only where a selection could do something, and only
+        // with more than one row: ticking the single thing in the archive to
+        // bring it back is the swipe with extra steps.
+        if model.canBulkUnarchive && model.items.count > 1 {
+            ToolbarItem(placement: .primaryAction) {
+                EditButton()
+            }
+        }
+        // Shown only once something is ticked — an empty bar under a list
+        // nobody is selecting from is noise. No confirmation: nothing is lost,
+        // and archiving them again is one swipe away.
+        if editMode.isEditing && !selection.isEmpty {
+            ToolbarItemGroup(placement: .bottomBar) {
+                // Titled, not a `Label`. A bottom bar draws a lone Label as a
+                // bare glyph — `.labelStyle(.titleAndIcon)` does not talk it
+                // out of it — and the count is the whole point of saying
+                // anything: an archive box with no number on it leaves the
+                // writer pressing it to find out how much it moves.
+                Button("Unarchive \(selection.count)") {
+                    bulkUnarchive()
+                }
+                .disabled(model.isWorking)
+                Spacer()
+            }
+        }
+    }
+
+    /// Brings the ticked rows back, in the order the archive is showing them —
+    /// so they rejoin the end of the list in the order the writer sees here,
+    /// not the order rows happened to be tapped.
+    private func bulkUnarchive() {
+        let ids = model.items.map(\.id).filter { selection.contains($0) }
+        guard !ids.isEmpty else { return }
+        Task {
+            if await model.bulkUnarchive(ids) {
+                selection.removeAll()
+                editMode = .inactive
+                await onChanged()
             }
         }
     }

@@ -16,6 +16,12 @@
 //  ordinary soft delete: it lands in the trash and stays restorable, which is
 //  why it needs no alert either.
 //
+//  Edit mode ticks rows for the one action worth repeating, as the document
+//  archive does. There is no bulk archive one level up to mirror — screenplays
+//  are put aside one production at a time, as they finish — but coming back is
+//  the other way round: someone opening this sheet after a season is looking at
+//  a shelf, and wants a handful of it back at once.
+//
 
 import SwiftUI
 
@@ -25,6 +31,9 @@ struct ProjectArchiveView: View {
     var onChanged: () async -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
+    /// The ticked rows, by id, and whether anything is being ticked at all.
+    @State private var selection = Set<Int>()
+    @State private var editMode: EditMode = .inactive
 
     init(app: AppModel,
          source: HALLink,
@@ -35,7 +44,7 @@ struct ProjectArchiveView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            List(selection: $selection) {
                 ForEach(model.items) { project in
                     ArchivedProjectRow(project: project)
                         .swipeActions(edge: .leading) {
@@ -82,10 +91,16 @@ struct ProjectArchiveView: View {
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
+            .toolbar { toolbarContent }
+            .environment(\.editMode, $editMode)
+            // Leaving edit mode drops the ticks with the bar that acted on them.
+            .onChange(of: editMode) { _, mode in
+                if !mode.isEditing { selection.removeAll() }
+            }
+            // A screenplay can leave the archive behind this sheet's back —
+            // another device, or the swipe on the row beside it.
+            .onChange(of: model.items) { _, items in
+                selection.formIntersection(Set(items.map(\.id)))
             }
             .task { await model.load() }
             .refreshable { await model.load() }
@@ -97,9 +112,49 @@ struct ProjectArchiveView: View {
         }
     }
 
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { dismiss() }
+        }
+        // Worth entering only where a selection could do something, and only
+        // with more than one row on the shelf.
+        if model.canBulkUnarchive && model.items.count > 1 {
+            ToolbarItem(placement: .primaryAction) {
+                EditButton()
+            }
+        }
+        if editMode.isEditing && !selection.isEmpty {
+            ToolbarItemGroup(placement: .bottomBar) {
+                // Titled rather than a `Label`, for the reason the document
+                // archive's is: a bottom bar draws a lone Label as a bare
+                // glyph, and the count is the whole point of saying anything.
+                Button("Unarchive \(selection.count)") {
+                    bulkUnarchive()
+                }
+                .disabled(model.isWorking)
+                Spacer()
+            }
+        }
+    }
+
     private func unarchive(_ project: ArchivedProject) {
         Task {
             if await model.unarchive(project) { await onChanged() }
+        }
+    }
+
+    /// Brings the ticked screenplays back, in the order the archive is showing
+    /// them.
+    private func bulkUnarchive() {
+        let ids = model.items.map(\.id).filter { selection.contains($0) }
+        guard !ids.isEmpty else { return }
+        Task {
+            if await model.bulkUnarchive(ids) {
+                selection.removeAll()
+                editMode = .inactive
+                await onChanged()
+            }
         }
     }
 

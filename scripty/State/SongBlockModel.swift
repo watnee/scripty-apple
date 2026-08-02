@@ -200,6 +200,17 @@ final class SongBlockModel {
         document.title = title
     }
 
+    /// Takes the archive stamp off a song this editor has just brought back.
+    ///
+    /// Narrow for the same reason `adoptTitle` is: the lyric links this editor
+    /// works through are the ones it opened with, and coming back from the
+    /// archive changes none of them — an archived song was never cut off from
+    /// its own lines. The stamp is the whole of what moved, and it is what the
+    /// strip at the top is drawn from.
+    func adoptUnarchived() {
+        document.archivedAt = nil
+    }
+
     // MARK: - Loading
 
     func load() async {

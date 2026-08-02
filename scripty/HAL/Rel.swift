@@ -154,12 +154,23 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     ///
     /// `archived` is the collection it went to (on the document collection, for
     /// an editor, advertised even when empty); `archive` and `unarchive` are the
-    /// two directions; `bulkArchive` is the selection form. Unlike `bulkDelete`
-    /// none of these needs the project to hold a song — notes archive too.
+    /// two directions; `bulkArchive` and `bulkUnarchive` are the selection form
+    /// of each. Unlike `bulkDelete` none of these needs the project to hold a
+    /// song — notes archive too.
+    ///
+    /// The two selection rels do not ride the same collection. `bulkArchive` is
+    /// on the document list, where a selection to archive is made; `bulkUnarchive`
+    /// is on the archive itself, where a selection to bring back is made — and
+    /// only when there is something in it to tick.
+    ///
+    /// `archive` and `unarchive` are never both advertised on one document. An
+    /// archived song or note is still opened and edited by id, so an editor can
+    /// be looking at one, and there the only useful direction is back.
     static let archive = Rel("archive")
     static let unarchive = Rel("unarchive")
     static let archived = Rel("archived")
     static let bulkArchive = Rel("bulkArchive")
+    static let bulkUnarchive = Rel("bulkUnarchive")
 
     // Version history. The server has offered these all along.
     static let versions = Rel("versions")

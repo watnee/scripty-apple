@@ -2396,6 +2396,30 @@ final class ScriptModel {
             removing: ids)
     }
 
+    /// Brings one song or note back from the archive, from an editor holding it.
+    ///
+    /// The archive sheet has its own way to do this — see ``ArchiveModel`` —
+    /// and this is the other one: an archived document opens in place, so the
+    /// editor can be the only thing on screen when the question comes up.
+    ///
+    /// Unlike ``archiveDocument`` the reply is not adopted. This link answers
+    /// with the refreshed *archive*, which is the collection the caller is not
+    /// looking at; what has to settle here is the document list, so it is
+    /// re-read instead.
+    @discardableResult
+    func unarchiveDocument(_ document: TextDocument) async -> Bool {
+        guard let link = document.link(.unarchive) else { return false }
+        do {
+            _ = try await app.client.data(for: link, method: "POST")
+            await loadDocuments()
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
     /// Shared tail of the two archive calls: POST, settle the list from the
     /// reply, and hand back any held words for documents that actually left it.
     ///

@@ -49,6 +49,14 @@ final class ArchiveModel<Item: Decodable & Identifiable & HALResource> where Ite
 
     func canUnarchive(_ item: Item) -> Bool { item.hasLink(.unarchive) }
 
+    /// Whether a selection can be brought back in one call.
+    ///
+    /// Read from the collection rather than from the rows: the server puts this
+    /// on the archive itself, and only when there is something in it — unlike
+    /// `archived`, which is advertised empty so a list has somewhere to send its
+    /// first document.
+    var canBulkUnarchive: Bool { links.contains(.bulkUnarchive) }
+
     /// Deleting from here is the ordinary soft delete: it lands in the trash and
     /// stays restorable, so it needs no confirmation of its own.
     func canDelete(_ item: Item) -> Bool { item.hasLink(.delete) }
@@ -56,6 +64,19 @@ final class ArchiveModel<Item: Decodable & Identifiable & HALResource> where Ite
     @discardableResult
     func unarchive(_ item: Item) async -> Bool {
         await act(item.link(.unarchive), method: "POST")
+    }
+
+    /// Brings several back at once. Answers with the refreshed archive, as every
+    /// action here does, so the sheet never has to work out what left.
+    ///
+    /// Ids the server skips — something another device brought back while this
+    /// sheet was open — simply stay in the reply, which is what makes a stale
+    /// selection harmless rather than an error.
+    @discardableResult
+    func bulkUnarchive(_ ids: [Int]) async -> Bool {
+        guard !ids.isEmpty else { return false }
+        return await act(links[.bulkUnarchive], method: "POST",
+                         body: BulkUnarchiveCommand(ids: ids))
     }
 
     @discardableResult
@@ -92,13 +113,14 @@ final class ArchiveModel<Item: Decodable & Identifiable & HALResource> where Ite
         }
     }
 
-    private func act(_ link: HALLink?, method: String) async -> Bool {
+    private func act(_ link: HALLink?, method: String,
+                     body: (any Encodable)? = nil) async -> Bool {
         guard let link, !isWorking else { return false }
         isWorking = true
         defer { isWorking = false }
         do {
             let collection: HALCollection<Item> = try await app.client.fetch(
-                from: link, method: method)
+                from: link, method: method, body: body)
             adopt(collection)
             errorMessage = nil
             return true

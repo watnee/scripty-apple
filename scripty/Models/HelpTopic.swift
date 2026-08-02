@@ -145,6 +145,8 @@ extension HelpTopic {
                     + "to come back to the list before it can be opened here, which "
                     + "unarchiving does in one swipe. Archiving also clears it as your "
                     + "default project; unarchiving does not set that again.",
+                    "Bringing back a whole season? Edit in the archive ticks rows, and "
+                    + "Unarchive brings every ticked screenplay back at once.",
                     "Done with it for good? Delete works from the archive too, and does "
                     + "what it does in the list: the screenplay moves to Recently "
                     + "Deleted, still recoverable."
@@ -750,11 +752,15 @@ extension HelpTopic {
                     + "Swipe a row for Archive, or tick several in edit mode and "
                     + "archive them together; notes archive as readily as songs. "
                     + "Archive in the list's menu opens what is there: swipe to "
-                    + "unarchive and it rejoins the end of the list, or tap to open "
+                    + "unarchive and it rejoins the end of the list, tick several "
+                    + "under Edit and bring them all back at once, or tap to open "
                     + "it where it is. Unlike the trash nothing in the archive is on "
                     + "a clock and nothing is ever removed from it on its own — an "
                     + "archived song keeps its lyrics and version history and still "
-                    + "exports. A songbook of every song leaves the archived ones out."
+                    + "exports. A songbook of every song leaves the archived ones out.",
+                    "Opened one from the archive? The editor says so along the top, "
+                    + "and Unarchive there puts it back into the list without "
+                    + "closing what you are reading."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
