@@ -120,14 +120,14 @@ struct ProjectArchiveView: View {
         }
         if editMode.isEditing && !selection.isEmpty {
             ToolbarItem(placement: .bottomBar) {
-                Button {
+                // A title, not a `Label`. A lone bottom-bar item draws a
+                // `Label` icon-only whatever label style is asked for, which
+                // left the only action on this screen an unnamed glyph that
+                // did not say how many it was about to bring back.
+                Button("Unarchive \(selection.count)") {
                     unarchiveSelected()
-                } label: {
-                    Label(selection.count == 1
-                          ? "Unarchive 1 Screenplay"
-                          : "Unarchive \(selection.count) Screenplays",
-                          systemImage: "arrow.up.bin")
                 }
+                .font(.body.weight(.medium))
                 .disabled(model.isWorking)
             }
         }
