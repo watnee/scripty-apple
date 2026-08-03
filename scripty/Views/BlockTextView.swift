@@ -102,14 +102,38 @@ struct BlockTextView: UIViewRepresentable, Equatable {
     func updateUIView(_ view: BlockUITextView, context: Context) {
         context.coordinator.block = block
 
-        // While the writer is mid-keystroke the model mirrors the view via
-        // `liveText`, so leave the view alone. Once liveText is cleared the
-        // model's value is authoritative again (a split trimmed this block, a
-        // merge grew it, a retype rewrote it) and must be pushed back in — even
-        // if the block still holds the caret.
+        // The model's value goes back into the view whenever the two have
+        // genuinely diverged — including while `liveText` stands.
+        //
+        // Divergence is the whole test, and it is enough of one: typing keeps
+        // `liveText` equal to the view's own string (the delegate writes it
+        // there on every keystroke, after any force-marker rewrite), so a
+        // keystroke never reaches this line and the caret is never moved out
+        // from under a writer mid-word. A difference means something other
+        // than the keyboard changed the words — a split, a merge, a retype, an
+        // accepted suggestion, an undo — and the screen has to show it.
+        //
+        // Skipping this while `liveText` was non-nil is what left undo dead
+        // with no connection: an element whose save is held keeps its words in
+        // `liveText` precisely because they are unsaved, so every offline undo
+        // rewrote the model and nothing on screen ever moved.
         let desired = liveText ?? block.content ?? ""
-        if liveText == nil, view.text != desired {
+        // Except mid-composition: a marked range is a half-entered character
+        // (Pinyin, kana, a held-key accent) that belongs to the input method
+        // until it commits, and replacing the string under it loses it.
+        if view.text != desired, view.markedTextRange == nil {
+            // Assigning `.text` drops the caret at the end. Where the writer is
+            // still in the element, keep their place instead — clamped, since
+            // the new string may be shorter (an undone insertion) — and let the
+            // model's own `caretRequest` below overrule this when it has an
+            // opinion.
+            let caret = view.selectedRange.location
+            let wasEditing = view.isFirstResponder
             view.text = desired
+            if wasEditing {
+                let length = (desired as NSString).length
+                view.selectedRange = NSRange(location: min(caret, length), length: 0)
+            }
         }
 
         // After the text sync, never before: assigning `.text` rebuilds the
