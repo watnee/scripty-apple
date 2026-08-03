@@ -7,6 +7,14 @@
 //  writing column, the paper and the prose reader alike — one narrator, one
 //  set of controls, whatever is on screen.
 //
+//  The lyric editor and the note sheet mount the same bar, in the same place at
+//  the foot of the screen, and it behaves the same way over a song as it does
+//  over a screenplay. What it says changes with what is loaded: the arrows step
+//  by line rather than by element, the readout shows the line being read where a
+//  script would name the speaker, and the options menu drops the four screenplay
+//  switches — a lyric has no character cues to announce and no parentheticals to
+//  leave out.
+//
 
 // The voice picker names the installed voices, which is an AVFoundation type
 // even though the speaking itself is all behind the narrator.
@@ -24,7 +32,7 @@ struct NarrationTransportBar: View {
             Button {
                 narrator.skipBackward()
             } label: {
-                Label("Previous Element", systemImage: "backward.fill")
+                Label("Previous \(narrator.elementNoun)", systemImage: "backward.fill")
             }
 
             Button {
@@ -38,7 +46,7 @@ struct NarrationTransportBar: View {
             Button {
                 narrator.skipForward()
             } label: {
-                Label("Next Element", systemImage: "forward.fill")
+                Label("Next \(narrator.elementNoun)", systemImage: "forward.fill")
             }
 
             Text(narrator.nowReading)
@@ -73,24 +81,32 @@ struct NarrationOptionsMenu: View {
             // What to read comes first, and the voices go in a submenu of
             // their own: a device can have forty installed, and listed inline
             // they push everything else off the end of the menu.
-            Section("Read") {
-                Toggle(isOn: $narrator.options.announcesSpeakers) {
-                    Label("Character Names", systemImage: "person.wave.2")
-                }
-                Toggle(isOn: $narrator.options.includesDescription) {
-                    Label("Action and Headings", systemImage: "text.alignleft")
-                }
-                Toggle(isOn: $narrator.options.includesDirections) {
-                    Label("Parentheticals", systemImage: "parentheses")
-                }
-                // What it can actually manage is worth saying: a device with
-                // one installed voice cannot tell a cast apart, and silently
-                // reading everything in the same voice looks like a bug.
-                Toggle(isOn: $narrator.options.usesDistinctVoices) {
-                    Label(narrator.options.usesDistinctVoices && narrator.castSize > 0
-                          ? "A Voice Each (\(narrator.castSize))"
-                          : "A Voice Each",
-                          systemImage: "person.2.wave.2")
+            //
+            // Screenplay only, every one of them: a song is one voice singing
+            // lines nobody is announced before, and a note is prose. Shown over
+            // a lyric they would be four switches that changed nothing — and
+            // "Action and Headings", left off from a run-lines session, would
+            // read as the reason the song had gone quiet.
+            if narrator.offersScriptOptions {
+                Section("Read") {
+                    Toggle(isOn: $narrator.options.announcesSpeakers) {
+                        Label("Character Names", systemImage: "person.wave.2")
+                    }
+                    Toggle(isOn: $narrator.options.includesDescription) {
+                        Label("Action and Headings", systemImage: "text.alignleft")
+                    }
+                    Toggle(isOn: $narrator.options.includesDirections) {
+                        Label("Parentheticals", systemImage: "parentheses")
+                    }
+                    // What it can actually manage is worth saying: a device with
+                    // one installed voice cannot tell a cast apart, and silently
+                    // reading everything in the same voice looks like a bug.
+                    Toggle(isOn: $narrator.options.usesDistinctVoices) {
+                        Label(narrator.options.usesDistinctVoices && narrator.castSize > 0
+                              ? "A Voice Each (\(narrator.castSize))"
+                              : "A Voice Each",
+                              systemImage: "person.2.wave.2")
+                    }
                 }
             }
 

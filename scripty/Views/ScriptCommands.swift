@@ -167,6 +167,13 @@ struct DocumentEditorActions {
     var redo: (() -> Void)?
     var canUndo = false
     var canRedo = false
+    /// Read this document out loud — the same errand ⌘⇧A does on the script,
+    /// aimed at the song or note in front of it. Present for exactly the reason
+    /// undo is: the chord would otherwise reach the screenplay behind the sheet
+    /// and start reading a script the writer cannot see. Nil where there is
+    /// nothing to say, which leaves the item disabled rather than falling
+    /// through.
+    var readAloud: (() -> Void)?
 }
 
 struct DocumentEditorActionsKey: FocusedValueKey {
@@ -319,6 +326,14 @@ struct ScriptCommands: Commands {
     private var redoTarget: (step: (() -> Void)?, enabled: Bool) {
         if let document = documentActions { return (document.redo, document.canRedo) }
         return (actions?.redo, actions?.canRedo ?? false)
+    }
+
+    /// Which words ⌘⇧A reads: the document in front where there is one, and the
+    /// script otherwise. Same rule as undo, for the same reason — a sheet does
+    /// not cover up the focused value of the scene under it.
+    private var readAloudTarget: (() -> Void)? {
+        if let document = documentActions { return document.readAloud }
+        return actions?.readAloud
     }
 
     /// The two lists, and the documents under them.
@@ -551,12 +566,14 @@ struct ScriptCommands: Commands {
             readingViews.opensInEditView.toggle()
         }
 
-        // The voice, in place on the script screen. ⌘⇧A rather than anything
-        // nearer ⌘⇧R: R is taken by the reader itself, and every other letter
-        // in "aloud" is spoken for.
-        Button("Read Aloud") { actions?.readAloud?() }
+        // The voice, in place on whichever screen is in front. ⌘⇧A rather than
+        // anything nearer ⌘⇧R: R is taken by the reader itself, and every other
+        // letter in "aloud" is spoken for. A song or a note open over the script
+        // takes the chord for itself, the way it takes ⌘Z — see
+        // `DocumentEditorActions`.
+        Button("Read Aloud") { readAloudTarget?() }
             .keyboardShortcut("a", modifiers: [.command, .shift])
-            .disabled(actions?.readAloud == nil)
+            .disabled(readAloudTarget == nil)
 
         Button("Script Stats") { actions?.stats?() }
             .disabled(actions?.stats == nil)

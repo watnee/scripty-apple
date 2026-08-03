@@ -549,7 +549,9 @@ extension HelpTopic {
                     + "be left out — dialogue alone is how you run lines. “A Voice Each” "
                     + "hands the speaking parts different voices, as far as the voices "
                     + "installed on the device stretch; add more in the Settings app "
-                    + "under Accessibility."
+                    + "under Accessibility. Those four are screenplay grammar, so a "
+                    + "song or a note — which can be read aloud too, see Songs and "
+                    + "Notes — is offered the speed and the voice alone."
                 ],
                 keywords: ["reader", "reading", "format", "courier", "indents",
                            "review", "distraction free",
@@ -793,6 +795,20 @@ extension HelpTopic {
                     + "unlock the one document you meant; neither is a way round a "
                     + "lock. On the songs page the banner is there as well, over the "
                     + "locked song you open, and unlocks that song alone.",
+                    "A song or a note can also be read to you. Read Aloud, in the "
+                    + "editor's \u{201C}…\u{201D} menu and on \u{2318}\u{21E7}A, speaks the "
+                    + "words in the same voice and at the same speed the screenplay's "
+                    + "own Read Aloud uses; the transport at the foot of the screen "
+                    + "steps a line at a time, and the speaker beside it sets the "
+                    + "speed and the voice. In a song the line being read is "
+                    + "highlighted and scrolls itself into view. It works while you "
+                    + "are writing as well as while you are reading, and it keeps "
+                    + "going with the screen off — the Lock Screen shows the "
+                    + "document's name and the line being read. One voice at a time: "
+                    + "reading a song stops a screenplay that was being read, and "
+                    + "closing the document stops the reading. A note being typed "
+                    + "into is read as it stood when you pressed the button; press it "
+                    + "again to hear the newer words.",
                     "Locking is not reading. A locked document is still the writing "
                     + "surface — the same lines, the same lists — with the keyboard "
                     + "taken away from it; Read Song and Read Note set the words for "
@@ -844,6 +860,8 @@ extension HelpTopic {
                            "workspace", "list", "bullets", "heading",
                            "read", "reading", "read song", "read note", "prose",
                            "verse", "stanza", "distraction",
+                           "aloud", "read aloud", "speech", "speak", "voice",
+                           "listen", "audio", "text to speech", "sing",
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
                            "save", "autosave", "title", "undo", "redo",

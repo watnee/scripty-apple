@@ -50,6 +50,10 @@ struct SongLineRow: View {
     /// way. Nil where the host has nothing to undo, and never offered on a line
     /// the server itself made read-only — see `DoubleTapToEdit`.
     var startWriting: (() -> Void)?
+    /// Whether the voice reading the song aloud is on this line. Off by
+    /// default, for the workspace and anywhere else that has no reading of its
+    /// own to follow.
+    var isBeingRead = false
 
     /// Whether the highlight swipe is showing its colours.
     @State private var pickingHighlight = false
@@ -214,12 +218,24 @@ struct SongLineRow: View {
         !isLocked && (focusedLine == block.id || model.focusRequest == block.id)
     }
 
+    /// The line's own colour, with the reading's wash over the top of it.
+    ///
+    /// Over rather than instead: a highlight is something the writer put on the
+    /// line and it should not blink out for the second the voice is on it. The
+    /// wash is the screenplay's spotlight, in the one place a lyric row can
+    /// carry it — a row background, since the words themselves are a UIKit text
+    /// view and an overlay across it would sit over the caret.
     @ViewBuilder
     private var rowBackground: some View {
-        if let tint = block.tint {
-            tint.color(for: colorScheme)
-        } else {
-            Color.clear
+        ZStack {
+            if let tint = block.tint {
+                tint.color(for: colorScheme)
+            } else {
+                Color.clear
+            }
+            if isBeingRead {
+                Color.accentColor.opacity(0.16)
+            }
         }
     }
 }

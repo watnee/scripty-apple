@@ -89,6 +89,15 @@ struct ReadSongView: View {
     /// walked every line slowly out of place down the page. So the reader
     /// rounds the way whichever editor it stands in for rounds.
     var linesAreRows = false
+    /// Which line the voice is on, while the song is being read aloud — an
+    /// index into `lines`, since that is all this surface is given to point
+    /// at. Nil when nothing is being read, which is the ordinary state.
+    ///
+    /// Only marked where the lines are rows. Drawn as one text view they are a
+    /// single view with no line to put a wash behind, and the alternative —
+    /// splitting the text to highlight it — would re-typeset the very column
+    /// this surface exists to leave alone.
+    var highlighted: Int?
 
     /// The OS text-size setting as a multiplier, for the title — which is a
     /// SwiftUI font sized in points, unlike the lines below it, whose own font
@@ -102,35 +111,55 @@ struct ReadSongView: View {
     @State private var availableWidth: CGFloat = 0
 
     var body: some View {
-        ScrollView {
-            // Spacing zero: a lyric is single-spaced, and the lines it is being
-            // compared against are text views drawn flush in a list whose
-            // minimum row height has been taken away.
-            VStack(alignment: .leading, spacing: 0) {
-                Text(title.isEmpty ? "Untitled Song" : title)
-                    .font(DocumentTitleType.font(scale: titleScale))
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.top, ProseColumn.titleTopPadding)
-                    .padding(.bottom, ProseColumn.titleBottomPadding)
+        ScrollViewReader { proxy in
+            ScrollView {
+                // Spacing zero: a lyric is single-spaced, and the lines it is
+                // being compared against are text views drawn flush in a list
+                // whose minimum row height has been taken away.
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title.isEmpty ? "Untitled Song" : title)
+                        .font(DocumentTitleType.font(scale: titleScale))
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, ProseColumn.titleTopPadding)
+                        .padding(.bottom, ProseColumn.titleBottomPadding)
 
-                if linesAreRows {
-                    // One text view per line, as the editor keeps one row per
-                    // line — same engine, same width, same rounding.
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                        // A blank line is drawn as a space, so it takes the
-                        // line's height the empty row it stands in for takes.
-                        lyric(line.isEmpty ? " " : line)
+                    if linesAreRows {
+                        // One text view per line, as the editor keeps one row
+                        // per line — same engine, same width, same rounding.
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            // A blank line is drawn as a space, so it takes the
+                            // line's height the empty row it stands in for takes.
+                            lyric(line.isEmpty ? " " : line)
+                                // The wash is inset outwards, so switching it on
+                                // cannot move the line it marks — the same trick
+                                // the script reader's spotlight uses.
+                                .background {
+                                    if index == highlighted {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(Color.accentColor.opacity(0.16))
+                                            .padding(.horizontal, -10)
+                                    }
+                                }
+                                .id(index)
+                        }
+                    } else {
+                        // The lyric in one text view, as the plain editor holds
+                        // it in one. A line break is a line break to TextKit, so
+                        // every line still breaks where the writer left it.
+                        lyric(lines.joined(separator: "\n"))
                     }
-                } else {
-                    // The lyric in one text view, as the plain editor holds it
-                    // in one. A line break is a line break to TextKit, so every
-                    // line still breaks where the writer left it.
-                    lyric(lines.joined(separator: "\n"))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, ProseColumn.horizontalPadding)
+                .padding(.bottom, ProseColumn.bottomSlack)
+            }
+            // Follow the voice, where there are rows to follow it by.
+            .onChange(of: highlighted) { _, index in
+                guard let index else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo(index, anchor: .center)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, ProseColumn.horizontalPadding)
-            .padding(.bottom, ProseColumn.bottomSlack)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
             availableWidth = $0

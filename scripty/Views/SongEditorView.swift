@@ -179,6 +179,10 @@ struct SongEditorView: View {
     /// Whether the offline strip has been closed for the copy currently shown.
     private let notices = DismissedNotices.shared
 
+    /// The device's voice, shared with the screenplay behind this sheet and
+    /// with the lyric editor — see `ScriptNarrator`.
+    private let narrator = ScriptNarrator.shared
+
     private let settings = PresentationSettings.shared
 
     /// The OS text-size setting as a multiplier, folded into the title's own
@@ -493,6 +497,10 @@ struct SongEditorView: View {
                 autosave?.cancel()
                 retry?.cancel()
                 flush()
+                // Closing the document ends its reading: this sheet is the only
+                // place its transport is drawn, and a voice left reading a note
+                // nobody can see is a reading with no way to stop it.
+                if isBeingRead { narrator.stop() }
             }
             // A sheet dragged away takes the note with it, and unlike a button
             // it gives no chance to say so. An autosaving note has nothing to
@@ -530,12 +538,18 @@ struct SongEditorView: View {
     /// history, the same one the bar's two buttons drive. A document that
     /// cannot be typed into offers neither, but still claims the pair — falling
     /// through to the script behind would be worse than doing nothing.
+    /// Read Aloud rides along on the same value, and unlike the pair it is
+    /// offered whatever posture the document is in: a note up to be read is
+    /// exactly the one somebody wants read to them, and without it ⌘⇧A would
+    /// reach past this sheet and start the screenplay behind it reading itself.
     private var undoActions: DocumentEditorActions {
-        guard canEdit else { return DocumentEditorActions() }
+        let readAloud: (() -> Void)? = hasWordsToSpeak ? { toggleReadAloud() } : nil
+        guard canEdit else { return DocumentEditorActions(readAloud: readAloud) }
         return DocumentEditorActions(undo: { formatting.undo() },
                                      redo: { formatting.redo() },
                                      canUndo: formatting.canUndo,
-                                     canRedo: formatting.canRedo)
+                                     canRedo: formatting.canRedo,
+                                     readAloud: readAloud)
     }
 
     /// What a step out of the history does to the title field: puts the name
@@ -846,6 +860,10 @@ struct SongEditorView: View {
                 // entire note every time.
                 WordCountBar(words: wordCounter.words(in: content))
             }
+            // Under the readouts and above the formatting bar: the transport is
+            // what a listener reaches for, and the formatting bar belongs to the
+            // keyboard it rides over.
+            narrationBar
             if showsFormatBar && isTyping {
                 // One bar for both fields now, where the title used to get a
                 // strip carrying nothing but the way out of the keyboard. The
@@ -1031,6 +1049,24 @@ struct SongEditorView: View {
                 }
             }
         }
+        // The other kind of reading, next to it: the words out loud, in the
+        // voice and at the speed the screenplay's Read Aloud is set to. Offered
+        // on both surfaces — words are as worth hearing while they are being
+        // written as after — and behind the "…" because this sheet's bar draws
+        // two controls on a phone and already has more than two things wanting
+        // them. Once a reading starts, the transport at the foot of the sheet
+        // is the control.
+        if hasWordsToSpeak {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    toggleReadAloud()
+                } label: {
+                    let isPausing = narrator.isSpeaking && isBeingRead
+                    Label(isPausing ? "Pause Reading" : "Read Aloud",
+                          systemImage: isPausing ? "pause.fill" : "speaker.wave.2")
+                }
+            }
+        }
         // Reached from here rather than from a screenplay's View menu, which is
         // where the only copy of these controls used to live — a writer working
         // in a note had no way to reach them at all.
@@ -1131,6 +1167,75 @@ struct SongEditorView: View {
             isWritingBody = false
             guard let target else { return }
             readingViews.remember(true, for: .document(id: target.id))
+        }
+    }
+
+    // MARK: - Reading aloud
+
+    /// Whether there is a word here for a voice to say. Unlike the reading
+    /// *view*, this does not wait for the document to exist on the server: a
+    /// song being typed for the first time is as readable as one that has been
+    /// there for a year, and nothing about speaking it needs an id.
+    private var hasWordsToSpeak: Bool {
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Which document this sheet handed the narrator, when it started a
+    /// reading.
+    ///
+    /// Kept rather than computed because the answer can change underneath a
+    /// reading: a new note creates itself a second after the first word is
+    /// typed, and the subject it was prepared under — `newDocument` — becomes
+    /// `document(id:)` the moment it lands. Computed, the transport would
+    /// vanish mid-sentence while the voice carried on with no way to stop it.
+    @State private var readingSubject: NarrationSubject?
+
+    /// Whether the voice on the device is reading this document.
+    private var isBeingRead: Bool {
+        readingSubject != nil && narrator.subject == readingSubject
+    }
+
+    /// The words as the narrator takes them: a song as lines, a note as prose.
+    /// What is on screen rather than what was last saved, so a verse typed a
+    /// moment ago is read as typed.
+    private var narrationSource: NarrationSource {
+        guard type == .song else { return .note(content) }
+        let lines = content.components(separatedBy: .newlines)
+        // Positions for ids: these lines are pieces of one string, and nothing
+        // on either surface points at one.
+        return .lyric(lines.enumerated().map { NarrationLine(id: $0.offset, text: $0.element) })
+    }
+
+    /// Reads the document out loud, here on this sheet — the transport comes up
+    /// at the foot of it, as it does on the screenplay and in the lyric editor.
+    /// Reaching for it while this document is being read pauses and resumes.
+    ///
+    /// The run is built once, at the press. Everywhere else a reading follows
+    /// the words as they change, because everywhere else they change when an
+    /// element lands; here `content` is bound to the text view and changes on
+    /// every keystroke, and rebuilding the run restarts the sentence being
+    /// spoken. So a note typed into while it reads is read as it was when the
+    /// voice started — press it again to hear the new words.
+    private func toggleReadAloud() {
+        if narrator.isActive && isBeingRead {
+            narrator.togglePlayPause()
+            return
+        }
+        let subject: NarrationSubject = target.map { .document(id: $0.id) } ?? .newDocument
+        readingSubject = subject
+        narrator.prepare(narrationSource,
+                         subject: subject,
+                         title: trimmedTitle.isEmpty
+                            ? (type == .song ? "Untitled Song" : "Untitled Notes")
+                            : trimmedTitle)
+        narrator.play()
+    }
+
+    /// The transport, up only while this document is the thing being read.
+    @ViewBuilder
+    private var narrationBar: some View {
+        if narrator.isActive && isBeingRead {
+            NarrationTransportBar(narrator: narrator)
         }
     }
 

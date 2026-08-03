@@ -139,8 +139,12 @@ run_suite "$BUILD/fountain" || status=1
 
 echo
 echo "== Read-aloud narration =="
+# The note builder reads its lines through the same grouping the note's own
+# reading surface uses, so both of those come along.
 swiftc "${FLAGS[@]}" -o "$BUILD/narration" \
     "$SRC/Models/Block.swift" \
+    "$SRC/Models/NoteFormatting.swift" \
+    "$SRC/Models/NoteReading.swift" \
     "$SRC/Models/ScriptNarration.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/Narration/main.swift"

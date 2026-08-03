@@ -102,6 +102,12 @@ struct SongBlockEditorView: View {
     /// Whether documents open to be read, and which way this song was last put.
     private let readingViews = ReadingViewSettings.shared
 
+    /// The device's voice, shared with the screenplay behind this sheet and
+    /// with the note editor — see `ScriptNarrator`. Reading a song ends
+    /// whatever was being read before it, which is the only sane answer on a
+    /// device with one pair of headphones.
+    private let narrator = ScriptNarrator.shared
+
     init(app: AppModel, document: TextDocument, scriptModel: ScriptModel,
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
@@ -135,13 +141,22 @@ struct SongBlockEditorView: View {
     /// Empty while the song is being read — there is nothing on that surface a
     /// step back would be a step back from — but still published, so ⌘Z over a
     /// song can never fall through to the script the cover is hiding.
+    ///
+    /// ⌘⇧A rides along on the same value and is *not* emptied by the reading
+    /// mode: a song up to be read is exactly the one somebody wants read to
+    /// them, and the chord would otherwise start the screenplay behind this
+    /// sheet reading itself.
     private var menuActions: DocumentEditorActions {
-        guard !isReading else { return DocumentEditorActions() }
+        let readAloud: (() -> Void)? = model.blocks.isEmpty ? nil : { toggleReadAloud() }
+        guard !isReading else {
+            return DocumentEditorActions(readAloud: readAloud)
+        }
         return DocumentEditorActions(
             undo: { Task { await model.undo(); runSearch() } },
             redo: { Task { await model.redo(); runSearch() } },
             canUndo: model.canUndo,
-            canRedo: model.canRedo)
+            canRedo: model.canRedo,
+            readAloud: readAloud)
     }
 
     /// Recomputes the matched set from what the lines currently say.
@@ -187,6 +202,11 @@ struct SongBlockEditorView: View {
                 VStack(spacing: 0) {
                     searchBar
                     wordCountBar
+                    // Under the readouts and above the keyboard's own strip:
+                    // the transport is the thing being reached for while a
+                    // reading runs, and the way down from a line is the thing
+                    // being reached for while one is being typed.
+                    narrationBar
                     keyboardBar
                 }
             }
@@ -207,6 +227,28 @@ struct SongBlockEditorView: View {
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .onChange(of: searchText) { _, _ in
                 runSearch()
+            }
+            // A reading in progress follows the lyric it is reading: a line
+            // committed, a sync, a restore all reshape the run, and the
+            // narrator keeps its place across the rebuild. Only while the voice
+            // is on this song, and only while it is running — idle, the run is
+            // built fresh the next time Read Aloud is pressed.
+            //
+            // These are the saved lines rather than the half-typed ones, which
+            // is the point: they change when a line lands, not per keystroke,
+            // and rebuilding the run restarts the line being spoken.
+            .onChange(of: model.blocks) { _, _ in
+                guard narrator.isActive, isBeingRead else { return }
+                narrator.prepare(narrationSource,
+                                 subject: narrationSubject,
+                                 title: model.document.displayTitle)
+            }
+            // Closing the song ends its reading. The sheet is the only place
+            // its transport is drawn, and a voice left singing a song nobody
+            // can see — with the screenplay's own transport back on screen
+            // underneath — is a reading with no way to stop it.
+            .onDisappear {
+                if isBeingRead { narrator.stop() }
             }
             // The lock follows the edition on screen, so a rewrite opened from
             // a locked song is judged by its own key rather than inheriting the
@@ -388,7 +430,8 @@ struct SongBlockEditorView: View {
                                 isLocked: options.isEditingLocked,
                                 focusedLine: $focusedLine,
                                 isReadingView: isReading,
-                                startWriting: startWriting)
+                                startWriting: startWriting,
+                                isBeingRead: readingLineId == block.id)
                         .id(block.id)
                         // No hairline between one lyric line and the next.
                         // A plain list rules off every row, which turns a
@@ -412,6 +455,15 @@ struct SongBlockEditorView: View {
             .onChange(of: focusedLine) { _, id in
                 guard let id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
+            // Follow the voice, as the screenplay's column does. Centred, so
+            // the line being sung has the verse around it rather than sitting
+            // at the very top with the next line always a jump away.
+            .onChange(of: readingLineId) { _, id in
+                guard let id else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
             }
         }
         // Belongs to this surface rather than to the screen: the reader has an
@@ -553,7 +605,72 @@ struct SongBlockEditorView: View {
                      onEdit: startWriting,
                      // This editor keeps a row per line, so the reader adds its
                      // column up the same way — see `linesAreRows`.
-                     linesAreRows: true)
+                     linesAreRows: true,
+                     // The line the voice is on, as a position: the reader is
+                     // handed strings, not lines with ids.
+                     highlighted: readingLineIndex)
+    }
+
+    /// Where in the lyric the voice is, counted the way the reader counts —
+    /// nil when this song is not the one being read.
+    private var readingLineIndex: Int? {
+        guard let id = readingLineId else { return nil }
+        return model.blocks.firstIndex { $0.id == id }
+    }
+
+    // MARK: - Reading aloud
+
+    /// What the narrator calls this song while it reads it.
+    private var narrationSubject: NarrationSubject { .document(id: model.document.id) }
+
+    /// Whether the voice on the device is reading *this* song. One narrator
+    /// serves every surface, so a reading being loaded is not the same question
+    /// as this song being the one loaded — and the line ids a song counts by
+    /// mean nothing in a screenplay.
+    private var isBeingRead: Bool { narrator.subject == narrationSubject }
+
+    /// The lyric as the narrator takes it: what is on screen, line for line,
+    /// blank lines and all. `currentText` rather than the saved content, so a
+    /// line typed a moment ago is read as typed — the same copy the reading
+    /// surface is fed.
+    private var narrationSource: NarrationSource {
+        .lyric(model.blocks.map { NarrationLine(id: $0.id, text: model.currentText($0)) })
+    }
+
+    /// Reads the song out loud, here on this sheet — the transport comes up at
+    /// the foot of it and the line being read is lit and scrolled to, exactly
+    /// as the screenplay does it. Reaching for it while this song is being read
+    /// pauses and resumes, so the one control is the whole errand.
+    private func toggleReadAloud() {
+        if narrator.isActive && isBeingRead {
+            narrator.togglePlayPause()
+            return
+        }
+        narrator.prepare(narrationSource,
+                         subject: narrationSubject,
+                         title: model.document.displayTitle)
+        // From the line the writer is in, where there is one — the screenplay's
+        // rule, in a song's terms. A line nobody is standing in starts the song
+        // at the top, which is where a song wants to start anyway.
+        if let id = model.focusedBlockId {
+            narrator.play(atOrAfter: id)
+        } else {
+            narrator.play()
+        }
+    }
+
+    /// The transport, up only while this song is the thing being read.
+    @ViewBuilder
+    private var narrationBar: some View {
+        if narrator.isActive && isBeingRead {
+            NarrationTransportBar(narrator: narrator)
+        }
+    }
+
+    /// The line being read, or nil when the voice is elsewhere — what both
+    /// surfaces light and scroll to.
+    private var readingLineId: Int? {
+        isBeingRead ? narrator.currentBlockId : nil
     }
 
     // MARK: - Actions
@@ -736,8 +853,17 @@ struct SongBlockEditorView: View {
         }
     }
 
+    /// Split in two only because a toolbar builder takes ten children and this
+    /// editor now draws eleven; the division is the one the note sheet already
+    /// makes — what is on the bar itself, and what is behind the "…".
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        barToolbar
+        overflowToolbar
+    }
+
+    @ToolbarContentBuilder
+    private var barToolbar: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("Done") {
                 Task {
@@ -789,6 +915,60 @@ struct SongBlockEditorView: View {
                 .disabled(!model.canRedo)
             }
         }
+        ToolbarItemGroup(placement: .primaryAction) {
+            // The way into writing, leading this group so a phone — which
+            // draws about two controls on the trailing side before the rest go
+            // to the "…" — always draws it. It is the one thing a reader most
+            // needs, which is why it is out here rather than two taps deep in
+            // the overflow beside the toggle that also reaches it. Gone once it
+            // is used: the sheet is then the editor it has always been.
+            if isSongEditable && isReading {
+                Button {
+                    beginEditing()
+                } label: {
+                    Label("Edit", systemImage: "square.and.pencil")
+                }
+            }
+            // No keyboard shortcut on Search: the screenplay's own button owns
+            // ⌘F, and this editor opens over it — the same reason the text-size
+            // menu in the overflow claims no keys.
+            //
+            // Search narrows the lines, so it is only offered where there are
+            // lines to narrow; reading swaps them out.
+            if !isReading {
+                Button {
+                    isSearching.toggle()
+                    if !isSearching { searchText = "" }
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+            }
+            if model.trashLink != nil {
+                Button {
+                    showingTrash = true
+                } label: {
+                    Label("Deleted Lines", systemImage: "trash")
+                }
+            }
+            if editions.hasChoice || editions.canCreate {
+                Button {
+                    showingEditions = true
+                } label: {
+                    Label("Editions", systemImage: "doc.on.doc")
+                }
+            }
+            if model.versionsLink != nil {
+                Button {
+                    showingVersions = true
+                } label: {
+                    Label("Version History", systemImage: "clock.arrow.circlepath")
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var overflowToolbar: some ToolbarContent {
         // The list's context-menu action, reachable without leaving the song.
         // Same gate — the server advertised an `insert` link on this document —
         // and the same landing: the end of the script.
@@ -823,6 +1003,29 @@ struct SongBlockEditorView: View {
             ToolbarItem(placement: .secondaryAction) {
                 Toggle(isOn: readingBinding) {
                     Label("Read Song", systemImage: "book")
+                }
+            }
+        }
+        // The other kind of reading, next to it: the song out loud, in the
+        // voice and at the speed the screenplay's Read Aloud is set to. Both
+        // surfaces offer it — a lyric is as worth hearing while it is being
+        // written as after — so this is gated on there being a line to read
+        // rather than on the mode.
+        //
+        // In the "…" rather than out on the bar. The trailing side of this
+        // sheet's navigation bar draws about two controls on a phone and there
+        // are five things wanting them, so a sixth would only ever be the
+        // overflow's anyway; this way it sits with the reading toggle it is a
+        // sibling of. Once a reading starts the transport at the foot of the
+        // sheet is the control, and it is nobody's second tap.
+        if !model.blocks.isEmpty {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    toggleReadAloud()
+                } label: {
+                    let isPausing = narrator.isSpeaking && isBeingRead
+                    Label(isPausing ? "Pause Reading" : "Read Aloud",
+                          systemImage: isPausing ? "pause.fill" : "speaker.wave.2")
                 }
             }
         }
@@ -874,56 +1077,6 @@ struct SongBlockEditorView: View {
                 .disabled(settings.textSize == PresentationSettings.defaultTextSize)
             } label: {
                 Label("Text Size", systemImage: "textformat.size")
-            }
-        }
-        ToolbarItemGroup(placement: .primaryAction) {
-            // The way into writing, leading this group so a phone — which
-            // draws about two controls on the trailing side before the rest go
-            // to the "…" — always draws it. It is the one thing a reader most
-            // needs, which is why it is out here rather than two taps deep in
-            // the overflow beside the toggle that also reaches it. Gone once it
-            // is used: the sheet is then the editor it has always been.
-            if isSongEditable && isReading {
-                Button {
-                    beginEditing()
-                } label: {
-                    Label("Edit", systemImage: "square.and.pencil")
-                }
-            }
-            // No keyboard shortcut on Search: the screenplay's own button owns
-            // ⌘F, and this editor opens over it — the same reason the text-size
-            // menu below claims no keys.
-            //
-            // Search narrows the lines, so it is only offered where there are
-            // lines to narrow; reading swaps them out.
-            if !isReading {
-                Button {
-                    isSearching.toggle()
-                    if !isSearching { searchText = "" }
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-            }
-            if model.trashLink != nil {
-                Button {
-                    showingTrash = true
-                } label: {
-                    Label("Deleted Lines", systemImage: "trash")
-                }
-            }
-            if editions.hasChoice || editions.canCreate {
-                Button {
-                    showingEditions = true
-                } label: {
-                    Label("Editions", systemImage: "doc.on.doc")
-                }
-            }
-            if model.versionsLink != nil {
-                Button {
-                    showingVersions = true
-                } label: {
-                    Label("Version History", systemImage: "clock.arrow.circlepath")
-                }
             }
         }
     }
