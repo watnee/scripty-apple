@@ -78,6 +78,14 @@ struct SongEditorView: View {
     @State private var isCreating = false
     @State private var isLoading = false
     @State private var didLoad = false
+    /// The whole document, once it has been fetched — what this sheet was
+    /// handed is the list row, which carries a truncated preview and none of
+    /// the state that only the full resource reports. Kept rather than read for
+    /// its words and dropped, because the archived stamp arrives on it and
+    /// nothing else on screen would know.
+    @State private var loaded: TextDocument?
+    /// A trip back from the archive in flight.
+    @State private var isUnarchiving = false
     @State private var errorMessage: String?
     /// What the writer is told about the saving of an existing note. Nil until
     /// something has been typed, so a note opened and not touched says nothing.
@@ -209,7 +217,10 @@ struct SongEditorView: View {
 
     /// The document being written: the one this sheet was opened on, or the one
     /// its first save created. Nil only while a new document has yet to land.
-    private var target: TextDocument? { document ?? created }
+    /// The document this sheet is acting on, in order of how much is known
+    /// about it: the fetched resource, then the row it opened with, then the
+    /// one its own first save made.
+    private var target: TextDocument? { loaded ?? document ?? created }
 
     private var isNew: Bool { target == nil }
 
@@ -380,8 +391,13 @@ struct SongEditorView: View {
             // note looks exactly like an unlocked one, so a tap that does
             // nothing needs something on screen to say why — and an old copy
             // of the words looks exactly like a current one.
+            //
+            // Outermost first: being archived is where this note stands, the
+            // lock is what this session may do to it, and the offline copy is
+            // about the words on screen right now.
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
+                    archivedBanner
                     lockBanner
                     offlineCopyBanner
                 }
@@ -694,6 +710,53 @@ struct SongEditorView: View {
     private var lockBanner: some View {
         if isLocked && !isReading {
             EditingLockBanner { options?.setEditingLocked(false) }
+        }
+    }
+
+    /// Says this document is in the archive, and offers the way back.
+    ///
+    /// Shown while reading as well as while writing, unlike the lock strip: the
+    /// lock explains a keyboard that will not come, which a reader is not
+    /// waiting for, but *where a document lives* is as worth knowing to someone
+    /// reading it as to someone typing into it — and reading is how an archived
+    /// document opens.
+    ///
+    /// Reads the archived stamp from the loaded document rather than from
+    /// `document`, which is the summary row this sheet was handed: the list
+    /// never carries the stamp, and the row that opened this came from the
+    /// archive sheet, which is a different resource again.
+    @ViewBuilder
+    private var archivedBanner: some View {
+        if let target, target.isArchived {
+            ArchivedBanner(
+                kind: type,
+                unarchive: target.hasLink(.unarchive) ? { unarchive(target) } : nil,
+                isWorking: isUnarchiving)
+        }
+    }
+
+    /// Brings this document back, and says so by dropping the strip: the
+    /// reloaded document has no archived stamp and no `unarchive` link.
+    ///
+    /// The sheet deliberately stays open. Unarchiving is not leaving — a writer
+    /// who reached for it while reading a lyric is most likely about to work on
+    /// it, and closing the editor under them would take that away.
+    private func unarchive(_ document: TextDocument) {
+        guard !isUnarchiving else { return }
+        isUnarchiving = true
+        Task {
+            defer { isUnarchiving = false }
+            guard await model.unarchiveDocument(document) else {
+                errorMessage = model.errorMessage
+                    ?? "Could not bring \"\(document.displayTitle)\" back."
+                return
+            }
+            // Re-read so the strip, and the links behind every other control in
+            // this toolbar, come from the document as it is now — the list it
+            // just rejoined is where the settled version of it is.
+            if let fresh = model.documents.first(where: { $0.id == document.id }) {
+                loaded = fresh
+            }
         }
     }
 
@@ -1072,6 +1135,7 @@ struct SongEditorView: View {
         defer { isLoading = false }
         let full = await model.fetchDocument(document)
         if let full {
+            loaded = full
             title = full.title ?? title
             content = full.content ?? ""
         }

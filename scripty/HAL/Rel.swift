@@ -163,6 +163,10 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     /// in the list, a set to bring back is ticked in the archive. So
     /// `bulkUnarchive` arrives on the *archive* collection, not on its items —
     /// and only when there is something in there to tick.
+    ///
+    /// `archive` and `unarchive` are never both advertised on one document. An
+    /// archived song or note is still opened and edited by id, so an editor can
+    /// be looking at one, and there the only useful direction is back.
     static let archive = Rel("archive")
     static let unarchive = Rel("unarchive")
     static let archived = Rel("archived")

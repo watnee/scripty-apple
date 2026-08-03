@@ -16,6 +16,12 @@
 //  ordinary soft delete: it lands in the trash and stays restorable, which is
 //  why it needs no alert either.
 //
+//  Edit mode ticks rows for the one action worth repeating, as the document
+//  archive does. There is no bulk archive one level up to mirror — screenplays
+//  are put aside one production at a time, as they finish — but coming back is
+//  the other way round: someone opening this sheet after a season is looking at
+//  a shelf, and wants a handful of it back at once.
+//
 
 import SwiftUI
 

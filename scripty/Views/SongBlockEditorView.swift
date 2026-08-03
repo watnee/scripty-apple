@@ -82,6 +82,8 @@ struct SongBlockEditorView: View {
     /// What an insert that put nothing in the script has to say for itself —
     /// an empty song, or a send the server refused.
     @State private var insertMessage: String?
+    /// A trip back from the archive in flight.
+    @State private var isUnarchiving = false
     @State private var searchText = ""
     /// Which lines the current search matched, by id.
     ///
@@ -162,6 +164,7 @@ struct SongBlockEditorView: View {
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
+                    archivedBanner
                     editionBanner
                     lockBanner
                     offlineCopyBanner
@@ -637,6 +640,37 @@ struct SongBlockEditorView: View {
     private var lockBanner: some View {
         if options.isEditingLocked {
             EditingLockBanner { options.setEditingLocked(false) }
+        }
+    }
+
+    /// Says this song is in the archive, and offers the way back.
+    ///
+    /// Above the edition strip rather than below it: which shelf the song is on
+    /// outranks which rewrite of it is open. See `ArchivedBanner`, which the
+    /// note editor shows in the same place for the same reason.
+    @ViewBuilder
+    private var archivedBanner: some View {
+        if model.document.isArchived {
+            ArchivedBanner(
+                kind: .song,
+                unarchive: model.document.hasLink(.unarchive) ? { unarchive() } : nil,
+                isWorking: isUnarchiving)
+        }
+    }
+
+    /// Brings this song back into the list, leaving the editor open — a writer
+    /// who reached for it while reading a lyric is most likely about to work on
+    /// it, and closing the cover under them would take that away.
+    private func unarchive() {
+        guard !isUnarchiving else { return }
+        isUnarchiving = true
+        Task {
+            defer { isUnarchiving = false }
+            // The script's model rather than this one, for the reason a rename
+            // goes there: the lists behind this cover are its to refresh.
+            if await scriptModel.unarchiveDocument(model.document) {
+                model.adoptUnarchived()
+            }
         }
     }
 

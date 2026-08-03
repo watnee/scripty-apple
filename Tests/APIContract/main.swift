@@ -1245,6 +1245,43 @@ func checkDocumentArchive(pid: Int) async {
     let reread = await be.respond(method: "GET", url: url("/api/document/\(songId)"), body: nil)
     check("an archived document is still readable by id", reread.status == 200, "got \(reread.status)")
     check("and still carries its content", json(reread.data)["content"] != nil)
+    // What an editor holding it has to go on. The list never carries the stamp,
+    // so its presence is the whole signal that this is not a listed document.
+    check("an archived document fetched by id says so", json(reread.data)["archivedAt"] != nil)
+    // Whole means whole. The archive opens a song in place, so everything that
+    // hangs off it has to answer for an archived one too — the by-id finders
+    // ask only that a document is not trashed. This is what an editor opened
+    // from the archive actually fetches, and each of these used to 400.
+    check("an archived song still has its lyric",
+          await be.respond(method: "GET", url: url("/api/song/block?documentId=\(songId)"),
+                           body: nil).status == 200)
+    check("and its editions",
+          await be.respond(method: "GET", url: url("/api/song/edition?documentId=\(songId)"),
+                           body: nil).status == 200)
+    check("and its lyric's own trash",
+          await be.respond(method: "GET", url: url("/api/song/block/trash?documentId=\(songId)"),
+                           body: nil).status == 200)
+    check("and its undo history",
+          await be.respond(method: "GET",
+                           url: url("/api/song/block/undo-redo-status?documentId=\(songId)"),
+                           body: nil).status == 200)
+    check("and offers the way back from the editor",
+          links(json(reread.data))["unarchive"] != nil)
+    // Never both directions at once: archiving an archived document is what the
+    // server refuses, so offering it would be an affordance that 400s.
+    check("and no longer offers `archive`", links(json(reread.data))["archive"] == nil)
+    // Followed as the editor follows it — the href itself, not one rebuilt here.
+    // An affordance that cannot be followed is worse than one that is absent.
+    if let href = (links(json(reread.data))["unarchive"] as? [String: Any])?["href"] as? String,
+       let followed = URL(string: href) {
+        let fromEditor = await be.respond(method: "POST", url: followed, body: nil)
+        check("and following that link works", fromEditor.status == 200,
+              "got \(fromEditor.status) from \(href)")
+        // Put it back for the checks below, which expect it archived.
+        _ = await be.respond(method: "POST", url: url("/api/document/\(songId)/archive"), body: nil)
+    } else {
+        check("the editor's unarchive link is a followable href", false)
+    }
 
     let back = await be.respond(method: "POST",
                                 url: url("/api/document/archive/\(songId)/unarchive?projectId=\(pid)"),
@@ -1257,6 +1294,8 @@ func checkDocumentArchive(pid: Int) async {
     check("the document is back in the list", relisted.contains { $0["id"] as? Int == songId })
     check("it keeps its id and title",
           relisted.first { $0["id"] as? Int == songId }?["title"] as? String == songTitle)
+    check("a listed document is not marked archived",
+          relisted.first { $0["id"] as? Int == songId }?["archivedAt"] == nil)
     check("unarchiving something that is not archived -> 404",
           await be.respond(method: "POST",
                            url: url("/api/document/archive/999999/unarchive?projectId=\(pid)"),
@@ -1270,8 +1309,9 @@ func checkDocumentArchive(pid: Int) async {
     let after = embedded(json(bulk.data))
     check("both left the list",
           !after.contains { $0["id"] as? Int == songId } && !after.contains { $0["id"] as? Int == noteId })
-    shelf = embedded(json(await be.respond(
-        method: "GET", url: url("/api/document/archive?projectId=\(pid)"), body: nil).data))
+    let shelfBody = json(await be.respond(
+        method: "GET", url: url("/api/document/archive?projectId=\(pid)"), body: nil).data)
+    shelf = embedded(shelfBody)
     // Unlike the bulk delete, which skips every id that is not a song.
     check("a note archives in a selection just as a song does",
           shelf.contains { $0["id"] as? Int == noteId })
@@ -1358,8 +1398,9 @@ func checkProjectArchive(pid: Int) async {
     check("archiving answers with the refreshed list, without it",
           !embedded(json(archived.data)).contains { $0["id"] as? Int == pid })
 
-    let shelf = embedded(json(await be.respond(
-        method: "GET", url: url("/api/project/archive"), body: nil).data))
+    let shelfBody = json(await be.respond(
+        method: "GET", url: url("/api/project/archive"), body: nil).data)
+    let shelf = embedded(shelfBody)
     let row = shelf.first { $0["id"] as? Int == pid }
     check("the archived project is in the archive", row != nil)
     check("it says when it was archived", row?["archivedAt"] != nil)

@@ -1673,7 +1673,15 @@ actor DemoBackend {
         return document
     }
 
-    private func documentJSON(_ document: DemoDocument, includeContent: Bool) -> [String: Any] {
+    /// One document as the server renders it.
+    ///
+    /// `archivedAt` is non-nil only when this is being fetched out of the
+    /// archive, which is the one case where an editor holding the document has
+    /// no other way to know what it is looking at. It also decides which
+    /// direction is offered: `archive` and `unarchive` are never both there,
+    /// because archiving something already archived is what the server refuses.
+    private func documentJSON(_ document: DemoDocument, includeContent: Bool,
+                              archivedAt: Date? = nil) -> [String: Any] {
         let isSong = document.documentType == "SONG"
         var links: [String: Any] = [
             "self": link("/api/document/\(document.id)"),
@@ -1686,10 +1694,16 @@ actor DemoBackend {
             // always has edit rights, so they are unconditional here.
             "duplicate": link("/api/document/\(document.id)/duplicate"),
             "changeType": link("/api/document/\(document.id)/change-type"),
-            // Songs and notes both archive — unlike the export and email rels
-            // below, there is nothing song-shaped about putting one aside.
-            "archive": link("/api/document/\(document.id)/archive"),
         ]
+        // Songs and notes both archive — unlike the export and email rels
+        // below, there is nothing song-shaped about putting one aside. One
+        // direction or the other, never both.
+        if archivedAt == nil {
+            links["archive"] = link("/api/document/\(document.id)/archive")
+        } else {
+            links["unarchive"] = link(
+                "/api/document/archive/\(document.id)/unarchive?projectId=\(document.projectId)")
+        }
         if isSong {
             links["shareEmail"] = link("/api/document/\(document.id)/share-email")
             // Songs are lyric blocks on the server, so only they have editions
@@ -1720,6 +1734,9 @@ actor DemoBackend {
         ]
         if includeContent {
             json["content"] = document.content
+        }
+        if let archivedAt {
+            json["archivedAt"] = iso.string(from: archivedAt)
         }
         return json
     }
@@ -1759,6 +1776,60 @@ actor DemoBackend {
             }
         }
         return nil
+    }
+
+    /// Which store a document is in, and where — the list or the archive.
+    ///
+    /// `locateDocument` above deliberately answers for the list alone, because
+    /// its callers index straight into `documents` to change something. This is
+    /// for everything that only has to *find* the document, which on the server
+    /// is every by-id finder: those ask only that it is not trashed, so an
+    /// archived song still has its lyrics, its editions and its history. Without
+    /// this the archive could open a song and then fail to load a word of it.
+    private enum DocumentSite {
+        case live(projectId: Int, index: Int)
+        case archived(projectId: Int, index: Int)
+    }
+
+    private func siteOfDocument(_ id: Int) -> DocumentSite? {
+        if let (projectId, index) = locateDocument(id) {
+            return .live(projectId: projectId, index: index)
+        }
+        for (projectId, records) in archivedDocuments {
+            if let index = records.firstIndex(where: { $0.document.id == id }) {
+                return .archived(projectId: projectId, index: index)
+            }
+        }
+        return nil
+    }
+
+    /// Whether there is such a document at all, archived or not.
+    private func documentExists(_ id: Int) -> Bool { siteOfDocument(id) != nil }
+
+    /// A document's words, wherever it is being kept.
+    private func documentContent(_ id: Int) -> String? {
+        switch siteOfDocument(id) {
+        case let .live(projectId, index): return documents[projectId]?[index].content
+        case let .archived(projectId, index): return archivedDocuments[projectId]?[index].document.content
+        case nil: return nil
+        }
+    }
+
+    /// Writes a document's words back where they came from. An archived song is
+    /// still edited in place, so its preview has to keep up too.
+    private func setDocumentContent(_ id: Int, to content: String) {
+        switch siteOfDocument(id) {
+        case let .live(projectId, index):
+            documents[projectId]?[index].content = content
+            documents[projectId]?[index].updatedAt = .now
+            recordWork(projectId)
+        case let .archived(projectId, index):
+            archivedDocuments[projectId]?[index].document.content = content
+            archivedDocuments[projectId]?[index].document.updatedAt = .now
+            recordWork(projectId)
+        case nil:
+            break
+        }
     }
 
     /// Parses the fixed-boundary multipart body produced by `APIClient.upload`.
@@ -2253,11 +2324,13 @@ actor DemoBackend {
     /// server has had them as blocks all along.
     private func ensureSongBlocks(_ documentId: Int, editionId: Int) {
         guard songBlocks[editionId] == nil else { return }
-        guard let (projectId, index) = locateDocument(documentId) else {
+        // Archived as readily as listed: the archive opens a song in place, and
+        // a song with no lines is not what it was put aside as.
+        guard let content = documentContent(documentId) else {
             songBlocks[editionId] = []
             return
         }
-        let lines = documents[projectId]![index].content
+        let lines = content
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -2289,7 +2362,7 @@ actor DemoBackend {
         }
         if let step = path.first, ["undo", "redo", "undo-redo-status"].contains(step) {
             guard let documentId = query["documentId"].flatMap(Int.init),
-                  locateDocument(documentId) != nil,
+                  documentExists(documentId),
                   let editionId = resolveSongEdition(documentId,
                                                      editionId: query["editionId"].flatMap(Int.init))
             else { return badRequest("documentId") }
@@ -2306,7 +2379,7 @@ actor DemoBackend {
         switch (method, path.count) {
         case ("GET", 0), ("POST", 0):
             guard let documentId = query["documentId"].flatMap(Int.init),
-                  locateDocument(documentId) != nil,
+                  documentExists(documentId),
                   let editionId = resolveSongEdition(documentId,
                                                      editionId: query["editionId"].flatMap(Int.init))
             else { return badRequest("documentId") }
@@ -2408,13 +2481,11 @@ actor DemoBackend {
     /// the songs list preview does not go stale while the lyric is edited.
     private func syncSongText(_ documentId: Int, editionId: Int) {
         guard songEditions.first(where: { $0.id == editionId })?.isDefault == true,
-              let (projectId, index) = locateDocument(documentId) else { return }
-        documents[projectId]?[index].content = (songBlocks[editionId] ?? [])
+              documentExists(documentId) else { return }
+        setDocumentContent(documentId, to: (songBlocks[editionId] ?? [])
             .sorted { $0.order < $1.order }
             .map(\.content)
-            .joined(separator: "\n")
-        documents[projectId]?[index].updatedAt = .now
-        recordWork(projectId)
+            .joined(separator: "\n"))
         if let position = songEditions.firstIndex(where: { $0.id == editionId }) {
             songEditions[position].blockCount = (songBlocks[editionId] ?? []).count
             songEditions[position].lastEdited = .now
@@ -2458,7 +2529,7 @@ actor DemoBackend {
     private func routeSongBlockTrash(method: String, path: [String],
                                      query: [String: String]) -> (Int, Data) {
         guard let documentId = query["documentId"].flatMap(Int.init),
-              locateDocument(documentId) != nil,
+              documentExists(documentId),
               let editionId = resolveSongEdition(documentId,
                                                  editionId: query["editionId"].flatMap(Int.init))
         else { return badRequest("documentId") }
@@ -2622,7 +2693,7 @@ actor DemoBackend {
                                   query: [String: String],
                                   fields: [String: Any]) -> (Int, Data) {
         guard let documentId = query["documentId"].flatMap(Int.init),
-              locateDocument(documentId) != nil else { return badRequest("documentId") }
+              documentExists(documentId) else { return badRequest("documentId") }
         ensureSongEditions(documentId)
 
         switch (method, path.count) {
@@ -2846,7 +2917,8 @@ actor DemoBackend {
         switch (method, path.dropFirst().first) {
         case ("GET", nil):
             return ok(documentJSON(archivedDocuments[projectId]![index].document,
-                                   includeContent: true))
+                                   includeContent: true,
+                                   archivedAt: archivedDocuments[projectId]![index].archivedAt))
         case ("DELETE", nil):
             let record = archivedDocuments[projectId]!.remove(at: index)
             deletedDocuments[projectId, default: []].append(

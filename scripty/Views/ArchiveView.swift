@@ -14,6 +14,12 @@
 //  Tapping a row opens the song or note. An archived document is still whole,
 //  which is the whole difference between putting something aside and binning it.
 //
+//  Edit mode ticks rows, as the songs list does, and for the one action worth
+//  repeating: a writer who archived a batch at the end of a draft is here to
+//  take a batch back. There is no bulk delete to go with it — sending several
+//  archived documents to the trash in one tap is not a thing anyone has needed,
+//  and the swipe is right there for the odd one.
+//
 
 import SwiftUI
 

@@ -44,13 +44,28 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
     var sortOrder: Int?
     var createdAt: Date?
     var updatedAt: Date?
+    /// When this was put aside, or nil for anything in the list.
+    ///
+    /// The archive opens its documents in place — that is what makes it an
+    /// archive rather than a bin — so an editor can be holding one, and nothing
+    /// else on screen would say so. The list never carries this: the server
+    /// omits it for everything the list holds.
+    var archivedAt: Date?
     let links: HALLinks?
 
     private enum CodingKeys: String, CodingKey {
         case id, projectId, projectTitle, title, documentType, documentTypeLabel
-        case content, preview, sortOrder, createdAt, updatedAt
+        case content, preview, sortOrder, createdAt, updatedAt, archivedAt
         case links = "_links"
     }
+
+    /// Whether this document is in the archive rather than the list.
+    ///
+    /// Read from the stamp rather than from the `unarchive` link, because the
+    /// two answer different questions: the link says whether *this* reader may
+    /// bring it back, and this says what they are looking at. A view-only
+    /// collaborator gets no link and should still be told.
+    var isArchived: Bool { archivedAt != nil }
 
     var displayTitle: String {
         let name = title ?? ""
