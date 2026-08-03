@@ -50,7 +50,14 @@ struct BulkActionBar: View {
     let selectableIds: [Int]
     let isFiltered: Bool
 
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Whether this is a phone-shaped width, decided by the host.
+    ///
+    /// Not `@Environment(\.horizontalSizeClass)`: inside a `NavigationSplitView`
+    /// column that reads `.compact` even on a full-width iPad, which is why
+    /// every other surface in the app threads this down by hand. Read from the
+    /// environment, this bar drew the stacked phone layout on every iPad there
+    /// has ever been, and `regularBar` below was unreachable code.
+    let isCompact: Bool
 
     @State private var isTagging = false
     @State private var tagText = ""
@@ -64,7 +71,7 @@ struct BulkActionBar: View {
         // can be done to it below. Regular widths keep the web toolbar's
         // single labelled row.
         Group {
-            if sizeClass == .compact {
+            if isCompact {
                 compactBar
             } else {
                 regularBar
@@ -137,10 +144,18 @@ struct BulkActionBar: View {
     /// script pane can be too narrow for six titled actions, and the titles
     /// wrap to fragments. So the titled row is offered first and the icon-only
     /// row stands in wherever it will not fit.
+    ///
+    /// The stacked layout is the last resort rather than the phone's alone. A
+    /// two-column split on the narrow side leaves a pane that will not hold
+    /// even six icons, a count and Done on one line, and `ViewThatFits` takes
+    /// its final candidate whether it fits or not — so without this the bar
+    /// would run off the edge of its own pane rather than fall back to the
+    /// arrangement that was built for exactly that much room.
     private var regularBar: some View {
         ViewThatFits(in: .horizontal) {
             regularRow(iconOnly: false)
             regularRow(iconOnly: true)
+            compactBar
         }
     }
 

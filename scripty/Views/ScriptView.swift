@@ -1389,7 +1389,8 @@ struct ScriptView: View {
             BulkActionBar(model: model,
                           selection: selection,
                           selectableIds: selectableIds,
-                          isFiltered: isSearchNarrowingSelection)
+                          isFiltered: isSearchNarrowingSelection,
+                          isCompact: isCompact)
         }
     }
 
@@ -2087,8 +2088,13 @@ struct ScriptView: View {
             // Search draws its bar on the editing column, which reading mode
             // has swapped out — no offer where there is nowhere to show it.
             if !isReading {
+                // A toggle, not an opener. ⌘F used to be claimed by the
+                // toolbar's Search button as well, which is where the second
+                // press closed the bar; now that the menu bar holds the only
+                // claim, opening-only would leave the chord with no way back.
                 actions.find = {
-                    isSearching = true
+                    isSearching.toggle()
+                    if !isSearching { search.clear() }
                 }
             }
             actions.outline = { showingOutline = true }
@@ -2372,7 +2378,6 @@ struct ScriptView: View {
                     } label: {
                         Label("Search", systemImage: "magnifyingglass")
                     }
-                    .keyboardShortcut("f", modifiers: .command)
                 }
 
                 Button {
@@ -2380,11 +2385,6 @@ struct ScriptView: View {
                 } label: {
                     Label("Navigator", systemImage: "list.bullet.indent")
                 }
-                // ⌘⇧O is outline *mode*, in the View menu below and in the Mac
-                // menu bar. The panel took the same keys until now, which meant
-                // one of the two won by responder order and the other silently
-                // did nothing.
-                .keyboardShortcut("o", modifiers: [.command, .option])
 
                 if model.canSelectBlocks && !settings.isPageView && !isReading {
                     Button {
@@ -2557,23 +2557,25 @@ struct ScriptView: View {
 
     /// How the script is presented, gathered into one menu the way the web
     /// editor gathers them under View.
+    /// None of these carry a chord, though every one of them has one. The keys
+    /// live in `ScriptCommands`, which is mounted once at the scene and stays
+    /// mounted through focus mode — this menu comes and goes with the toolbar,
+    /// and two views binding one chord means whichever loses the responder race
+    /// silently does nothing. The shortcuts sheet documents the single claim.
     private var viewMenu: some View {
         Menu {
             Section {
                 Toggle(isOn: pageViewBinding) {
                     Label("Page View", systemImage: "doc.richtext")
                 }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
 
                 Toggle(isOn: focusModeBinding) {
                     Label("Focus Mode", systemImage: "moon")
                 }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
 
                 Toggle(isOn: outlineModeBinding) {
                     Label("Outline Mode", systemImage: "list.bullet.indent")
                 }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
 
                 // A mode among the modes, not a screen: the toggle swaps the
                 // column for the reader in place, and toggling it off —
@@ -2613,7 +2615,6 @@ struct ScriptView: View {
                     Toggle(isOn: fullWidthBinding) {
                         Label("Full Page Width", systemImage: "arrow.left.and.right")
                     }
-                    .keyboardShortcut("\\", modifiers: .command)
                 }
             }
 
@@ -2665,7 +2666,6 @@ struct ScriptView: View {
                     Label("Bigger", systemImage: "textformat.size.larger")
                 }
                 .disabled(!settings.canIncreaseTextSize)
-                .keyboardShortcut("+", modifiers: .command)
 
                 Button {
                     settings.decreaseTextSize()
@@ -2673,7 +2673,6 @@ struct ScriptView: View {
                     Label("Smaller", systemImage: "textformat.size.smaller")
                 }
                 .disabled(!settings.canDecreaseTextSize)
-                .keyboardShortcut("-", modifiers: .command)
 
                 Button {
                     settings.resetTextSize()
