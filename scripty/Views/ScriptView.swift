@@ -1517,10 +1517,17 @@ struct ScriptView: View {
     @ViewBuilder
     private var pageEmptyState: some View {
         if pages.isEmpty {
-            ContentUnavailableView(
-                "Nothing to Paginate",
-                systemImage: "doc.richtext",
-                description: Text("This script has no elements yet."))
+            // A script still on its way has no pages either, and saying it has
+            // no elements over one that is loading is simply wrong — the
+            // writing column and the reader both check this first.
+            if model.isLoading {
+                ProgressView()
+            } else {
+                ContentUnavailableView(
+                    "Nothing to Paginate",
+                    systemImage: "doc.richtext",
+                    description: Text("This script has no elements yet."))
+            }
         }
     }
 
@@ -2735,7 +2742,13 @@ struct ScriptView: View {
         settings.isPageView = false
         settings.isFocusMode = false
         settings.isOutlineMode = false
-        isReading = false
+        // Through `setReading`, not by writing the flag: it is the only place
+        // the choice is remembered, so setting `isReading` here left the
+        // script opening for reading again next time — the one route out of
+        // the reader that did not count as a decision. A no-op when the reader
+        // was not up, which is right: leaving page view says nothing about how
+        // the script should open.
+        setReading(false)
         if options.isEditingLocked {
             options.setEditingLocked(false)
         }
