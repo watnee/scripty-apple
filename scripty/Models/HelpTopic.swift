@@ -726,8 +726,10 @@ extension HelpTopic {
                     + "one document at a time, and applies to a song's own edition "
                     + "when you are in one. Both workspace screens honour it too — "
                     + "every song on one page, every note on the other — mark the "
-                    + "locked ones, and take the same double tap to unlock the one "
-                    + "document you meant; neither is a way round a lock.",
+                    + "locked ones with a padlock, and take the same double tap to "
+                    + "unlock the one document you meant; neither is a way round a "
+                    + "lock. On the songs page the banner is there as well, over the "
+                    + "locked song you open, and unlocks that song alone.",
                     "Locking is not reading. A locked document is still the writing "
                     + "surface — the same lines, the same lists — with the keyboard "
                     + "taken away from it; Read Song and Read Note set the words for "
