@@ -12,8 +12,11 @@
 //  outlives the session either way, so what is left unticked is waiting there
 //  the next time this device is signed out rather than thrown away.
 //
-//  What *is* ticked leaves the device — `handOff` drops it once the upload
-//  lands — so the two copies never diverge behind the writer's back.
+//  Nothing here leaves the device. The account is given a copy and the device
+//  keeps its own, so signing out later opens on the screenplay rather than on
+//  the hole where it used to be. The two do then drift apart, which is why a
+//  screenplay that has been through here before says so, and arrives unticked:
+//  keeping it a second time makes a second screenplay.
 //
 
 import SwiftUI
@@ -30,7 +33,10 @@ struct GuestWorkView: View {
     init(app: AppModel, offer: GuestWorkOffer) {
         self.app = app
         self.offer = offer
-        _chosen = State(initialValue: Set(offer.projects.map(\.id)))
+        // One an account already has a copy of starts unticked: ticking it is
+        // asking for a second screenplay, which is a thing to choose rather
+        // than a thing to have to notice and undo.
+        _chosen = State(initialValue: Set(offer.projects.filter { !$0.alreadyKept }.map(\.id)))
     }
 
     var body: some View {
@@ -45,7 +51,7 @@ struct GuestWorkView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(project.title)
                                         .foregroundStyle(.primary)
-                                    Text(elementCount(project.elements))
+                                    Text(subtitle(for: project))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -66,9 +72,9 @@ struct GuestWorkView: View {
                 } header: {
                     Text("Written on this device")
                 } footer: {
-                    Text("Anything left unticked stays out of your account. "
-                         + "It keeps waiting on this device, and is here again "
-                         + "next time you sign out.")
+                    Text("Your account gets a copy. Everything here stays on "
+                         + "this device either way, so it is all still yours to "
+                         + "write in next time you sign out.")
                 }
 
                 if let errorMessage {
@@ -107,6 +113,16 @@ struct GuestWorkView: View {
 
     private func elementCount(_ count: Int) -> String {
         count == 1 ? "1 element" : "\(count) elements"
+    }
+
+    /// What the row says under the title. A screenplay an account already has a
+    /// copy of says that instead of its size: the size is not the thing the
+    /// writer has to weigh, and what "Keep" means for this row is different —
+    /// a second screenplay rather than a first.
+    private func subtitle(for project: GuestWorkOffer.Item) -> String {
+        project.alreadyKept
+            ? "Already copied to an account — keeping adds a second copy"
+            : elementCount(project.elements)
     }
 
     private func toggle(_ id: Int) {

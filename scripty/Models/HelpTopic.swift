@@ -192,11 +192,19 @@ extension HelpTopic {
                     + "deleting the app takes the writing with it.",
                     "Sign In, in the sidebar menu or on the banner above the list, "
                     + "attaches an account. Keep Your Work? then lists everything you "
-                    + "wrote before signing in, ticked to begin with: Keep copies those "
-                    + "screenplays into your account and takes them off the device, and "
-                    + "anything you untick stays here, waiting.",
+                    + "wrote before signing in, ticked to begin with: Keep copies "
+                    + "those screenplays into your account. Nothing leaves the device "
+                    + "— your account gets a copy, and this workspace keeps its own.",
                     "Signing out brings this workspace back rather than shutting you "
-                    + "out; the screenplays in your account stay in your account."
+                    + "out, with everything you wrote here still in it, copied or not. "
+                    + "From then on the two go their own way: the copy in your account "
+                    + "and the one on this device are separate screenplays, and writing "
+                    + "in one does not change the other. Sign in again and a screenplay "
+                    + "you have already copied says so on the Keep Your Work? list, and "
+                    + "arrives unticked — keeping it a second time adds a second "
+                    + "screenplay to your account rather than updating the first.",
+                    "The screenplays in your account stay in your account: signing out "
+                    + "does not bring them onto this device."
                 ],
                 keywords: ["sample", "try", "offline", "test", "example", "demo",
                            "guest", "sign in", "sign out", "account", "no account",

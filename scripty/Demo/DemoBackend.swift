@@ -140,6 +140,22 @@ actor DemoBackend {
     /// the sidebar already sorts on.
     private var writtenProjectIds: Set<Int> = []
 
+    /// The projects an account has already been given a copy of.
+    ///
+    /// The copy here is not taken away when that happens — signing out is not a
+    /// reason to be shut out of your own screenplay, so the local one stays and
+    /// stays writable, and the two go their own way from that moment. What this
+    /// remembers is that they *have* a shared origin, which is the one thing the
+    /// next sign-in needs to know: it must not offer this again as though it
+    /// were new, or a writer who signs in twice ends up with the same screenplay
+    /// in their account twice.
+    ///
+    /// Writing in it again does put it back on the offer — the local copy has
+    /// moved on and there is no way to send those words anywhere else — but the
+    /// sheet says plainly that keeping it adds a second copy, and leaves it
+    /// unticked.
+    private var handedOffProjectIds: Set<Int> = []
+
     // MARK: - Persistence
 
     /// Where this workspace is kept between launches, or nil for a session that
@@ -200,6 +216,15 @@ actor DemoBackend {
         var nextDocumentId: Int
         var nextActorId: Int
         var writtenProjectIds: Set<Int>
+        /// Optional, unlike everything above it, because it was added after
+        /// devices were already keeping workspaces on disk. A synthesised
+        /// decoder treats a missing key as a failure even where the property has
+        /// a default, and a snapshot that fails to decode is read as no snapshot
+        /// at all — so a non-optional field here would have opened every
+        /// existing signed-out device on the sample screenplay, with its own
+        /// writing gone. Absent means "nothing has been handed off yet", which
+        /// is what was true before this existed.
+        var handedOffProjectIds: Set<Int>?
         var capitalization: [String: Bool]
         var auditions: [Int: [Int: Set<Int>]]
         var teamsStore: [DemoTeam]
@@ -274,6 +299,7 @@ actor DemoBackend {
                  nextDocumentId: nextDocumentId,
                  nextActorId: nextActorId,
                  writtenProjectIds: writtenProjectIds,
+                 handedOffProjectIds: handedOffProjectIds,
                  capitalization: capitalization,
                  auditions: auditions,
                  teamsStore: teamsStore,
@@ -324,6 +350,7 @@ actor DemoBackend {
         nextDocumentId = snapshot.nextDocumentId
         nextActorId = snapshot.nextActorId
         writtenProjectIds = snapshot.writtenProjectIds
+        handedOffProjectIds = snapshot.handedOffProjectIds ?? []
         capitalization = snapshot.capitalization
         auditions = snapshot.auditions
         teamsStore = snapshot.teamsStore
@@ -346,62 +373,28 @@ actor DemoBackend {
         store.save(data)
     }
 
-    /// Lets go of the screenplays an account has just taken a copy of.
+    /// Notes that an account has just taken a copy of these screenplays.
     ///
-    /// Only the ones actually uploaded, and outright rather than into the trash:
-    /// these now live in the account, and a local copy left behind would come
-    /// back the next time the writer signed out — as a second, older copy of a
-    /// screenplay they are still working on somewhere else. Anything they chose
-    /// *not* to hand over stays exactly where it is, which is the point of
-    /// keeping the workspace at all.
-    func handOff(projectIds ids: [Int]) {
-        let handed = Set(ids)
-        // Read before anything is removed: the song and comment stores are
-        // keyed by the children of these projects, so their keys have to be
-        // collected while the projects still have children.
-        let handedDocuments = Set(handed.flatMap { documents[$0] ?? [] }.map(\.id))
-        let handedEditions = Set(songEditions
-            .filter { handedDocuments.contains($0.documentId) }
-            .map(\.id))
-        let handedBlocks = Set(handed.flatMap { blocks[$0] ?? [] }.map(\.id))
-
-        projects.removeAll { handed.contains($0.id) }
-        for id in handed {
-            blocks[id] = nil
-            people[id] = nil
-            documents[id] = nil
-            undoStacks[id] = nil
-            redoStacks[id] = nil
-            versions[id] = nil
-            deletedBlocks[id] = nil
-            deletedDocuments[id] = nil
-            archivedDocuments[id] = nil
-            auditions[id] = nil
+    /// Nothing is removed. This used to delete the local copy outright, on the
+    /// reasoning that the account was now the screenplay's home and a copy left
+    /// behind would come back at the next sign-out as a stale second one. What
+    /// that missed is where it left the writer: signing out took the screenplay
+    /// with it, so the price of ever attaching an account was losing the work on
+    /// the device the moment you left it. A signed-out device is a place people
+    /// write, not a waiting room.
+    ///
+    /// So both copies live, and they diverge — the local one keeps the words it
+    /// had when it was handed over, and nothing said to the account afterwards
+    /// reaches it. All that is recorded here is that it went, so the next
+    /// sign-in doesn't offer it again as though it were new. See
+    /// `handedOffProjectIds`.
+    func markHandedOff(projectIds ids: [Int]) {
+        for id in ids {
+            handedOffProjectIds.insert(id)
+            // Off the offer list until it is written in again: as it stands the
+            // account has exactly these words already.
             writtenProjectIds.remove(id)
-            if defaultProjectId == id { defaultProjectId = nil }
         }
-        for documentId in handedDocuments { songVersions[documentId] = nil }
-        for editionId in handedEditions {
-            songBlocks[editionId] = nil
-            deletedSongBlocks[editionId] = nil
-            songUndoStacks[editionId] = nil
-            songRedoStacks[editionId] = nil
-        }
-        songEditions.removeAll { handedDocuments.contains($0.documentId) }
-        for editionId in editions.filter({ handed.contains($0.projectId) }).map(\.id) {
-            editionBlocks[editionId] = nil
-        }
-        editions.removeAll { handed.contains($0.projectId) }
-        activity.removeAll { handed.contains($0.projectId) }
-        invitations.removeAll { handed.contains($0.projectId) }
-        comments.removeAll { handedBlocks.contains($0.blockId) }
-        // Actors are shared across projects, so this narrows the cast list
-        // rather than emptying it — one left in no project at all is nobody's
-        // any more and goes.
-        for index in actors.indices {
-            actors[index].projectIds.removeAll { handed.contains($0) }
-        }
-        actors.removeAll { $0.projectIds.isEmpty }
         persist()
     }
 
@@ -4475,11 +4468,17 @@ actor DemoBackend {
     /// changed, newest first, and never a sample screenplay left as it was
     /// seeded. Deleted ones fall out on their own — the id is remembered, but
     /// the project it named is gone from the list.
-    func guestWork() -> [(id: Int, title: String, blockCount: Int)] {
+    ///
+    /// `alreadyKept` marks one an account has been given a copy of before, and
+    /// which has been written in since. It is still worth offering — those newer
+    /// words exist nowhere else — but keeping it makes a second screenplay
+    /// rather than catching the first one up, and the sheet has to say so.
+    func guestWork() -> [(id: Int, title: String, blockCount: Int, alreadyKept: Bool)] {
         projects
             .filter { writtenProjectIds.contains($0.id) }
             .sorted { $0.lastEdited > $1.lastEdited }
-            .map { ($0.id, $0.title, (blocks[$0.id] ?? []).count) }
+            .map { ($0.id, $0.title, (blocks[$0.id] ?? []).count,
+                    handedOffProjectIds.contains($0.id)) }
     }
 
     private func link(_ path: String) -> [String: String] {
