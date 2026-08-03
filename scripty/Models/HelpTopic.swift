@@ -839,6 +839,108 @@ extension HelpTopic {
                 ],
                 keywords: ["restore", "recover", "undelete", "bin", "removed", "block"])
         ]),
+        // Its own section because none of it is about writing. Passkeys, the
+        // password, Siri and the widgets are about the account behind the work
+        // and the device it is being done on, and each of them had nowhere to
+        // live in the five sections that came before — so none of them was
+        // written about at all, while every one of them puts a button in front
+        // of the writer.
+        HelpSection(id: "account", title: "Your Account and This Device", topics: [
+            HelpTopic(
+                id: "passkeys",
+                title: "Signing In with a Passkey",
+                systemImage: "person.badge.key",
+                paragraphs: [
+                    "A passkey signs you in with Face ID, Touch ID or your device "
+                    + "passcode instead of a password. There is nothing to remember and "
+                    + "nothing to type, and because the key never leaves your device "
+                    + "there is nothing that can be read off a server or guessed.",
+                    "Sign in with a Passkey appears on the sign-in screen wherever the "
+                    + "server offers them. The first time, sign in with your password "
+                    + "and then add one from Account in the sidebar menu: it asks for "
+                    + "Face ID and gives the passkey a name, so a list of several says "
+                    + "which device each belongs to.",
+                    "Passkeys are kept in the same place your passwords are, so one "
+                    + "added on an iPhone works on the iPad signed in to the same Apple "
+                    + "Account. Account lists every passkey on your account and can "
+                    + "revoke any of them — worth doing for a device you no longer have. "
+                    + "Your password still works, so revoking the last passkey does not "
+                    + "lock you out.",
+                    "Use a Saved Password, underneath, is the other way in: it opens the "
+                    + "same sheet your passwords are kept in and fills the form from "
+                    + "there."
+                ],
+                keywords: ["face id", "touch id", "biometric", "passwordless",
+                           "webauthn", "security key", "log in", "login", "authenticate",
+                           "keychain", "revoke", "device"]),
+            HelpTopic(
+                id: "password",
+                title: "Changing or Recovering Your Password",
+                systemImage: "key",
+                paragraphs: [
+                    "Account, in the sidebar menu, changes the password: the current one "
+                    + "and the new one, and you stay signed in here.",
+                    "Forgotten it, on the sign-in screen, is Forgot Password. Give the "
+                    + "email address on the account and a link is sent to it. There is "
+                    + "no code to copy — opening the link on this device brings you "
+                    + "straight back here with the new-password field ready. Reading "
+                    + "your mail somewhere else? Paste the link into the waiting screen "
+                    + "instead and it goes on from there.",
+                    "The link is good once and not for long. Asking again simply sends "
+                    + "another; the screen says the same thing either way, which is "
+                    + "deliberate — an address that is not on an account should not be "
+                    + "told so by a help screen or by anyone trying addresses.",
+                    "If the server has locked your account until the password changes, "
+                    + "it will say so and send you to the website to do it. That one "
+                    + "cannot be done from here."
+                ],
+                keywords: ["forgot", "forgotten", "reset", "recover", "lost",
+                           "email", "link", "locked out", "cannot sign in",
+                           "change", "credentials"]),
+            HelpTopic(
+                id: "siri-shortcuts",
+                title: "Siri, Shortcuts and Spotlight",
+                systemImage: "mic",
+                paragraphs: [
+                    "Scripty answers Siri without any setting up. \"Open Songs in "
+                    + "Scripty\", \"Open my screenplay in Scripty\", \"New note in "
+                    + "Scripty\", \"New song in Scripty\", \"Add a lyric in Scripty\" and "
+                    + "\"Add an action line in Scripty\" all work, and each opens the app "
+                    + "where the words landed rather than leaving you to find them.",
+                    "The same actions are in the Shortcuts app under Scripty, so they "
+                    + "can be put in a shortcut of your own — dictate a line on a walk, "
+                    + "or open the songs list from a Home Screen icon.",
+                    "Your screenplays, songs and notes are in Spotlight too: type part "
+                    + "of a title from the Home Screen and the document is a result that "
+                    + "opens it. Signing out clears all of it from the device."
+                ],
+                keywords: ["voice", "hey siri", "dictate", "speak", "automation",
+                           "search", "spotlight", "app shortcuts", "hands free"]),
+            HelpTopic(
+                id: "widgets",
+                title: "Widgets and Control Centre",
+                systemImage: "square.grid.2x2",
+                paragraphs: [
+                    "Four widgets, added the usual way — press and hold the Home Screen, "
+                    + "then Edit, then drag one out of the gallery. Screenplays lists "
+                    + "your projects and can be set to one in particular; Songs and "
+                    + "Notes each list documents from the screenplay you last had open; "
+                    + "Bookmarks lists the lines you have flagged, grouped by "
+                    + "screenplay. Every row opens the thing it names.",
+                    "Scripty's buttons are in Control Centre as well, and can go on the "
+                    + "Lock Screen or the Action button: Songs, Screenplay, New Note and "
+                    + "New Song. Press and hold Control Centre, then the add button, to "
+                    + "find them under Scripty.",
+                    "Press and hold the app icon for the same shortcuts plus the "
+                    + "screenplays you were working on most recently.",
+                    "All of it works without an account, on whatever is on the device. "
+                    + "Signing out empties every widget rather than leaving the last "
+                    + "writer's titles on the Home Screen."
+                ],
+                keywords: ["home screen", "lock screen", "control centre",
+                           "control center", "action button", "tile", "glance",
+                           "quick action", "long press", "icon"])
+        ]),
         HelpSection(id: "collaboration", title: "Collaboration", topics: [
             HelpTopic(
                 id: "characters",
@@ -850,9 +952,16 @@ extension HelpTopic {
                     + "and everything they say.",
                     "The cast list is the counterpart of the web app's Casting screen: a "
                     + "directory of real actors, each of whom can be attached to a "
-                    + "character."
+                    + "character.",
+                    "An actor can also be marked as having auditioned for particular "
+                    + "characters, which is a separate thing from being cast in one: it "
+                    + "is the record of who was seen for what, kept while the decision "
+                    + "is still open. Open an actor and edit them to tick the characters "
+                    + "they read for; the set you leave is the set that is kept."
                 ],
-                keywords: ["cast", "actors", "roles", "people", "assign", "profile"]),
+                keywords: ["cast", "actors", "roles", "people", "assign", "profile",
+                           "audition", "auditioned", "read for", "shortlist",
+                           "considered", "tried out"]),
             HelpTopic(
                 id: "comments",
                 title: "Comments",
