@@ -73,3 +73,13 @@ struct ArchivedProject: Decodable, Identifiable, Hashable, HALResource {
 struct BulkArchiveDocumentsCommand: Encodable {
     let ids: [Int]
 }
+
+/// Bringing several back, from a selection in the archive itself.
+///
+/// One type for both archives: the documents endpoint and the screenplays
+/// endpoint take the same body, and ids not in the archive are skipped rather
+/// than refused — so a selection that went stale while the sheet was open
+/// still does what it can.
+struct BulkUnarchiveCommand: Encodable {
+    let ids: [Int]
+}

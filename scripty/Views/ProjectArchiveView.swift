@@ -25,6 +25,8 @@ struct ProjectArchiveView: View {
     var onChanged: () async -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
+    @State private var selection = Set<Int>()
+    @State private var editMode: EditMode = .inactive
 
     init(app: AppModel,
          source: HALLink,
@@ -35,7 +37,7 @@ struct ProjectArchiveView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            List(selection: $selection) {
                 ForEach(model.items) { project in
                     ArchivedProjectRow(project: project)
                         .swipeActions(edge: .leading) {
@@ -82,10 +84,17 @@ struct ProjectArchiveView: View {
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
+            .toolbar { toolbar }
+            .environment(\.editMode, $editMode)
+            .onChange(of: editMode) { _, mode in
+                if !mode.isEditing { selection.removeAll() }
+            }
+            // Bringing a set back empties the archive it was ticked in, and
+            // the Edit button goes with it — so the mode has to stand itself
+            // down rather than strand a list with no way out of it.
+            .onChange(of: model.items.count) { _, count in
+                if count <= 1 { editMode = .inactive }
+                selection = selection.intersection(model.items.map(\.id))
             }
             .task { await model.load() }
             .refreshable { await model.load() }
@@ -97,9 +106,51 @@ struct ProjectArchiveView: View {
         }
     }
 
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { dismiss() }
+        }
+        // Offered only where the server said so, and where there is more than
+        // one row to tick.
+        if model.canBulkUnarchive && model.items.count > 1 {
+            ToolbarItem(placement: .navigation) {
+                EditButton()
+            }
+        }
+        if editMode.isEditing && !selection.isEmpty {
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    unarchiveSelected()
+                } label: {
+                    Label(selection.count == 1
+                          ? "Unarchive 1 Screenplay"
+                          : "Unarchive \(selection.count) Screenplays",
+                          systemImage: "arrow.up.bin")
+                }
+                .disabled(model.isWorking)
+            }
+        }
+    }
+
     private func unarchive(_ project: ArchivedProject) {
         Task {
             if await model.unarchive(project) { await onChanged() }
+        }
+    }
+
+    /// No confirmation, like everything else here: nothing on this screen is
+    /// destructive, and putting a screenplay back is undone by archiving it
+    /// again.
+    private func unarchiveSelected() {
+        // In the order the archive showed them, which is the order the server
+        // documents this taking.
+        let ids = model.items.map(\.id).filter(selection.contains)
+        Task {
+            guard await model.bulkUnarchive(ids) else { return }
+            selection.removeAll()
+            editMode = .inactive
+            await onChanged()
         }
     }
 

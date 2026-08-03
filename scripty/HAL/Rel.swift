@@ -154,12 +154,20 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     ///
     /// `archived` is the collection it went to (on the document collection, for
     /// an editor, advertised even when empty); `archive` and `unarchive` are the
-    /// two directions; `bulkArchive` is the selection form. Unlike `bulkDelete`
-    /// none of these needs the project to hold a song — notes archive too.
+    /// two directions, and `bulkArchive`/`bulkUnarchive` the selection form of
+    /// each. Unlike `bulkDelete` none of these needs the project to hold a song
+    /// — notes archive too.
+    ///
+    /// The two bulk rels are advertised on different collections, because the
+    /// two selections are made in different places: a set to archive is ticked
+    /// in the list, a set to bring back is ticked in the archive. So
+    /// `bulkUnarchive` arrives on the *archive* collection, not on its items —
+    /// and only when there is something in there to tick.
     static let archive = Rel("archive")
     static let unarchive = Rel("unarchive")
     static let archived = Rel("archived")
     static let bulkArchive = Rel("bulkArchive")
+    static let bulkUnarchive = Rel("bulkUnarchive")
 
     // Version history. The server has offered these all along.
     static let versions = Rel("versions")
@@ -234,8 +242,11 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     /// too, and song snapshots arrive as `ProjectVersion` under the `versions`
     /// rel — a song version reports `title` and `lineCount` where a screenplay
     /// reports scenes and elements, and that model already carries both.
+    ///
+    /// Only the collection rel is declared. The server does emit `songEdition`,
+    /// but as the item name inside `_embedded` — and `HALCollection` reads that
+    /// map key-agnostically, so naming it here bought nothing.
     static let songEditions = Rel("songEditions")
-    static let songEdition = Rel("songEdition")
 
     // The signed-in user's own account — advertised on the API root to anyone
     // signed in, unlike the admin-only `users`. `passkeys` appears only where

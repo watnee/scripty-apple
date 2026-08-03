@@ -1276,6 +1276,48 @@ func checkDocumentArchive(pid: Int) async {
     check("a note archives in a selection just as a song does",
           shelf.contains { $0["id"] as? Int == noteId })
 
+    // --- and back again, in one go ---
+    //
+    // The mirror of the bulk archive above, and advertised on the *archive*
+    // collection rather than on the list: a set to archive is ticked in the
+    // list, a set to bring back is ticked here.
+    let shelfDoc = json(await be.respond(
+        method: "GET", url: url("/api/document/archive?projectId=\(pid)"), body: nil).data)
+    check("a non-empty archive advertises `bulkUnarchive`",
+          links(shelfDoc)["bulkUnarchive"] != nil)
+
+    let backTogether = await be.respond(
+        method: "POST",
+        url: url("/api/document/archive/bulk/unarchive?projectId=\(pid)"),
+        // A stale id among the live ones: the sheet may have been open while
+        // something else moved. It is skipped, not refused.
+        body: body(["ids": [songId, noteId, 999999]]))
+    check("bulk unarchive -> 200", backTogether.status == 200, "got \(backTogether.status)")
+    let leftBehind = embedded(json(backTogether.data))
+    check("it answers with the archive it just emptied, not the list",
+          !leftBehind.contains { $0["id"] as? Int == songId }
+              && !leftBehind.contains { $0["id"] as? Int == noteId })
+    let listAgain = embedded(json(await be.respond(
+        method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data))
+    check("both are back in the list",
+          listAgain.contains { $0["id"] as? Int == songId }
+              && listAgain.contains { $0["id"] as? Int == noteId })
+    check("an empty archive stops offering the selection form",
+          links(json(await be.respond(
+              method: "GET", url: url("/api/document/archive?projectId=\(pid)"), body: nil).data))["bulkUnarchive"] == nil)
+    check("bulk unarchive with no ids -> 400",
+          await be.respond(method: "POST",
+                           url: url("/api/document/archive/bulk/unarchive?projectId=\(pid)"),
+                           body: body(["ids": [Int]()])).status == 400)
+    check("bulk unarchive of ids that are all stale -> 400",
+          await be.respond(method: "POST",
+                           url: url("/api/document/archive/bulk/unarchive?projectId=\(pid)"),
+                           body: body(["ids": [999999]])).status == 400)
+
+    // Put the note back in the archive for the soft-delete check below.
+    _ = await be.respond(method: "POST",
+                         url: url("/api/document/\(noteId)/archive"), body: nil)
+
     // --- deleting from the archive is still the soft delete ---
     let binned = await be.respond(method: "DELETE", url: url("/api/document/\(noteId)"), body: nil)
     check("deleting an archived document -> 200", binned.status == 200, "got \(binned.status)")
@@ -1288,10 +1330,9 @@ func checkDocumentArchive(pid: Int) async {
               method: "GET", url: url("/api/document/trash?projectId=\(pid)"), body: nil).data))
               .contains { $0["id"] as? Int == noteId })
 
-    // Leave the fixture as it was found: later checks read this list.
-    _ = await be.respond(method: "POST",
-                         url: url("/api/document/archive/\(songId)/unarchive?projectId=\(pid)"),
-                         body: nil)
+    // Leave the fixture as it was found: later checks read this list. The song
+    // came back with the bulk unarchive above; the note is in the trash, which
+    // is where the soft-delete check put it and where it belongs.
 }
 
 /// The screenplay archive: the document archive one level up.
@@ -1352,6 +1393,38 @@ func checkProjectArchive(pid: Int) async {
     check("the project is back in the list", relisted.contains { $0["id"] as? Int == pid })
     check("it keeps its id and title",
           relisted.first { $0["id"] as? Int == pid }?["title"] as? String == title)
+
+    // --- a selection, brought back in one go ---
+    // On throwaway projects: the fixture is read by everything after this, and
+    // this leaves two productions moving between list and archive.
+    var spares: [Int] = []
+    for name in ["Archived Together I", "Archived Together II"] {
+        let made = json(await be.respond(method: "POST", url: url("/api/project"),
+                                         body: body(["title": name])).data)
+        if let id = made["id"] as? Int { spares.append(id) }
+        _ = await be.respond(method: "POST", url: url("/api/project/\(spares.last ?? 0)/archive"),
+                             body: nil)
+    }
+    check("two spare projects were archived", spares.count == 2)
+    let shelfList = json(await be.respond(
+        method: "GET", url: url("/api/project/archive"), body: nil).data)
+    check("a non-empty project archive advertises `bulkUnarchive`",
+          links(shelfList)["bulkUnarchive"] != nil)
+    let bulkBack = await be.respond(method: "POST",
+                                    url: url("/api/project/archive/bulk/unarchive"),
+                                    // Again with a stale id along for the ride.
+                                    body: body(["ids": spares + [999999]]))
+    check("bulk unarchive -> 200", bulkBack.status == 200, "got \(bulkBack.status)")
+    let stillShelved = embedded(json(bulkBack.data))
+    check("it answers with the archive, and neither is in it",
+          spares.allSatisfy { id in !stillShelved.contains { $0["id"] as? Int == id } })
+    let backInList = embedded(json(await be.respond(
+        method: "GET", url: url("/api/project"), body: nil).data))
+    check("both screenplays are back in the list",
+          spares.allSatisfy { id in backInList.contains { $0["id"] as? Int == id } })
+    check("bulk unarchive with no ids -> 400",
+          await be.respond(method: "POST", url: url("/api/project/archive/bulk/unarchive"),
+                           body: body(["ids": [Int]()])).status == 400)
 
     // --- deleting from the archive is still the soft delete ---
     // On a throwaway project, since the fixture is read by everything after this.

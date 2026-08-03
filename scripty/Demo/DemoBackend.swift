@@ -644,7 +644,8 @@ actor DemoBackend {
         }
         // …and `/api/project/archive…` is a sibling of both.
         if path.first == "archive" {
-            return routeProjectArchive(method: method, path: Array(path.dropFirst()))
+            return routeProjectArchive(method: method, path: Array(path.dropFirst()),
+                                       fields: fields)
         }
         if path.first == "edition" {
             return routeEdition(method: method, path: Array(path.dropFirst()),
@@ -1313,7 +1314,8 @@ actor DemoBackend {
 
         // …and so is `/api/document/archive…`.
         if path.first == "archive" {
-            return routeDocumentArchive(method: method, path: Array(path.dropFirst()), query: query)
+            return routeDocumentArchive(method: method, path: Array(path.dropFirst()),
+                                        query: query, fields: fields)
         }
 
         // `/api/document/reorder` is likewise a sibling, not an id.
@@ -2794,12 +2796,20 @@ actor DemoBackend {
     }
 
     private func routeDocumentArchive(method: String, path: [String],
-                                      query: [String: String]) -> (Int, Data) {
+                                      query: [String: String],
+                                      fields: [String: Any]) -> (Int, Data) {
         guard let projectId = query["projectId"].flatMap(Int.init),
               documents[projectId] != nil else { return badRequest("projectId") }
 
         if method == "GET", path.isEmpty {
             return documentArchiveCollection(projectId)
+        }
+
+        // `/bulk/unarchive` is a sibling of the archived documents, not one of
+        // their ids, so it is picked off before the numeric lookup — the way
+        // `/bulk/archive` is on the document list.
+        if method == "POST", path.first == "bulk", path.dropFirst().first == "unarchive" {
+            return bulkUnarchiveDocuments(projectId: projectId, fields: fields)
         }
 
         guard let documentId = path.first.flatMap(Int.init),
@@ -2847,6 +2857,28 @@ actor DemoBackend {
         }
     }
 
+    /// Bring a ticked set back into the list. Ids that are not in this archive
+    /// are skipped rather than refused, so a selection that went stale while
+    /// the sheet was open still does what it can — and the reply is the
+    /// refreshed *archive*, not the list, because the archive is what the
+    /// caller is looking at and what just shrank.
+    private func bulkUnarchiveDocuments(projectId: Int, fields: [String: Any]) -> (Int, Data) {
+        let ids = (fields["ids"] as? [Any])?.compactMap { $0 as? Int } ?? []
+        guard !ids.isEmpty else { return badRequest("ids") }
+        var restored = 0
+        for id in Set(ids) {
+            guard let index = archivedDocuments[projectId]?.firstIndex(where: {
+                $0.document.id == id
+            }) else { continue }
+            let record = archivedDocuments[projectId]!.remove(at: index)
+            documents[projectId]?.append(record.document)
+            restored += 1
+        }
+        guard restored > 0 else { return badRequest("ids") }
+        documents[projectId]?.sort { $0.sortOrder < $1.sortOrder }
+        return documentArchiveCollection(projectId)
+    }
+
     private func documentArchiveCollection(_ projectId: Int) -> (Int, Data) {
         let items = (archivedDocuments[projectId] ?? [])
             .sorted { $0.archivedAt > $1.archivedAt }
@@ -2872,13 +2904,20 @@ actor DemoBackend {
                 if !preview.isEmpty { json["preview"] = String(preview.prefix(120)) }
                 return json
             }
+        var links: [String: Any] = [
+            "self": link("/api/document/archive?projectId=\(projectId)"),
+            "documents": link("/api/document?projectId=\(projectId)"),
+            "project": link("/api/project/\(projectId)"),
+        ]
+        // Unlike the archive itself, which is advertised empty so a client has
+        // somewhere to send the first document, this is worth offering only
+        // when there is something in here to tick.
+        if !items.isEmpty {
+            links["bulkUnarchive"] = link("/api/document/archive/bulk/unarchive?projectId=\(projectId)")
+        }
         return ok([
             "_embedded": ["archivedDocumentResourceList": items],
-            "_links": [
-                "self": link("/api/document/archive?projectId=\(projectId)"),
-                "documents": link("/api/document?projectId=\(projectId)"),
-                "project": link("/api/project/\(projectId)"),
-            ],
+            "_links": links,
         ])
     }
 
@@ -3080,9 +3119,14 @@ actor DemoBackend {
 
     /// The screenplay archive. No purge, no "empty", nothing on a clock — the
     /// absent rels are the distinction from the trash, not a flag.
-    private func routeProjectArchive(method: String, path: [String]) -> (Int, Data) {
+    private func routeProjectArchive(method: String, path: [String],
+                                     fields: [String: Any]) -> (Int, Data) {
         if path.isEmpty {
             return method == "GET" ? projectArchiveCollection() : notFound()
+        }
+        // A sibling of the archived screenplays, not one of their ids.
+        if method == "POST", path.first == "bulk", path.dropFirst().first == "unarchive" {
+            return bulkUnarchiveProjects(fields: fields)
         }
         guard let projectId = path.first.flatMap(Int.init),
               let index = projects.firstIndex(where: { $0.id == projectId && $0.archivedAt != nil })
@@ -3095,6 +3139,24 @@ actor DemoBackend {
         default:
             return notFound()
         }
+    }
+
+    /// Bring a ticked set of screenplays back. Ids not in the archive are
+    /// skipped, and the reply is the refreshed archive — the collection the
+    /// caller is looking at, and the one that shrank.
+    private func bulkUnarchiveProjects(fields: [String: Any]) -> (Int, Data) {
+        let ids = (fields["ids"] as? [Any])?.compactMap { $0 as? Int } ?? []
+        guard !ids.isEmpty else { return badRequest("ids") }
+        var restored = 0
+        for id in Set(ids) {
+            guard let index = projects.firstIndex(where: {
+                $0.id == id && $0.archivedAt != nil
+            }) else { continue }
+            projects[index].archivedAt = nil
+            restored += 1
+        }
+        guard restored > 0 else { return badRequest("ids") }
+        return projectArchiveCollection()
     }
 
     private func projectArchiveCollection() -> (Int, Data) {
@@ -3121,9 +3183,14 @@ actor DemoBackend {
                     ],
                 ]
             }
+        var links: [String: Any] = ["self": link("/api/project/archive"),
+                                    "projects": link("/api/project")]
+        // Only worth offering when there is something here to tick.
+        if !items.isEmpty {
+            links["bulkUnarchive"] = link("/api/project/archive/bulk/unarchive")
+        }
         return ok(["_embedded": ["archivedProjectResourceList": items],
-                   "_links": ["self": link("/api/project/archive"),
-                              "projects": link("/api/project")]])
+                   "_links": links])
     }
 
     // MARK: - Version history

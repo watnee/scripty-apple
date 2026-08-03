@@ -58,6 +58,20 @@ final class ArchiveModel<Item: Decodable & Identifiable & HALResource> where Ite
         await act(item.link(.unarchive), method: "POST")
     }
 
+    /// Whether a set can be brought back in one go. On the collection, not on
+    /// the items: the archive advertises it, and only while there is something
+    /// in here to tick.
+    var canBulkUnarchive: Bool { links[.bulkUnarchive] != nil }
+
+    /// Bring back everything ticked. Archiving twelve songs has always been one
+    /// tap; until this, restoring them was twelve.
+    @discardableResult
+    func bulkUnarchive(_ ids: [Int]) async -> Bool {
+        guard !ids.isEmpty else { return false }
+        return await act(links[.bulkUnarchive], method: "POST",
+                         body: BulkUnarchiveCommand(ids: ids))
+    }
+
     @discardableResult
     func delete(_ item: Item) async -> Bool {
         // The delete answers with a bare document resource, not the archive, so
@@ -92,13 +106,14 @@ final class ArchiveModel<Item: Decodable & Identifiable & HALResource> where Ite
         }
     }
 
-    private func act(_ link: HALLink?, method: String) async -> Bool {
+    private func act(_ link: HALLink?, method: String,
+                     body: (any Encodable)? = nil) async -> Bool {
         guard let link, !isWorking else { return false }
         isWorking = true
         defer { isWorking = false }
         do {
             let collection: HALCollection<Item> = try await app.client.fetch(
-                from: link, method: method)
+                from: link, method: method, body: body)
             adopt(collection)
             errorMessage = nil
             return true
