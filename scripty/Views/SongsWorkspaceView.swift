@@ -47,6 +47,9 @@ struct SongsWorkspaceView: View {
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
     @State private var showingIgnoredWords = false
+    /// Whether the screen is showing the songs to be dragged into order rather
+    /// than to be written in. See `arrangingList`.
+    @State private var isArranging = false
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
@@ -67,16 +70,11 @@ struct SongsWorkspaceView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(songs) { song in
-                    Section {
-                        if expanded.contains(song.id) {
-                            lines(for: song)
-                        }
-                    } header: {
-                        header(song)
-                    }
-                    .listRowSeparator(.hidden)
+            Group {
+                if isArranging {
+                    arrangingList
+                } else {
+                    writingList
                 }
             }
             .listStyle(.plain)
@@ -92,9 +90,11 @@ struct SongsWorkspaceView: View {
             // bar rather than in the list, where a conditional row is a coin
             // toss from one launch to the next.
             .safeAreaBar(edge: .bottom, spacing: 0) {
+                if isArranging {
+                    arrangingBar
                 // Asked of the lyrics rather than of `focusedLine`, which
                 // SwiftUI discards: no row claims it with `.focused()`.
-                if lyrics.values.contains(where: { $0.focusedBlockId != nil }) {
+                } else if lyrics.values.contains(where: { $0.focusedBlockId != nil }) {
                     HideKeyboardBar(releaseFocus: {
                         focusedLine = nil
                         for lyric in lyrics.values {
@@ -163,6 +163,96 @@ struct SongsWorkspaceView: View {
                     notices.situationChanged(DismissedNotices.offlineCopyKey(songId: id))
                 }
             }
+        }
+    }
+
+    // MARK: - The two lists
+
+    /// Every song open to be written in — the screen this is most of the time.
+    private var writingList: some View {
+        List {
+            ForEach(songs) { song in
+                Section {
+                    if expanded.contains(song.id) {
+                        lines(for: song)
+                    }
+                } header: {
+                    header(song)
+                }
+                .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    /// The same songs as a plain list of titles, to be dragged into order.
+    ///
+    /// Arranging is a mode rather than something a writer can do to the screen
+    /// as it stands, and that is forced by what a list can be asked to do. A
+    /// song here is a `Section` with its lyric lines as the rows inside it, and
+    /// a section cannot be dragged: the reordering a list *does* offer,
+    /// `.onMove`, moves rows within one `ForEach`, and a lyric line and the
+    /// song it belongs to cannot both be that row. So the songs are laid out on
+    /// their own for as long as it takes to arrange them — which is also what
+    /// makes the gesture usable, since a screen of open lyrics is a long scroll
+    /// to drag the fourth song past the first.
+    ///
+    /// The lyrics are not gone: every model is kept, and closing the mode gives
+    /// back the same screen, still open at the same songs.
+    private var arrangingList: some View {
+        List {
+            ForEach(songs) { song in
+                HStack(spacing: 8) {
+                    Text(song.displayTitle)
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                    if isLocked(song) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .onMove { source, destination in
+                var rearranged = songs
+                rearranged.move(fromOffsets: source, toOffset: destination)
+                save(rearranged)
+            }
+        }
+        // What puts the grip on every row and lets it be dragged. Held active
+        // rather than bound to a toggle: there is nothing else to be in the
+        // middle of here, and the way out is the bar below.
+        .environment(\.editMode, .constant(.active))
+    }
+
+    /// The way out of arranging, in the bar the keyboard key uses — the only
+    /// room on this screen for a control that is only sometimes there.
+    private var arrangingBar: some View {
+        HStack {
+            Text("Drag the songs into the order you want.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button("Done") { isArranging = false }
+                .font(.body.weight(.semibold))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    /// Opens the arranging mode, after putting away whatever is half-typed:
+    /// the lines are about to leave the screen, and a verse must not leave with
+    /// them.
+    private func startArranging() {
+        focusedLine = nil
+        for lyric in lyrics.values {
+            lyric.focusedBlockId = nil
+            lyric.focusRequest = nil
+        }
+        Task {
+            await commitEverything()
+            isArranging = true
         }
     }
 
@@ -300,12 +390,13 @@ struct SongsWorkspaceView: View {
         .textCase(nil)
     }
 
-    /// The web puts a drag handle on every song here, beside the one on every
-    /// lyric line, so ordering the songs and ordering their lines read as the
-    /// same gesture. Each song is a `Section` in this list, and sections do not
-    /// take `.onMove` — so the ordering is offered as the move the web's handle
-    /// also answers to, one slot at a time, which is the half of it that works
-    /// on touch anyway.
+    /// The one-slot move, kept beside the drag.
+    ///
+    /// The web puts a drag handle on every song here, and Arrange Songs is what
+    /// answers it — but a handle's arrow keys also move a card a single slot,
+    /// and that is worth having in reach without changing what the screen is.
+    /// It is the route for a nudge, for VoiceOver, and for anyone who would
+    /// rather not hold a drag steady down a scrolling list.
     private func reorderMenu(_ song: TextDocument) -> some View {
         let at = songs.firstIndex { $0.id == song.id }
         return Menu {
@@ -462,6 +553,19 @@ struct SongsWorkspaceView: View {
             .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
         }
+        // In the overflow rather than the bar itself, which on an iPhone is
+        // already one item from dropping something. Arranging is a thing a
+        // writer does once in a while and then leaves alone, unlike the two
+        // buttons above.
+        if canReorder {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    startArranging()
+                } label: {
+                    Label("Arrange Songs", systemImage: "arrow.up.arrow.down")
+                }
+            }
+        }
         // Every song at once is where a field of red squiggles is hardest to
         // read past, so the switch belongs here as much as anywhere.
         ToolbarItem(placement: .secondaryAction) {
@@ -475,11 +579,17 @@ struct SongsWorkspaceView: View {
     /// more than one of them on screen to rearrange.
     private var canReorder: Bool { model.canReorderDocuments && songs.count > 1 }
 
-    /// Moves a song one slot among the ones the filter is showing, then saves
-    /// the whole list — songs the filter hid keep the places they held, since
-    /// they are not on screen to have been moved past.
+    /// Moves a song one slot among the ones the filter is showing.
     private func move(_ song: TextDocument, by delta: Int) {
-        guard canReorder, let rearranged = songs.moving(song, by: delta) else { return }
+        guard let rearranged = songs.moving(song, by: delta) else { return }
+        save(rearranged)
+    }
+
+    /// Saves the songs on screen as the writer's own arrangement — songs the
+    /// filter hid keep the places they held, since they were not on screen to
+    /// have been moved past.
+    private func save(_ rearranged: [TextDocument]) {
+        guard canReorder else { return }
         let merged = model.songs.merging(shown: rearranged)
         Task { await model.reorderDocuments(merged) }
     }
