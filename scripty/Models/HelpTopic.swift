@@ -719,8 +719,9 @@ extension HelpTopic {
                     + "where your finger landed. The lock is kept on this device, "
                     + "one document at a time, and applies to a song's own edition "
                     + "when you are in one; the all-songs workspace honours it too, "
-                    + "marks the locked songs, and takes the same double tap to "
-                    + "unlock the one song you meant.",
+                    + "marks the locked songs with a padlock, and shows the same "
+                    + "banner over the one you open — tapping it, or double tapping "
+                    + "the words, unlocks that song and leaves the rest as they were.",
                     "Locking is not reading. A locked document is still the writing "
                     + "surface — the same lines, the same lists — with the keyboard "
                     + "taken away from it; Read Song and Read Note set the words for "
