@@ -133,6 +133,9 @@ struct ScriptView: View {
     /// (a restore from trash, a version rollback) must not yank the writer
     /// back to where they came in.
     @State private var hasRestoredPosition = false
+    /// Per-body answers this screen would otherwise work out several times a
+    /// redraw — see `ScriptViewMemo`.
+    @State private var memo = ScriptViewMemo()
     /// An element a Bookmarks widget row asked for, held until the script it
     /// belongs to has actually arrived. Nil the rest of the time.
     @State private var pendingBookmarkBlockId: Int?
@@ -1094,25 +1097,40 @@ struct ScriptView: View {
         await onProjectChanged(updated)
     }
 
+    /// Answers this screen works out once and then reuses for the rest of the
+    /// redraw — and across redraws, while nothing they depend on has moved.
+    ///
+    /// A class held in `@State` rather than a static. Body may not write view
+    /// state, but mutating a property of a class *instance* does not write the
+    /// `@State` value — the reference is unchanged — so body may do this. The
+    /// static this replaces was one slot for the whole process: two windows on
+    /// two projects thrashed it to a zero hit rate, and the last script's
+    /// entire `[Block]` was retained until the app quit, long after the project
+    /// was closed and the account signed out.
+    ///
+    /// Deliberately not `@Observable`. It has to be invisible to SwiftUI, or
+    /// every memo write would invalidate the body that wrote it.
+    @MainActor private final class ScriptViewMemo {
+        var wordCount: (blocks: [Block], showsNotes: Bool, outlineMode: Bool, words: Int)?
+        var visible: (blocks: [Block], showsNotes: Bool, outlineMode: Bool, result: [Block])?
+    }
+
     /// Word-splitting every element on every body evaluation is real work on a
     /// feature-length script, and the bar redraws with the rest of the view —
     /// every toast, every commit. Cached against the inputs that can change
     /// the answer; comparing `[Block]` hits the identity fast-path between
-    /// reloads, so the check is O(1) per redraw. A static rather than @State
-    /// because body may not write view state, and the cache is presentation-
-    /// independent anyway (the fontCache precedent in EditableBlockRow).
-    @MainActor private static var wordCountMemo:
-        (blocks: [Block], showsNotes: Bool, outlineMode: Bool, words: Int)?
-
+    /// reloads (the array's storage is untouched by typing, which writes
+    /// `liveText`), so the check is O(1) per redraw. Don't "optimise" that
+    /// into a hash — hashing the script is the work being avoided.
     private var memoizedWordCount: Int {
-        if let memo = Self.wordCountMemo,
-           memo.blocks == model.blocks,
-           memo.showsNotes == options.showsNotes,
-           memo.outlineMode == settings.isOutlineMode {
-            return memo.words
+        if let cached = memo.wordCount,
+           cached.blocks == model.blocks,
+           cached.showsNotes == options.showsNotes,
+           cached.outlineMode == settings.isOutlineMode {
+            return cached.words
         }
         let words = ScriptWordCount.total(in: visibleBlocks)
-        Self.wordCountMemo = (model.blocks, options.showsNotes, settings.isOutlineMode, words)
+        memo.wordCount = (model.blocks, options.showsNotes, settings.isOutlineMode, words)
         return words
     }
 
@@ -1122,13 +1140,29 @@ struct ScriptView: View {
     /// annotations on the script rather than part of it. Outline mode goes much
     /// further and keeps only the story's skeleton — and it wins outright, since
     /// a note is not a scene, a section or a synopsis.
+    ///
+    /// Memoized on the same terms as the word count above, and for a sharper
+    /// reason: the body reads this three or four times a pass — the editor's
+    /// `ForEach`, the marks gutter, the word count, the selectable set — and
+    /// repagination reads it again.
     private var visibleBlocks: [Block] {
+        if let cached = memo.visible,
+           cached.blocks == model.blocks,
+           cached.showsNotes == options.showsNotes,
+           cached.outlineMode == settings.isOutlineMode {
+            return cached.result
+        }
+        let result: [Block]
         if settings.isOutlineMode {
             let outline = Set(BlockType.outlineTypes)
-            return model.blocks.filter { outline.contains($0.blockType) }
+            result = model.blocks.filter { outline.contains($0.blockType) }
+        } else if options.showsNotes {
+            result = model.blocks
+        } else {
+            result = model.blocks.filter { $0.blockType != .note }
         }
-        guard !options.showsNotes else { return model.blocks }
-        return model.blocks.filter { $0.blockType != .note }
+        memo.visible = (model.blocks, options.showsNotes, settings.isOutlineMode, result)
+        return result
     }
 
     /// The type size everything on this screen is set at, as a multiplier: the

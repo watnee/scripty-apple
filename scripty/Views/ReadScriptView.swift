@@ -101,13 +101,16 @@ struct ReadScriptView: View {
     @State private var hasRestoredPosition = false
 
     var body: some View {
-        ScrollViewReader { proxy in
+        // Walked once per redraw rather than once per row: the first-element
+        // test below needs the head of the list, and asking `readableBlocks`
+        // for it inside the ForEach would re-filter the whole script for every
+        // line it drew. Hoisted all the way out of the ScrollView so the
+        // empty-state overlay can be handed the same answer — it used to ask
+        // for its own, which meant two full filters of the script per redraw,
+        // and reading aloud redraws on every spoken line.
+        let readable = readableBlocks
+        return ScrollViewReader { proxy in
             ScrollView {
-                // Walked once per redraw rather than once per row: the
-                // first-element test below needs the head of the list, and
-                // asking `readableBlocks` for it inside the ForEach would
-                // re-filter the whole script for every line it drew.
-                let readable = readableBlocks
                 let firstId = readable.first?.id
                 // Lazy for the same reason the editor and the page view
                 // are: reading aloud republishes `currentBlockId` on every
@@ -195,7 +198,7 @@ struct ReadScriptView: View {
             }
             .onUserScroll(onUserScroll)
         }
-        .overlay { emptyState }
+        .overlay { emptyState(readable) }
     }
 
     /// The project's title, set the way a title page sets it: centred, in caps,
@@ -401,9 +404,11 @@ struct ReadScriptView: View {
         return content
     }
 
+    /// Takes the elements rather than filtering for its own copy: the body has
+    /// already worked them out, and this only asks whether there are any.
     @ViewBuilder
-    private var emptyState: some View {
-        if readableBlocks.isEmpty {
+    private func emptyState(_ readable: [Block]) -> some View {
+        if readable.isEmpty {
             if isLoading {
                 ProgressView()
             } else {

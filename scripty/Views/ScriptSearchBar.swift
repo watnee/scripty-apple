@@ -194,6 +194,9 @@ struct ScriptSearchBar: View {
         Button {
             isOn.wrappedValue.toggle()
             resultMessage = nil
+            // All three of these narrow what a replace would touch, and none
+            // of them goes through the debounce that keeps the tally current.
+            search.refreshReplaceTargets(in: model.blocks)
         } label: {
             Text(title)
                 .font(.caption.weight(.medium))
@@ -209,8 +212,11 @@ struct ScriptSearchBar: View {
         .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
     }
 
+    /// Read, not recomputed — see `ScriptSearchModel.replaceTargets`. This is
+    /// asked for three times in one pass of the replace row's body, and typing
+    /// in the replacement field redraws that row on every character.
     private var replaceTargetCount: Int {
-        search.hasQuery ? search.replaceTargetIds(in: model.blocks).count : 0
+        search.hasQuery ? search.replaceTargets.count : 0
     }
 
     private var replaceScopeText: String {

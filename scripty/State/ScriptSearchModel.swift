@@ -84,6 +84,7 @@ final class ScriptSearchModel {
     /// block still matches, so typing another letter doesn't jump the reader
     /// back to the top.
     func refresh(in blocks: [Block]) {
+        refreshReplaceTargets(in: blocks)
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else {
             matches = []
@@ -104,6 +105,7 @@ final class ScriptSearchModel {
         query = ""
         matches = []
         currentIndex = 0
+        replaceTargets = []
     }
 
     // MARK: - Navigation
@@ -140,6 +142,24 @@ final class ScriptSearchModel {
     /// tags, but replace only ever rewrites element *content*, and it honours
     /// the case and whole-word switches that find ignores. Sending the wider
     /// set would ask the server to edit blocks the writer never saw highlighted.
+    /// The last answer `replaceTargetIds` gave, kept so the bar can read it
+    /// rather than ask for it.
+    ///
+    /// The replace row wants this three times over — to enable Replace All, to
+    /// say "4 elements", and to word the confirmation — and it wanted it from
+    /// `body`, so typing in the *replacement* field walked the whole script two
+    /// or three times per character while the query beside it was carefully
+    /// debounced 250ms for the same reason. Filled on the debounced path
+    /// instead, and by anything else that can change the answer.
+    private(set) var replaceTargets: [Int] = []
+
+    /// Recompute what a replace would touch. Every switch below changes this,
+    /// and none of them is debounced, so each has to say so — a tally that
+    /// goes stale the moment someone flips Match Case is worse than none.
+    func refreshReplaceTargets(in blocks: [Block]) {
+        replaceTargets = replaceTargetIds(in: blocks)
+    }
+
     func replaceTargetIds(in blocks: [Block]) -> [Int] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return [] }
@@ -172,6 +192,7 @@ final class ScriptSearchModel {
     /// holds an occurrence, otherwise whatever slid into its place. That is what
     /// makes repeated Replace walk forward, as it does on the web.
     func refreshAfterReplace(in blocks: [Block]) {
+        refreshReplaceTargets(in: blocks)
         let anchorIndex = currentIndex
         let anchorBlock = current?.blockId
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

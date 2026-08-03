@@ -106,14 +106,18 @@ struct ReadSongView: View {
     private var face: String { PresentationSettings.shared.defaultFont.postScriptName }
 
     var body: some View {
-        ScrollView {
+        // Once per redraw, not twice: the empty-state overlay below used to
+        // ask `stanzas` for its own copy, which re-split the whole lyric just
+        // to find out whether there was anything in it.
+        let verses = stanzas
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 24 * scale) {
                 Text(title.isEmpty ? "Untitled Song" : title)
                     .font(DocumentTitleType.font(scale: scale))
                     .fontWeight(.bold)
                     .accessibilityAddTraits(.isHeader)
 
-                ForEach(Array(stanzas.enumerated()), id: \.offset) { _, stanza in
+                ForEach(Array(verses.enumerated()), id: \.offset) { _, stanza in
                     VStack(alignment: .leading, spacing: 3 * scale) {
                         ForEach(Array(stanza.enumerated()), id: \.offset) { _, line in
                             Text(line)
@@ -142,7 +146,7 @@ struct ReadSongView: View {
             // means "write this song" rather than "write this line".
             .doubleTapToEdit(onEdit)
         }
-        .overlay { emptyState }
+        .overlay { emptyState(verses) }
     }
 
     /// The lyric split into stanzas: runs of lines, broken wherever the writer
@@ -170,9 +174,10 @@ struct ReadSongView: View {
         return built
     }
 
+    /// Takes the stanzas rather than re-splitting the lyric for its own copy.
     @ViewBuilder
-    private var emptyState: some View {
-        if stanzas.isEmpty {
+    private func emptyState(_ verses: [[String]]) -> some View {
+        if verses.isEmpty {
             ContentUnavailableView(
                 "Nothing to Read",
                 systemImage: "music.note",

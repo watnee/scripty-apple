@@ -136,6 +136,52 @@ func searchChecks() {
     }
 
     print()
+    print("== The replace tally is kept, not recomputed per keystroke ==")
+    do {
+        // The bar asks for this three times in one pass of its body, and
+        // typing in the *replacement* field redraws that body per character.
+        // So it is filled on the debounced path and read from there — which
+        // only works if everything that can change the answer says so.
+        let search = ScriptSearchModel()
+        check("nothing is a target before a search", search.replaceTargets.isEmpty)
+
+        search.query = "boom"
+        search.refresh(in: script)
+        checkEqual("a refresh fills it",
+                   search.replaceTargets, search.replaceTargetIds(in: script))
+        check("and it is not empty for a query that matches",
+              !search.replaceTargets.isEmpty)
+
+        // The three switches are not debounced. Each has to refresh, or the
+        // tally silently describes the previous setting.
+        search.wholeWord = true
+        search.refreshReplaceTargets(in: script)
+        checkEqual("whole word narrows it",
+                   search.replaceTargets, search.replaceTargetIds(in: script))
+        search.wholeWord = false
+
+        let cueScript = script + [block(6, "CHARACTER", "BOOM OPERATOR")]
+        search.includeCharacterCues = true
+        search.refreshReplaceTargets(in: cueScript)
+        checkEqual("opting into cues widens it",
+                   search.replaceTargets, search.replaceTargetIds(in: cueScript))
+        search.includeCharacterCues = false
+
+        search.refreshAfterReplace(in: script)
+        checkEqual("a replace leaves it describing what is there now",
+                   search.replaceTargets, search.replaceTargetIds(in: script))
+
+        search.clear()
+        check("clearing the search clears it too", search.replaceTargets.isEmpty)
+
+        // A query nothing matches has no targets, and the emptied query must
+        // not leave the last one's tally behind it.
+        search.query = "nothinghere"
+        search.refresh(in: script)
+        check("a query that matches nothing has no targets", search.replaceTargets.isEmpty)
+    }
+
+    print()
     print("== After a replace, the cursor walks forward ==")
     do {
         let search = ScriptSearchModel()

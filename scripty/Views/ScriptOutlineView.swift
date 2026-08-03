@@ -59,6 +59,20 @@ struct ScriptOutlineView: View {
             }
         }
 
+        /// Whether this tab reads the outline at all.
+        ///
+        /// The three mark tabs do not — they collect elements the writer
+        /// flagged, wherever those sit in the story — and building the outline
+        /// walks the whole script. It was being built for them anyway, on
+        /// every body pass, including every time a switch in this sheet was
+        /// flipped.
+        var needsOutline: Bool {
+            switch self {
+            case .outline, .characters, .locations, .songs: return true
+            case .bookmarks, .pins, .comments: return false
+            }
+        }
+
         var emptyMessage: String {
             switch self {
             case .outline: return "Add a scene heading or a section to build an outline."
@@ -73,9 +87,10 @@ struct ScriptOutlineView: View {
     }
 
     var body: some View {
-        // Computed once per evaluation: building the outline walks the whole
-        // script, and the tabs below read it several times.
-        let outline = model.outline
+        // Computed once per evaluation, and only for the tabs that read it:
+        // building the outline walks the whole script, the four story tabs
+        // read it several times each, and the three mark tabs never touch it.
+        let outline = tab.needsOutline ? model.outline : ScriptOutline()
         NavigationStack {
             VStack(spacing: 0) {
                 Picker("View", selection: $tab) {

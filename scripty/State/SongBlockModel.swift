@@ -273,6 +273,17 @@ final class SongBlockModel {
         liveText[block.id] ?? block.text
     }
 
+    /// How many words the lyric runs to, counted over what is on screen rather
+    /// than what was last saved — the web watches the textareas for the same
+    /// reason.
+    ///
+    /// Ignored by observation because the two surfaces that show it read it
+    /// from `body`, and the memo writes on a miss. Both redraw on every
+    /// keystroke, and the workspace does it once per open song from inside a
+    /// section header.
+    @ObservationIgnored private let counter = WordCountMemo()
+    var wordCount: Int { counter.words(in: blocks.map(currentText)) }
+
     /// Records a keystroke and schedules the save. Replacing the pending task
     /// is what makes this a debounce rather than a request per character.
     func edit(_ block: SongBlock, text: String) {

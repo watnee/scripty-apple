@@ -64,8 +64,11 @@ struct ReadNoteView: View {
     }
 
     var body: some View {
-        ScrollView {
-            let groups = paragraphs
+        // Once per redraw, not twice: the empty-state overlay below used to
+        // ask `paragraphs` for its own copy, which re-read the whole note just
+        // to find out whether there was anything in it.
+        let groups = paragraphs
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 18 * scale) {
                 Text(title.isEmpty ? "Untitled Notes" : title)
                     .font(DocumentTitleType.font(scale: scale))
@@ -99,7 +102,7 @@ struct ReadNoteView: View {
             // gesture means "write this note" rather than "write this line".
             .doubleTapToEdit(onEdit)
         }
-        .overlay { emptyState }
+        .overlay { emptyState(groups) }
     }
 
     // MARK: - Lines
@@ -173,9 +176,10 @@ struct ReadNoteView: View {
         level <= 2 ? .bold : .semibold
     }
 
+    /// Takes the paragraphs rather than re-reading the note for its own copy.
     @ViewBuilder
-    private var emptyState: some View {
-        if paragraphs.isEmpty {
+    private func emptyState(_ groups: [[NoteFormatting.LineKind]]) -> some View {
+        if groups.isEmpty {
             ContentUnavailableView(
                 "Nothing to Read",
                 systemImage: "note.text",

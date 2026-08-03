@@ -63,6 +63,10 @@ struct SongEditorView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var title: String
     @State private var content: String
+    /// The word count, worked out only when the words change. Held rather than
+    /// computed because `body` reruns on every keystroke — see `WordCountMemo`
+    /// for why a class in `@State` may be written from there.
+    @State private var wordCounter = WordCountMemo()
     /// The document this sheet made. Nil until a new document's first save
     /// lands — from then on this sheet is editing that, and every part of it
     /// that asked "which document?" gets this one instead of nothing.
@@ -730,7 +734,10 @@ struct SongEditorView: View {
                     .padding(.vertical, 6)
             }
             if settings.showsWordCount {
-                WordCountBar(words: ScriptStats.countWords(content))
+                // Memoized: `content` is bound to the text view, so this whole
+                // body reruns per character and the count was re-splitting the
+                // entire note every time.
+                WordCountBar(words: wordCounter.words(in: content))
             }
             if showsFormatBar && isTyping {
                 // One bar for both fields now, where the title used to get a

@@ -870,16 +870,13 @@ struct SongBlockEditorView: View {
         }
     }
 
-    /// How many words the lyric runs to, counted over what is on screen rather
-    /// than what was last saved — the web watches the textareas for the same
-    /// reason. No page estimate here: a song is measured in lines, not pages.
+    /// How many words the lyric runs to — off the model's memo, which counts
+    /// what is on screen rather than what was last saved. No page estimate
+    /// here: a song is measured in lines, not pages.
     @ViewBuilder
     private var wordCountBar: some View {
         if settings.showsWordCount {
-            let words = model.blocks.reduce(0) { running, block in
-                running + ScriptStats.countWords(model.currentText(block))
-            }
-            WordCountBar(words: words)
+            WordCountBar(words: model.wordCount)
         }
     }
 

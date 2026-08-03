@@ -322,9 +322,11 @@ struct SongsWorkspaceView: View {
                     .foregroundStyle(.orange)
                     .accessibilityLabel("Kept on this device — saves when you're back online")
             } else {
-                let words = lyric.blocks.reduce(0) { running, block in
-                    running + ScriptStats.countWords(lyric.currentText(block))
-                }
+                // Off the lyric's own memo: this header redraws on every
+                // keystroke in its song, and re-splitting every line per
+                // character — for each of a dozen open songs — was the most
+                // expensive thing on the screen.
+                let words = lyric.wordCount
                 Text("\(words) \(words == 1 ? "word" : "words")")
                     .font(.caption)
                     .monospacedDigit()

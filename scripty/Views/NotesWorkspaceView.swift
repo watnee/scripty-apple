@@ -301,7 +301,11 @@ struct NotesWorkspaceView: View {
                     .foregroundStyle(.orange)
             case .idle, .saved:
                 if !draft.isLoading {
-                    let words = ScriptStats.countWords(draft.content)
+                    // Off the draft's own memo: this header redraws on every
+                    // keystroke in its note, and re-splitting the whole thing
+                    // per character — ten times over, with ten notes open —
+                    // was the most expensive thing on the screen.
+                    let words = draft.wordCount
                     Text("\(words) \(words == 1 ? "word" : "words")")
                         .font(.caption)
                         .monospacedDigit()
@@ -722,6 +726,12 @@ final class NoteDraft {
     var status: Status = .idle
     /// The armed debounce, cancelled and replaced on every keystroke.
     @ObservationIgnored var debounce: Task<Void, Never>?
+
+    /// How long this note runs to. Ignored by observation because the header
+    /// reads it from `body` and the memo writes on a miss — observed state
+    /// written mid-render is the thing SwiftUI warns about.
+    @ObservationIgnored private let counter = WordCountMemo()
+    var wordCount: Int { counter.words(in: content) }
 
     /// Read-only where the server did not advertise an update link, the same
     /// gate the single-note editor uses.
