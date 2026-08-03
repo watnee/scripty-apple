@@ -2,17 +2,23 @@
 //  ReadNoteView.swift
 //  scripty
 //
-//  Read mode for a note: the note as prose, for reading rather than writing.
+//  Read mode for a note: the note with the keyboard taken out of it.
 //
-//  The third of the readers, and built to the same rules as `ReadScriptView`
-//  and `ReadSongView` — a held measure, the editing chrome left out, the type
-//  scaled by the same device-wide preference — because they are the same
-//  posture. What differs is what a note is. A screenplay has element types and
-//  a lyric has verse lines; a note has paragraphs, and the handful of prefixes
-//  the writing surface maintains: `# Act One`, `- a bullet`, `1. an item`.
-//  Those are set as what they are here rather than shown as the characters they
-//  are stored as — see `NoteReading`, which does the recognising, and which
-//  changes nothing about the note itself.
+//  The third of the readers, and built to the same rule as `ReadScriptView` and
+//  `ReadSongView`: the words are set exactly as the writing surface sets them —
+//  same face, same size, same left edge, same line breaks — and what goes is the
+//  editing chrome. One surface takes a caret and the other does not, and that is
+//  the whole of the difference.
+//
+//  It re-typeset the note before. `# Act One` came out as a twenty-four point
+//  heading with the hashes hidden, `- a bullet` grew a dot and a hanging indent,
+//  a nested line was indented by a margin instead of by the spaces it is stored
+//  with, blank lines became paragraph air, and the column narrowed and centred
+//  itself. Every one of those is a difference between what the writer had been
+//  looking at a moment earlier and what reading gave them back, and together
+//  they moved every line in the note. The note is plain text — hashes and dashes
+//  and all — so reading it shows plain text. The numbers both surfaces lay out
+//  with are in `ProseColumn`, and the type is the editor's own font.
 //
 //  Not a screen of its own. Like the other two, this is one of the editor's
 //  surfaces: the mode swaps the title field and the text view for this column
@@ -37,154 +43,53 @@ struct ReadNoteView: View {
     /// comes back where it was left rather than where the finger landed.
     var onEdit: (() -> Void)?
 
-    /// The face the note is set in, which is the one it is written in — the
-    /// writer's chosen default, and so the script's. Serif prose here would put
-    /// the whole note in a different typeface the moment the mode changed,
-    /// which is the fault the lyric reader gave up its own serif to fix.
-    private var face: String { PresentationSettings.shared.defaultFont.postScriptName }
-
-    /// The reader's measure — wider than the lyric's 520 and a little wider
-    /// than the screenplay's column, because prose is measured in characters
-    /// to the line and a paragraph wants more of them than a verse does.
-    private var measure: CGFloat { 620 * scale }
-
-    /// One level of nesting, as a margin. The stored line indents with spaces;
-    /// a reader sets it, for the reason `NoteFormatting.LineKind.plain` gives.
-    private var indentUnit: CGFloat { 22 * scale }
-
-    /// The OS text-size setting as a multiplier, so the reader honours Dynamic
-    /// Type while keeping its own proportions — exactly as the other two
-    /// readers fold the two together.
+    /// The OS text-size setting as a multiplier, for the title — which is a
+    /// SwiftUI font sized in points, unlike the note itself, whose font carries
+    /// Dynamic Type inside it. Exactly as the editor scales the same heading.
     @ScaledMetric(relativeTo: .body) private var dynamicTypeScale: CGFloat = 1
 
-    private var scale: CGFloat { CGFloat(textScale) * dynamicTypeScale }
+    private var titleScale: CGFloat { CGFloat(textScale) * dynamicTypeScale }
 
-    private var paragraphs: [[NoteFormatting.LineKind]] {
-        NoteReading.paragraphs(in: text)
-    }
+    /// How wide this surface is, so the words can be given the same definite
+    /// width the editor's text view is given — see `ProseColumn.columnWidth(in:)`.
+    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
-        // Once per redraw, not twice: the empty-state overlay below used to
-        // ask `paragraphs` for its own copy, which re-read the whole note just
-        // to find out whether there was anything in it.
-        let groups = paragraphs
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18 * scale) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(title.isEmpty ? "Untitled Notes" : title)
-                    .font(DocumentTitleType.font(scale: scale))
-                    .fontWeight(.bold)
+                    .font(DocumentTitleType.font(scale: titleScale))
                     .accessibilityAddTraits(.isHeader)
+                    .padding(.top, ProseColumn.titleTopPadding)
+                    .padding(.bottom, ProseColumn.titleBottomPadding)
 
-                ForEach(Array(groups.enumerated()), id: \.offset) { _, paragraph in
-                    VStack(alignment: .leading, spacing: 6 * scale) {
-                        ForEach(Array(paragraph.enumerated()), id: \.offset) { _, line in
-                            self.line(line)
-                        }
-                    }
-                    // One paragraph is one thing to hear: VoiceOver reads it
-                    // through rather than making the reader swipe line by line.
-                    .accessibilityElement(children: .combine)
-                }
+                // The note in one piece, in the same text view the writing
+                // surface is: same engine, same width, same font, so the words
+                // break where they broke a moment ago. Blank lines come through
+                // as the blank lines they are, which is what the writer typed
+                // and what they will see again the moment they tap Edit.
+                ProseText(text: text,
+                          textScale: textScale,
+                          // Two taps in the prose are the same instruction as
+                          // Edit in the corner, the way they are in Pages and
+                          // Word.
+                          startWriting: onEdit)
+                    .frame(width: ProseColumn.columnWidth(in: availableWidth),
+                           alignment: .leading)
             }
-            // Take the whole measure rather than settling on the longest line,
-            // for the reason the other readers do: a lazy stack is only as wide
-            // as the rows it has built, so the column — and, being centred, its
-            // left edge — would otherwise shift as scrolling went on.
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxWidth: measure, alignment: .leading)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 24)
-            .textSelection(.enabled)
-            // Two taps in the prose are the same instruction as Edit in the
-            // corner, the way they are in Pages and Word. On the column rather
-            // than on each paragraph: this surface holds one string, so the
-            // gesture means "write this note" rather than "write this line".
-            .doubleTapToEdit(onEdit)
+            .padding(.horizontal, ProseColumn.horizontalPadding)
+            .padding(.bottom, ProseColumn.bottomSlack)
         }
-        .overlay { emptyState(groups) }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+            availableWidth = $0
+        }
+        .overlay { emptyState }
     }
-
-    // MARK: - Lines
 
     @ViewBuilder
-    private func line(_ kind: NoteFormatting.LineKind) -> some View {
-        switch kind {
-        case .heading(let level, let text):
-            Text(text)
-                .font(.custom(face, fixedSize: headingSize(level)))
-                .fontWeight(headingWeight(level))
-                .accessibilityAddTraits(.isHeader)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // Air above a heading, the way the script reader gives a scene
-                // heading its two blank lines — except at the head of a
-                // paragraph, where the paragraph's own spacing already has it.
-                .padding(.top, 2 * scale)
-
-        case .bullet(let depth, let text):
-            item(marker: "•", text: text, depth: depth)
-
-        case .numbered(let depth, let number, let text):
-            item(marker: "\(number).", text: text, depth: depth)
-
-        case .plain(let depth, let text):
-            prose(text)
-                .padding(.leading, CGFloat(depth) * indentUnit)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-        case .blank:
-            // Never reached: `NoteReading` turns blank lines into the gaps
-            // between paragraphs rather than passing them on as rows.
-            EmptyView()
-        }
-    }
-
-    /// A list item: the marker in a column of its own, and the words hanging
-    /// beside it — so a bullet that wraps lines up under its own text rather
-    /// than under the dot.
-    private func item(marker: String, text: String, depth: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8 * scale) {
-            prose(marker)
-                .frame(minWidth: 16 * scale, alignment: .trailing)
-                .accessibilityHidden(true)
-            prose(text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.leading, CGFloat(depth + 1) * indentUnit)
-    }
-
-    /// One line of prose, in the reader's face and size — the size the note is
-    /// written at, so reading it re-sets the words rather than enlarging them.
-    private func prose(_ text: String) -> Text {
-        Text(text.isEmpty ? " " : text)
-            .font(.custom(face, fixedSize: ProseFont.baseSize * scale))
-    }
-
-    /// Headings step down towards the body size and stop there: a note is a
-    /// page of prose, not a document with six levels of outline in it, so an
-    /// `###### ` line is still a heading but no smaller than what it heads.
-    ///
-    /// As multiples of the body size rather than as point sizes of their own,
-    /// so the ladder survives the body size moving: written out as 24/21/19 for
-    /// a 16pt note, a heading was nearly the size of what it headed the moment
-    /// the prose grew.
-    private func headingSize(_ level: Int) -> CGFloat {
-        switch level {
-        case 1: return ProseFont.baseSize * 1.5 * scale
-        case 2: return ProseFont.baseSize * 1.3 * scale
-        case 3: return ProseFont.baseSize * 1.2 * scale
-        default: return ProseFont.baseSize * scale
-        }
-    }
-
-    private func headingWeight(_ level: Int) -> Font.Weight {
-        level <= 2 ? .bold : .semibold
-    }
-
-    /// Takes the paragraphs rather than re-reading the note for its own copy.
-    @ViewBuilder
-    private func emptyState(_ groups: [[NoteFormatting.LineKind]]) -> some View {
-        if groups.isEmpty {
+    private var emptyState: some View {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             ContentUnavailableView(
                 "Nothing to Read",
                 systemImage: "note.text",

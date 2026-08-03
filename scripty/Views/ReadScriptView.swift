@@ -34,6 +34,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct ReadScriptView: View {
     let title: String
@@ -90,6 +91,8 @@ struct ReadScriptView: View {
     /// Room kept either side of the column, matching the writing column's own
     /// row padding — the chrome's widths were measured against it.
     private static let horizontalPadding: CGFloat = 24
+    /// And above and below it, matching the writing column's stack.
+    private static let verticalPadding: CGFloat = 12
 
     private var fontSize: CGFloat { ProseFont.baseSize * CGFloat(textScale) }
 
@@ -125,7 +128,7 @@ struct ReadScriptView: View {
                     titleHeading
 
                     ForEach(readable) { block in
-                        row(block, isFirst: block.id == firstId)
+                        row(block)
                             .background(alignment: .center) { spotlight(block) }
                             .id(block.id)
                             // Two taps on a line are "let me write this one" —
@@ -137,6 +140,18 @@ struct ReadScriptView: View {
                             .contextMenu {
                                 Button("Read Aloud From Here", systemImage: "play") {
                                     onReadFrom(block.id)
+                                }
+                                // The way out with the words. Dragging a
+                                // selection across the page went when the
+                                // elements became text views — they are drawn
+                                // by the writing column's own engine now, so
+                                // that a line breaks in the same place in both
+                                // modes, and an inert text view takes no
+                                // selection. An element at a time is what the
+                                // writing surface offers too, and it is a
+                                // press rather than a careful drag.
+                                Button("Copy", systemImage: "doc.on.doc") {
+                                    UIPasteboard.general.string = displayText(for: block)
                                 }
                             }
                     }
@@ -161,8 +176,10 @@ struct ReadScriptView: View {
                 .padding(.trailing, chrome.trailingGutter)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, Self.horizontalPadding)
-                .padding(.vertical, 24)
-                .textSelection(.enabled)
+                // The writing column's own, so the head of the script sits at
+                // the same height in both. Twenty-four here was twelve points
+                // of drop the whole document took on the way into reading.
+                .padding(.vertical, Self.verticalPadding)
             }
             // Follow the voice. Centred rather than at the top, because a
             // line read at the very top of the screen has no context above
@@ -203,16 +220,15 @@ struct ReadScriptView: View {
 
     /// The project's title, set the way a title page sets it: centred, in caps,
     /// in the script's own face rather than in a display face borrowed from
-    /// somewhere else.
+    /// somewhere else — and through `ScriptTitleType`, which is where the
+    /// writing column gets the same heading.
     private var titleHeading: some View {
         Text((title.isEmpty ? "Untitled Project" : title).uppercased())
-            .font(.custom(PresentationSettings.shared.defaultFont.postScriptName,
-                          fixedSize: fontSize))
-            .fontWeight(.bold)
+            .font(ScriptTitleType.font(scale: CGFloat(textScale)))
             .accessibilityLabel(title.isEmpty ? "Untitled Project" : title)
             .accessibilityAddTraits(.isHeader)
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.bottom, fontSize * 2)
+            .padding(.bottom, ScriptTitleType.gap(scale: CGFloat(textScale)))
     }
 
     /// Scrolls to the element the mode was entered at, once, as soon as there
@@ -278,30 +294,17 @@ struct ReadScriptView: View {
     }
 
     @ViewBuilder
-    private func row(_ block: Block, isFirst: Bool) -> some View {
+    private func row(_ block: Block) -> some View {
         element(block)
-            // How the lines of a wrapped element line up with each other, the
-            // way the writing column's text views set it — a centred element
-            // centres each of its lines rather than centring as a block.
-            .multilineTextAlignment(multilineAlignment(block))
-            .padding(.top, isFirst ? 0 : spacing(for: block.blockType))
-    }
-
-    /// See `EditableBlockRow.nsAlignment`, which answers the same question for
-    /// the surface this one replaces.
-    private func multilineAlignment(_ block: Block) -> TextAlignment {
-        if let override = TextAlign(serverValue: block.textAlign) {
-            switch override {
-            case .left: return .leading
-            case .center: return .center
-            case .right: return .trailing
-            }
-        }
-        switch block.blockType {
-        case .centered: return .center
-        case .transition: return .trailing
-        default: return .leading
-        }
+            // How the lines of a wrapped element line up with each other rides
+            // in `ScriptText`'s own paragraph style, exactly as the writing
+            // column hands `BlockTextView` the same alignment.
+            // Every element, the first one included. The reader used to give
+            // the head of the script no space above it while the writing column
+            // gave it its element's own — so the script started a line or two
+            // higher here, and the whole of it stepped up the page on the way
+            // into reading and back down again on the way out.
+            .padding(.top, spacing(for: block.blockType))
     }
 
     @ViewBuilder
@@ -372,14 +375,18 @@ struct ReadScriptView: View {
     /// weight — is folded in with the writer's, so a bolded word inside a
     /// scene heading does not un-bold the heading around it.
     ///
-    /// Resolved through `ScriptFont.element`, which is what the writing column
-    /// asks for too: the same face at the same size measures the same, so a
-    /// line breaks in the same place on both surfaces and everything under it
-    /// stays where it was.
-    private func line(_ text: String, _ block: Block) -> Text {
-        Text(text.isEmpty ? " " : text)
-            .font(Font(ScriptFont.element(block, size: fontSize)))
-            .underline(block.textUnderline ?? false)
+    /// Drawn by `ScriptText`, which is the writing column's own text engine
+    /// with the caret taken out: the same face at the same size in the same
+    /// engine breaks a line in the same place, so an element is the same number
+    /// of lines tall on both surfaces. It was SwiftUI `Text` here, which gives
+    /// up on a word about one earlier than TextKit does — so a parenthetical
+    /// that fitted on two lines while it was being typed came out on three the
+    /// moment it was read, and took the rest of the scene down with it.
+    private func line(_ text: String, _ block: Block) -> some View {
+        ScriptText(text: text.isEmpty ? " " : text,
+                   font: ScriptFont.element(block, size: fontSize),
+                   alignment: block.nsTextAlignment,
+                   isUnderlined: block.textUnderline ?? false)
     }
 
     /// An explicit alignment set by the writer wins; otherwise the element sits

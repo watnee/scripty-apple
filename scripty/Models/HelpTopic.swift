@@ -446,11 +446,14 @@ extension HelpTopic {
                     + "and iPad. A phone is a thing you scroll with your thumb, and "
                     + "a document that is live to the keyboard while you scroll "
                     + "through it is one you will eventually type into by accident.",
-                    "Reading is a surface of its own in all three, not the writing "
-                    + "with the keyboard taken away: a screenplay set in screenplay "
-                    + "format, a song set as verse, a note set as prose — each in a "
-                    + "reading measure with the editing controls left out. See Read "
-                    + "Script, and Songs and Notes for the other two.",
+                    "The words themselves do not change. Reading shows a "
+                    + "screenplay, song or note in the same typeface at the same "
+                    + "size in the same place on the page as writing does — the "
+                    + "same lines breaking in the same spots — and what it leaves "
+                    + "out is the editing: the cursor, the element bar, the marks "
+                    + "and pins in the margins. Switching between the two moves "
+                    + "nothing you were reading. See Read Script, and Songs and "
+                    + "Notes for the other two.",
                     "Tap Edit to start writing. On iPhone the screenplay's Edit "
                     + "button sits in the bar at the foot of the screen, beside "
                     + "Songs and Notes, where there is room for it; on iPad and Mac "
@@ -526,7 +529,8 @@ extension HelpTopic {
                     + "again in the View menu, puts the writing back. Both surfaces "
                     + "measure the page the same way, so switching does not move the "
                     + "script: an element keeps its indent, its line breaks and the air "
-                    + "around it, and so does a script with editing locked. It runs "
+                    + "around it, and so does a script with editing locked. To copy a "
+                    + "line while you are reading, hold it and choose Copy. It runs "
                     + "continuously, without page breaks or page numbers: page view "
                     + "is the one for reading it as paper, and turning Read Script on "
                     + "switches page view off rather than leaving it waiting "
@@ -549,6 +553,7 @@ extension HelpTopic {
                 ],
                 keywords: ["reader", "reading", "format", "courier", "indents",
                            "review", "distraction free",
+                           "copy", "select", "selection", "highlight text",
                            "aloud", "speech", "speak", "voice", "listen", "audio",
                            "table read", "run lines", "text to speech"]),
             HelpTopic(
@@ -731,19 +736,16 @@ extension HelpTopic {
                     + "a history of its own.",
                     "Songs and notes each have a reading mode, the songs' and notes' "
                     + "answer to Read Script — and, as with a screenplay, the surface "
-                    + "an existing one opens on. Read Song sets the lyric as verse at "
-                    + "a comfortable measure, reading a blank line as the verse break "
-                    + "it is rather than an empty line of words. Read Note sets the "
-                    + "note as prose at a wider measure, and gives its headings and "
-                    + "bullets their shape — the note itself is the plain text it "
-                    + "always was, hashes and dashes and all, and typing is where you "
-                    + "see them. It reads a blank line as a paragraph break, and "
-                    + "leaves out a bullet you have not written anything after yet. "
-                    + "Both are set in the same face the script is, and both are in "
-                    + "the editor's “…” menu; Edit, in the top corner, puts the "
-                    + "writing back where you left it, and both take the same "
-                    + "device-wide text size. A document with nothing in it opens for "
-                    + "writing instead — there is nothing to read.",
+                    + "an existing one opens on. Read Song and Read Note show the "
+                    + "words exactly as you wrote them: the same face, the same size, "
+                    + "the same left edge, the same line breaks, blank lines and all. "
+                    + "Nothing is re-set for reading — a note is the plain text it "
+                    + "always was, hashes and dashes included — so the only "
+                    + "difference is that one takes the keyboard and the other does "
+                    + "not. Both are in the editor's “…” menu; Edit, in the top "
+                    + "corner, puts the writing back where you left it, and both take "
+                    + "the same device-wide text size. A document with nothing in it "
+                    + "opens for writing instead — there is nothing to read.",
                     "The name sits at the head of a song or note either way — over the "
                     + "words while you read, over the lines while you write, in the "
                     + "same face and the same place — and you can type over it there "

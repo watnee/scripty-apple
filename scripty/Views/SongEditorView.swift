@@ -403,7 +403,11 @@ struct SongEditorView: View {
                     reader
                 } else {
                     titleField
-                    Divider()
+                    // No rule under the name. The reading surface draws none,
+                    // and a line across the sheet that appears the moment Edit
+                    // is tapped is one more thing that changes with the mode —
+                    // the gap the title's own padding leaves is separation
+                    // enough, as it is in the lyric editor.
                     editor
                 }
             }
@@ -636,8 +640,12 @@ struct SongEditorView: View {
             // is nowhere else for the caret to go.
             .onSubmit { formatting.focus() }
             .disabled(!canEdit)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            // The reader's own margins, so the name is in the same place in
+            // both modes — and so the words under it start where the reading
+            // surface starts them.
+            .padding(.horizontal, ProseColumn.horizontalPadding)
+            .padding(.top, ProseColumn.titleTopPadding)
+            .padding(.bottom, ProseColumn.titleBottomPadding)
             .accessibilityLabel("Title")
     }
 
@@ -656,8 +664,10 @@ struct SongEditorView: View {
                      // server sent read-only has nowhere for this to go.
                      startWriting: startWriting,
                      onFocusChange: { isWritingBody = $0 })
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            // The reader's margins, and no top padding of its own: the gap
+            // above the first line is the title's bottom padding on both
+            // surfaces, so the words start at the same height either way.
+            .padding(.horizontal, ProseColumn.horizontalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityLabel(type == .song ? "Lyrics" : "Notes")
     }

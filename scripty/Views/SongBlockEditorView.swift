@@ -453,8 +453,8 @@ struct SongBlockEditorView: View {
         .font(DocumentTitleType.font(scale: titleScale))
         .accessibilityLabel("Title")
         .padding(.horizontal, 4)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
+        .padding(.top, ProseColumn.titleTopPadding)
+        .padding(.bottom, ProseColumn.titleBottomPadding)
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
@@ -550,7 +550,10 @@ struct SongBlockEditorView: View {
                      // The same closure the lines themselves take: the reading
                      // posture comes off, and with it anything else standing
                      // between the writer and the lyric underneath.
-                     onEdit: startWriting)
+                     onEdit: startWriting,
+                     // This editor keeps a row per line, so the reader adds its
+                     // column up the same way — see `linesAreRows`.
+                     linesAreRows: true)
     }
 
     // MARK: - Actions
