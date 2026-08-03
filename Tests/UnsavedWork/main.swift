@@ -74,6 +74,33 @@ func twoBlockCollection() -> HALCollection<Block> {
     """)
 }
 
+/// The same two elements, but the first has lost the links the editing paths
+/// gate on — the shape the server sends once a document is locked, or once the
+/// writer's access to it narrows to reading. Reaching this state mid-edit is
+/// the case where a save has nowhere to go and the words must still be kept.
+func lockedFirstBlockCollection() -> HALCollection<Block> {
+    decode(HALCollection<Block>.self, """
+    {
+      "_embedded": {
+        "blockResourceList": [
+          {
+            "id": 10, "order": 1, "type": "ACTION", "content": "First line.",
+            "_links": {}
+          },
+          {
+            "id": 11, "order": 2, "type": "ACTION", "content": "Second line.",
+            "_links": {
+              "update": {"href": "/api/blocks/11"},
+              "createBelow": {"href": "/api/blocks/11/below"}
+            }
+          }
+        ]
+      },
+      "_links": {"self": {"href": "/api/projects/1/blocks"}}
+    }
+    """)
+}
+
 @MainActor
 func makeModel() -> ScriptModel {
     let model = ScriptModel(app: AppModel(), project: project)
@@ -182,6 +209,8 @@ func run() async {
     await checkDraftPersistence()
     print()
     await checkDraftRestore()
+    print()
+    await checkWriteWithNowhereToGo()
 
     print()
     if failures == 0 {
@@ -311,6 +340,85 @@ func checkDraftRestore() async {
     model.adoptPersistedDrafts()
     check("an already-saved draft is not re-adopted", !model.unsavedBlockIds.contains(11))
     check("and is cleared from disk", store.drafts(projectId: project.id)[11] == nil)
+}
+
+@MainActor
+func checkWriteWithNowhereToGo() async {
+    print("== A save with nowhere to go holds the words rather than losing them ==")
+    do {
+        let directory = scratchDirectory("nolink")
+        let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        let model = ScriptModel(app: AppModel(), project: project, draftStore: store)
+        model.adopt(lockedFirstBlockCollection())
+
+        model.liveEdit(model.blocks[0], text: "Words written into a locked line.")
+        await model.blur(model.blocks[0])
+
+        checkEqual("the typing is still on screen",
+                   model.currentText(model.blocks[0]), "Words written into a locked line.")
+        check("the block is flagged unsaved", model.unsavedBlockIds.contains(10))
+        check("and flagged failed rather than retrying",
+              model.failedBlockIds.contains(10))
+        checkEqual("the words are on disk",
+                   UnsavedDraftStore(scope: "server|alice", directory: directory)
+                       .drafts(projectId: project.id)[10]?.text,
+                   "Words written into a locked line.")
+        check("and the writer is told why",
+              model.errorMessage == APIError.forbidden.errorDescription)
+    }
+
+    print()
+    print("== A write that changed nothing is still finished business ==")
+    do {
+        let directory = scratchDirectory("nochange")
+        let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        let model = ScriptModel(app: AppModel(), project: project, draftStore: store)
+        model.adopt(lockedFirstBlockCollection())
+
+        // Retyping the same words over a locked line is not an edit, so it is
+        // not a refusal either — nothing is held and nothing is said.
+        model.liveEdit(model.blocks[0], text: "First line.")
+        await model.blur(model.blocks[0])
+
+        check("nothing is flagged unsaved", !model.unsavedBlockIds.contains(10))
+        check("nothing is on disk",
+              UnsavedDraftStore(scope: "server|alice", directory: directory)
+                  .drafts(projectId: project.id)[10] == nil)
+        check("and no alert is raised", model.errorMessage == nil)
+    }
+
+    print()
+    print("== A merge with no way to remove the absorbed line backs out whole ==")
+    do {
+        let model = ScriptModel(app: AppModel(), project: project)
+        // The second element has an update link but no delete link: the merged
+        // text can be written, and then the absorbed line cannot be taken away.
+        model.adopt(decode(HALCollection<Block>.self, """
+        {
+          "_embedded": {
+            "blockResourceList": [
+              {
+                "id": 10, "order": 1, "type": "ACTION", "content": "First line.",
+                "_links": {"update": {"href": "/api/blocks/10"}}
+              },
+              {
+                "id": 11, "order": 2, "type": "ACTION", "content": "Second line.",
+                "_links": {"update": {"href": "/api/blocks/11"}}
+              }
+            ]
+          },
+          "_links": {"self": {"href": "/api/projects/1/blocks"}}
+        }
+        """))
+
+        await model.mergeIntoPrevious(model.blocks[1])
+
+        checkEqual("both elements are still there", model.blocks.count, 2)
+        check("the first does not show the merged text",
+              !model.currentText(model.blocks[0]).contains("Second line."))
+        checkEqual("the second keeps its own words",
+                   model.currentText(model.blocks[1]), "Second line.")
+    }
 }
 
 await run()

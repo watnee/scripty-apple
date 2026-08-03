@@ -603,9 +603,21 @@ final class ScriptModel {
             unsavedBlockIds.insert(id)
             return .saved(updated)
         }
-        guard text != (block.content ?? ""), let link = block.link(.update) else {
+        if text == (block.content ?? "") {
             markSaved(id)
             return .saved(block)
+        }
+        // Changed words with nowhere to PUT them. `isEditable` is
+        // `hasLink(.update) || isLocal`, so reaching here means the link went
+        // away *while* the writer was typing — the element was locked, or their
+        // access to the project narrowed. Not a network condition, so nothing
+        // will clear up by itself; the words are held and flagged rather than
+        // marked saved, which is what this used to do. `markSaved` would have
+        // deleted the draft, and the only copy of that sentence with it.
+        guard let link = block.link(.update) else {
+            markUnsaved(id, after: APIError.forbidden)
+            report(APIError.forbidden)
+            return .failed
         }
         // Snapshot before the attempt, not only after a failure: between here
         // and the response the words exist nowhere but this process, and a
@@ -1085,7 +1097,15 @@ final class ScriptModel {
             localHistory.unrecordText(blockId: id, after: attempted)
         }
         liveText[id] = previous
-        if previous == nil { markSaved(id) }
+        if previous == nil {
+            markSaved(id)
+        } else {
+            // The attempt that just failed snapshotted words the writer never
+            // kept — the merged line, or the head of an abandoned split. The
+            // draft is the crash-recovery copy, so it has to be rewound too or
+            // a relaunch restores a version of the sentence nobody typed.
+            persistDraft(id)
+        }
     }
 
     /// Surface a failure the writer has to do something about. A failure we
@@ -1167,6 +1187,10 @@ final class ScriptModel {
             } else {
                 localHistory.unrecordText(blockId: block.id, after: before)
                 liveText[block.id] = full
+                // The refused write snapshotted `before`; the whole line is
+                // what is on screen now, so the draft has to say so or a crash
+                // here restores the writer to half their sentence.
+                persistDraft(block.id)
             }
             return
         case .failed:
@@ -1174,6 +1198,7 @@ final class ScriptModel {
             // is being abandoned, so the record goes too.
             localHistory.unrecordText(blockId: block.id, after: before)
             liveText[block.id] = full
+            persistDraft(block.id)
             return
         }
         liveText[block.id] = nil
@@ -1303,18 +1328,26 @@ final class ScriptModel {
             focus(updatedPrevious.id, caret: seam)
             return
         }
-        if let deleteLink = block.link(.delete) {
-            do {
-                try await app.client.data(for: deleteLink, method: "DELETE")
-            } catch {
-                // The absorbed element is still there, so the merged text now
-                // appears twice. Put the previous block back and leave the
-                // script as it was before the Backspace.
-                liveText[previous.id] = previousText
-                await commit(previous.id)
-                report(error)
-                return
-            }
+        // No delete link is the refusal arriving early rather than late, and it
+        // needs the same answer: the merged text has already been written to
+        // the previous block, so taking this one off screen anyway would show
+        // the writer their own words twice the next time the script loaded.
+        guard let deleteLink = block.link(.delete) else {
+            liveText[previous.id] = previousText
+            await commit(previous.id)
+            report(APIError.forbidden)
+            return
+        }
+        do {
+            try await app.client.data(for: deleteLink, method: "DELETE")
+        } catch {
+            // The absorbed element is still there, so the merged text now
+            // appears twice. Put the previous block back and leave the
+            // script as it was before the Backspace.
+            liveText[previous.id] = previousText
+            await commit(previous.id)
+            report(error)
+            return
         }
         // The merged row was already swapped in by the commit above, so the
         // absorbed element just comes off screen — no reload the caret would
