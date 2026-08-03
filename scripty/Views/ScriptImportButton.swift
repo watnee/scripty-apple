@@ -75,7 +75,7 @@ private struct ScriptImporter: ViewModifier {
     /// the writer confirms a replacement they cannot undo.
     private func handlePick(_ result: Result<[URL], Error>) {
         if case let .failure(error) = result {
-            statusMessage = error.localizedDescription
+            statusMessage = PickedFileReader.pickFailureMessage(error)
             return
         }
         guard case let .success(urls) = result, let url = urls.first else { return }

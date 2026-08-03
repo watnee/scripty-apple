@@ -686,7 +686,7 @@ struct ProjectsSidebarView: View {
                       allowedContentTypes: [.json],
                       allowsMultipleSelection: false) { result in
             if case let .failure(error) = result {
-                model.errorMessage = error.localizedDescription
+                model.errorMessage = PickedFileReader.pickFailureMessage(error)
                 return
             }
             guard case let .success(urls) = result, let url = urls.first else { return }

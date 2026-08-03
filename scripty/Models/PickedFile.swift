@@ -64,6 +64,21 @@ enum PickedFileReader {
         return "Could not read that file. \(error.localizedDescription)"
     }
 
+    /// What to tell the writer when the *picker* failed, or nil when there is
+    /// nothing to tell them.
+    ///
+    /// Cancelling is not a failure and has never been worth a banner — but
+    /// `fileImporter` reports a tapped Cancel as `.failure(CocoaError
+    /// .userCancelled)`, so a closure that shows every failure greets the
+    /// writer with "The operation couldn't be completed." for backing out of a
+    /// picker. Anything else is the picker itself refusing, and staying silent
+    /// about that leaves a tapped Import button looking like a dud.
+    static func pickFailureMessage(_ error: Error) -> String? {
+        if error is CancellationError { return nil }
+        if (error as? CocoaError)?.code == .userCancelled { return nil }
+        return error.localizedDescription
+    }
+
     /// The MIME type the server sorts the format by. It reads the filename too,
     /// so the octet-stream fallback — which is what the formats iOS has never
     /// heard of resolve to — still imports.

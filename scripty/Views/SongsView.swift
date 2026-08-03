@@ -370,6 +370,13 @@ struct SongsView: View {
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }
             }
+            // The Edit button is only offered above one row, so a list that
+            // drops to one — the last delete of a selection, or the last
+            // archive — takes away the only way out of the mode it is still
+            // in. Leaving on its behalf is the whole of the fix.
+            .onChange(of: shownListCount) { _, count in
+                if count <= 1 { editMode = .inactive }
+            }
             .environment(\.editMode, $editMode)
             .fileImporter(isPresented: $showingImporter,
                           allowedContentTypes: importTypes,
@@ -732,7 +739,10 @@ struct SongsView: View {
         }
         // Edit mode is worth entering when there is an order to change or a
         // selection to make, and either way only with more than one row.
-        if (canReorder || canSelect) && shown.count > 1 {
+        // Gated on the whole list rather than on `shown`, like the sort picker
+        // below: searching down to a single row used to take away the only
+        // control that leaves edit mode, and strand the list in it.
+        if (canReorder || canSelect) && shownListCount > 1 {
             ToolbarItem(placement: .primaryAction) {
                 EditButton()
             }
@@ -1116,11 +1126,9 @@ struct SongsView: View {
                 }
             }
         case .failure(let error):
-            // Cancelling is not a failure and has never been worth a banner.
-            // Anything else is the picker itself refusing, and staying silent
-            // about that leaves a tapped Import button looking like a dud.
-            if (error as? CocoaError)?.code != .userCancelled {
-                statusMessage = error.localizedDescription
+            // One rule for all three importers — see `pickFailureMessage`.
+            if let message = PickedFileReader.pickFailureMessage(error) {
+                statusMessage = message
             }
         }
     }

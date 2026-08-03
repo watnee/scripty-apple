@@ -115,6 +115,23 @@ func run() async {
     }
 
     print("")
+    print("Backing out of the picker is not a failure")
+    do {
+        // `fileImporter` reports a tapped Cancel as a `.failure`, so every
+        // importer that shows each failure greeted the writer with "The
+        // operation couldn't be completed." for changing their mind.
+        expect("a tapped Cancel says nothing",
+               PickedFileReader.pickFailureMessage(CocoaError(.userCancelled)) == nil)
+        expect("nor does an abandoned pick",
+               PickedFileReader.pickFailureMessage(CancellationError()) == nil)
+        // A picker that genuinely refused still has to be heard, or a tapped
+        // Import button looks like a dud.
+        let refused = PickedFileReader.pickFailureMessage(CocoaError(.fileReadNoSuchFile))
+        expect("a real refusal is still reported", refused != nil)
+        expect("and carries the system's own reason", refused?.isEmpty == false)
+    }
+
+    print("")
     print("An empty file is read, not refused")
     do {
         // Emptiness is the caller's to report — every importer says "That file
