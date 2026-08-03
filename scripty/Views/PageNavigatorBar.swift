@@ -37,10 +37,17 @@ struct PageNavigatorBar: View {
                     .multilineTextAlignment(.center)
                     .textFieldStyle(.roundedBorder)
                     #if !os(macOS)
-                    .keyboardType(.numberPad)
+                    // Not `.numberPad`: that keyboard has no Return key, so on
+                    // touch the only way to commit was a hardware keyboard and
+                    // the advertised "type a page number to jump" did nothing
+                    // at all. `commitTypedPage` puts back the current page for
+                    // anything unreadable, so the looser keyboard costs
+                    // nothing and buys a Go key.
+                    .keyboardType(.numbersAndPunctuation)
+                    .submitLabel(.go)
                     #endif
                     .focused($fieldFocused)
-                    .onSubmit(commitTypedPage)
+                    .onSubmit { commitTypedPage() }
                     .accessibilityLabel("Page number")
 
                 Text("of \(pageCount)")
@@ -102,6 +109,12 @@ struct PageNavigatorBar: View {
         .onChange(of: currentPage) { _, page in
             if !fieldFocused { typedPage = "\(page)" }
         }
+        // Tapping away is as much a commit as pressing Go — and the only one
+        // available when the keyboard is dismissed rather than submitted.
+        // Releasing focus here would re-enter this handler, so it doesn't.
+        .onChange(of: fieldFocused) { _, focused in
+            if !focused { commitTypedPage(releasingFocus: false) }
+        }
         .onAppear { typedPage = "\(currentPage)" }
     }
 
@@ -145,13 +158,13 @@ struct PageNavigatorBar: View {
         return isOn ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary)
     }
 
-    private func commitTypedPage() {
+    private func commitTypedPage(releasingFocus: Bool = true) {
         guard let requested = Int(typedPage.trimmingCharacters(in: .whitespaces)) else {
             typedPage = "\(currentPage)"
             return
         }
         jump(to: requested)
-        fieldFocused = false
+        if releasingFocus { fieldFocused = false }
     }
 
     private func jump(to page: Int) {

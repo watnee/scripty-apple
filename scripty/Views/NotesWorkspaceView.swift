@@ -145,6 +145,16 @@ struct NotesWorkspaceView: View {
                     break
                 }
             }
+            // A note that reloaded — from the server, or from a newer cached
+            // copy — is a new situation, so whatever was closed about the old
+            // one stops applying. The songs workspace has had this from the
+            // start; without it, dismissing the strip once meant a *newer*
+            // stale copy was never announced for that note again.
+            .onChange(of: offlineStamps) { old, new in
+                for id in Set(old.keys).union(new.keys) where old[id] != new[id] {
+                    notices.situationChanged(DismissedNotices.documentCopyKey(documentId: id))
+                }
+            }
         }
     }
 
@@ -162,6 +172,14 @@ struct NotesWorkspaceView: View {
         withAnimation(.snappy(duration: 0.2)) {
             notices.dismiss(offlineKey(note), state: offlineState(savedAt))
         }
+    }
+
+    /// Every open note's stale-copy stamp, by note. Watched as one value
+    /// rather than row by row: a row that has stopped being offline is a row
+    /// that is no longer on screen to notice it, and its dismissal still has to
+    /// be retired.
+    private var offlineStamps: [Int: String] {
+        drafts.compactMapValues { $0.offlineCopySavedAt.map(offlineState) }
     }
 
     // MARK: - Rows

@@ -804,39 +804,19 @@ struct SongEditorView: View {
         // there. Gone the moment it is used, since the sheet is then the
         // editor it has always been.
         //
-        // Undo takes that same corner while the document *is* being written in,
-        // which is the other half of the sentence: the trailing corner holds
-        // the thing there is to do here, and the two states never overlap.
-        //
-        // In the toolbar as well as in the bar above the keyboard, following
-        // the screenplay — undo up here, redo in the overflow, since an iPhone
-        // toolbar has room for one of them. The bar is under the thumbs while
-        // the caret is in the words, and it is not on screen at all in the two
-        // places a writer most often reaches for undo first: naming a new song,
-        // and typing on a keyboard that leaves no software keyboard to hang a
-        // bar above. This is the pair that does not depend on knowing where the
-        // caret is.
-        //
-        // The two live under one `if` because a toolbar builder takes ten
-        // children and this one has ten.
-        if isDocumentEditable {
-            if isReading {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        beginEditing()
-                    } label: {
-                        Label("Edit", systemImage: "square.and.pencil")
-                    }
-                }
-            }
-            if canEdit {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        formatting.undo()
-                    } label: {
-                        Label("Undo", systemImage: "arrow.uturn.backward")
-                    }
-                    .disabled(!formatting.canUndo)
+        // Undo and redo used to take that same corner as well, one here and
+        // one in the overflow, following the screenplay. On this sheet that
+        // made three undo affordances and two redos, competing with Done, the
+        // cloud badge and Find for an iPhone bar that shows two things — which
+        // is what pushed the rest into the overflow in the first place. The
+        // pair below, on the leading edge, is the lyric editor's arrangement,
+        // and the lyric editor is this sheet's closer sibling.
+        if isDocumentEditable && isReading {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    beginEditing()
+                } label: {
+                    Label("Edit", systemImage: "square.and.pencil")
                 }
             }
         }
@@ -912,18 +892,6 @@ struct SongEditorView: View {
                     Label("Insert into Script", systemImage: "text.insert")
                 }
                 .disabled(isInserting)
-            }
-        }
-        // The half of the pair the bar up there had no room for, in the same
-        // menu the screenplay keeps its own redo in.
-        if canEdit {
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    formatting.redo()
-                } label: {
-                    Label("Redo", systemImage: "arrow.uturn.forward")
-                }
-                .disabled(!formatting.canRedo)
             }
         }
         ToolbarItem(placement: .secondaryAction) {

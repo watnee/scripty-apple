@@ -481,12 +481,24 @@ struct SongsWorkspaceView: View {
         lyrics.values.reduce(0) { $0 + $1.unsavedBlockIds.count }
     }
 
+    /// When this *screen* was last in step with the server — so the oldest of
+    /// the open songs, not the newest. One song syncing a moment ago says
+    /// nothing about the four beneath it, and the badge's panel is answering
+    /// "is what I can see up to date?".
+    private var lastSyncedAt: Date? {
+        lyrics.values.compactMap(\.lastSyncedAt).min()
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("Done") {
                 Task {
                     await commitEverything()
+                    // The list behind this cover draws a preview and an edited
+                    // date per song; without this it keeps showing the ones it
+                    // had before the writer spent an hour in here.
+                    await model.refreshAfterDocumentEdit()
                     dismiss()
                 }
             }
@@ -496,7 +508,14 @@ struct SongsWorkspaceView: View {
         // anywhere but here.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
-                CloudSyncBadge(state: cloud, heldCount: heldLineCount)
+                CloudSyncBadge(state: cloud,
+                               heldCount: heldLineCount,
+                               lastSyncedAt: lastSyncedAt,
+                               // Pressable, as every other badge in the app is.
+                               // This was the one screen where a writer staring
+                               // at an amber cloud could not tap it to find out
+                               // when anything last landed, or to try again.
+                               sync: { await syncEverything() })
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -609,6 +628,17 @@ struct SongsWorkspaceView: View {
     private func commitEverything() async {
         for lyric in lyrics.values {
             await lyric.commitAll()
+        }
+    }
+
+    /// Push everything held and pull whatever changed, song by song — what the
+    /// badge's "Sync Now" does here. Serial rather than parallel: each
+    /// `syncNow` ends in a reload, and a dozen of those at once is a dozen
+    /// round trips the badge would have to keep a spinner over anyway. It
+    /// refuses a second press until this returns.
+    private func syncEverything() async {
+        for lyric in lyrics.values {
+            await lyric.syncNow()
         }
     }
 }
