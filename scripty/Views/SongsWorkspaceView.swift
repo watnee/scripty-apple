@@ -283,6 +283,7 @@ struct SongsWorkspaceView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    statusLabel(song)
                 }
                 .contentShape(Rectangle())
             }
@@ -298,6 +299,38 @@ struct SongsWorkspaceView: View {
             }
         }
         .textCase(nil)
+    }
+
+    /// What the header says on the right: whether this song's lines are all on
+    /// the server, and how long the lyric runs when they are. A collapsed
+    /// section is the only place its writer can be told either — the notes
+    /// workspace says the same two things in the same corner.
+    ///
+    /// Counted over what is on screen rather than what was last saved, exactly
+    /// as the song editor's own readout counts it.
+    @ViewBuilder
+    private func statusLabel(_ song: TextDocument) -> some View {
+        if let lyric = lyrics[song.id], !lyric.isLoading {
+            if lyric.hasFailedSaves {
+                Label("Not saved", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if lyric.hasUnsavedChanges {
+                Label("Kept on this device", systemImage: "icloud.slash")
+                    .font(.caption)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Kept on this device — saves when you're back online")
+            } else {
+                let words = lyric.blocks.reduce(0) { running, block in
+                    running + ScriptStats.countWords(lyric.currentText(block))
+                }
+                Text("\(words) \(words == 1 ? "word" : "words")")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// The web puts a drag handle on every song here, beside the one on every
@@ -336,6 +369,7 @@ struct SongsWorkspaceView: View {
     @ViewBuilder
     private func lines(for song: TextDocument) -> some View {
         if let lyric = lyrics[song.id] {
+            lockBanner(song, lyric)
             // The same honesty the song editor's banner gives: an out-of-date
             // lyric must not look current — and the same ✕, since a writer who
             // has read it should be able to get the row back.
@@ -385,6 +419,37 @@ struct SongsWorkspaceView: View {
                 }
             }
         }
+    }
+
+    /// Says this song is closed to typing, and takes the lock off when tapped —
+    /// `EditingLockBanner`, the strip both song editors already show over a
+    /// locked lyric.
+    ///
+    /// The padlock in the header above says *which* song is locked, but it is a
+    /// glyph rather than a way out, and the switch itself is inside that song's
+    /// own editor, behind its overflow menu. Without this, a writer working down
+    /// this page meets a verse that silently refuses every keystroke with
+    /// nothing on screen to do about it — the double tap on the words gets in
+    /// too, but a gesture nobody is told about cannot be the only door.
+    ///
+    /// Only where the words were the writer's to begin with. A lyric the server
+    /// handed over read-only has no lock of this device's to take off, and a
+    /// strip offering to unlock it would be a second dead end behind the first.
+    @ViewBuilder
+    private func lockBanner(_ song: TextDocument, _ lyric: SongBlockModel) -> some View {
+        if isLocked(song), isWritable(lyric) {
+            EditingLockBanner { locks[song.id]?.setEditingLocked(false) }
+                // Edge to edge, as it is over a single song's lyric: the strip
+                // is about the whole song, not about the column of lines the
+                // rows' own 16pt insets belong to.
+                .listRowInsets(EdgeInsets())
+        }
+    }
+
+    /// Whether the server would take a keystroke in this lyric at all —
+    /// `SongBlockEditorView.isSongEditable` asks the same of its one song.
+    private func isWritable(_ lyric: SongBlockModel) -> Bool {
+        lyric.canAddLine || lyric.blocks.contains(where: \.isEditable)
     }
 
     @ViewBuilder

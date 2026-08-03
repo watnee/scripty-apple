@@ -40,6 +40,11 @@ final class OfflineStore {
         /// Lives inside the project's directory, so pruning the project takes
         /// its songs with it.
         case songBlocks(projectId: Int, documentId: Int)
+        /// One document's full text — a note, or a song the server keeps as
+        /// prose rather than lines. The list carries only a preview, so
+        /// without this a note opened offline is a blank page over a page of
+        /// writing, and typing into it would eventually send the blank.
+        case document(projectId: Int, documentId: Int)
     }
 
     private let root: URL
@@ -83,6 +88,8 @@ final class OfflineStore {
             return projectDirectory(id).appendingPathComponent("documents.json")
         case .songBlocks(let projectId, let documentId):
             return projectDirectory(projectId).appendingPathComponent("song-\(documentId).json")
+        case .document(let projectId, let documentId):
+            return projectDirectory(projectId).appendingPathComponent("document-\(documentId).json")
         }
     }
 
