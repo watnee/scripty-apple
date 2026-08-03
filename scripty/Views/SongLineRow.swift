@@ -54,6 +54,11 @@ struct SongLineRow: View {
     /// Whether the highlight swipe is showing its colours.
     @State private var pickingHighlight = false
 
+    /// Everything the text view calls back into, behind one stable reference —
+    /// see `SongLineCallbacks`. Refreshed from `body` below, which runs on
+    /// every redraw whether or not the field itself needs updating.
+    @State private var callbacks = SongLineCallbacks()
+
     @Environment(\.colorScheme) private var colorScheme
     /// The writer's chosen type size, shared with the screenplay through the
     /// same environment key so one preference scales lyrics wherever they show
@@ -76,57 +81,66 @@ struct SongLineRow: View {
     }
 
     var body: some View {
-        SongLineField(text: text,
-                      isFocused: isFocused,
-                      isEditable: block.isEditable && !isLocked,
-                      textScale: textScale,
-                      spellChecks: spellChecks,
-                      spellcheckRevision: spellcheckRevision,
-                      accessibilityLabel: "Lyric line \(block.order ?? 0)",
-                      // Only where the words are the writer's to change. A line
-                      // the server sent read-only stays read-only, and the
-                      // gesture is not attached at all rather than unlocking a
-                      // song around a line that would still refuse the caret.
-                      startWriting: block.isEditable ? startWriting : nil,
-                      caret: model.caretRequests[block.id],
-                      onCaretApplied: { model.caretRequests[block.id] = nil },
-                      onBeginEditing: {
-                          focusedLine = block.id
-                          // And in the model, which is the copy that survives:
-                          // SwiftUI keeps no focus value no view has claimed,
-                          // so this is what the hosts' keyboard bar reads.
-                          model.focusedBlockId = block.id
-                          // Taken: the model has no further say over where
-                          // the caret goes until it asks again.
-                          if model.focusRequest == block.id { model.focusRequest = nil }
-                      },
-                      onEndEditing: {
-                          // Save on the way out rather than waiting for the
-                          // debounce, and release the shared focus only if it
-                          // still points here — a tap on another line has
-                          // already moved it on by the time this fires.
-                          if focusedLine == block.id { focusedLine = nil }
-                          if model.focusedBlockId == block.id { model.focusedBlockId = nil }
-                          Task { await model.commit(block) }
-                      },
-                      onReturn: {
-                          Task {
-                              if let created = await model.addLine(below: block) {
-                                  focusedLine = created
-                              }
-                          }
-                      },
-                      onBackspaceAtStart: {
-                          // Backspace with nothing behind the caret folds
-                          // the line into the one above, the way it does in
-                          // the screenplay. The model puts the caret at the
-                          // seam; all this has to do is follow it there.
-                          Task {
-                              if let target = await model.mergeIntoPrevious(block) {
-                                  focusedLine = target
-                              }
-                          }
-                      })
+        // Refreshed here rather than handed to the field as stored closures:
+        // `body` runs on every redraw, `updateUIView` no longer does (the
+        // field is `.equatable()` below), and the coordinator holds this
+        // reference for the life of the row. Writing a class instance's
+        // properties is not a write to `@State`, so it is allowed from here.
+        callbacks.startWriting =
+            // Only where the words are the writer's to change. A line the
+            // server sent read-only stays read-only, and the gesture is not
+            // offered at all rather than unlocking a song around a line that
+            // would still refuse the caret.
+            block.isEditable ? startWriting : nil
+        callbacks.onTextChanged = { model.edit(block, text: $0) }
+        callbacks.onCaretApplied = { model.caretRequests[block.id] = nil }
+        callbacks.onBeginEditing = {
+            focusedLine = block.id
+            // And in the model, which is the copy that survives: SwiftUI keeps
+            // no focus value no view has claimed, so this is what the hosts'
+            // keyboard bar reads.
+            model.focusedBlockId = block.id
+            // Taken: the model has no further say over where the caret goes
+            // until it asks again.
+            if model.focusRequest == block.id { model.focusRequest = nil }
+        }
+        callbacks.onEndEditing = {
+            // Save on the way out rather than waiting for the debounce, and
+            // release the shared focus only if it still points here — a tap on
+            // another line has already moved it on by the time this fires.
+            if focusedLine == block.id { focusedLine = nil }
+            if model.focusedBlockId == block.id { model.focusedBlockId = nil }
+            Task { await model.commit(block) }
+        }
+        callbacks.onReturn = {
+            Task {
+                if let created = await model.addLine(below: block) {
+                    focusedLine = created
+                }
+            }
+        }
+        callbacks.onBackspaceAtStart = {
+            // Backspace with nothing behind the caret folds the line into the
+            // one above, the way it does in the screenplay. The model puts the
+            // caret at the seam; all this has to do is follow it there.
+            Task {
+                if let target = await model.mergeIntoPrevious(block) {
+                    focusedLine = target
+                }
+            }
+        }
+
+        return SongLineField(text: model.currentText(block),
+                             isFocused: isFocused,
+                             isEditable: block.isEditable && !isLocked,
+                             textScale: textScale,
+                             spellChecks: spellChecks,
+                             spellcheckRevision: spellcheckRevision,
+                             accessibilityLabel: "Lyric line \(block.order ?? 0)",
+                             offersStartWriting: block.isEditable && startWriting != nil,
+                             caret: model.caretRequests[block.id],
+                             callbacks: callbacks)
+        .equatable()
         .padding(.vertical, 2)
         .padding(.horizontal, 4)
         // The list's own row insets would put a blank line's worth of air
@@ -197,11 +211,6 @@ struct SongLineRow: View {
         !isLocked && (focusedLine == block.id || model.focusRequest == block.id)
     }
 
-    private var text: Binding<String> {
-        Binding(get: { model.currentText(block) },
-                set: { model.edit(block, text: $0) })
-    }
-
     @ViewBuilder
     private var rowBackground: some View {
         if let tint = block.tint {
@@ -221,8 +230,43 @@ struct SongLineRow: View {
 /// over, or the sheet closing), and the shared `@FocusState` follows along
 /// through `onBeginEditing`/`onEndEditing` rather than driving a resign — a
 /// programmatic resign here would fight the natural one and drop the keyboard.
-private struct SongLineField: UIViewRepresentable {
-    @Binding var text: String
+/// Everything a lyric line calls back into, behind one reference that lives as
+/// long as the row does.
+///
+/// `BlockTextView`'s coordinator takes its model and block at
+/// `makeCoordinator` time and never reads the representable again — which is
+/// what makes skipping `updateUIView` safe there. A lyric line's callbacks are
+/// the *host's*, not the model's, so they cannot be handed over once and left:
+/// they close over the focus binding and the host's way back into writing.
+/// This is the same guarantee by another route. The row refreshes these from
+/// `body`, which always runs; the coordinator reads them through a reference
+/// that never changes, so a skipped update can never leave it calling into a
+/// row that has moved on.
+@MainActor
+final class SongLineCallbacks {
+    var startWriting: (() -> Void)?
+    var onTextChanged: (String) -> Void = { _ in }
+    var onCaretApplied: () -> Void = {}
+    var onBeginEditing: () -> Void = {}
+    var onEndEditing: () -> Void = {}
+    /// Return: the model makes and focuses the next line. A lyric line is one
+    /// block, so a newline is never inserted into the text itself.
+    var onReturn: () -> Void = {}
+    /// Backspace pressed with the caret at offset 0 and nothing selected. It
+    /// has no plain-text form to catch in the delegate, so the text view
+    /// reports it — the same route `BlockUITextView` takes for the screenplay.
+    var onBackspaceAtStart: () -> Void = {}
+}
+
+private struct SongLineField: UIViewRepresentable, Equatable {
+    /// A value, not a binding. `@Observable` tracks whole properties, so a
+    /// binding reading `model.currentText(block)` from inside `updateUIView`
+    /// would be invalidated by *any* line's keystroke — every visible row
+    /// re-running its UIKit styling per character typed, and in the all-songs
+    /// workspace that is forty rows for one letter. The row reads the model (a
+    /// cheap SwiftUI body) and the `==` below lets the untouched rows skip the
+    /// UIKit work, exactly as `BlockTextView` does.
+    let text: String
     let isFocused: Bool
     let isEditable: Bool
     /// The writer's chosen type size, as a multiple. Passed rather than a
@@ -238,25 +282,43 @@ private struct SongLineField: UIViewRepresentable {
     /// inside `updateUIView` belongs to no body and would leave a lyric
     /// editor left open behind the settings sheet in the old face.
     private let defaultFont = PresentationSettings.shared.defaultFont
-    /// The way into a line that is being read rather than written in. Nil where
-    /// there is no way in; the gesture is enabled only while the field is not
-    /// editable, so it never competes with the caret.
-    let startWriting: (() -> Void)?
+    /// Whether there is a way into a line that is being read rather than
+    /// written in. A value rather than the closure itself, so `==` can see it:
+    /// the gesture is offered only while the field is not editable, so it
+    /// never competes with the caret, and whether it is offered at all has to
+    /// survive a skipped update.
+    let offersStartWriting: Bool
     /// Where the caret should go once this line has taken focus, in Characters.
     /// Only a merge asks; the rest of the time UIKit's own placement is right.
     let caret: Int?
-    let onCaretApplied: () -> Void
-    let onBeginEditing: () -> Void
-    let onEndEditing: () -> Void
-    /// Return: the model makes and focuses the next line. A lyric line is one
-    /// block, so a newline is never inserted into the text itself.
-    let onReturn: () -> Void
-    /// Backspace pressed with the caret at offset 0 and nothing selected. It
-    /// has no plain-text form to catch in the delegate, so the text view
-    /// reports it — the same route `BlockUITextView` takes for the screenplay.
-    let onBackspaceAtStart: () -> Void
+    /// The row's own callbacks. Compared by identity below — it is the same
+    /// object for the life of the row, and the row keeps its contents current.
+    let callbacks: SongLineCallbacks
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    /// What a skipped update is allowed to leave stale: nothing that reaches
+    /// UIKit. Every value `updateUIView` and `apply(to:)` read is here, and
+    /// `callbacks` is a reference the row refreshes from its own body — so
+    /// unlike `BlockTextView` there is no `parent` for the coordinator to hold
+    /// a stale copy of.
+    ///
+    /// `defaultFont` is in here too, and has to be: it is resolved when this
+    /// struct is built, and without it changing the app's typeface would leave
+    /// every open lyric in the old face.
+    static func == (lhs: SongLineField, rhs: SongLineField) -> Bool {
+        lhs.text == rhs.text
+            && lhs.isFocused == rhs.isFocused
+            && lhs.isEditable == rhs.isEditable
+            && lhs.textScale == rhs.textScale
+            && lhs.spellChecks == rhs.spellChecks
+            && lhs.spellcheckRevision == rhs.spellcheckRevision
+            && lhs.accessibilityLabel == rhs.accessibilityLabel
+            && lhs.offersStartWriting == rhs.offersStartWriting
+            && lhs.caret == rhs.caret
+            && lhs.defaultFont == rhs.defaultFont
+            && lhs.callbacks === rhs.callbacks
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(callbacks: callbacks) }
 
     func makeUIView(context: Context) -> SongLineUITextView {
         let view = SongLineUITextView()
@@ -277,14 +339,14 @@ private struct SongLineField: UIViewRepresentable {
         view.adjustsFontForContentSizeCategory = true
         view.text = text
         view.onDeleteBackwardAtStart = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.onBackspaceAtStart()
+            coordinator?.callbacks.onBackspaceAtStart()
         }
         context.coordinator.textView = view
-        // Through the coordinator's copy of the parent rather than this one:
-        // the closure outlives this struct, and the host's answer to "start
-        // writing" changes with the mode it is in.
+        // Through the callbacks rather than this struct: the closure outlives
+        // it, and the host's answer to "start writing" changes with the mode
+        // it is in.
         context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.startWriting?()
+            coordinator?.callbacks.startWriting?()
         }
         context.coordinator.doubleTap.attach(to: view)
         apply(to: view)
@@ -305,8 +367,6 @@ private struct SongLineField: UIViewRepresentable {
     }
 
     func updateUIView(_ view: SongLineUITextView, context: Context) {
-        context.coordinator.parent = self
-
         // Only when the value really diverged — while the writer is typing the
         // binding already reads back what the view holds, so this never fires
         // mid-keystroke and never moves the caret. It only pushes the model's
@@ -331,7 +391,7 @@ private struct SongLineField: UIViewRepresentable {
             // selection and then lose it again on the way in.
             DispatchQueue.main.async {
                 view.setCaret(characterOffset: caret)
-                onCaretApplied()
+                callbacks.onCaretApplied()
             }
         }
     }
@@ -342,7 +402,7 @@ private struct SongLineField: UIViewRepresentable {
     @MainActor
     private func offerDoubleTap(in coordinator: Coordinator,
                                 for view: SongLineUITextView) {
-        coordinator.doubleTap.setOffered(!view.isEditable && startWriting != nil)
+        coordinator.doubleTap.setOffered(!view.isEditable && offersStartWriting)
     }
 
     @MainActor
@@ -362,34 +422,38 @@ private struct SongLineField: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: SongLineField
+        /// Taken once and held, the way `BlockTextView`'s coordinator holds its
+        /// model: nothing here reads the representable, so a redraw that skips
+        /// `updateUIView` cannot leave this calling into a row that has moved
+        /// on. The row keeps the closures inside current.
+        let callbacks: SongLineCallbacks
         weak var textView: SongLineUITextView?
         /// The double tap that asks for the keyboard on a line that has none.
         /// Kept here because the recogniser has to outlive the struct that
         /// describes the row, which SwiftUI rebuilds on every redraw.
         let doubleTap = DoubleTapToEditGesture()
 
-        init(_ parent: SongLineField) {
-            self.parent = parent
+        init(callbacks: SongLineCallbacks) {
+            self.callbacks = callbacks
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
-            parent.onBeginEditing()
+            callbacks.onBeginEditing()
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
-            parent.onEndEditing()
+            callbacks.onEndEditing()
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            callbacks.onTextChanged(textView.text)
         }
 
         func textView(_ textView: UITextView,
                       shouldChangeTextIn range: NSRange,
                       replacementText text: String) -> Bool {
             if text == "\n" {
-                parent.onReturn()
+                callbacks.onReturn()
                 return false
             }
             return true
