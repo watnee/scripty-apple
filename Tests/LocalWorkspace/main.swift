@@ -238,7 +238,7 @@ func runEphemeral() async {
 
 func runHandOff() async {
     print("")
-    print("Signing in takes only what was ticked")
+    print("Signing in copies what was ticked and takes nothing away")
 
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -257,22 +257,44 @@ func runHandOff() async {
                                         "documentType": "SONG", "content": "la la"]))
 
     // What `AppModel.uploadGuestWork` does once the upload has landed.
-    await first.handOff(projectIds: [givenId])
+    await first.markHandedOff(projectIds: [givenId])
 
     let offered = await first.guestWork().map(\.id)
     check("the uploaded screenplay is no longer offered", !offered.contains(givenId))
     check("the one left behind still is", offered.contains(keptId))
 
-    // And the disk agrees, so signing out later doesn't bring back a stale
-    // second copy of something the account is now the home of.
+    // The point of the whole flow: signing out is not a way to lose the
+    // screenplay you just attached an account to.
     let second = DemoBackend(store: LocalWorkspaceStore(directory: directory))
     let titles = embedded(json(await second.respond(
         method: "GET", url: url("/api/project"), body: nil)))
         .compactMap { $0["title"] as? String }
-    check("it is gone from the workspace on disk too",
-          !titles.contains("Uploading This One"), "got \(titles)")
+    check("the uploaded screenplay is still on the device",
+          titles.contains("Uploading This One"), "got \(titles)")
     check("and the untouched one is still waiting there",
           titles.contains("Keeping This One"), "got \(titles)")
+
+    // Its parts came with it. A screenplay whose songs or cast had been cleared
+    // out from under it would open, and be useless.
+    let songs = embedded(json(await second.respond(
+        method: "GET", url: url("/api/document?projectId=\(givenId)"), body: nil)))
+        .compactMap { $0["title"] as? String }
+    check("so are its songs", songs.contains("Its Song"), "got \(songs)")
+
+    // And it stays off the offer across the relaunch, so signing in again
+    // doesn't put a second copy of it in the same account.
+    check("a relaunch still knows the account has a copy",
+          !(await second.guestWork().map(\.id)).contains(givenId))
+
+    // Until it is written in again — those newer words are on this device and
+    // nowhere else, so they are worth offering. Unticked and labelled, though:
+    // see `GuestWorkView`.
+    _ = await second.respond(method: "PUT", url: url("/api/project/\(givenId)"),
+                             body: body(["title": "Uploading This One", "writers": "Me"]))
+    let reoffered = await second.guestWork().first { $0.id == givenId }
+    check("writing in it again puts it back on the offer", reoffered != nil)
+    check("and it is marked as one the account already has",
+          reoffered?.alreadyKept == true)
 }
 
 // MARK: - A store that cannot be read

@@ -369,7 +369,8 @@ final class AppModel {
                 id: nextOfferId,
                 backend: guestBackend,
                 projects: written.map {
-                    GuestWorkOffer.Item(id: $0.id, title: $0.title, elements: $0.blockCount)
+                    GuestWorkOffer.Item(id: $0.id, title: $0.title, elements: $0.blockCount,
+                                        alreadyKept: $0.alreadyKept)
                 })
         }
         // Last: the sheet coming down is what `RootView` presents the offer on.
@@ -543,11 +544,14 @@ final class AppModel {
 
     // MARK: - Keeping what was written without an account
 
-    /// Copies chosen screenplays out of the guest session and into the account
-    /// that has just signed in, as one `.scripty.json` bundle through the very
+    /// Copies chosen screenplays from the guest session into the account that
+    /// has just signed in, as one `.scripty.json` bundle through the very
     /// import the projects list already offers. Nothing about the archive is
     /// special-cased: the guest backend writes the same document the server's
     /// own export writes, and the server reads it the same way.
+    ///
+    /// A copy, not a move: what is on the device stays on the device, so the
+    /// next sign-out still opens on it.
     ///
     /// Answers an error message, or nil when it landed.
     func uploadGuestWork(_ offer: GuestWorkOffer, ids: [Int]) async -> String? {
@@ -568,11 +572,12 @@ final class AppModel {
                                         fileName: "Scripty.scripty.json",
                                         fileData: bundle,
                                         mimeType: "application/json")
-            // Only now, and only what was taken: the local workspace outlives
-            // this session, so a screenplay left in it after the account has a
-            // copy would come back as a stale second one at the next sign-out.
-            // Anything the writer left unticked stays put.
-            await offer.backend.handOff(projectIds: ids)
+            // Only now, and only what was taken. The local copies stay where
+            // they are — signing out later must not take the writer's
+            // screenplay away with the session — so all this records is that
+            // the account has them, which is what keeps the next sign-in from
+            // offering the same work twice.
+            await offer.backend.markHandedOff(projectIds: ids)
             guestWorkImports += 1
             return nil
         } catch {
@@ -602,5 +607,10 @@ struct GuestWorkOffer: Identifiable {
         let id: Int
         let title: String
         let elements: Int
+        /// True when this account — or another one — has been given a copy of
+        /// this screenplay before, and it has been written in on the device
+        /// since. Keeping it again adds a second screenplay rather than
+        /// updating the first, so it is offered unticked and labelled.
+        let alreadyKept: Bool
     }
 }
