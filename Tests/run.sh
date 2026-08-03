@@ -567,6 +567,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \

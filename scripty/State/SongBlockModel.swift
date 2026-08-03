@@ -202,10 +202,22 @@ final class SongBlockModel {
 
     // MARK: - Loading
 
+    /// Bumped per load so a slow response can be recognised as superseded —
+    /// `ScriptModel.blockLoadGeneration`'s counterpart, and for the same
+    /// reason: switching editions fires an unmanaged load per switch, and
+    /// without this edition A's lines can land after edition B's and the
+    /// writer types into the wrong draft.
+    private var blockLoadGeneration = 0
+
     func load() async {
         guard let link = editionBlocksLink ?? document.link(.songBlocks) else { return }
+        blockLoadGeneration += 1
+        let generation = blockLoadGeneration
         isLoading = true
-        defer { isLoading = false }
+        // Only the load still current puts the spinner away. A superseded one
+        // clearing it would say the newer load had finished when it has not —
+        // the screenplay does not hit this because it never sets `isLoading`.
+        defer { if generation == blockLoadGeneration { isLoading = false } }
         // Only the default edition is cached (and only it falls back), for the
         // screenplay's reason: a chosen edition travels as a link that means
         // nothing offline, and edition A's copy under edition B's banner is
@@ -216,6 +228,7 @@ final class SongBlockModel {
         do {
             let data = try await app.client.data(for: link)
             let collection: HALCollection<SongBlock> = try app.client.decode(from: data)
+            guard generation == blockLoadGeneration else { return }
             adopt(collection)
             offlineCopySavedAt = nil
             errorMessage = nil
@@ -223,6 +236,7 @@ final class SongBlockModel {
             noteSyncedIfSettled()
             if let cacheKind { offlineStore?.save(data, cacheKind) }
         } catch {
+            guard generation == blockLoadGeneration else { return }
             // The network failed — fall back to the copy saved last time this
             // lyric loaded. Held drafts lay on top exactly as on a live load,
             // so words typed offline stay the newest thing on screen.
@@ -237,7 +251,10 @@ final class SongBlockModel {
                 report(error)
             }
         }
-        // After adopt, so the status link this round advertised is the one used.
+        // After adopt, so the status link this round advertised is the one
+        // used — and only for the load still current, or a superseded round
+        // publishes one edition's undo stack under another's lines.
+        guard generation == blockLoadGeneration else { return }
         await refreshUndoRedo()
     }
 

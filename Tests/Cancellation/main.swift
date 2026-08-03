@@ -229,7 +229,11 @@ final class TestServer: @unchecked Sendable {
     /// One block for a PUT, the collection for anything else. Enough for the
     /// paths this suite walks; nothing here inspects the rest.
     private func answer(to request: String) -> String {
-        request.hasPrefix("PUT") ? savedBlockJSON : blocksJSON
+        if request.hasPrefix("PUT") { return savedBlockJSON }
+        if request.contains("/song-blocks") {
+            return request.contains("/editions/") ? secondEditionJSON : firstEditionJSON
+        }
+        return blocksJSON
     }
 
     func reset() {
@@ -281,6 +285,41 @@ let project: Project = decode(Project.self, """
  "_links": {"blocks": {"href": "/api/projects/1/blocks"}}}
 """)
 
+/// Two editions of one lyric, told apart by their words. The superseded-load
+/// case switches between them while the first request is still open, so which
+/// set of lines is on screen afterwards is the whole answer.
+let firstEditionJSON = """
+{
+  "_embedded": {
+    "songBlockResourceList": [
+      {"id": 40, "order": 1, "content": "The first edition's line.",
+       "_links": {"update": {"href": "/api/song-blocks/40"}}}
+    ]
+  },
+  "_links": {"self": {"href": "/api/documents/8/song-blocks"}}
+}
+"""
+
+let secondEditionJSON = """
+{
+  "_embedded": {
+    "songBlockResourceList": [
+      {"id": 50, "order": 1, "content": "The second edition's line.",
+       "_links": {"update": {"href": "/api/song-blocks/50"}}}
+    ]
+  },
+  "_links": {"self": {"href": "/api/editions/2/song-blocks"}}
+}
+"""
+
+let song: TextDocument = decode(TextDocument.self, """
+{"id": 8, "projectId": 1, "title": "Test Song", "documentType": "SONG",
+ "_links": {"songBlocks": {"href": "/api/documents/8/song-blocks"}}}
+""")
+
+let secondEditionLink: HALLink = decode(HALLink.self,
+                                        #"{"href": "/api/editions/2/song-blocks"}"#)
+
 @MainActor
 func makeModel() -> ScriptModel {
     ScriptModel(app: AppModel(), project: project)
@@ -296,6 +335,19 @@ func firstBlock(of model: ScriptModel) async -> Block? {
     await model.loadBlocks()
     check("the script loaded before the case began", !model.blocks.isEmpty)
     return model.blocks.first
+}
+
+/// Suspends until a condition holds, or gives up at the deadline. The same bet
+/// `TestServer.received` refuses to make: a fixed sleep is a guess about
+/// machine load, and the thing being waited for can say when it has happened.
+@MainActor
+func settle(within deadline: TimeInterval = 10, _ condition: () -> Bool) async -> Bool {
+    let cutoff = Date().addingTimeInterval(deadline)
+    while !condition() {
+        if Date() >= cutoff { return false }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+    return true
 }
 
 // MARK: - Cases
@@ -466,6 +518,37 @@ func run() async {
 
         checkEqual("one save, not one per keystroke", server.requests.count, 1)
         check("no alert followed the cancelled ones", model.errorMessage == nil)
+    }
+
+    print()
+    print("== A superseded load never lands on the edition that replaced it ==")
+    do {
+        server.reset()
+        let model = SongBlockModel(app: AppModel(), document: song)
+
+        // The first edition answers slowly; while its request is still open
+        // the writer picks another edition, whose request is answered at once.
+        // Without a generation check the slow answer arrives last and wins,
+        // and the writer types their next line into the wrong edition.
+        server.answersAfter = 0.6
+        let first = Task { await model.load() }
+        check("the first edition's request did go out", await server.received(1))
+
+        // Picking an edition is what loads it — the link's `didSet` fires the
+        // request, exactly as the editions picker does.
+        server.answersAfter = 0
+        model.editionBlocksLink = secondEditionLink
+        check("the chosen edition's request went out too", await server.received(2))
+        check("and its lines arrived", await settle { !model.blocks.isEmpty })
+
+        checkEqual("the edition the writer chose is on screen",
+                   model.blocks.first?.text, "The second edition's line.")
+        await first.value
+        checkEqual("and the slow answer that followed it changed nothing",
+                   model.blocks.first?.text, "The second edition's line.")
+        check("with the spinner put away", !model.isLoading)
+        check("and no alert raised", model.errorMessage == nil)
+        server.answersAfter = 0
     }
 
     print()
