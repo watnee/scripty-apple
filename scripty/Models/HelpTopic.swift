@@ -639,6 +639,12 @@ extension HelpTopic {
                     + "can be opened one at a time, or all together on the workspace "
                     + "screen — Edit All on One Page — for a change that runs through "
                     + "several of them.",
+                    "Both editors can be searched. In a song the magnifying glass "
+                    + "narrows the lyric to the lines that match, which is what a "
+                    + "lyric is — a list. In a note it opens the find bar over the "
+                    + "prose: every hit highlighted, arrows to step between them, "
+                    + "Match Case and Whole Words of their own, and Replace beside "
+                    + "Find while the note is open to typing.",
                     "Songs and notes are offered the same things. Both export as text, "
                     + "PDF, Word or EPUB, on their own or as one file of the whole list; "
                     + "both can be emailed to a collaborator; and Edit selects several "
@@ -718,9 +724,10 @@ extension HelpTopic {
                     + "themselves, which unlocks the document and puts the cursor "
                     + "where your finger landed. The lock is kept on this device, "
                     + "one document at a time, and applies to a song's own edition "
-                    + "when you are in one; the all-songs workspace honours it too, "
-                    + "marks the locked songs, and takes the same double tap to "
-                    + "unlock the one song you meant.",
+                    + "when you are in one. Both workspace screens honour it too — "
+                    + "every song on one page, every note on the other — mark the "
+                    + "locked ones, and take the same double tap to unlock the one "
+                    + "document you meant; neither is a way round a lock.",
                     "Locking is not reading. A locked document is still the writing "
                     + "surface — the same lines, the same lists — with the keyboard "
                     + "taken away from it; Read Song and Read Note set the words for "
@@ -730,18 +737,19 @@ extension HelpTopic {
                     + "screen rather than a card over the script; Done, at the top "
                     + "left, is the way back.",
                     "A lyric line or a note edited without a connection is kept on "
-                    + "this device — the corner cloud in the song editor and on the "
-                    + "workspace screen, and the note editor's status line, all say "
-                    + "so; the cloud turns orange while anything is waiting, and opens "
+                    + "this device — the corner cloud says so wherever songs and "
+                    + "notes are written, in either editor and on either workspace "
+                    + "screen; it turns orange while anything is waiting, and opens "
                     + "on a tap with a Sync Now button — and is saved by itself when "
                     + "the connection returns, even across a relaunch, without your "
                     + "asking it to try again. The same "
                     + "promise the screenplay editor makes. A note that changed "
                     + "elsewhere in the meantime is set aside rather than overwritten, "
-                    + "and the editor says when that happens. A song opened offline "
-                    + "shows the lyrics saved on this device last time it loaded, "
-                    + "with a strip saying how old that copy is — tap its ✕ to put "
-                    + "it away until a newer copy arrives. Undo and Redo keep "
+                    + "and the editor says when that happens. A song or a note opened "
+                    + "offline shows the words saved on this device last time it "
+                    + "loaded — the whole document, not the line of preview the list "
+                    + "shows — with a strip saying how old that copy is; tap its ✕ to "
+                    + "put it away until a newer copy arrives. Undo and Redo keep "
                     + "working there: with no connection they walk back the lyric "
                     + "edits still held on this device, and hand over to the song's "
                     + "own history once those have been saved. A brand-new song "
@@ -774,6 +782,7 @@ extension HelpTopic {
                            "musicxml", "mistake", "history", "step back",
                            "dismiss", "close",
                            "lock", "locked", "read only", "protect",
+                           "find", "search", "replace", "match case", "whole words",
                            "hide keyboard", "dismiss keyboard", "keyboard"]),
             HelpTopic(
                 id: "title-page",

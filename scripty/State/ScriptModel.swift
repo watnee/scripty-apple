@@ -139,6 +139,15 @@ final class ScriptModel {
     private(set) var offlineCopySavedAt: Date?
     var isShowingOfflineCopy: Bool { offlineCopySavedAt != nil }
 
+    /// The same answer for one document's words, by document id: set when
+    /// `fetchDocument` fell back to the copy on this device, cleared when the
+    /// server itself answered. A lyric editor has had this since offline
+    /// reading landed; a note is prose fetched the same way and needs it for
+    /// the same reason — and needs it *told*, since an out-of-date note must
+    /// not look current, and words typed over a copy this device is only
+    /// guessing at must not be sent as if they were an edit to the real thing.
+    private(set) var documentCopySavedAt: [Int: Date] = [:]
+
     /// The last moment this script was known to be in step with the server —
     /// a load that came off the network, or the save that emptied the held
     /// set. The cloud badge's detail panel says it, because "saving…" alone
@@ -1992,11 +2001,27 @@ final class ScriptModel {
     /// Fetches the full document (list items carry only a preview).
     func fetchDocument(_ document: TextDocument) async -> TextDocument? {
         guard let link = document.link(.selfRel) else { return document }
+        let cache = OfflineStore.Kind.document(projectId: document.projectId ?? project.id,
+                                               documentId: document.id)
         do {
-            let full: TextDocument = try await app.client.fetch(from: link)
+            let data = try await app.client.data(for: link)
+            let full: TextDocument = try app.client.decode(from: data)
             errorMessage = nil
+            documentCopySavedAt[document.id] = nil
+            offlineStore?.save(data, cache)
             return full
         } catch {
+            // The copy this device kept, as `loadDocuments` and the lyric
+            // loader both fall back to theirs — and stamped, so the editor can
+            // say whose words these are and refuse to treat them as the base
+            // an offline edit will be judged against.
+            if error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(cache),
+               let cached: TextDocument = try? app.client.decode(from: snapshot.data) {
+                errorMessage = nil
+                documentCopySavedAt[document.id] = snapshot.savedAt
+                return cached
+            }
             report(error)
             return nil
         }
@@ -2239,7 +2264,12 @@ final class ScriptModel {
     /// the PUT preserves the existing lyrics/notes.
     @discardableResult
     func renameDocument(_ document: TextDocument, title: String) async -> Bool {
-        guard let full = await fetchDocument(document) else { return false }
+        guard let full = await fetchDocument(document),
+              // Only the server's own copy will do here. A rename is a whole
+              // -document PUT, so renaming from the copy kept on this device
+              // would send words that may be days old back over the current
+              // ones — the fetch failing is exactly when that is likeliest.
+              documentCopySavedAt[document.id] == nil else { return false }
         return await updateDocument(full, title: title, content: full.content ?? "")
     }
 

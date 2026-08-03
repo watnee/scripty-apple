@@ -37,9 +37,21 @@ struct NotesWorkspaceView: View {
     /// chose in a note or the screenplay — it is one setting.
     private let settings = PresentationSettings.shared
 
+    /// Which notes' stale copies have been closed. Per note, and under the same
+    /// keys the note editor uses: it is one notice about one note, and closing
+    /// it in the editor should not leave it standing here.
+    private let notices = DismissedNotices.shared
+
     /// One per note, made on first expand. Notes nobody opens cost nothing —
     /// the list carries only a preview, so an unopened note is never fetched.
     @State private var drafts: [Int: NoteDraft] = [:]
+    /// Whether each opened note is closed to typing. A lock set in the note
+    /// editor has to hold here too, or the screen that shows every note at once
+    /// would be the way around every lock in the project — the songs workspace
+    /// mirrors its own locks for exactly that reason. Read only: the switch
+    /// stays in the note's own editor, where a writer is looking at one note
+    /// and means it.
+    @State private var locks: [Int: DocumentViewOptions] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
     @State private var showingIgnoredWords = false
@@ -81,6 +93,19 @@ struct NotesWorkspaceView: View {
             .listStyle(.plain)
             .searchable(text: $filter, prompt: "Filter notes")
             .overlay { emptyState }
+            // The same way down from a note the editor gives. Mounted in the
+            // bar rather than in the list, where a conditional row is a coin
+            // toss from one launch to the next — the songs workspace carries
+            // its own for the same reason.
+            //
+            // Asked of `focusedNote`, which the panes report themselves: these
+            // are bridged text views that take first responder for themselves,
+            // and SwiftUI discards a focus value no view claimed.
+            .safeAreaBar(edge: .bottom, spacing: 0) {
+                if let id = focusedNote, drafts[id] != nil {
+                    HideKeyboardBar(releaseFocus: { focusedNote = nil })
+                }
+            }
             .navigationTitle("All Notes")
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -123,6 +148,22 @@ struct NotesWorkspaceView: View {
         }
     }
 
+    // MARK: - Offline notices
+
+    private func offlineKey(_ note: TextDocument) -> String {
+        DismissedNotices.documentCopyKey(documentId: note.id)
+    }
+
+    private func offlineState(_ savedAt: Date) -> String {
+        DismissedNotices.offlineCopyState(savedAt: savedAt)
+    }
+
+    private func dismissOffline(_ note: TextDocument, savedAt: Date) {
+        withAnimation(.snappy(duration: 0.2)) {
+            notices.dismiss(offlineKey(note), state: offlineState(savedAt))
+        }
+    }
+
     // MARK: - Rows
 
     private func header(_ note: TextDocument) -> some View {
@@ -139,12 +180,23 @@ struct NotesWorkspaceView: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                     Spacer(minLength: 0)
+                    // Why this note's words will not take a keystroke. The
+                    // switch is in the note's own editor, so all this has to do
+                    // is answer the question — the songs workspace says it the
+                    // same way in the same place.
+                    if isLocked(note) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     statusLabel(note)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(note.displayTitle)
+            .accessibilityLabel(isLocked(note)
+                                ? "\(note.displayTitle), locked"
+                                : note.displayTitle)
             .accessibilityHint(expanded.contains(note.id) ? "Hide this note" : "Show this note")
             .accessibilityAddTraits(expanded.contains(note.id) ? [.isSelected] : [])
             historyButtons(note)
@@ -168,7 +220,7 @@ struct NotesWorkspaceView: View {
     /// same in both. The songs workspace puts its own pair here too.
     @ViewBuilder
     private func historyButtons(_ note: TextDocument) -> some View {
-        if expanded.contains(note.id), let draft = drafts[note.id], draft.canEdit {
+        if expanded.contains(note.id), let draft = drafts[note.id], canWrite(in: note) {
             Button {
                 draft.history.undo()
             } label: {
@@ -199,7 +251,7 @@ struct NotesWorkspaceView: View {
     /// caret nowhere the chord does nothing rather than guessing at a note, or
     /// reaching past this cover to the script.
     private var menuActions: DocumentEditorActions {
-        guard let id = focusedNote, let draft = drafts[id], draft.canEdit else {
+        guard let id = focusedNote, let draft = drafts[id], canWrite(id) else {
             return DocumentEditorActions()
         }
         return DocumentEditorActions(undo: { draft.history.undo() },
@@ -278,17 +330,42 @@ struct NotesWorkspaceView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
+                // The same honesty the songs workspace gives a lyric it had to
+                // read off disk: an out-of-date note must not look current.
+                if let savedAt = draft.offlineCopySavedAt,
+                   !notices.isDismissed(offlineKey(note), state: offlineState(savedAt)) {
+                    HStack(spacing: 6) {
+                        Label("Offline — note saved "
+                              + savedAt.formatted(.relative(presentation: .named)),
+                              systemImage: "wifi.slash")
+                        Spacer(minLength: 0)
+                        NoticeCloseButton { dismissOffline(note, savedAt: savedAt) }
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    // `.ignore` rather than `.combine`, so the close button
+                    // comes through as a named action instead of being
+                    // swallowed.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Offline. Showing the note saved on this device "
+                                        + savedAt.formatted(.relative(presentation: .named)) + ".")
+                    .accessibilityAction(named: "Dismiss") { dismissOffline(note, savedAt: savedAt) }
+                }
                 // A fixed height rather than one that grows with the prose: a
                 // list of ten notes each as tall as its content would be a page
                 // nobody can navigate, and the point of this screen is seeing
                 // several at once. Each field scrolls inside itself.
                 NoteTextView(text: contentBinding(for: note),
                              controller: draft.history,
-                             isEditable: draft.canEdit,
+                             isEditable: canWrite(in: note),
                              spellChecks: settings.isSpellcheckEnabled,
                              spellcheckRevision: SpellcheckDictionary.shared.revision,
                              textScale: settings.textScale,
-                             placeholder: draft.canEdit ? "Write your notes here…" : "",
+                             placeholder: canWrite(in: note) ? "Write your notes here…" : "",
+                             // Two taps take this note's lock off, the way they
+                             // do on a locked lyric here and on a locked note
+                             // in its own editor.
+                             startWriting: startWriting(note),
                              // Which note a keyboard ⌘Z means. Cleared only
                              // when the caret leaves *this* pane for something
                              // that is not another one, so tabbing between two
@@ -341,6 +418,35 @@ struct NotesWorkspaceView: View {
         }
     }
 
+    /// Where the writing on this screen currently lives, read across every note
+    /// that has been opened. Same precedence as the note editor's badge —
+    /// refused beats waiting — but taken over the whole workspace, because a
+    /// paragraph held back in the fourth note down is as unsaved as one in the
+    /// first, and nothing else here would say so while that note is collapsed.
+    ///
+    /// A save merely in flight is not "holding", exactly as in the note editor:
+    /// a badge that went amber every time a writer paused for a second is a
+    /// badge nobody reads by the end of the first page.
+    private var cloudState: CloudSyncState? {
+        guard !app.isDemo else { return nil }
+        if !app.connectivity.isOnline { return .offline }
+        if drafts.values.contains(where: { if case .failed = $0.status { return true } else { return false } }) {
+            return .failed
+        }
+        return drafts.values.contains { $0.status == .held } ? .holding : .synced
+    }
+
+    /// Notes still kept on this device, counted across every open pane — the
+    /// refused ones too, since those words are equally still only here.
+    private var heldNoteCount: Int {
+        drafts.values.filter { draft in
+            switch draft.status {
+            case .held, .failed: true
+            default: false
+            }
+        }.count
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
@@ -352,17 +458,39 @@ struct NotesWorkspaceView: View {
                 }
             }
         }
+        // Beside the way out, where the note editor and the songs workspace both
+        // keep it: leaving is the moment a writer wonders whether their words
+        // are anywhere but here.
+        if let cloud = cloudState {
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncBadge(state: cloud,
+                               heldCount: heldNoteCount,
+                               sync: { await flushAll() })
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             // Only the notes currently passing the filter, so "expand all"
             // means the same thing the writer can see.
-            Button("Expand All") {
+            //
+            // Icon-only, as the songs workspace draws them: with Done, a badge
+            // and both phrases spelled out, the iPhone bar is an item over what
+            // it will draw and drops a different one on each launch — a badge
+            // that is only sometimes there is worse than no badge.
+            Button {
                 for note in notes { open(note) }
+            } label: {
+                Label("Expand All", systemImage: "rectangle.expand.vertical")
             }
+            .labelStyle(.iconOnly)
             .disabled(notes.isEmpty)
 
-            Button("Collapse All") {
+            Button {
                 expanded.subtract(notes.map(\.id))
+            } label: {
+                Label("Collapse All", systemImage: "rectangle.compress.vertical")
             }
+            .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
         }
         ToolbarItem(placement: .secondaryAction) {
@@ -403,6 +531,9 @@ struct NotesWorkspaceView: View {
         guard drafts[note.id] == nil else { return }
         let draft = NoteDraft(document: note)
         drafts[note.id] = draft
+        // Under the note's own key family, so this reads the very lock the note
+        // editor writes — see `DocumentViewOptions.Kind`.
+        locks[note.id] = DocumentViewOptions(documentId: note.id, kind: .note)
         Task {
             let full = await model.fetchDocument(note)
             draft.content = full?.content ?? note.content ?? ""
@@ -411,13 +542,48 @@ struct NotesWorkspaceView: View {
             // step back stops. Anything the history held before them described
             // the truncated preview it was seeded with.
             draft.history.reset(to: draft.content)
+            // Whether these words came off the network or off this device. A
+            // copy kept here is the whole note and is worth working in, but the
+            // pane says so — an out-of-date note must not look current.
+            draft.offlineCopySavedAt = model.documentCopySavedAt[note.id]
             // Only a real fetch is evidence of what the server holds; opened
             // offline, the row's preview is truncated and passing *that* as a
             // held draft's base would make the staleness gate read the
-            // writer's own words as "changed elsewhere" and discard them.
-            draft.haveServerBaseline = full != nil
+            // writer's own words as "changed elsewhere" and discard them. A
+            // cached copy is no better evidence: it is what the server said
+            // some time ago, not what it says now.
+            draft.haveServerBaseline = full != nil && draft.offlineCopySavedAt == nil
             draft.isLoading = false
         }
+    }
+
+    /// Whether this note is closed to typing. A note nobody has opened has no
+    /// stored answer here and needs none — nothing of it is on screen to type
+    /// into.
+    private func isLocked(_ note: TextDocument) -> Bool {
+        locks[note.id]?.isEditingLocked ?? false
+    }
+
+    /// Whether the words in this pane will take a keystroke: the server's own
+    /// permission, and this device's lock over it. By id, because the keyboard's
+    /// ⌘Z knows only which pane holds the caret.
+    private func canWrite(_ id: Int) -> Bool {
+        (drafts[id]?.canEdit ?? false) && !(locks[id]?.isEditingLocked ?? false)
+    }
+
+    private func canWrite(in note: TextDocument) -> Bool { canWrite(note.id) }
+
+    /// The double tap that takes a locked note's lock off, so a writer working
+    /// down this screen can start typing in the one note they meant without
+    /// going back to its editor to find the switch. Nil for a note already open
+    /// to be typed in — there is nothing to undo.
+    ///
+    /// Only this note's lock: the others on screen were each locked on purpose,
+    /// one at a time, and a gesture that cleared them all would be the accident
+    /// the lock exists to prevent.
+    private func startWriting(_ note: TextDocument) -> (() -> Void)? {
+        guard isLocked(note), drafts[note.id]?.canEdit == true else { return nil }
+        return { locks[note.id]?.setEditingLocked(false) }
     }
 
     /// Reopens the notes left open last time. Runs after the documents load so
@@ -434,7 +600,7 @@ struct NotesWorkspaceView: View {
     // MARK: - Saving
 
     private func scheduleSave(_ note: TextDocument) {
-        guard let draft = drafts[note.id], draft.canEdit else { return }
+        guard let draft = drafts[note.id], canWrite(in: note) else { return }
         draft.status = .saving
         draft.debounce?.cancel()
         draft.debounce = Task {
@@ -527,8 +693,12 @@ final class NoteDraft {
     /// What the server last confirmed it holds.
     var savedContent = ""
     /// Whether `savedContent` is the server's actual words rather than the
-    /// list row's truncated preview.
+    /// list row's truncated preview, or the copy kept on this device.
     var haveServerBaseline = false
+    /// When the words in this pane were saved to this device, or nil where they
+    /// are the server's own. The songs workspace says the same thing about a
+    /// lyric it had to read off disk.
+    var offlineCopySavedAt: Date?
     var isLoading = true
     var isSaving = false
     var status: Status = .idle

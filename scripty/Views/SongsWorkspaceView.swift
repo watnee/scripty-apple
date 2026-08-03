@@ -283,6 +283,7 @@ struct SongsWorkspaceView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    statusLabel(song)
                 }
                 .contentShape(Rectangle())
             }
@@ -298,6 +299,38 @@ struct SongsWorkspaceView: View {
             }
         }
         .textCase(nil)
+    }
+
+    /// What the header says on the right: whether this song's lines are all on
+    /// the server, and how long the lyric runs when they are. A collapsed
+    /// section is the only place its writer can be told either — the notes
+    /// workspace says the same two things in the same corner.
+    ///
+    /// Counted over what is on screen rather than what was last saved, exactly
+    /// as the song editor's own readout counts it.
+    @ViewBuilder
+    private func statusLabel(_ song: TextDocument) -> some View {
+        if let lyric = lyrics[song.id], !lyric.isLoading {
+            if lyric.hasFailedSaves {
+                Label("Not saved", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if lyric.hasUnsavedChanges {
+                Label("Kept on this device", systemImage: "icloud.slash")
+                    .font(.caption)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Kept on this device — saves when you're back online")
+            } else {
+                let words = lyric.blocks.reduce(0) { running, block in
+                    running + ScriptStats.countWords(lyric.currentText(block))
+                }
+                Text("\(words) \(words == 1 ? "word" : "words")")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// The web puts a drag handle on every song here, beside the one on every
