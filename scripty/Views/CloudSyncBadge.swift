@@ -31,6 +31,12 @@ enum CloudSyncState: Equatable {
     /// to fix on its own. Distinct from `holding` because the honest verbs
     /// differ: holding is "saving", this is "couldn't save".
     case failed
+    /// Two versions of the same words exist and only a person can say which
+    /// one wins. Beats every other state while it is on: the others are
+    /// waiting on a connection, and this one is waiting on the writer — a
+    /// badge that reported "saving" over it would be asking them to wait for
+    /// something that is waiting for them.
+    case conflicted
 }
 
 /// The cloud in the corner: a standing answer to "is my work saved?", and —
@@ -64,14 +70,28 @@ struct CloudSyncBadge: View {
     /// read-only sign it has always been.
     var sync: (() async -> Void)? = nil
 
+    /// How many versions are waiting on the writer to choose between them, and
+    /// what opens the screen where they do. When there are any, that button —
+    /// not the sync one — is the panel's prominent action: syncing cannot
+    /// finish while an answer is outstanding, and offering it first would send
+    /// the writer round a loop that always ends back here.
+    var conflictCount: Int = 0
+    var review: (() -> Void)? = nil
+
     /// Open while the writer is reading the detail panel.
     @State private var showingDetail = false
     /// True from the tap until the handed-in sync returns — the button wears a
     /// spinner and refuses a second press for as long as it is.
     @State private var isSyncing = false
 
+    /// Pressable when there is anything behind the press. A badge handed only
+    /// a `review` — the note editor's, which has no sync of its own to offer —
+    /// still opens: two versions of the writer's words waiting on an answer is
+    /// the one thing this glyph must never report and then decline to explain.
+    private var isPressable: Bool { sync != nil || review != nil }
+
     var body: some View {
-        if let sync {
+        if isPressable {
             Button {
                 showingDetail = true
             } label: {
@@ -81,10 +101,12 @@ struct CloudSyncBadge: View {
             // button shape beside the title would read as one more control.
             .buttonStyle(.plain)
             .accessibilityLabel(spokenLabel)
-            .accessibilityHint("Shows sync details and lets you sync now.")
+            .accessibilityHint(sync == nil
+                ? "Shows sync details and lets you choose which version to keep."
+                : "Shows sync details and lets you sync now.")
             .help(spokenLabel)
             .popover(isPresented: $showingDetail) {
-                detailPanel(sync: sync)
+                detailPanel
                     // Without this a compact width answers a popover with a
                     // sheet, which is a whole screen for four lines of text.
                     .presentationCompactAdaptation(.popover)
@@ -119,7 +141,7 @@ struct CloudSyncBadge: View {
 
     /// What the glyph cannot say: how long this has been true, and what
     /// pressing something would do about it.
-    private func detailPanel(sync: @escaping () async -> Void) -> some View {
+    private var detailPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
@@ -142,26 +164,51 @@ struct CloudSyncBadge: View {
                     .foregroundStyle(.tertiary)
             }
             Divider()
-            Button {
-                Task {
-                    isSyncing = true
-                    await sync()
-                    isSyncing = false
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    if isSyncing {
-                        ProgressView().controlSize(.small)
+            if conflictCount > 0, let review {
+                Button {
+                    showingDetail = false
+                    // The review screen is a sheet, and a sheet asked for
+                    // while this popover is still on screen is a presentation
+                    // SwiftUI drops on the floor: the popover goes and nothing
+                    // arrives, which reads as a dead button. Let the dismissal
+                    // finish first, then ask.
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(250))
+                        review()
                     }
-                    Text(isSyncing ? "Syncing…" : actionTitle)
+                } label: {
+                    Text(conflictCount == 1
+                         ? "Review 1 Change" : "Review \(conflictCount) Changes")
+                        .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            // Offline there is nothing to try: the button would fail on press
-            // every time, which teaches the writer the badge lies.
-            .disabled(state == .offline || isSyncing)
+            if let sync {
+                Button {
+                    Task {
+                        isSyncing = true
+                        await sync()
+                        isSyncing = false
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSyncing {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(isSyncing ? "Syncing…" : actionTitle)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                // Second fiddle while something is waiting on an answer: two
+                // prominent buttons in a panel this size read as one decision
+                // split in half.
+                .modifier(Prominence(prominent: !(conflictCount > 0 && review != nil)))
+                .controlSize(.regular)
+                // Offline there is nothing to try: the button would fail on
+                // press every time, which teaches the writer the badge lies.
+                .disabled(state == .offline || isSyncing)
+            }
             if state == .offline {
                 Text("Your work syncs by itself the moment the connection is back.")
                     .font(.caption)
@@ -173,6 +220,22 @@ struct CloudSyncBadge: View {
         .frame(width: 280)
     }
 
+    /// Filled or outlined, by whether this is the button the panel is really
+    /// offering. A ternary cannot say this — the two button styles are
+    /// different types — so the branch lives here.
+    private struct Prominence: ViewModifier {
+        let prominent: Bool
+
+        @ViewBuilder
+        func body(content: Content) -> some View {
+            if prominent {
+                content.buttonStyle(.borderedProminent)
+            } else {
+                content.buttonStyle(.bordered)
+            }
+        }
+    }
+
     /// The panel's first line: a few words, where the sentence under it is a
     /// whole one. Deliberately the same vocabulary as the banners.
     private var title: String {
@@ -181,6 +244,7 @@ struct CloudSyncBadge: View {
         case .holding: "Saving…"
         case .offline: "Offline"
         case .failed: "Couldn't save"
+        case .conflicted: "Needs your choice"
         }
     }
 
@@ -190,7 +254,7 @@ struct CloudSyncBadge: View {
         switch state {
         case .failed: "Try Again"
         case .synced: "Check for Changes"
-        case .holding, .offline: "Sync Now"
+        case .holding, .offline, .conflicted: "Sync Now"
         }
     }
 
@@ -210,6 +274,10 @@ struct CloudSyncBadge: View {
         case .holding: "arrow.trianglehead.2.clockwise.rotate.90.icloud"
         case .offline: "icloud.slash"
         case .failed: "exclamationmark.icloud"
+        // A fork rather than a cloud: this is not a state of the connection
+        // at all, and dressing it as one would put it in the same family as
+        // the three things that pass by themselves.
+        case .conflicted: "arrow.triangle.branch"
         }
     }
 
@@ -220,6 +288,9 @@ struct CloudSyncBadge: View {
         // Red, alone among the states: amber means patience will fix it,
         // and here it will not.
         case .failed: .red
+        // Nor here — but nothing has gone wrong either, and red over a
+        // perfectly ordinary "two of you were writing" would read as a fault.
+        case .conflicted: .purple
         }
     }
 
@@ -246,6 +317,11 @@ struct CloudSyncBadge: View {
             return heldCount > 0
                 ? "Some changes couldn't be saved. \(held)."
                 : "Some changes couldn't be saved. They are kept on this device."
+        case .conflicted:
+            return conflictCount == 1
+                ? "One change was made in two places. Choose which version to keep."
+                : "\(conflictCount) changes were made in two places. Choose which "
+                  + "versions to keep."
         }
     }
 }
@@ -259,6 +335,9 @@ struct CloudSyncBadge: View {
         CloudSyncBadge(state: .holding, heldCount: 2,
                        lastSyncedAt: .now.addingTimeInterval(-600),
                        sync: { try? await Task.sleep(for: .seconds(1)) })
+        CloudSyncBadge(state: .conflicted,
+                       lastSyncedAt: .now.addingTimeInterval(-90),
+                       sync: { }, conflictCount: 2, review: { })
     }
     .padding()
 }

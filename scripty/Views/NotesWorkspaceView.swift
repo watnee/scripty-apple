@@ -55,6 +55,10 @@ struct NotesWorkspaceView: View {
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
     @State private var showingIgnoredWords = false
+    /// Whether the two-versions screen is up. Opened by a press only: a sheet
+    /// that appeared over a half-typed note because a sweep found something
+    /// would interrupt the one thing this screen is for.
+    @State private var showingConflicts = false
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
@@ -110,6 +114,7 @@ struct NotesWorkspaceView: View {
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .safeAreaInset(edge: .top, spacing: 0) { conflictBanner }
             .toolbar { toolbar }
             // Same claim the note editor makes, and for the same reason: this
             // is a cover over the screenplay, and without it the menu's ⌘Z
@@ -118,6 +123,12 @@ struct NotesWorkspaceView: View {
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
+            }
+            .sheet(isPresented: $showingConflicts) {
+                SyncConflictsView(conflicts: noteConflicts,
+                                  keepMine: { await model.keepMine($0) },
+                                  keepTheirs: { model.keepTheirs($0) },
+                                  noun: "note")
             }
             .task {
                 await model.loadDocuments()
@@ -530,6 +541,37 @@ struct NotesWorkspaceView: View {
         }
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
+        }
+    }
+
+    // MARK: - Two versions of a note
+
+    /// The unanswered disagreements about the notes this screen is for.
+    ///
+    /// Scoped to notes the list actually holds rather than to every document
+    /// conflict in the project: `.document` covers prose songs too, and a
+    /// verse offered for keeping in a screen headed "All Notes" would be the
+    /// wrong question in the wrong place. Deliberately read from `model.notes`
+    /// rather than the filtered `notes` — a filter typed to find one note is
+    /// not a decision to stop being asked about the others.
+    ///
+    /// One case is knowingly not here: a note *deleted* elsewhere is in no
+    /// list to be matched against, so its words are offered by the
+    /// screenplay's own banner, which speaks for the whole project.
+    private var noteConflicts: [SyncConflict] {
+        model.conflicts.filter { conflict in
+            guard case let .document(id) = conflict.subject else { return false }
+            return model.notes.contains { $0.id == id }
+        }
+    }
+
+    /// Two versions of a note exist and only the writer can settle it. The
+    /// same strip the screenplay and the song editors raise — this screen has
+    /// no cloud badge of its own, so it is the only way in from here.
+    @ViewBuilder
+    private var conflictBanner: some View {
+        if !noteConflicts.isEmpty {
+            ConflictBanner(count: noteConflicts.count) { showingConflicts = true }
         }
     }
 

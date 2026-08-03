@@ -57,6 +57,10 @@ struct SongBlockEditorView: View {
     @State private var showingVersions = false
     @State private var showingTrash = false
     @State private var showingIgnoredWords = false
+    /// Whether the two-versions screen is up. Only ever opened by a press —
+    /// a sheet that appeared over a half-typed line because a sweep found
+    /// something would interrupt the one thing this screen is for.
+    @State private var showingConflicts = false
     /// Whether the search bar is up. A button rather than a standing field:
     /// `.searchable` in this sheet draws a full-width bar across the bottom of
     /// every opening — `.searchToolbarBehavior(.minimize)` collapses a toolbar
@@ -167,6 +171,9 @@ struct SongBlockEditorView: View {
                     archivedBanner
                     editionBanner
                     lockBanner
+                    // Above the offline strip: that one is waiting on a
+                    // connection, and this one is waiting on the writer.
+                    conflictBanner
                     offlineCopyBanner
                 }
             }
@@ -241,6 +248,12 @@ struct SongBlockEditorView: View {
                         runSearch()
                     }
                 }
+            }
+            .sheet(isPresented: $showingConflicts) {
+                SyncConflictsView(conflicts: model.conflicts,
+                                  keepMine: { await model.keepMine($0) },
+                                  keepTheirs: { model.keepTheirs($0) },
+                                  noun: "line")
             }
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
@@ -569,11 +582,22 @@ struct SongBlockEditorView: View {
     /// honest about.
     private var cloudState: CloudSyncState? {
         guard !model.app.isDemo else { return nil }
+        // First of all, as in the screenplay: every other state clears up on
+        // its own and this one cannot.
+        if model.hasConflicts { return .conflicted }
         if !model.app.connectivity.isOnline { return .offline }
         // Refused beats retrying: with both on screen, the one that will not
         // fix itself is the one the badge must name.
         if model.hasFailedSaves { return .failed }
         return model.hasUnsavedChanges ? .holding : .synced
+    }
+
+    /// Two versions of a line exist and only the writer can settle it.
+    @ViewBuilder
+    private var conflictBanner: some View {
+        if !model.conflicts.isEmpty {
+            ConflictBanner(count: model.conflicts.count) { showingConflicts = true }
+        }
     }
 
     /// Which copy the strip is reporting, or nil when the lyric on screen came
@@ -726,7 +750,9 @@ struct SongBlockEditorView: View {
                 CloudSyncBadge(state: cloud,
                                heldCount: model.unsavedBlockIds.count,
                                lastSyncedAt: model.lastSyncedAt,
-                               sync: { await model.syncNow() })
+                               sync: { await model.syncNow() },
+                               conflictCount: model.conflicts.count,
+                               review: { showingConflicts = true })
             }
             .sharedBackgroundVisibility(.hidden)
         }

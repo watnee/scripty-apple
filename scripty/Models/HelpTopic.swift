@@ -294,11 +294,27 @@ extension HelpTopic {
                     + "reached the server.",
                     "Songs, notes and the project list work the same way, and each says "
                     + "how old the copy on screen is when it was read back from this "
-                    + "device rather than the server."
+                    + "device rather than the server.",
+                    "If the same line, song or note was also written somewhere else "
+                    + "while you were away, neither version is thrown away. A purple "
+                    + "strip says how many changes need your choice; tapping it — or "
+                    + "the Review button in the cloud's panel — shows your version "
+                    + "beside the cloud's, whole, either one copyable. Keep Mine "
+                    + "replaces the other; Use the Cloud's drops yours. Nothing is "
+                    + "sent or deleted until you choose, and the question waits as "
+                    + "long as it has to, including across a relaunch.",
+                    "The same screen holds the two other cases where words would "
+                    + "otherwise have gone quietly: a note deleted elsewhere while "
+                    + "your edit was waiting (there is nothing to put it back into, "
+                    + "so copy what you want to keep), and a change the server "
+                    + "refused outright."
                 ],
                 keywords: ["offline", "no connection", "unsaved", "held", "sync",
                            "cloud", "banner", "dismiss", "close", "airplane mode",
-                           "undo", "redo", "mistake", "step back"]),
+                           "undo", "redo", "mistake", "step back",
+                           "conflict", "conflicts", "two versions", "choose",
+                           "keep mine", "review changes", "clobber", "overwrite",
+                           "changed elsewhere"]),
             HelpTopic(
                 id: "fountain",
                 title: "Fountain as You Type",
@@ -776,9 +792,10 @@ extension HelpTopic {
                     + "on a tap with a Sync Now button — and is saved by itself when "
                     + "the connection returns, even across a relaunch, without your "
                     + "asking it to try again. The same "
-                    + "promise the screenplay editor makes. A note that changed "
-                    + "elsewhere in the meantime is set aside rather than overwritten, "
-                    + "and the editor says when that happens. A song or a note opened "
+                    + "promise the screenplay editor makes. A line or a note that "
+                    + "changed elsewhere in the meantime is never overwritten and "
+                    + "never dropped: both versions are kept, and a purple strip "
+                    + "offers the choice between them. A song or a note opened "
                     + "offline shows the words saved on this device last time it "
                     + "loaded — the whole document, not the line of preview the list "
                     + "shows — with a strip saying how old that copy is; tap its ✕ to "

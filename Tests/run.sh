@@ -334,6 +334,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
@@ -365,6 +366,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
@@ -397,6 +399,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songhistory" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
@@ -490,6 +493,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
@@ -499,6 +503,39 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "${SHARED[@]}" \
     "$ROOT/Tests/UnsavedWork/main.swift"
 run_suite "$BUILD/unsaved" || status=1
+
+echo
+echo "== Two versions of the same words, and choosing between them =="
+# Offline halves with the connectivity monitor held down by hand (no socket at
+# all); the two "and it really went out" halves against the in-process demo
+# backend, so a chosen version can be read back from the server that took it.
+swiftc "${FLAGS[@]}" -o "$BUILD/conflicts" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/SongBlockModel.swift" \
+    "$SRC/State/LocalHistory.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/Conflicts/main.swift"
+run_suite "$BUILD/conflicts" || status=1
 
 echo
 echo "== Offline: cached copies, fast failure, reconnect =="
@@ -518,6 +555,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
@@ -550,6 +588,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/firstelement" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
@@ -582,6 +621,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
