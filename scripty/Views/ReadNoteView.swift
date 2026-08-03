@@ -163,11 +163,16 @@ struct ReadNoteView: View {
     /// Headings step down towards the body size and stop there: a note is a
     /// page of prose, not a document with six levels of outline in it, so an
     /// `###### ` line is still a heading but no smaller than what it heads.
+    ///
+    /// As multiples of the body size rather than as point sizes of their own,
+    /// so the ladder survives the body size moving: written out as 24/21/19 for
+    /// a 16pt note, a heading was nearly the size of what it headed the moment
+    /// the prose grew.
     private func headingSize(_ level: Int) -> CGFloat {
         switch level {
-        case 1: return 24 * scale
-        case 2: return 21 * scale
-        case 3: return 19 * scale
+        case 1: return ProseFont.baseSize * 1.5 * scale
+        case 2: return ProseFont.baseSize * 1.3 * scale
+        case 3: return ProseFont.baseSize * 1.2 * scale
         default: return ProseFont.baseSize * scale
         }
     }
