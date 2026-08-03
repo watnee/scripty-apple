@@ -688,7 +688,10 @@ extension HelpTopic {
                     + "text, so what reaches the script is what you typed. Either kind "
                     + "can be opened one at a time, or all together on the workspace "
                     + "screen — Edit All on One Page — for a change that runs through "
-                    + "several of them.",
+                    + "several of them. There is no Add Line button under a song "
+                    + "there: Return at the end of a line makes the next one, which is "
+                    + "how a lyric is written anyway. A song with nothing in it yet "
+                    + "keeps the offer, having no line to press Return at.",
                     "Both editors can be searched. In a song the magnifying glass "
                     + "narrows the lyric to the lines that match, which is what a "
                     + "lyric is — a list. In a note it opens the find bar over the "
@@ -855,6 +858,7 @@ extension HelpTopic {
                            "find", "search", "replace", "match case", "whole words",
                            "arrange", "rearrange", "reorder", "order", "drag",
                            "move up", "move down", "sort",
+                           "add line", "new line", "another line",
                            "hide keyboard", "dismiss keyboard", "keyboard"]),
             HelpTopic(
                 id: "title-page",
