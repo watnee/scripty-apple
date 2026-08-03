@@ -225,7 +225,17 @@ struct CommentsView: View {
                 let body = draft
                 draft = ""
                 composerFocused = false
-                Task { await model.add(body) }
+                Task {
+                    // Cleared optimistically so the composer feels immediate,
+                    // and put back when the comment doesn't land: a note lost
+                    // to a dropped connection used to disappear with it, and
+                    // the words only existed in that field. `add` has already
+                    // said why, or deliberately said nothing if the request
+                    // was merely abandoned. Left alone if they have started
+                    // typing something else in the meantime.
+                    guard await model.add(body) == false else { return }
+                    if draft.isEmpty { draft = body }
+                }
             } label: {
                 // Tinted only once there is something to send, so the button
                 // says whether the comment will go.

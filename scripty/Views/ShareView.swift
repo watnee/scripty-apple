@@ -299,6 +299,12 @@ struct ShareView: View {
         Task {
             if await model.invite(email, viewOnly: asReader, teamId: teamId) {
                 sentNotice = "Invitation sent to \(email)."
+            } else if draftEmail.isEmpty {
+                // The field was cleared optimistically, so the address has to
+                // come back when the invitation doesn't go — retyping it is
+                // the only other way to try again. Left alone if they have
+                // started on a different address in the meantime.
+                draftEmail = email
             }
         }
     }
