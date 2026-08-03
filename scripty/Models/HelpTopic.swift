@@ -258,6 +258,11 @@ extension HelpTopic {
                     + "you are in: You're offline while there is no connection, Not "
                     + "saved yet while something is still on its way, and Couldn't save "
                     + "if the server refused a line — editing that line tries again.",
+                    "Undo and Redo keep working while you are cut off. With no "
+                    + "connection they walk back the changes still held on this device "
+                    + "— a line retyped, an element started offline, one taken away — "
+                    + "and hand over to the screenplay's own history once those have "
+                    + "reached the server.",
                     "Tap the ✕ on the strip to put it away. It stays away for as long "
                     + "as that situation lasts, and comes back if the situation changes "
                     + "— a refusal arriving, or the connection dropping again after it "
@@ -269,7 +274,8 @@ extension HelpTopic {
                     + "device rather than the server."
                 ],
                 keywords: ["offline", "no connection", "unsaved", "held", "sync",
-                           "cloud", "banner", "dismiss", "close", "airplane mode"]),
+                           "cloud", "banner", "dismiss", "close", "airplane mode",
+                           "undo", "redo", "mistake", "step back"]),
             HelpTopic(
                 id: "fountain",
                 title: "Fountain as You Type",
