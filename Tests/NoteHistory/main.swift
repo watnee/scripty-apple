@@ -24,16 +24,23 @@ func check(_ label: String, _ actual: some Equatable, _ expected: some Equatable
 }
 
 /// Typing, as the editor reports it: the whole note, with the caret at the end
-/// of it, at a given moment on the clock.
+/// of it, at a given moment on the clock. The name rides along unchanged, as
+/// the controller passes it — typing in the words is not a rename.
 extension NoteHistory {
     mutating func type(_ text: String, at now: TimeInterval) {
-        capture(Snapshot(text: text), at: now)
+        capture(Snapshot(title: current.title, text: text), at: now)
     }
 
     /// A gesture rather than typing — the formatting bar, or an offline draft
     /// taken back up.
     mutating func gesture(_ text: String, at now: TimeInterval) {
-        capture(Snapshot(text: text), at: now, coalescing: false)
+        capture(Snapshot(title: current.title, text: text), at: now, coalescing: false)
+    }
+
+    /// Typing in the title field, which coalesces the same way the words do.
+    mutating func rename(_ title: String, at now: TimeInterval) {
+        capture(Snapshot(title: title, text: current.text,
+                         start: current.start, end: current.end), at: now)
     }
 }
 
@@ -172,6 +179,68 @@ do {
     history.type("what the server holds!", at: 0.1)
     check("with nothing folded into it", history.undo()?.text,
           Optional("what the server holds"))
+}
+
+print("")
+print("The note's name")
+do {
+    // The bug this closes: undo after a rename used to reach past it and
+    // rewind a paragraph the writer had finished with, leaving the rename —
+    // the thing they had actually just done — standing.
+    var history = NoteHistory(title: "Notes", text: "Scene one.")
+    history.type("Scene one. Scene two.", at: 0.0)
+    history.rename("Production Notes", at: 5.0)
+    check("is a step of its own", history.depth, 3)
+    check("which undo takes back first", history.undo()?.title, Optional("Notes"))
+    check("leaving the words alone", history.current.text, "Scene one. Scene two.")
+    check("and the typing under it", history.undo()?.text, Optional("Scene one."))
+    check("with the name it was typed under", history.current.title, "Notes")
+    check("and redo puts the rename back", history.redo()?.text,
+          Optional("Scene one. Scene two."))
+    check("in order", history.redo()?.title, Optional("Production Notes"))
+}
+
+print("")
+print("Renaming")
+do {
+    var history = NoteHistory(title: "", text: "words")
+    history.rename("B", at: 0.0)
+    history.rename("Ba", at: 0.1)
+    history.rename("Bal", at: 0.2)
+    check("folds into one step like typing does", history.depth, 2)
+    check("and comes off whole", history.undo()?.title, Optional(""))
+
+    // Return in the title field puts the caret straight into the words, so
+    // the first thing written lands inside the rename's own 600ms.
+    var mixed = NoteHistory(title: "", text: "")
+    mixed.rename("Ballad", at: 0.0)
+    mixed.type("first line", at: 0.1)
+    check("but never folds the words in after it", mixed.depth, 3)
+    check("so undo takes back the writing", mixed.undo()?.text, Optional(""))
+    check("with the name still on it", mixed.current.title, "Ballad")
+
+    // Nothing moved: not a step, whatever the clock says.
+    var same = NoteHistory(title: "Ballad", text: "words")
+    same.rename("Ballad", at: 9.0)
+    check("and a name that has not moved is no step at all", same.canUndo, false)
+}
+
+print("")
+print("A note the server sends again, named")
+do {
+    var history = NoteHistory(title: "Draft", text: "draft")
+    history.rename("Draft 2", at: 0.0)
+    history.reset(to: "what the server holds", title: "What The Server Calls It")
+    check("starts over at the name that arrived", history.current.title,
+          "What The Server Calls It")
+    check("with nothing behind it", history.canUndo, false)
+
+    // The surfaces that cannot rename a note pass no title, and must not be
+    // read as renaming it to nothing.
+    var untitled = NoteHistory(title: "Kept", text: "one")
+    untitled.reset(to: "two")
+    check("and a reset that says nothing about the name keeps it",
+          untitled.current.title, "Kept")
 }
 
 print("")

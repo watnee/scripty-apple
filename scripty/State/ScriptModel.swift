@@ -44,14 +44,9 @@ final class ScriptModel {
     var errorMessage: String?
 
     /// A one-off confirmation shown after an undo/redo, mirroring the web
-    /// editor's history toast. The token changes on every issue so re-showing
-    /// the same text (two "Change undone" in a row) still re-triggers the view.
-    struct HistoryToast: Equatable {
-        var token: Int
-        var text: String
-    }
+    /// editor's history toast — and shared with the lyric editor, which keeps
+    /// the same kind of history and says so the same way. See `HistoryToast`.
     private(set) var historyToast: HistoryToast?
-    private var historyToastToken = 0
 
     /// Set while the writer is typing so a sync refresh doesn't clobber
     /// in-progress edits.
@@ -1760,18 +1755,14 @@ final class ScriptModel {
     /// worth naming; anything else gets the generic confirmation. "Element" is
     /// the client's word for a block throughout its menus.
     private func presentHistoryToast(rel: Rel, delta: Int) {
-        if delta > 0 {
-            presentToast("Restored \(delta) element\(delta == 1 ? "" : "s")")
-        } else {
-            presentToast(rel == .undo ? "Change undone" : "Change redone")
-        }
+        presentToast(HistoryToast.message(undoing: rel == .undo, restored: delta,
+                                          noun: "element"))
     }
 
     /// The transient confirmation capsule the view floats over the script —
     /// undo/redo acknowledgements and the offline sync's all-clear share it.
     private func presentToast(_ text: String) {
-        historyToastToken += 1
-        historyToast = HistoryToast(token: historyToastToken, text: text)
+        historyToast = .next(after: historyToast, text)
     }
 
     // MARK: - Sync polling

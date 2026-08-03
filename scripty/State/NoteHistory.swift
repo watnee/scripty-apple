@@ -38,24 +38,35 @@ import Foundation
 struct NoteHistory: Equatable {
     /// A note as it stood, and where the caret was in it. Undo that leaves the
     /// caret at the end of the document is undo you have to hunt after.
+    ///
+    /// The name is part of it. A document is its title and its words, the way a
+    /// screenplay is all of its elements, and a history that held only half of
+    /// it answered ⌘Z after a rename by rewinding a paragraph the writer had
+    /// finished with — taking back something they had not just done, and
+    /// leaving the thing they had just done standing.
     struct Snapshot: Equatable {
+        var title: String
         var text: String
         /// The selection in the text view's own units — UTF-16 offsets, which
         /// is what `NSRange` counts in. Nothing here interprets them; they are
-        /// carried so the caret can be put back where it was.
+        /// carried so the caret can be put back where it was. The *body's*
+        /// caret: a title is a single field and putting a caret back into it
+        /// is the field's own business.
         var start: Int
         var end: Int
 
-        init(text: String, start: Int, end: Int) {
+        init(title: String = "", text: String, start: Int, end: Int) {
+            self.title = title
             self.text = text
             self.start = start
             self.end = end
         }
 
-        /// A note with the caret at its end — what words arriving from outside
-        /// the keyboard get, since there is no caret in them to preserve.
-        init(text: String) {
-            self.init(text: text, start: (text as NSString).length,
+        /// A note with the caret at the end of its words — what text arriving
+        /// from outside the keyboard gets, since there is no caret in it to
+        /// preserve.
+        init(title: String = "", text: String) {
+            self.init(title: title, text: text, start: (text as NSString).length,
                       end: (text as NSString).length)
         }
     }
@@ -79,8 +90,16 @@ struct NoteHistory: Equatable {
     /// how a restored state refuses to have the next keystroke folded onto it.
     private var lastCapture: TimeInterval?
 
-    init(text: String = "") {
-        entries = [Snapshot(text: text)]
+    /// Which half of the document the last step changed. Typing folds into a
+    /// burst, but only with typing of its own kind: Return in the title field
+    /// puts the caret straight into the words, so without this the first thing
+    /// written after a rename would fold onto the rename and one press of undo
+    /// would take back both — the very confusion this history exists to end.
+    private enum Part { case title, text }
+    private var lastPart: Part?
+
+    init(title: String = "", text: String = "") {
+        entries = [Snapshot(title: title, text: text)]
         index = 0
     }
 
@@ -93,12 +112,18 @@ struct NoteHistory: Equatable {
     /// How many states are held, counting the one on screen. For the checks.
     var depth: Int { entries.count }
 
-    /// Start again from `text` — a different note, or the same one arriving
-    /// from the server. Everything held described somewhere else.
-    mutating func reset(to text: String) {
-        entries = [Snapshot(text: text)]
+    /// Start again from these words — a different note, or the same one
+    /// arriving from the server. Everything held described somewhere else.
+    ///
+    /// The title defaults to the one already on screen, for the callers that
+    /// have no say in it: a surface where the name cannot be typed (the notes
+    /// workspace) still has a name, and passing "" would file a rename that
+    /// never happened the moment anything else was recorded.
+    mutating func reset(to text: String, title: String? = nil) {
+        entries = [Snapshot(title: title ?? entries[index].title, text: text)]
         index = 0
         lastCapture = nil
+        lastPart = nil
     }
 
     /// Record what the note now says.
@@ -110,8 +135,9 @@ struct NoteHistory: Equatable {
     /// that gesture and no more of the typing around it.
     mutating func capture(_ snapshot: Snapshot, at now: TimeInterval,
                           coalescing: Bool = true) {
-        guard snapshot.text != entries[index].text else {
-            // The caret moved and the words did not. Not a step — but the
+        guard snapshot.text != entries[index].text
+                || snapshot.title != entries[index].title else {
+            // The caret moved and the document did not. Not a step — but the
             // entry on screen has to keep the caret it actually has, or an
             // undo from here would put it back somewhere the writer left long
             // ago.
@@ -122,7 +148,11 @@ struct NoteHistory: Equatable {
         if index < entries.count - 1 {
             entries.removeSubrange((index + 1)...)
         }
-        let withinBurst = coalescing && lastCapture.map { now - $0 < Self.coalesceWindow } == true
+        // Which half moved. Both at once — an offline draft coming back — is
+        // filed as words, and passes `coalescing: false` anyway.
+        let part: Part = snapshot.text != entries[index].text ? .text : .title
+        let withinBurst = coalescing && lastPart == part
+            && lastCapture.map { now - $0 < Self.coalesceWindow } == true
         // Never onto entry 0: that is the note as it was before any of this
         // typing, and folding the first keystroke into it would make the
         // writer's own starting point unreachable.
@@ -136,6 +166,7 @@ struct NoteHistory: Equatable {
             index = entries.count - 1
         }
         lastCapture = now
+        lastPart = part
     }
 
     /// Step back, or nil when there is nowhere to step back to.
@@ -143,6 +174,7 @@ struct NoteHistory: Equatable {
         guard canUndo else { return nil }
         index -= 1
         lastCapture = nil
+        lastPart = nil
         return entries[index]
     }
 
@@ -150,6 +182,7 @@ struct NoteHistory: Equatable {
         guard canRedo else { return nil }
         index += 1
         lastCapture = nil
+        lastPart = nil
         return entries[index]
     }
 }

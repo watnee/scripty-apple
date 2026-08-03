@@ -171,7 +171,7 @@ struct SongEditorView: View {
         _content = State(initialValue: content)
         _savedTitle = State(initialValue: title)
         _savedContent = State(initialValue: content)
-        _formatting = State(initialValue: NoteEditorController(text: content))
+        _formatting = State(initialValue: NoteEditorController(title: title, text: content))
         // A document being written for the first time is never opened to be
         // read: there is nothing in it yet, and the writer asked for a blank
         // one. Everything else opens the way it was last left, or the way the
@@ -372,8 +372,21 @@ struct SongEditorView: View {
             // this document's own history is the only thing it could sensibly
             // mean.
             .focusedSceneValue(\.documentEditorActions, undoActions)
-            .task { await loadFullContentIfNeeded() }
-            .onChange(of: title) { _, _ in scheduleAutosave() }
+            .task {
+                // The title field is a sibling of the writing surface, not a
+                // part of it, so the history has no way to put a name back on
+                // its own. This is that way — see `NoteEditorController`.
+                formatting.applyTitle = { title = $0 }
+                await loadFullContentIfNeeded()
+            }
+            // Every keystroke in the name, recorded like every keystroke in
+            // the words. Safe to call for the assignments this sheet makes
+            // itself — a load, a draft coming back, an undo putting one back —
+            // because a name that has not moved records nothing.
+            .onChange(of: title) { _, renamed in
+                scheduleAutosave()
+                formatting.noteTitle(renamed)
+            }
             .onChange(of: content) { _, _ in scheduleAutosave() }
             // A phone put down mid-sentence is backgrounded, and a backgrounded
             // app is one the system may end without asking. Don't wait out the
@@ -693,6 +706,34 @@ struct SongEditorView: View {
                 }
             }
         }
+        // Undo, up where it can be seen — the screenplay's arrangement, and for
+        // the reason the screenplay records: undoing is the one thing a writer
+        // reaches for *while* mistyping, so a menu to open first is a menu in
+        // the way. It lived only on the formatting bar until now, which is a
+        // strip that rides the keyboard — so the moment the caret went to the
+        // title field, or the keyboard went down, a note had no undo anywhere
+        // on screen. The history was still there; nothing said so.
+        //
+        // Never in the same corner as Edit: `canEdit` is false while a document
+        // is up to be read, which is exactly when that button is drawn. Greyed
+        // rather than dropped when the stack is empty, so it reads as "nothing
+        // yet" rather than moving the buttons beside it about as it comes and
+        // goes.
+        //
+        // No keyboard shortcut: ⌘Z belongs to the menu bar's undo group, which
+        // this sheet already claims through `documentEditorActions`, and a
+        // second claim on the same keys would be settled by responder order
+        // with one of the two silently dead.
+        if canEdit {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    formatting.undo()
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!formatting.canUndo)
+            }
+        }
         // Beside the way out, where the lyric editor and the screenplay both
         // keep it: leaving is the moment a writer wonders whether their words
         // are anywhere but here.
@@ -762,11 +803,15 @@ struct SongEditorView: View {
                 }
             }
         }
-        // The same device-wide type size the lyric and screenplay editors set.
-        // Notes already read it; until now nothing on this screen could change
-        // it, so a writer who had sized the script up found their notes still
-        // at 100%.
-        ToolbarItem(placement: .secondaryAction) {
+        // The tail of the "…", as one group rather than two items: a toolbar
+        // body takes ten children and this sheet now has exactly ten, so the
+        // last two travel together. They are listed in the overflow menu the
+        // same either way.
+        ToolbarItemGroup(placement: .secondaryAction) {
+            // The same device-wide type size the lyric and screenplay editors
+            // set. Notes already read it; until now nothing on this screen
+            // could change it, so a writer who had sized the script up found
+            // their notes still at 100%.
             Menu {
                 Button {
                     settings.increaseTextSize()
@@ -790,6 +835,19 @@ struct SongEditorView: View {
                 .disabled(settings.textSize == PresentationSettings.defaultTextSize)
             } label: {
                 Label("Text Size", systemImage: "textformat.size")
+            }
+            // Redo, the half of the pair the bar has no room to draw — last in
+            // the "…", exactly where the screenplay keeps its own. Undo is
+            // reached for constantly and redo hardly at all, the same reason a
+            // keyboard keeps ⌘Z under a finger and hides redo behind a second
+            // modifier.
+            if canEdit {
+                Button {
+                    formatting.redo()
+                } label: {
+                    Label("Redo", systemImage: "arrow.uturn.forward")
+                }
+                .disabled(!formatting.canRedo)
             }
         }
     }
@@ -896,11 +954,11 @@ struct SongEditorView: View {
         savedTitle = title
         savedContent = content
         haveServerBaseline = full != nil
-        // The document that just landed is where undo stops. What the sheet
-        // opened with was the list row's preview — a truncated one — and
-        // leaving that at the bottom of the stack would put one press of ⌘Z
-        // between the writer and losing most of their note.
-        formatting.reset(to: content)
+        // The document that just landed is where undo stops — its name as well
+        // as its words. What the sheet opened with was the list row's preview —
+        // a truncated one — and leaving that at the bottom of the stack would
+        // put one press of ⌘Z between the writer and losing most of their note.
+        formatting.reset(to: content, title: title)
         // Two things the opening decision could not know until the document
         // was in hand, both of which mean this one belongs to the writer.
         //
@@ -934,7 +992,7 @@ struct SongEditorView: View {
             content = draft.content
             // And nothing to walk back *to*: the only other text here is that
             // same truncated preview. The draft is where this note begins.
-            formatting.reset(to: content)
+            formatting.reset(to: content, title: title)
             saveStatus = .held
             // Nothing has been typed to arm the debounce, so the backoff is
             // the only thing that will try these words again inside this
@@ -959,12 +1017,13 @@ struct SongEditorView: View {
         }
         title = draft.title
         content = draft.content
-        // One press of undo, back to the words the server holds. An edit made
-        // offline is the one edit in a note a writer may never have watched
-        // themselves make — it was typed in another session, on another day —
-        // and until now taking it back meant retyping the paragraph it
-        // replaced from memory.
-        formatting.record(content)
+        // One press of undo, back to the document the server holds — the name
+        // with the words, since a held draft carries both and this one step is
+        // the whole of what it brought. An edit made offline is the one edit in
+        // a note a writer may never have watched themselves make — it was typed
+        // in another session, on another day — and until now taking it back
+        // meant retyping the paragraph it replaced from memory.
+        formatting.record(title: title, content)
         saveStatus = .held
         // The ordinary machinery takes it from here: the debounce fires, the
         // save lands or holds again.

@@ -141,6 +141,12 @@ final class SongBlockModel {
     /// their own edits.
     private(set) var undoRedo: UndoRedoStatus?
 
+    /// What the last step has to say for itself — the screenplay's history
+    /// confirmation, in a lyric, for the reason `HistoryToast` gives: a step
+    /// here rewrites the whole song, so the line it brought back may be one
+    /// the writer cannot see from where they are standing.
+    private(set) var historyToast: HistoryToast?
+
     /// Undo/redo for the lyric edits the server never saw — `LocalHistory`,
     /// which the screenplay editor keeps for the same reason: with no
     /// connection the server's `undo` link is unreachable, which used to leave
@@ -755,6 +761,10 @@ final class SongBlockModel {
         // A half-typed line would be undone out from under itself otherwise —
         // the checkpoint it belongs to has not been recorded yet.
         await commitAll()
+        // The lines on hand before and after the step are the whole story of
+        // what it did to the song — the same count the screenplay takes across
+        // its own reload, and where "Restored 2 lines" comes from.
+        let before = blocks.count
         do {
             let collection: HALCollection<SongBlock> = try await app.client.fetch(
                 from: link, method: "POST")
@@ -765,9 +775,19 @@ final class SongBlockModel {
             localHistory.clear()
             await refreshUndoRedo()
             errorMessage = nil
+            presentHistoryToast(rel: rel, delta: blocks.count - before)
         } catch {
             report(error)
         }
+    }
+
+    /// What a step just did, in the song's own noun. The screenplay counts
+    /// elements and this counts lines; everything else about the confirmation —
+    /// the words, the corner, how long it stays — is deliberately the same.
+    private func presentHistoryToast(rel: Rel, delta: Int) {
+        historyToast = .next(after: historyToast,
+                             HistoryToast.message(undoing: rel == .undo,
+                                                  restored: delta, noun: "line"))
     }
 
     // MARK: - Local history (undoing what the server never saw)
@@ -792,6 +812,12 @@ final class SongBlockModel {
         } else {
             localHistory.pushRedone(step)
         }
+        // A local step only ever puts words back on a line that is still
+        // there — the structure needs the server — so the count never moves
+        // and this is always the plain acknowledgement. It is said anyway:
+        // offline is exactly when a writer most needs telling that the reflex
+        // they just reached for did something.
+        presentHistoryToast(rel: direction == .undo ? .undo : .redo, delta: 0)
         return true
     }
 
