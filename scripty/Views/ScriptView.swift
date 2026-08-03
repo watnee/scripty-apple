@@ -176,12 +176,6 @@ struct ScriptView: View {
     /// local because nothing outside this view asks for a page.
     @State private var pendingPageTarget: Int?
 
-    /// The undo/redo confirmation currently on screen, if any, and the task
-    /// that clears it. Kept in the view because how long it stays up is pure
-    /// presentation — the model only says what happened.
-    @State private var toastText: String?
-    @State private var toastHideTask: Task<Void, Never>?
-
     /// Watched so pending typing is flushed (and snapshotted to disk) the
     /// moment the app heads to the background — the debounce window may
     /// outlive the app's execution time, and this is the writer's only copy.
@@ -291,18 +285,7 @@ struct ScriptView: View {
         .safeAreaBar(edge: .bottom) { narrationBar }
         // Floated after the word-count inset, so it settles just above the bar
         // (or the bottom safe area when the bar is off) rather than over it.
-        .overlay(alignment: .bottom) { historyToastOverlay }
-        .onChange(of: model.historyToast?.token) { _, token in
-            guard token != nil, let toast = model.historyToast else { return }
-            toastHideTask?.cancel()
-            withAnimation(.spring(duration: 0.3)) { toastText = toast.text }
-            toastHideTask = Task {
-                // Matches the web toast's 3.2s visible span.
-                try? await Task.sleep(for: .seconds(3.2))
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeOut(duration: 0.3)) { toastText = nil }
-            }
-        }
+        .historyToast(model.historyToast)
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -1259,27 +1242,6 @@ struct ScriptView: View {
         if !model.commentCounts.isEmpty { return true }
         return visibleBlocks.contains {
             ($0.isPinned && options.showsPins) || ($0.isBookmarked && options.showsBookmarks)
-        }
-    }
-
-    /// The transient confirmation after an undo/redo, as the web editor shows.
-    /// Non-interactive so it never swallows a tap on the writing underneath.
-    ///
-    /// Liquid Glass rather than the web's flat dark capsule: it floats over the
-    /// writing, which is exactly what the material is for, and it stays legible
-    /// against a light page or a dark one without a hardcoded pair of colours.
-    @ViewBuilder
-    private var historyToastOverlay: some View {
-        if let text = toastText {
-            Text(text)
-                .font(.callout.weight(.medium))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .glassEffect(.regular, in: .capsule)
-                .padding(.bottom, 12)
-                .allowsHitTesting(false)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .accessibilityAddTraits(.isStaticText)
         }
     }
 

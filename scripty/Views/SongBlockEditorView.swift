@@ -180,6 +180,10 @@ struct SongBlockEditorView: View {
                     keyboardBar
                 }
             }
+            // Floated after the strips above, so it settles just over them
+            // rather than under them — the same place the screenplay puts it,
+            // saying the same thing about the same kind of step.
+            .historyToast(model.historyToast)
             .navigationTitle(model.document.displayTitle)
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)

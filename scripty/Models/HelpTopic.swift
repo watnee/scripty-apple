@@ -681,7 +681,9 @@ extension HelpTopic {
                     + "the lyric edits still waiting on this device, newest first, so a "
                     + "line typed offline can be taken back offline. Once those edits "
                     + "reach the server they become part of its history and undo goes "
-                    + "back to walking that. On either workspace screen the pair sits "
+                    + "back to walking that. Each step says what it did, the way a "
+                    + "screenplay's does — a line that comes back may be one you cannot "
+                    + "see from where you are. On either workspace screen the pair sits "
                     + "beside each title instead, since every song and every note keeps "
                     + "a history of its own.",
                     "Songs and notes each have a reading mode, the songs' and notes' "

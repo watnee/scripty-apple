@@ -18,6 +18,10 @@
 //  is not a new step, a gesture that was rolled back leaves none, and a sync
 //  that falls short keeps every one of them.
 //
+//  Either way the step says what it did, as the screenplay's does: a lyric is
+//  rewritten whole, so the line a step brings back may be one the writer cannot
+//  see from where they are standing.
+//
 //  The offline cases drive real models through a real APIClient with the
 //  connectivity monitor held down by hand, which is the same fail-fast path a
 //  writer on a train takes — no socket, no stub.
@@ -288,6 +292,39 @@ func checkSyncClearsWhatLanded() async {
     check("nor the way back into it", !model.canRedo)
 }
 
+@MainActor
+func checkOfflineStepsSayWhatTheyDid() async {
+    print("== A step taken offline still says it happened ==")
+    let model = offlineModel()
+
+    check("nothing has been stepped, so there is nothing to say",
+          model.historyToast == nil)
+
+    model.edit(firstLine(model), text: "First verse, rewritten.")
+    await model.commit(firstLine(model))
+    check("typing is not a step and says nothing", model.historyToast == nil)
+
+    await model.undo()
+    checkEqual("undo says so", model.historyToast?.text, "Change undone")
+    let afterUndo = model.historyToast?.token
+
+    await model.redo()
+    checkEqual("and so does redo", model.historyToast?.text, "Change redone")
+    check("as a confirmation of its own, not the last one again",
+          model.historyToast?.token != afterUndo)
+
+    // Two identical messages in a row have to read as two events — the whole
+    // reason the value carries a token rather than being the words alone.
+    await model.undo()
+    let firstUndo = model.historyToast?.token
+    await model.redo()
+    await model.undo()
+    checkEqual("a second identical message is still a second message",
+               model.historyToast?.text, "Change undone")
+    check("carrying a token nothing has shown yet",
+          model.historyToast?.token != firstUndo)
+}
+
 // MARK: - Online
 
 /// The demo project's first song, with its lyric loaded. The demo backend
@@ -353,6 +390,34 @@ func checkServerHistory() async {
     await model.undo()
 }
 
+@MainActor
+func checkRestoredLinesAreCounted() async {
+    print("== A step that brings a line back says how many ==")
+    guard let model = await openADemoSong(), model.blocks.count > 1 else {
+        check("the demo song has lines to lose", false)
+        return
+    }
+
+    let count = model.blocks.count
+    let deleted = await model.delete(model.blocks[0])
+    check("the line went", deleted)
+    checkEqual("leaving one fewer", model.blocks.count, count - 1)
+    await model.refreshUndoRedo()
+
+    await model.undo()
+    checkEqual("undo brings it back", model.blocks.count, count)
+    checkEqual("and names what came back", model.historyToast?.text, "Restored 1 line")
+
+    await model.redo()
+    checkEqual("redo takes it away again", model.blocks.count, count - 1)
+    checkEqual("with the plain acknowledgement, since nothing came back",
+               model.historyToast?.text, "Change redone")
+
+    // Leave the demo song as it was found.
+    await model.undo()
+    checkEqual("the song is as it was found", model.blocks.count, count)
+}
+
 // MARK: - Run
 
 @MainActor
@@ -373,7 +438,11 @@ func run() async {
     print()
     await checkSyncClearsWhatLanded()
     print()
+    await checkOfflineStepsSayWhatTheyDid()
+    print()
     await checkServerHistory()
+    print()
+    await checkRestoredLinesAreCounted()
 }
 
 await run()
