@@ -128,9 +128,10 @@ struct SongEditorView: View {
     /// this minute. The one this sheet creates gets its options the moment the
     /// create lands, so a song typed here can be locked without reopening it.
     @State private var options: DocumentViewOptions?
-    /// The formatting bar's handle on the text view, and the note's own undo
-    /// history. Seeded with whatever the sheet opens showing — see
-    /// `NoteHistory`.
+    /// The formatting bar's handle on the text view, and the document's own
+    /// undo history — the title's as well as the words', since a writer given
+    /// one document has one ⌘Z. Seeded with whatever the sheet opens showing —
+    /// see `NoteHistory`.
     @State private var formatting: NoteEditorController
     @FocusState private var titleFocused: Bool
     @State private var showingIgnoredWords = false
@@ -171,7 +172,8 @@ struct SongEditorView: View {
         _content = State(initialValue: content)
         _savedTitle = State(initialValue: title)
         _savedContent = State(initialValue: content)
-        _formatting = State(initialValue: NoteEditorController(text: content))
+        _formatting = State(initialValue: NoteEditorController(title: title,
+                                                              text: content))
         // A document being written for the first time is never opened to be
         // read: there is nothing in it yet, and the writer asked for a blank
         // one. Everything else opens the way it was last left, or the way the
@@ -372,8 +374,18 @@ struct SongEditorView: View {
             // this document's own history is the only thing it could sensibly
             // mean.
             .focusedSceneValue(\.documentEditorActions, undoActions)
+            // Before the load below, which is the first thing that may want to
+            // put a name back.
+            .onAppear { formatting.restoreTitle = restoreTitle }
             .task { await loadFullContentIfNeeded() }
-            .onChange(of: title) { _, _ in scheduleAutosave() }
+            // The name is part of the document, so it is part of its history:
+            // a new song opens with the caret here, and everything typed into
+            // it before the first line of the lyric would otherwise be the one
+            // writing on this screen that could not be taken back.
+            .onChange(of: title) { _, new in
+                formatting.captureTitle(new)
+                scheduleAutosave()
+            }
             .onChange(of: content) { _, _ in scheduleAutosave() }
             // A phone put down mid-sentence is backgrounded, and a backgrounded
             // app is one the system may end without asking. Don't wait out the
@@ -444,6 +456,21 @@ struct SongEditorView: View {
                                      redo: { formatting.redo() },
                                      canUndo: formatting.canUndo,
                                      canRedo: formatting.canRedo)
+    }
+
+    /// What a step out of the history does to the title field: puts the name
+    /// back, and takes the caret with it when that name is what the step was.
+    ///
+    /// The caret half matters in both directions. A rename undone with the
+    /// caret left in the lyric is a change the writer watches happen somewhere
+    /// they are not looking; and a step through the words while the title still
+    /// holds SwiftUI's focus would have the field claim the keyboard straight
+    /// back from the text view the coordinator just handed it to.
+    private var restoreTitle: (String, Bool) -> Void {
+        { name, takeFocus in
+            title = name
+            titleFocused = takeFocus
+        }
     }
 
     private var insertMessageBinding: Binding<Bool> {
@@ -625,22 +652,20 @@ struct SongEditorView: View {
             if settings.showsWordCount {
                 WordCountBar(words: ScriptStats.countWords(content))
             }
-            if showsFormatBar && isWritingBody {
-                NoteFormatBar(controller: formatting, showsStructure: showsFormatStructure)
-            } else if isTyping {
-                // The formatting bar carries the way out of the keyboard while
-                // the caret is in the words. Where the keyboard covers this
-                // sheet without the bar being up — either kind's title field —
-                // the chip needs a strip of its own, wearing the same chrome so
-                // the two read as one bar appearing and disappearing rather
-                // than two.
-                // The title field's focus is SwiftUI's, so it is dropped the
-                // way SwiftUI understands rather than left to be re-asserted.
-                HideKeyboardBar(releaseFocus: { titleFocused = false })
-                    .background(.bar)
-                    .overlay(alignment: .top) {
-                        Rectangle().fill(.separator).frame(height: 0.5)
-                    }
+            if showsFormatBar && isTyping {
+                // One bar for both fields now, where the title used to get a
+                // strip carrying nothing but the way out of the keyboard. The
+                // list and heading controls still wait for the caret to reach
+                // the words — a bullet added from a title would land in a
+                // paragraph nobody is looking at — but undo is about the
+                // document, and the title is part of the document.
+                //
+                // The title field's focus is SwiftUI's, so the chip is told to
+                // drop it the way SwiftUI understands rather than leaving it to
+                // be re-asserted over the resign.
+                NoteFormatBar(controller: formatting,
+                              showsStructure: showsFormatStructure && isWritingBody,
+                              releaseFocus: { titleFocused = false })
             }
         }
     }
@@ -653,13 +678,18 @@ struct SongEditorView: View {
         return errorMessage
     }
 
-    /// Whether the keyboard is up over this sheet.
+    /// Whether this sheet is being written in.
     ///
     /// The body reports its own focus, and for the title there is nothing to
-    /// ask: its `@FocusState` stays false through a tap into the field, because
-    /// the UIKit editor below has held first responder and SwiftUI's focus
-    /// engine no longer agrees with UIKit about who has it now. So the keyboard
-    /// is watched instead — see `SoftwareKeyboard`.
+    /// ask: its `@FocusState` stays false even when the caret is plainly in it,
+    /// because the UIKit editor below has held first responder and SwiftUI's
+    /// focus engine no longer agrees with UIKit about who has it now. So the
+    /// keyboard is watched instead — see `SoftwareKeyboard`.
+    ///
+    /// Which is why the bar is not the *only* place undo is offered — a device
+    /// with a hardware keyboard raises no software keyboard, and the caret can
+    /// sit in a title this view has no truthful way to ask about. The toolbar
+    /// carries the pair as well, where it does not depend on knowing.
     private var isTyping: Bool {
         canEdit && (isWritingBody || SoftwareKeyboard.shared.isVisible)
     }
@@ -684,12 +714,40 @@ struct SongEditorView: View {
         // everyone to look for Edit, and it is the only thing this sheet draws
         // there. Gone the moment it is used, since the sheet is then the
         // editor it has always been.
-        if isDocumentEditable && isReading {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    beginEditing()
-                } label: {
-                    Label("Edit", systemImage: "square.and.pencil")
+        //
+        // Undo takes that same corner while the document *is* being written in,
+        // which is the other half of the sentence: the trailing corner holds
+        // the thing there is to do here, and the two states never overlap.
+        //
+        // In the toolbar as well as in the bar above the keyboard, following
+        // the screenplay — undo up here, redo in the overflow, since an iPhone
+        // toolbar has room for one of them. The bar is under the thumbs while
+        // the caret is in the words, and it is not on screen at all in the two
+        // places a writer most often reaches for undo first: naming a new song,
+        // and typing on a keyboard that leaves no software keyboard to hang a
+        // bar above. This is the pair that does not depend on knowing where the
+        // caret is.
+        //
+        // The two live under one `if` because a toolbar builder takes ten
+        // children and this one has ten.
+        if isDocumentEditable {
+            if isReading {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        beginEditing()
+                    } label: {
+                        Label("Edit", systemImage: "square.and.pencil")
+                    }
+                }
+            }
+            if canEdit {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        formatting.undo()
+                    } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!formatting.canUndo)
                 }
             }
         }
@@ -716,6 +774,18 @@ struct SongEditorView: View {
                     Label("Insert into Script", systemImage: "text.insert")
                 }
                 .disabled(isInserting)
+            }
+        }
+        // The half of the pair the bar up there had no room for, in the same
+        // menu the screenplay keeps its own redo in.
+        if canEdit {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    formatting.redo()
+                } label: {
+                    Label("Redo", systemImage: "arrow.uturn.forward")
+                }
+                .disabled(!formatting.canRedo)
             }
         }
         ToolbarItem(placement: .secondaryAction) {
@@ -900,7 +970,7 @@ struct SongEditorView: View {
         // opened with was the list row's preview — a truncated one — and
         // leaving that at the bottom of the stack would put one press of ⌘Z
         // between the writer and losing most of their note.
-        formatting.reset(to: content)
+        formatting.reset(title: title, to: content)
         // Two things the opening decision could not know until the document
         // was in hand, both of which mean this one belongs to the writer.
         //
@@ -934,7 +1004,7 @@ struct SongEditorView: View {
             content = draft.content
             // And nothing to walk back *to*: the only other text here is that
             // same truncated preview. The draft is where this note begins.
-            formatting.reset(to: content)
+            formatting.reset(title: title, to: content)
             saveStatus = .held
             // Nothing has been typed to arm the debounce, so the backoff is
             // the only thing that will try these words again inside this
@@ -963,8 +1033,10 @@ struct SongEditorView: View {
         // offline is the one edit in a note a writer may never have watched
         // themselves make — it was typed in another session, on another day —
         // and until now taking it back meant retyping the paragraph it
-        // replaced from memory.
-        formatting.record(content)
+        // replaced from memory. The name goes with it: a draft carries both,
+        // and a step that put back yesterday's words under today's title would
+        // describe a document that never existed.
+        formatting.record(title: title, text: content)
         saveStatus = .held
         // The ordinary machinery takes it from here: the debounce fires, the
         // save lands or holds again.

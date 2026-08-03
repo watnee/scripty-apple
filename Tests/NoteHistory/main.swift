@@ -35,6 +35,11 @@ extension NoteHistory {
     mutating func gesture(_ text: String, at now: TimeInterval) {
         capture(Snapshot(text: text), at: now, coalescing: false)
     }
+
+    /// Typing in the title field, which is where a new song or note begins.
+    mutating func rename(_ title: String, at now: TimeInterval) {
+        capture(current.renamed(to: title), at: now)
+    }
 }
 
 print("An untouched note")
@@ -172,6 +177,60 @@ do {
     history.type("what the server holds!", at: 0.1)
     check("with nothing folded into it", history.undo()?.text,
           Optional("what the server holds"))
+}
+
+print("")
+print("The title field")
+do {
+    // A new song opens with the caret here and nothing else on screen, so this
+    // is the only writing there is to take back.
+    var history = NoteHistory()
+    history.rename("B", at: 0.0)
+    history.rename("Ba", at: 0.1)
+    history.rename("Ballad", at: 0.2)
+    check("is one burst like any other", history.depth, 2)
+    check("which undo takes back whole", history.undo()?.title, Optional(""))
+    check("and redo puts back", history.redo()?.title, Optional("Ballad"))
+
+    // The words are the other half of the same document, and one press must
+    // never take back both: the writer can only be looking at one of them.
+    var both = NoteHistory()
+    both.rename("Ballad", at: 0.0)
+    both.type("First line", at: 0.1)
+    check("never folds into the words beside it", both.depth, 3)
+    check("which come off on their own", both.undo()?.text, Optional(""))
+    check("leaving the name that was typed first", both.current.title, "Ballad")
+
+    // Which field a state belongs to is what keeps the two apart above; the
+    // caret follows the *difference* between two states, not this.
+    var marked = NoteHistory()
+    marked.rename("Ballad", at: 0.0)
+    check("and a step remembers the field it was typed into",
+          marked.current.field == .title, true)
+    marked.type("First line", at: 1.0)
+    check("as the words do", marked.current.field == .body, true)
+
+    var untouched = NoteHistory(title: "Ballad", text: "First line")
+    untouched.rename("Ballad", at: 0.0)
+    check("a rename that says nothing is not a step", untouched.depth, 1)
+}
+
+print("")
+print("A named note the server sends again")
+do {
+    var history = NoteHistory(title: "Draft", text: "draft")
+    history.rename("Draft two", at: 0.0)
+    history.reset(title: "Ballad of the Lost Hour", to: "what the server holds")
+    check("starts the history over", history.canUndo, false)
+    check("at the name that arrived", history.current.title,
+          "Ballad of the Lost Hour")
+    check("and the words with it", history.current.text, "what the server holds")
+
+    // The surfaces with no title field of their own — the workspace's panes —
+    // reset the words alone, and must not lose the name doing it.
+    var pane = NoteHistory(title: "Ballad", text: "one")
+    pane.reset(to: "two")
+    check("a reset of the words alone keeps the name", pane.current.title, "Ballad")
 }
 
 print("")

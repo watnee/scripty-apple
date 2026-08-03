@@ -39,24 +39,54 @@ struct NoteHistory: Equatable {
     /// A note as it stood, and where the caret was in it. Undo that leaves the
     /// caret at the end of the document is undo you have to hunt after.
     struct Snapshot: Equatable {
+        /// Which field a step was typed into. Carried so undo can put the caret
+        /// back where the writer made the change — a name taken back with the
+        /// caret left in the words is a step whose effect happens off screen.
+        enum Field: Equatable {
+            case title, body
+        }
+
+        /// The name the document was under. One stack covers both fields
+        /// because a writer has one document and one ⌘Z: a new song opens with
+        /// the caret in its title, and a history that began at the first line
+        /// of the lyric would have nothing to say about the twenty keystrokes
+        /// before it.
+        var title: String
         var text: String
         /// The selection in the text view's own units — UTF-16 offsets, which
         /// is what `NSRange` counts in. Nothing here interprets them; they are
         /// carried so the caret can be put back where it was.
+        ///
+        /// Always the *body's* selection, whichever field the step belongs to:
+        /// a title is one line, and putting its caret at the end is what
+        /// assigning the field does anyway.
         var start: Int
         var end: Int
+        var field: Field
 
-        init(text: String, start: Int, end: Int) {
+        init(title: String = "", text: String, start: Int, end: Int,
+             field: Field = .body) {
+            self.title = title
             self.text = text
             self.start = start
             self.end = end
+            self.field = field
         }
 
         /// A note with the caret at its end — what words arriving from outside
         /// the keyboard get, since there is no caret in them to preserve.
-        init(text: String) {
-            self.init(text: text, start: (text as NSString).length,
-                      end: (text as NSString).length)
+        init(title: String = "", text: String, field: Field = .body) {
+            self.init(title: title, text: text, start: (text as NSString).length,
+                      end: (text as NSString).length, field: field)
+        }
+
+        /// The same words under a different name: a title step, which leaves
+        /// the note and the caret in it exactly where they were.
+        func renamed(to title: String) -> Snapshot {
+            var copy = self
+            copy.title = title
+            copy.field = .title
+            return copy
         }
     }
 
@@ -79,8 +109,8 @@ struct NoteHistory: Equatable {
     /// how a restored state refuses to have the next keystroke folded onto it.
     private var lastCapture: TimeInterval?
 
-    init(text: String = "") {
-        entries = [Snapshot(text: text)]
+    init(title: String = "", text: String = "") {
+        entries = [Snapshot(title: title, text: text)]
         index = 0
     }
 
@@ -95,8 +125,16 @@ struct NoteHistory: Equatable {
 
     /// Start again from `text` — a different note, or the same one arriving
     /// from the server. Everything held described somewhere else.
+    ///
+    /// Keeps the name it already had, for the surfaces that have no title field
+    /// of their own: the workspace's panes are the words alone.
     mutating func reset(to text: String) {
-        entries = [Snapshot(text: text)]
+        reset(title: entries[index].title, to: text)
+    }
+
+    /// The same, for a surface that names the document as well as writing it.
+    mutating func reset(title: String, to text: String) {
+        entries = [Snapshot(title: title, text: text)]
         index = 0
         lastCapture = nil
     }
@@ -110,8 +148,9 @@ struct NoteHistory: Equatable {
     /// that gesture and no more of the typing around it.
     mutating func capture(_ snapshot: Snapshot, at now: TimeInterval,
                           coalescing: Bool = true) {
-        guard snapshot.text != entries[index].text else {
-            // The caret moved and the words did not. Not a step — but the
+        guard snapshot.text != entries[index].text
+                || snapshot.title != entries[index].title else {
+            // The caret moved and the document did not. Not a step — but the
             // entry on screen has to keep the caret it actually has, or an
             // undo from here would put it back somewhere the writer left long
             // ago.
@@ -122,7 +161,12 @@ struct NoteHistory: Equatable {
         if index < entries.count - 1 {
             entries.removeSubrange((index + 1)...)
         }
-        let withinBurst = coalescing && lastCapture.map { now - $0 < Self.coalesceWindow } == true
+        // Never across fields, however fast the writer moved between them: a
+        // step that took back a name *and* a line of the lyric would undo
+        // something the writer cannot see happening.
+        let sameField = entries[index].field == snapshot.field
+        let withinBurst = coalescing && sameField
+            && lastCapture.map { now - $0 < Self.coalesceWindow } == true
         // Never onto entry 0: that is the note as it was before any of this
         // typing, and folding the first keystroke into it would make the
         // writer's own starting point unreachable.

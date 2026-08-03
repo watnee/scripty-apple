@@ -28,21 +28,30 @@ import UIKit
 final class NoteEditorController {
     @ObservationIgnored fileprivate var perform: ((NoteTextView.Command) -> Void)?
     @ObservationIgnored fileprivate var beginEditing: (() -> Void)?
-    /// Puts a remembered state back on screen. Set when the view is made,
-    /// alongside the others.
-    @ObservationIgnored fileprivate var restore: ((NoteHistory.Snapshot) -> Void)?
+    /// Puts a remembered state back on screen, and takes the caret with it when
+    /// the words are what the step moved. Set when the view is made, alongside
+    /// the others.
+    @ObservationIgnored fileprivate var restore: ((NoteHistory.Snapshot, Bool) -> Void)?
+
+    /// Puts a remembered name back in the host's title field, and takes the
+    /// caret there when the step being walked was typed into it.
+    ///
+    /// Set by the host rather than by the text view, because the title is the
+    /// host's field: this view is the words alone. A surface with no title —
+    /// the workspace's panes — leaves it nil, and nothing here asks for one.
+    @ObservationIgnored var restoreTitle: ((String, Bool) -> Void)?
 
     /// The note's own undo stack — see `NoteHistory` for why it is the app's
     /// and not UIKit's. Tracked, so the bar's two buttons dim and undim as the
     /// note is typed without anything having to remember to tell them.
     private var history: NoteHistory
 
-    /// `text` is what the editor is about to put on screen, and so the state
-    /// undo stops at. Seeded here rather than when the text view is made,
-    /// because that happens inside a SwiftUI update and this is state a view
-    /// in that same update reads.
-    init(text: String = "") {
-        history = NoteHistory(text: text)
+    /// `title` and `text` are what the editor is about to put on screen, and so
+    /// the state undo stops at. Seeded here rather than when the text view is
+    /// made, because that happens inside a SwiftUI update and this is state a
+    /// view in that same update reads.
+    init(title: String = "", text: String = "") {
+        history = NoteHistory(title: title, text: text)
     }
 
     var canUndo: Bool { history.canUndo }
@@ -62,13 +71,29 @@ final class NoteEditorController {
     /// menu, and a device without one has only the shake gesture — so the bar
     /// carries them too, as the browser's note toolbar does.
     func undo() {
+        let leaving = history.current
         guard let snapshot = history.undo() else { return }
-        restore?(snapshot)
+        apply(snapshot, leaving: leaving)
     }
 
     func redo() {
+        let leaving = history.current
         guard let snapshot = history.redo() else { return }
-        restore?(snapshot)
+        apply(snapshot, leaving: leaving)
+    }
+
+    /// Puts a remembered state back on both fields, and the caret in the one
+    /// that moved — a rename taken back with the caret left in the words is a
+    /// change the writer watches happen somewhere they are not looking.
+    ///
+    /// The difference between the two states rather than the field either of
+    /// them was recorded in: the step being walked is the *gap*, and the state
+    /// arrived at may well have been typed into the other field.
+    private func apply(_ snapshot: NoteHistory.Snapshot,
+                       leaving previous: NoteHistory.Snapshot) {
+        let renamed = snapshot.title != previous.title
+        restoreTitle?(snapshot.title, renamed)
+        restore?(snapshot, !renamed)
     }
 
     // MARK: - What the editor tells the history
@@ -80,19 +105,34 @@ final class NoteEditorController {
         history.reset(to: text)
     }
 
+    /// The same, from a surface that names the document too.
+    func reset(title: String, to text: String) {
+        history.reset(title: title, to: text)
+    }
+
+    /// The name as it now stands. Typing, so a run of it inside the coalescing
+    /// window is one step — and dropped when it says nothing new, which is what
+    /// makes a restored name echoing back through the host's binding a no-op
+    /// rather than a step of its own.
+    func captureTitle(_ title: String) {
+        guard title != history.current.title else { return }
+        history.capture(history.current.renamed(to: title), at: Self.now)
+    }
+
     /// Words that arrived in one go from somewhere other than the keyboard,
     /// worth one press of undo: an offline draft taken back up, which is the
     /// one edit in a note the writer may never have watched themselves make.
-    func record(_ text: String) {
-        history.capture(NoteHistory.Snapshot(text: text), at: Self.now,
-                        coalescing: false)
+    func record(title: String, text: String) {
+        history.capture(NoteHistory.Snapshot(title: title, text: text),
+                        at: Self.now, coalescing: false)
     }
 
     /// Typing, and the formatting bar's rewrites — which are one gesture each
     /// and so never folded into the typing around them.
     fileprivate func capture(text: String, selection: NSRange,
                              coalescing: Bool = true) {
-        history.capture(NoteHistory.Snapshot(text: text,
+        history.capture(NoteHistory.Snapshot(title: history.current.title,
+                                             text: text,
                                              start: selection.location,
                                              end: selection.location + selection.length),
                         at: Self.now, coalescing: coalescing)
@@ -104,7 +144,7 @@ final class NoteEditorController {
     /// describing a note nobody is looking at is worse than none.
     fileprivate func syncExternal(_ text: String) {
         guard history.current.text != text else { return }
-        history.reset(to: text)
+        history.reset(to: text)   // under the name it already had
     }
 
     /// Monotonic, so a clock that changes under the app — a timezone crossed,
@@ -188,8 +228,8 @@ struct NoteTextView: UIViewRepresentable {
         controller?.beginEditing = { [weak view] in
             view?.becomeFirstResponder()
         }
-        controller?.restore = { [weak coordinator = context.coordinator] snapshot in
-            coordinator?.restore(snapshot)
+        controller?.restore = { [weak coordinator = context.coordinator] snapshot, takesFocus in
+            coordinator?.restore(snapshot, takesFocus: takesFocus)
         }
         // Through the coordinator's copy of the parent: this struct is rebuilt
         // on every redraw, and what "start writing" means changes with the mode
@@ -323,12 +363,17 @@ struct NoteTextView: UIViewRepresentable {
 
         /// Puts a remembered state back on screen. The history has already
         /// moved, so nothing is captured here.
-        fileprivate func restore(_ snapshot: NoteHistory.Snapshot) {
+        fileprivate func restore(_ snapshot: NoteHistory.Snapshot, takesFocus: Bool) {
             guard let textView, textView.isEditable else { return }
             // Where the browser calls `focus()` on the field it is about to
             // restore: undo that leaves the caret in the title field would put
-            // the next keystroke somewhere the writer is not looking.
-            if !textView.isFirstResponder { textView.becomeFirstResponder() }
+            // the next keystroke somewhere the writer is not looking. Only when
+            // the words are what the step moved, though — a name taken back
+            // belongs to the title field, and stealing the caret out of it here
+            // would undo the rename in front of a caret two fields away.
+            if takesFocus, !textView.isFirstResponder {
+                textView.becomeFirstResponder()
+            }
             let length = (snapshot.text as NSString).length
             let start = max(0, min(snapshot.start, length))
             let end = max(start, min(snapshot.end, length))
@@ -510,10 +555,18 @@ struct NoteFormatBar: View {
 
     /// Whether the list and heading controls belong here. False for a song's
     /// lyrics, which take the keyboard rules but not the outline structure — a
-    /// verse has no bullets and no H2. The undo pair stays either way: it is
-    /// about the words, which a lyric has as much of as a note, and it is the
-    /// only route to undo on a device with no hardware keyboard.
+    /// verse has no bullets and no H2, and false again while the caret is in a
+    /// title, where a bullet would land in words nobody is looking at. The undo
+    /// pair stays through all of it: it is about the document, which is being
+    /// written in every one of those states, and it is the only route to undo
+    /// on a device with no hardware keyboard.
     var showsStructure = true
+
+    /// Passed to the chip at the end of the bar — see
+    /// `HideKeyboardButton.releaseFocus`. A host whose title field holds
+    /// SwiftUI's focus has to be told to let go of it, or the field takes the
+    /// keyboard straight back.
+    var releaseFocus: (() -> Void)?
 
     private func perform(_ command: NoteTextView.Command) { controller(command) }
 
@@ -556,7 +609,7 @@ struct NoteFormatBar: View {
             // Trailing, away from the writing controls: it is the way out of
             // the note rather than another thing to do to it — and the same
             // corner the screenplay's own bar puts it in.
-            HideKeyboardButton(style: .bordered)
+            HideKeyboardButton(style: .bordered, releaseFocus: releaseFocus)
         }
         .font(.footnote)
         .padding(.horizontal, 16)
