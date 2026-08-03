@@ -695,6 +695,17 @@ extension HelpTopic {
                     + "prose: every hit highlighted, arrows to step between them, "
                     + "Match Case and Whole Words of their own, and Replace beside "
                     + "Find while the note is open to typing.",
+                    "The order of the songs is your own, and the all-songs workspace "
+                    + "will rearrange it. Arrange Songs, in the \u{201C}…\u{201D} menu "
+                    + "there, sets the lyrics aside and leaves the titles to be "
+                    + "dragged into the order you want by the grip beside each one; "
+                    + "Done puts the writing back, still open at the songs you left "
+                    + "open. For a single nudge there is no need for any of that — the "
+                    + "\u{2191}\u{2193} beside a title moves that song one place up or "
+                    + "down where it stands. Either way the whole arrangement is "
+                    + "saved, and a filter narrowing the screen moves only the songs "
+                    + "you can see. The songs list rearranges the same way: Edit, then "
+                    + "drag by the grip.",
                     "Songs and notes are offered the same things. Both export as text, "
                     + "PDF, Word or EPUB, on their own or as one file of the whole list; "
                     + "both can be emailed to a collaborator; and Edit selects several "
@@ -842,6 +853,8 @@ extension HelpTopic {
                            "dismiss", "close",
                            "lock", "locked", "read only", "protect",
                            "find", "search", "replace", "match case", "whole words",
+                           "arrange", "rearrange", "reorder", "order", "drag",
+                           "move up", "move down", "sort",
                            "hide keyboard", "dismiss keyboard", "keyboard"]),
             HelpTopic(
                 id: "title-page",
