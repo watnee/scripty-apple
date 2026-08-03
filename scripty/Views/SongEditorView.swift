@@ -88,6 +88,12 @@ struct SongEditorView: View {
     /// under the note, this is what takes its place.
     @State private var retry: Task<Void, Never>?
     @State private var retryAttempt = 0
+    /// When this document was last known to be in step with the server, for
+    /// the badge's detail panel — the same thing the lyric editor's badge
+    /// reports. Nil until the first save of this sitting lands: "last synced"
+    /// on a document opened and not typed into would be a claim about a
+    /// request nobody made.
+    @State private var lastSyncedAt: Date?
     /// Whether the caret is in the note itself, so the formatting bar shows
     /// only when there is a line under the caret for it to act on — pressing
     /// "H1" while the title field has focus would silently head a line the
@@ -147,6 +153,14 @@ struct SongEditorView: View {
     /// as "changed elsewhere" and throws them away. No baseline → nil base →
     /// the draft restores and drains ungated, which loses nothing.
     @State private var haveServerBaseline = false
+
+    /// When the copy on screen was saved to this device, or nil where these are
+    /// the server's own words. The lyric editor has said this in a strip above
+    /// the lines for as long as it has read offline; a note is fetched the same
+    /// way and was the one document surface that showed a stale copy silently.
+    @State private var offlineCopySavedAt: Date?
+    /// Whether the offline strip has been closed for the copy currently shown.
+    private let notices = DismissedNotices.shared
 
     private let settings = PresentationSettings.shared
 
@@ -358,8 +372,19 @@ struct SongEditorView: View {
             }
             // Above the words, where the lyric editor keeps its own: a locked
             // note looks exactly like an unlocked one, so a tap that does
-            // nothing needs something on screen to say why.
-            .safeAreaInset(edge: .top, spacing: 0) { lockBanner }
+            // nothing needs something on screen to say why — and an old copy
+            // of the words looks exactly like a current one.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    lockBanner
+                    offlineCopyBanner
+                }
+            }
+            // A fresh copy is a new situation, so whatever was closed about the
+            // old one stops applying and the strip is free to speak again.
+            .onChange(of: offlineCopyState) { _, _ in
+                notices.situationChanged(offlineCopyKey)
+            }
             .safeAreaBar(edge: .bottom, spacing: 0) { footer }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -575,6 +600,61 @@ struct SongEditorView: View {
         }
     }
 
+    /// Which copy the strip is reporting, or nil when the words on screen came
+    /// from the server. The date is the situation: a newer stale copy is a
+    /// different thing to be told, so it is told even if the last one was
+    /// closed.
+    private var offlineCopyState: String? {
+        offlineCopySavedAt.map(DismissedNotices.offlineCopyState(savedAt:))
+    }
+
+    private var offlineCopyKey: String {
+        DismissedNotices.documentCopyKey(documentId: target?.id ?? 0)
+    }
+
+    /// Says the words on screen are the copy saved on this device, and how old
+    /// they are — the lyric editor's strip, in a note, down to the ✕. Only when
+    /// the fallback actually happened, not merely because the radio is off.
+    @ViewBuilder
+    private var offlineCopyBanner: some View {
+        let isClosed = offlineCopyState.map { notices.isDismissed(offlineCopyKey, state: $0) } ?? true
+        if let savedAt = offlineCopySavedAt, !isClosed {
+            HStack(spacing: 6) {
+                Image(systemName: "wifi.slash")
+                    .font(.caption)
+                Text("Offline — \(kindWord) saved "
+                     + savedAt.formatted(.relative(presentation: .named)))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                NoticeCloseButton(action: dismissOfflineCopy)
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(.orange.opacity(0.10))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(.separator).frame(height: 0.5)
+            }
+            // `.ignore`, not `.combine`: a combined element swallows the close
+            // button, and a notice VoiceOver cannot put down is worse than one
+            // nobody can close at all.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Offline. Showing the \(kindWord) saved on this device "
+                                + savedAt.formatted(.relative(presentation: .named)) + ".")
+            .accessibilityAction(named: "Dismiss") { dismissOfflineCopy() }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private func dismissOfflineCopy() {
+        guard let state = offlineCopyState else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            notices.dismiss(offlineCopyKey, state: state)
+        }
+    }
+
     /// Says the document is closed to typing, and unlocks it when tapped. Not
     /// while it is being read: the reader takes no keystrokes either, and a
     /// strip explaining why a surface that has no caret has no caret would be
@@ -664,8 +744,17 @@ struct SongEditorView: View {
         canEdit && (isWritingBody || SoftwareKeyboard.shared.isVisible)
     }
 
+    /// Split in two only because a toolbar builder takes ten children and this
+    /// sheet now draws eleven; the division is the ordinary one — what is on
+    /// the bar itself, and what is behind the "…".
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        barToolbarContent
+        overflowToolbarContent
+    }
+
+    @ToolbarContentBuilder
+    private var barToolbarContent: some ToolbarContent {
         // An autosaving document is only ever left, never cancelled: there is
         // nothing to cancel back to, and no Save to pair a Cancel with. Leaving
         // is only asked about where it would really cost something.
@@ -698,10 +787,59 @@ struct SongEditorView: View {
         // are anywhere but here.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
-                CloudSyncBadge(state: cloud, label: cloudLabel)
+                CloudSyncBadge(state: cloud,
+                               label: cloudLabel,
+                               lastSyncedAt: lastSyncedAt,
+                               // Pressable, as the lyric editor's badge is: a
+                               // glyph that reports a problem and offers
+                               // nothing leaves the writer guessing whether
+                               // waiting helps.
+                               sync: { await syncNow() })
             }
             .sharedBackgroundVisibility(.hidden)
         }
+        // Undo and redo, on the leading edge where the lyric editor and the
+        // screenplay both put them. The formatting bar carries the same pair,
+        // but only while the caret is in the words — a writer who has put the
+        // keyboard away, or who is looking at a note from the title field, had
+        // no way back on a device with no ⌘Z.
+        if canEdit {
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    formatting.undo()
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!formatting.canUndo)
+
+                Button {
+                    formatting.redo()
+                } label: {
+                    Label("Redo", systemImage: "arrow.uturn.forward")
+                }
+                .disabled(!formatting.canRedo)
+            }
+        }
+        // Find, where the lyric editor keeps its own Search. The system's find
+        // bar does the work — see `NoteEditorController.find` for why this is
+        // find-and-step rather than the lyric's filter — so there is nothing to
+        // put on screen here and no chord to claim. Only over the writing
+        // surface: reading swaps the text view out, and the reader has no
+        // find bar to open.
+        if !isReading {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    formatting.find(replacing: canEdit)
+                } label: {
+                    Label("Find", systemImage: "magnifyingglass")
+                }
+                .disabled(content.isEmpty)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var overflowToolbarContent: some ToolbarContent {
         // The list's context-menu action, reachable without leaving the
         // editor. Same gate — the server advertised an `insert` link on this
         // document — and the same landing: the end of the script, a song as
@@ -739,14 +877,17 @@ struct SongEditorView: View {
                 }
             }
         }
-        // Only where there is typing to check. Reached from here rather than
-        // from a screenplay's View menu, which is where the only copy of these
-        // controls used to live — a writer working in a note had no way to
-        // reach them at all.
-        if canEdit {
-            ToolbarItem(placement: .secondaryAction) {
-                SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
-            }
+        // Reached from here rather than from a screenplay's View menu, which is
+        // where the only copy of these controls used to live — a writer working
+        // in a note had no way to reach them at all.
+        //
+        // Offered whatever posture the document is in, as the lyric editor
+        // offers it: the switch and the ignored-word list are the device's, not
+        // this document's, and a writer who has just unlocked a note to fix the
+        // word the checker keeps underlining should not have had to unlock it
+        // first to say so.
+        ToolbarItem(placement: .secondaryAction) {
+            SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
         }
         // Beside the spelling controls, where the lyric editor and the
         // screenplay's View menu both keep it and for the same reason: both are
@@ -889,13 +1030,17 @@ struct SongEditorView: View {
             title = full.title ?? title
             content = full.content ?? ""
         }
+        // Whether what landed came off the network or off this device — the
+        // copy kept here is the whole document, so it is worth showing and
+        // worth typing into, but it is not evidence of what the server holds.
+        offlineCopySavedAt = model.documentCopySavedAt[document.id]
         // Whatever landed is the baseline for "has anything been typed" —
         // including a load that failed and left the list row's preview. But
         // only a real fetch makes it *base evidence* for held drafts; see
         // `haveServerBaseline`.
         savedTitle = title
         savedContent = content
-        haveServerBaseline = full != nil
+        haveServerBaseline = full != nil && offlineCopySavedAt == nil
         // The document that just landed is where undo stops. What the sheet
         // opened with was the list row's preview — a truncated one — and
         // leaving that at the bottom of the stack would put one press of ⌘Z
@@ -918,7 +1063,10 @@ struct SongEditorView: View {
         if model.heldDocumentDraft(for: document) != nil || content.isEmpty {
             isReading = false
         }
-        adoptHeldDraft(for: document, sawServerCopy: full != nil)
+        // The copy kept on this device is not a server copy, and judging a
+        // held draft's staleness against it would set aside the writer's own
+        // words for disagreeing with words the server may never have held.
+        adoptHeldDraft(for: document, sawServerCopy: haveServerBaseline)
     }
 
     /// Words a previous run couldn't send take the screen back — unless the
@@ -1001,6 +1149,48 @@ struct SongEditorView: View {
             guard !Task.isCancelled else { return }
             await saveNow()
         }
+    }
+
+    /// What the badge's button does: stop waiting and settle this document with
+    /// the server now — the lyric editor's "Sync Now", in a note.
+    ///
+    /// Two errands, and which one it is depends on whether there is anything
+    /// unsent. Words still here go first, without waiting out the debounce or
+    /// the backoff. With nothing to send, the honest reading of the button
+    /// ("Check for Changes", as the panel labels it in the settled state) is to
+    /// ask the server what it holds and take it — but only when this screen has
+    /// nothing of its own to lose, which after the send above is the ordinary
+    /// case.
+    private func syncNow() async {
+        autosave?.cancel()
+        retry?.cancel()
+        retryAttempt = 0
+        if hasUnsavedChanges {
+            await saveNow()
+            return
+        }
+        guard canEdit, let document = target,
+              let full = await model.fetchDocument(document),
+              // The copy on this device is not an answer to "what does the
+              // server say?" — it is the question restated. Adopting it here
+              // would put old words on screen and call them current.
+              model.documentCopySavedAt[document.id] == nil else { return }
+        let serverTitle = full.title ?? ""
+        let serverContent = full.content ?? ""
+        // Typed into while the fetch was in flight: those words are newer than
+        // what came back, and the debounce that will send them is already armed.
+        guard !hasUnsavedChanges else { return }
+        savedTitle = serverTitle
+        savedContent = serverContent
+        haveServerBaseline = true
+        lastSyncedAt = .now
+        guard serverContent != content || serverTitle != title else { return }
+        // The note changed somewhere else. One press of undo back to what was
+        // on this screen a moment ago, the same courtesy an adopted offline
+        // draft gets — nobody watched these words arrive.
+        title = serverTitle
+        content = serverContent
+        formatting.record(serverContent)
     }
 
     /// Try again later, on the backoff the screenplay and the lyric editor
@@ -1089,6 +1279,7 @@ struct SongEditorView: View {
             // The server just accepted these words, which makes them as good
             // a baseline as a fetch.
             haveServerBaseline = true
+            lastSyncedAt = .now
             saveStatus = .saved
             errorMessage = nil
             retry?.cancel()
@@ -1156,6 +1347,7 @@ struct SongEditorView: View {
             // baseline as a fetch — and the one a held draft would be judged
             // against if the next save cannot get out.
             haveServerBaseline = true
+            lastSyncedAt = .now
             saveStatus = .saved
             errorMessage = nil
             retry?.cancel()

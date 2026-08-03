@@ -268,6 +268,13 @@ private struct SongLineField: UIViewRepresentable {
         view.smartDashesType = .no
         view.smartQuotesType = .no
         view.autocapitalizationType = .sentences
+        // Follow the OS text-size setting without waiting for this row to be
+        // rebuilt. `ProseFont` folds Dynamic Type in when the parent's body
+        // runs, which covers the writer's own A−/A+ — but nothing here reads
+        // the size category, so a lyric left open while the system setting was
+        // changed stayed at the old size. The note editor has always asked for
+        // this; a lyric line is the same prose at the same size.
+        view.adjustsFontForContentSizeCategory = true
         view.text = text
         view.onDeleteBackwardAtStart = { [weak coordinator = context.coordinator] in
             coordinator?.parent.onBackspaceAtStart()

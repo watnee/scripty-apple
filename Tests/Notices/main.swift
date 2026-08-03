@@ -107,6 +107,18 @@ func run() {
               notices.isDismissed(key,
                                   state: DismissedNotices.offlineCopyState(savedAt: newer)),
               false)
+
+        // The note editor and the notes workspace show the same words, so they
+        // share a key the same way — and it is not the song one, even for the
+        // same id: a lyric's lines and a document's text are two payloads
+        // cached separately, and one being old says nothing about the other.
+        let documentKey = DismissedNotices.documentCopyKey(documentId: 7)
+        check("both note screens spell the key the same way",
+              documentKey, "document.offlineCopy.7")
+        check("a document's copy is not the song's copy",
+              notices.isDismissed(documentKey,
+                                  state: DismissedNotices.offlineCopyState(savedAt: savedAt)),
+              false)
     }
 
     print("")

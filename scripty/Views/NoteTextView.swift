@@ -31,6 +31,8 @@ final class NoteEditorController {
     /// Puts a remembered state back on screen. Set when the view is made,
     /// alongside the others.
     @ObservationIgnored fileprivate var restore: ((NoteHistory.Snapshot) -> Void)?
+    /// Opens the system find bar over the words. Set with the others.
+    @ObservationIgnored fileprivate var presentFind: ((Bool) -> Void)?
 
     /// The note's own undo stack — see `NoteHistory` for why it is the app's
     /// and not UIKit's. Tracked, so the bar's two buttons dim and undim as the
@@ -56,6 +58,20 @@ final class NoteEditorController {
     /// note is named and then written without reaching for the screen.
     func focus() {
         beginEditing?()
+    }
+
+    /// Find in the note — the system's own find bar, which highlights every hit,
+    /// steps between them and carries Match Case / Whole Words of its own.
+    ///
+    /// The song editor searches by narrowing its lines to the ones that match,
+    /// which is what a lyric is: a list. A note is one field of prose, and the
+    /// same errand in prose is find-and-step, so this is the shape the feature
+    /// takes here rather than the bar the lyric has.
+    ///
+    /// `replacing` offers Replace beside Find, which only means anything where
+    /// the note can be typed into.
+    func find(replacing: Bool = false) {
+        presentFind?(replacing)
     }
 
     /// Undo and redo the note's own text. The keyboard offers ⌘Z through the
@@ -174,6 +190,14 @@ struct NoteTextView: UIViewRepresentable {
         view.font = scaledFont
         view.adjustsFontForContentSizeCategory = true
         view.autocapitalizationType = .sentences
+        // Straight quotes and straight dashes, as the screenplay and the lyric
+        // line already type them. A note is prose, so the keyboard's curly
+        // substitutions would be defensible on their own — but a note is also
+        // insertable into the script as Note blocks, and a paragraph that
+        // arrives there in different punctuation from the paragraph beside it
+        // is the writer's problem to fix by hand. One app, one set of quotes.
+        view.smartDashesType = .no
+        view.smartQuotesType = .no
         view.text = text
         view.onKey = { [weak coordinator = context.coordinator] key in
             coordinator?.handle(key) ?? false
@@ -190,6 +214,9 @@ struct NoteTextView: UIViewRepresentable {
         }
         controller?.restore = { [weak coordinator = context.coordinator] snapshot in
             coordinator?.restore(snapshot)
+        }
+        controller?.presentFind = { [weak view] replacing in
+            view?.findInteraction?.presentFindNavigator(showingReplace: replacing)
         }
         // Through the coordinator's copy of the parent: this struct is rebuilt
         // on every redraw, and what "start writing" means changes with the mode
@@ -220,10 +247,14 @@ struct NoteTextView: UIViewRepresentable {
         context.coordinator.doubleTap.setOffered(!isEditable && startWriting != nil)
         if view.placeholder != placeholder { view.placeholder = placeholder }
 
-        // Only when the size preference really moved — reassigning the font
-        // re-lays-out the whole text.
+        // Only when the type really moved — reassigning the font re-lays-out
+        // the whole text. The whole font, not its size: the writer can change
+        // the *face* without changing the size, and a comparison that looked
+        // only at the point size left a note open behind the settings sheet
+        // sitting in the face it was opened in. The lyric line compares the
+        // same way.
         let font = scaledFont
-        if view.font?.pointSize != font.pointSize { view.font = font }
+        if view.font != font { view.font = font }
 
         view.applySpellchecking(spellChecks, revision: spellcheckRevision)
     }
@@ -431,6 +462,11 @@ final class NoteUITextView: UITextView, SpellcheckingTextView {
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
+        // Find in the note, drawn and driven by the system: every hit
+        // highlighted, next and previous, Match Case and Whole Words — and
+        // ⌘F on a keyboard, without this sheet claiming a chord of its own
+        // (the screenplay owns that one, and this opens over it).
+        isFindInteractionEnabled = true
         placeholderLabel.numberOfLines = 0
         placeholderLabel.textColor = .tertiaryLabel
         placeholderLabel.isAccessibilityElement = false

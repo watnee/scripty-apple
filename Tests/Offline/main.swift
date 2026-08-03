@@ -94,6 +94,8 @@ func run() async {
     print()
     await checkBlocksFallback()
     print()
+    await checkDocumentFallback()
+    print()
     await checkReconnectHoldsWork()
     print()
     await checkQueueArithmetic()
@@ -265,6 +267,61 @@ func checkBlocksFallback() async {
     await bare.loadBlocks()
     check("the writer hears about it", bare.errorMessage != nil)
     check("and nothing pretends to be a cached copy", !bare.isShowingOfflineCopy)
+}
+
+@MainActor
+func checkDocumentFallback() async {
+    print("== A note the network can't fetch opens from the copy on this device ==")
+    let directory = scratchDirectory("document-fallback")
+    let store = OfflineStore(scope: "server|alice", directory: directory)
+    // What the server answered the last time this note was opened. The list
+    // row carries only a preview, so without this copy there is nothing but a
+    // truncated line to put on screen — and typing into *that* would eventually
+    // send it back over the whole note.
+    let noteJSON = """
+    {"id": 7, "projectId": 1, "title": "Casting thoughts",
+     "documentType": "NOTES",
+     "content": "Maya reads younger than the part.\\nAsk about the accent.",
+     "_links": {"self": {"href": "/api/documents/7"},
+                "update": {"href": "/api/documents/7"}}}
+    """
+    store.save(Data(noteJSON.utf8), .document(projectId: 1, documentId: 7))
+
+    let offline = ConnectivityMonitor(startMonitoring: false)
+    offline.adopt(false)
+    let model = ScriptModel(app: AppModel(connectivity: offline), project: project,
+                            draftStore: nil, offlineStore: store)
+    // The list's version of the row: a preview, no content — exactly what the
+    // editor is handed before it fetches.
+    let row: TextDocument = decode(TextDocument.self, """
+    {"id": 7, "projectId": 1, "title": "Casting thoughts",
+     "documentType": "NOTES", "preview": "Maya reads younger…",
+     "_links": {"self": {"href": "/api/documents/7"},
+                "update": {"href": "/api/documents/7"}}}
+    """)
+
+    let fetched = await model.fetchDocument(row)
+    checkEqual("the whole note comes back, not the preview",
+               fetched?.content,
+               "Maya reads younger than the part.\nAsk about the accent.")
+    check("and is stamped as the copy kept on this device",
+          model.documentCopySavedAt[7] != nil)
+    check("no error alert over a readable note", model.errorMessage == nil)
+
+    print()
+    print("== A note never cached still reports the failure ==")
+    let bare = ScriptModel(app: AppModel(connectivity: offline), project: project,
+                           draftStore: nil,
+                           offlineStore: OfflineStore(scope: "server|alice",
+                                                      directory: scratchDirectory("no-document")))
+    let missing = await bare.fetchDocument(row)
+    check("nothing is invented", missing == nil)
+    check("the writer hears about it", bare.errorMessage != nil)
+    check("and nothing pretends to be a cached copy", bare.documentCopySavedAt[7] == nil)
+
+    print()
+    print("== A rename refuses to work from a copy this device is only guessing at ==")
+    check("the rename is not attempted", await model.renameDocument(row, title: "Casting") == false)
 }
 
 @MainActor

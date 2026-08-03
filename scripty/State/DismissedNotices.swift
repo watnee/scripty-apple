@@ -61,6 +61,16 @@ final class DismissedNotices {
         "song.offlineCopy.\(songId)"
     }
 
+    /// One document's stale-copy notice — the words of a note, or of a song the
+    /// server keeps as prose. Kept apart from the song key above even though the
+    /// ids come from one table: those are a lyric's lines and these are a
+    /// document's text, two payloads cached separately, and one of them being
+    /// old says nothing about the other. Two screens raise this one too — the
+    /// note editor and the notes workspace.
+    static func documentCopyKey(documentId: Int) -> String {
+        "document.offlineCopy.\(documentId)"
+    }
+
     /// The situation string for a copy read back from disk. A newer copy is a
     /// different thing to be told, and those same two screens have to agree on
     /// what they are telling.
