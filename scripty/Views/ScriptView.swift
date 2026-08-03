@@ -1188,6 +1188,9 @@ struct ScriptView: View {
         chrome.showsBookmarks = options.showsBookmarks
         chrome.showsElementLabels = options.showsElementLabels
         chrome.scale = textScale
+        // Separately from `scale`, and only the element labels read it — see
+        // `ScriptRowChrome.dynamicTypeScale`.
+        chrome.dynamicTypeScale = dynamicTypeScale
         chrome.columnWidth = ScriptRowChrome.printedMeasure * textScale
         guard availableWidth > 0, textScale > 0 else { return chrome }
         // Each row is padded by 24 either side, so that much of the window was
@@ -1224,7 +1227,8 @@ struct ScriptView: View {
         // column gives up exactly the room they need, because a lopsided page
         // is better than a label printed over a scene heading or an action line
         // running under a bookmark.
-        let leading = options.showsElementLabels ? ElementLabelTag.gutter : 0
+        let leading = options.showsElementLabels
+            ? ElementLabelTag.gutter(scale: dynamicTypeScale) : 0
         let trailing = hasVisibleMarks ? BlockMarkerBadges.gutter : 0
         let margin = (usable - chrome.columnWidth) / 2
         if margin >= max(leading, trailing) {

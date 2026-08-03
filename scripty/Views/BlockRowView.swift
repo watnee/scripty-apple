@@ -54,6 +54,18 @@ struct ScriptRowChrome: Equatable {
     /// remember the size it was resolved at.
     var scale: CGFloat = 1
 
+    /// The OS text-size setting on its own, without the writer's own A−/A+
+    /// folded in.
+    ///
+    /// Only the element labels need it, and they need it separately: the label
+    /// is a fixed 9pt tag whose *width* the writing column is inset by, so it
+    /// has to grow with Dynamic Type or PARENTHETICAL ellipsizes at an
+    /// accessibility size. Growing it with `scale` as well would move the
+    /// gutter at every A−/A+ setting, which is a visible layout change for
+    /// every writer who has touched that control — and one they did not ask
+    /// for by making their system type bigger.
+    var dynamicTypeScale: CGFloat = 1
+
     /// The room kept beside the column for what hangs in the margins: the
     /// element labels on the left, the marks on the right.
     ///
@@ -177,20 +189,30 @@ extension EnvironmentValues {
 /// hold them in `ScriptView.rowChrome` instead.
 struct ElementLabelTag: View {
     let type: BlockType
+    /// The OS text-size setting as a multiplier — `ScriptRowChrome
+    /// .dynamicTypeScale`, which is also what sized the gutter this label
+    /// hangs in. The two must be given the same number or the label either
+    /// truncates or overlaps the words it names.
+    var dynamicTypeScale: CGFloat = 1
 
     /// Room for the longest of them, PARENTHETICAL, without an ellipsis.
-    static let width: CGFloat = 94
+    ///
+    /// A function of the type size rather than a constant: an absolute 9pt
+    /// ignored Dynamic Type entirely, so the tag stayed 9pt at every
+    /// accessibility size — and simply scaling the font without the width
+    /// would have ellipsized PARENTHETICAL instead.
+    static func width(scale: CGFloat) -> CGFloat { 94 * scale }
     /// That, plus the gap between the label and the text it names.
-    static let gutter: CGFloat = width + 12
+    static func gutter(scale: CGFloat) -> CGFloat { width(scale: scale) + 12 * scale }
 
     var body: some View {
         Text(type.label.uppercased())
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: 9 * dynamicTypeScale, weight: .semibold))
             .tracking(0.4)
             .foregroundStyle(.tertiary)
             .lineLimit(1)
-            .frame(width: Self.width, alignment: .trailing)
-            .offset(x: -Self.gutter)
+            .frame(width: Self.width(scale: dynamicTypeScale), alignment: .trailing)
+            .offset(x: -Self.gutter(scale: dynamicTypeScale))
             .accessibilityHidden(true)
     }
 }
@@ -464,7 +486,8 @@ struct BlockRowView: View {
     @ViewBuilder
     private var elementLabel: some View {
         if chrome.showsElementLabels, block.blockType != .pageBreak {
-            ElementLabelTag(type: block.blockType)
+            ElementLabelTag(type: block.blockType,
+                            dynamicTypeScale: chrome.dynamicTypeScale)
                 .padding(.top, topSpacing + 3)
         }
     }

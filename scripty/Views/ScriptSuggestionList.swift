@@ -18,6 +18,9 @@ struct ScriptSuggestionList: View {
     let autocomplete: ScriptAutocomplete
     let onAccept: (ScriptSuggestion) -> Void
 
+    /// The would-become-a tag's size, following the OS text setting.
+    @ScaledMetric(relativeTo: .caption2) private var tagSize: CGFloat = 9
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(autocomplete.suggestions.enumerated()), id: \.element.id) { index, item in
@@ -54,8 +57,13 @@ struct ScriptSuggestionList: View {
                 // Says that accepting this also changes what kind of line it
                 // is — otherwise the retype looks like the app second-guessing.
                 if let becomes = item.becomesType {
+                    // Scaled, not an absolute 9pt: a fixed point size ignores
+                    // the OS text setting entirely, so this tag stayed 9pt at
+                    // every accessibility size while the suggestion beside it
+                    // grew. Nothing is laid out against its width, so unlike
+                    // the script's element labels it can simply scale.
                     Text(becomes.label.uppercased())
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: tagSize, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
             }

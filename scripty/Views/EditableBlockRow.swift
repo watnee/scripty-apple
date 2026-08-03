@@ -321,7 +321,8 @@ struct EditableBlockRow: View {
     @ViewBuilder
     private var elementLabel: some View {
         if chrome.showsElementLabels {
-            ElementLabelTag(type: block.blockType)
+            ElementLabelTag(type: block.blockType,
+                            dynamicTypeScale: chrome.dynamicTypeScale)
                 .padding(.top, topPadding + 5)
                 .accessibilityHidden(true)
         }

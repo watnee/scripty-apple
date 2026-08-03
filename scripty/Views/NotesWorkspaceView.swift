@@ -245,8 +245,14 @@ struct NotesWorkspaceView: View {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.footnote.weight(.semibold))
                     .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
+                    // 32pt is well under the 44pt minimum, and these sit right
+                    // beside the full-width expand button — a miss collapses
+                    // the document instead. 4pt each side is the ceiling here:
+                    // the header spaces them 8pt apart, so any more and
+                    // neighbouring hit areas would overlap rather than meet.
+                    .glyphHitArea()
             }
+            .glyphHitInset()
             .buttonStyle(.borderless)
             .disabled(!draft.history.canUndo)
             .accessibilityLabel("Undo in \(note.displayTitle)")
@@ -257,8 +263,14 @@ struct NotesWorkspaceView: View {
                 Image(systemName: "arrow.uturn.forward")
                     .font(.footnote.weight(.semibold))
                     .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
+                    // 32pt is well under the 44pt minimum, and these sit right
+                    // beside the full-width expand button — a miss collapses
+                    // the document instead. 4pt each side is the ceiling here:
+                    // the header spaces them 8pt apart, so any more and
+                    // neighbouring hit areas would overlap rather than meet.
+                    .glyphHitArea()
             }
+            .glyphHitInset()
             .buttonStyle(.borderless)
             .disabled(!draft.history.canRedo)
             .accessibilityLabel("Redo in \(note.displayTitle)")
@@ -337,8 +349,9 @@ struct NotesWorkspaceView: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
+                .glyphHitArea()
         }
+        .glyphHitInset()
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .accessibilityLabel("Reorder \(note.displayTitle)")
