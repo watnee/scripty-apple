@@ -962,10 +962,10 @@ struct ScriptView: View {
     /// modes moves the words under it and nothing else.
     ///
     /// Tapping it types over it, which is what a click of the title does in
-    /// the web header. Sized against this column rather than the reader's: the
-    /// elements here hold the printed measure by ignoring Dynamic Type (see
-    /// `EditableBlockRow`), and a heading that grew when the rows under it did
-    /// not would belong to a different document.
+    /// the web header. Set through `ScriptTitleType`, which is where the reader
+    /// gets its own heading: the face and the size are the screen's one answer
+    /// rather than each surface's, so the name does not change when the mode
+    /// does.
     @ViewBuilder
     private var titleHeading: some View {
         let name = model.project.displayTitle
@@ -995,10 +995,9 @@ struct ScriptView: View {
                     .accessibilityAction(named: "Rename") { beginRetitling() }
             }
         }
-        .font(.custom(ScriptFont.default.postScriptName, fixedSize: headingFontSize))
-        .fontWeight(.bold)
+        .font(ScriptTitleType.font(scale: textScale))
         .padding(.horizontal, 24)
-        .padding(.bottom, headingFontSize * 2)
+        .padding(.bottom, ScriptTitleType.gap(scale: textScale))
         // The name lands as it is typed, a beat after typing stops, exactly as
         // a note's title does. Deliberately not left to the field losing focus:
         // this screen's elements are UIKit text views that take first responder
@@ -1029,10 +1028,6 @@ struct ScriptView: View {
             commitRetitle()
         }
     }
-
-    /// The type the heading is set in: the column's own size, as the reader
-    /// sets its heading at the reader's.
-    private var headingFontSize: CGFloat { ProseFont.baseSize * settings.textScale }
 
     /// What is actually stored behind the heading — the screenplay title where
     /// the title page sets one, else the project's name. Empty where the
@@ -1801,10 +1796,11 @@ struct ScriptView: View {
     /// gesture that quietly unlocked the script around it would promise a
     /// keyboard that is not coming.
     ///
-    /// The caret goes to the end of the line rather than under the finger: this
-    /// row is SwiftUI text, laid out by the type rather than by a text view, so
-    /// there is no character to ask for at that point — and the end of the line
-    /// tapped is where writing carries on from anyway.
+    /// The caret goes to the end of the line rather than under the finger: a
+    /// locked row draws its words in an inert text view (`ScriptText`), which
+    /// answers no touches and so cannot be asked which character was under one
+    /// — and the end of the line tapped is where writing carries on from
+    /// anyway.
     private func startWriting(at block: Block) -> (() -> Void)? {
         guard options.isEditingLocked, block.isEditable else { return nil }
         return { startWriting(atBlockId: block.id) }

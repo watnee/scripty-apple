@@ -341,26 +341,15 @@ struct EditableBlockRow: View {
     }
 
     /// An explicit alignment set by the writer wins; otherwise the element
-    /// type's screenplay-convention default applies.
+    /// type's screenplay-convention default applies — resolved by
+    /// `Block.nsTextAlignment`, which the two read-only surfaces ask as well, so
+    /// a line the writer centred is centred on all three.
     ///
     /// A cue is *placed* at its indent rather than centred now, so its text is
     /// set from the left of the box it was placed in — centring it inside a box
     /// that already begins at 2.2 inches would push the name off to the right
     /// of where the reader and the printed page put it.
-    private var nsAlignment: NSTextAlignment {
-        if let override = TextAlign(serverValue: block.textAlign) {
-            switch override {
-            case .left: return .left
-            case .center: return .center
-            case .right: return .right
-            }
-        }
-        switch block.blockType {
-        case .centered: return .center
-        case .transition: return .right
-        default: return .left
-        }
-    }
+    private var nsAlignment: NSTextAlignment { block.nsTextAlignment }
 
     /// The air above the element, in the screenplay's own line units — the rule
     /// the reader and the paginator use, so the rhythm holds across a mode

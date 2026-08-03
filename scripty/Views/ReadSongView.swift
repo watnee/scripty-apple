@@ -2,20 +2,21 @@
 //  ReadSongView.swift
 //  scripty
 //
-//  Read mode for a song: the lyric as verse, for reading rather than writing.
+//  Read mode for a song: the lyric with the keyboard taken out of it.
 //
-//  The sibling of `ReadScriptView`, and built to the same rules — the app's
-//  own face, a held measure, the editing chrome left out — because they are the
-//  same posture. What differs is what a lyric is: short lines that must break
-//  where the writer broke them, and blank lines that mean a verse ended rather
-//  than a line with no words in it.
+//  The sibling of `ReadScriptView`, and built to the same rule — the words are
+//  set exactly as the writing surface sets them, and the editing chrome is what
+//  goes. Same face, same size, same left edge, same line for line: the only
+//  difference between the two surfaces is that one takes a caret and the other
+//  does not.
 //
-//  Both readers were serif prose once. The screenplay reader gave that up for
-//  Courier so the script would read as a script, and this one kept it — so a
-//  writer switching from a scene to the song in it met a different typeface
-//  for the length of one tap. It is set in the default face now — the writer's
-//  own choice, Courier Prime until they say otherwise — at the size the lyric
-//  is written at, the way the script reader re-typesets rather than resizes.
+//  It was a re-typesetting before. The reader gathered the lines into stanzas,
+//  gave each verse break twenty-four points of air instead of the blank line
+//  the writer had typed, held the column to a measure of its own and centred
+//  it. All of that reads well on its own and none of it is what the writer had
+//  just been looking at, so entering the mode moved every line of the song
+//  sideways and most of them up. The numbers both surfaces lay out with are in
+//  `ProseColumn` now, and the type is the editor's own font.
 //
 //  Not a screen of its own. Like the script reader, this is one of the song
 //  editor's surfaces: the mode swaps the editable lines for this column in
@@ -24,10 +25,9 @@
 //
 //  Takes plain strings rather than lyric blocks, because a song reaches this
 //  view two ways — as the lines the server stores, and as the text of a song
-//  that has none — and neither shape survives into the reading. Highlights are
-//  deliberately not drawn: a tint is a working mark on a line to come back to,
-//  the same class of thing the script reader leaves out along with notes and
-//  synopses.
+//  that has none. Highlights are deliberately not drawn: a tint is a working
+//  mark on a line to come back to, the same class of thing the script reader
+//  leaves out along with notes and synopses.
 //
 
 import SwiftUI
@@ -36,8 +36,8 @@ import SwiftUI
 ///
 /// Shared because both editors head their own surface with it now, and a title
 /// that changed face or size on the way into reading would be the one part of
-/// the page that moved when the mode did. The lines underneath change — set as
-/// verse here, as editable lines there — and the title deliberately does not.
+/// the page that moved when the mode did. The lines underneath do not change at
+/// all any more, and neither does this.
 ///
 /// In the lyric's own face, which is the script's: the reader gave up its serif
 /// prose so a writer moving between a scene and the song in it would not meet a
@@ -50,16 +50,23 @@ enum DocumentTitleType {
     /// would wrap before the verses did.
     static let baseSize: CGFloat = ProseFont.baseSize * 1.5
 
+    /// Bold in the font itself rather than through `.fontWeight`, because one of
+    /// the four places this is used is a `TextField`: a weight modifier on the
+    /// view around a field does not reach the text inside it, so the name came
+    /// out light while it was being typed and bold the moment it was read.
     static func font(scale: CGFloat) -> Font {
-        .custom(PresentationSettings.shared.defaultFont.postScriptName,
-                fixedSize: baseSize * scale)
+        Font(PresentationSettings.shared.defaultFont
+            .uiFont(size: baseSize * scale, traits: .traitBold))
     }
 }
 
 struct ReadSongView: View {
     let title: String
-    /// The lyric, one string per line, in order. Blank entries are the writer's
-    /// own verse breaks; see `stanzas`.
+    /// The lyric, one string per line, in order — including the blank ones,
+    /// which are drawn as the blank lines they are. A verse break is something
+    /// the writer typed and can see themselves typing; turning it into air on
+    /// the way into reading was this surface deciding it knew better, and it
+    /// cost the writer every line's position to say so.
     let lines: [String]
     let textScale: Double
     /// Start writing the lyric — the double tap's counterpart of the Edit
@@ -71,108 +78,85 @@ struct ReadSongView: View {
     /// is no element to put a caret in, and the editor comes back where it was
     /// left rather than where the finger landed.
     var onEdit: (() -> Void)?
-
-    /// The reader's measure, narrower than the screenplay reader's 640.
+    /// Whether the writing surface behind this one keeps each line as a row of
+    /// its own — the lyric editor does, the plain one does not.
     ///
-    /// A measure is a count of characters, and a lyric line is a fraction of a
-    /// prose paragraph — set to the script's width, a verse becomes a narrow
-    /// ribbon of text stranded down the left of a very wide column. Scaled with
-    /// the type for the reason the script reader scales its own.
-    ///
-    /// Left where it was when the reader gave up its serif face: Courier is the
-    /// wider of the two, so the same width now holds about fifty characters
-    /// rather than sixty — still more than a lyric line asks for, and still
-    /// visibly narrower than the script.
-    private var measure: CGFloat { 520 * scale }
+    /// It decides nothing about how the words *look*; it decides how the height
+    /// of the column is added up, and the two editors add it up differently. A
+    /// row is a view, and a view's height is rounded up to a whole point: a
+    /// lyric of forty lines drawn as forty rows is a few points taller than the
+    /// same forty lines drawn as one text view, and reading the one as the other
+    /// walked every line slowly out of place down the page. So the reader
+    /// rounds the way whichever editor it stands in for rounds.
+    var linesAreRows = false
 
-    /// The OS text-size setting as a multiplier, so the reader honours Dynamic
-    /// Type while keeping its own proportions — exactly as `ReadScriptView`
-    /// folds the two together.
+    /// The OS text-size setting as a multiplier, for the title — which is a
+    /// SwiftUI font sized in points, unlike the lines below it, whose own font
+    /// carries Dynamic Type inside it. Exactly as both song editors scale it.
     @ScaledMetric(relativeTo: .body) private var dynamicTypeScale: CGFloat = 1
 
-    private var scale: CGFloat { CGFloat(textScale) * dynamicTypeScale }
+    private var titleScale: CGFloat { CGFloat(textScale) * dynamicTypeScale }
 
-    /// The lyric's type size: what it is written at, scaled. Reading a song is
-    /// meant to re-set the words, not enlarge them.
-    private var fontSize: CGFloat { ProseFont.baseSize * scale }
-
-    /// The song's own face, which is the screenplay's — see `ProseFont`.
-    ///
-    /// The chosen default rather than the shipped one: a lyric has no font of
-    /// its own to override it with, so the Default Font setting simply is the
-    /// face a song is written and read in, and a script reset to Times brings
-    /// its songs with it. Read here, in a property the body reaches, rather
-    /// than stored — that is what registers the observation.
-    private var face: String { PresentationSettings.shared.defaultFont.postScriptName }
+    /// How wide this surface is, so the words can be given the same definite
+    /// width the editable rows are given — see `ProseColumn.columnWidth(in:)`.
+    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24 * scale) {
+            // Spacing zero: a lyric is single-spaced, and the lines it is being
+            // compared against are text views drawn flush in a list whose
+            // minimum row height has been taken away.
+            VStack(alignment: .leading, spacing: 0) {
                 Text(title.isEmpty ? "Untitled Song" : title)
-                    .font(DocumentTitleType.font(scale: scale))
-                    .fontWeight(.bold)
+                    .font(DocumentTitleType.font(scale: titleScale))
                     .accessibilityAddTraits(.isHeader)
+                    .padding(.top, ProseColumn.titleTopPadding)
+                    .padding(.bottom, ProseColumn.titleBottomPadding)
 
-                ForEach(Array(stanzas.enumerated()), id: \.offset) { _, stanza in
-                    VStack(alignment: .leading, spacing: 3 * scale) {
-                        ForEach(Array(stanza.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.custom(face, fixedSize: fontSize))
-                        }
+                if linesAreRows {
+                    // One text view per line, as the editor keeps one row per
+                    // line — same engine, same width, same rounding.
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        // A blank line is drawn as a space, so it takes the
+                        // line's height the empty row it stands in for takes.
+                        lyric(line.isEmpty ? " " : line)
                     }
-                    // One stanza is one thing to hear, not a list of lines:
-                    // VoiceOver reads the verse through rather than making the
-                    // reader swipe between every line of it.
-                    .accessibilityElement(children: .combine)
+                } else {
+                    // The lyric in one text view, as the plain editor holds it
+                    // in one. A line break is a line break to TextKit, so every
+                    // line still breaks where the writer left it.
+                    lyric(lines.joined(separator: "\n"))
                 }
             }
-            // Take the whole measure rather than settling on the longest line.
-            // A lazy stack is only as wide as the rows it has built, so without
-            // this the column — and, being centred, its left edge — would shift
-            // as scrolling brought a longer line into the window.
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxWidth: measure, alignment: .leading)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 24)
-            .textSelection(.enabled)
-            // Two taps in the verse are the same instruction as Edit in the
-            // toolbar, the way they are in Pages and Word. On the column rather
-            // than on each line: a stanza is one thing here, and the gesture
-            // means "write this song" rather than "write this line".
-            .doubleTapToEdit(onEdit)
+            .padding(.horizontal, ProseColumn.horizontalPadding)
+            .padding(.bottom, ProseColumn.bottomSlack)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+            availableWidth = $0
         }
         .overlay { emptyState }
     }
 
-    /// The lyric split into stanzas: runs of lines, broken wherever the writer
-    /// left a blank one.
-    ///
-    /// A blank line in a lyric is a verse break rather than a line with no
-    /// words in it, so it becomes air between stanzas instead of an empty row —
-    /// and a run of several blanks is one break, the way it reads on paper.
-    /// Whitespace-only lines count as blank: a line holding a stray space was
-    /// still typed as a gap.
-    private var stanzas: [[String]] {
-        var built: [[String]] = []
-        var current: [String] = []
-        for line in lines {
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                if !current.isEmpty {
-                    built.append(current)
-                    current = []
-                }
-            } else {
-                current.append(line)
-            }
-        }
-        if !current.isEmpty { built.append(current) }
-        return built
+    /// One stretch of lyric, set the way the editor sets it. Two taps in it are
+    /// the same instruction as Edit in the toolbar, the way they are in Pages
+    /// and Word.
+    private func lyric(_ text: String) -> some View {
+        ProseText(text: text, textScale: textScale, startWriting: onEdit)
+            .frame(width: ProseColumn.columnWidth(in: availableWidth),
+                   alignment: .leading)
+    }
+
+    /// Whether there is a word here to read. Blank lines do not count: a lyric
+    /// of nothing but empty lines is an empty lyric, however many Returns went
+    /// into it.
+    private var isEmpty: Bool {
+        lines.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
     @ViewBuilder
     private var emptyState: some View {
-        if stanzas.isEmpty {
+        if isEmpty {
             ContentUnavailableView(
                 "Nothing to Read",
                 systemImage: "music.note",

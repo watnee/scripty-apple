@@ -127,13 +127,15 @@ struct SongLineRow: View {
                               }
                           }
                       })
-        .padding(.vertical, 2)
         .padding(.horizontal, 4)
         // The list's own row insets would put a blank line's worth of air
         // between one lyric line and the next, which reads as double spacing.
-        // A verse is single-spaced: the 2pt row padding above is the only
-        // vertical gap, matching the near-flush lines of the web's song
-        // editor. Horizontal stays at the plain list's usual 16pt.
+        // A verse is single-spaced, and a line is exactly as tall as its own
+        // text: the two points of padding this row used to carry were two
+        // points the reading surface — a stack of flush lines — did not, and
+        // they compounded down a verse into a visible shift on the way into
+        // reading. Horizontal stays at the plain list's usual 16pt, which with
+        // the 4 above is `ProseColumn.horizontalPadding`.
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowBackground(rowBackground)
         // Both swipes change the lyric, so both go while the song is locked. A

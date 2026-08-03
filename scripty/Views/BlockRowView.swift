@@ -157,6 +157,143 @@ extension View {
     }
 }
 
+extension Block {
+    /// Where this element's lines sit inside their own box, as UIKit wants it.
+    ///
+    /// One answer for all three surfaces: the writer's own alignment where they
+    /// set one, and otherwise the element's — centred for a centred element,
+    /// right for a transition, left for everything else. It used to be resolved
+    /// separately by the text views and by the two read-only surfaces, in two
+    /// different types, which is two chances to disagree about a line the writer
+    /// centred.
+    var nsTextAlignment: NSTextAlignment {
+        if let override = TextAlign(serverValue: textAlign) {
+            switch override {
+            case .left: return .left
+            case .center: return .center
+            case .right: return .right
+            }
+        }
+        switch blockType {
+        case .centered: return .center
+        case .transition: return .right
+        default: return .left
+        }
+    }
+}
+
+/// One element of a screenplay that cannot be typed into: the reading surface's
+/// line, and a locked row's.
+///
+/// A `UITextView` rather than SwiftUI `Text`, and that is the whole point of it.
+/// SwiftUI and TextKit break lines differently — at the identical width in the
+/// identical font, SwiftUI gives up on a word roughly one earlier — so a wrapped
+/// element came out with a different number of lines on the surface the writer
+/// was reading from than on the one they had been typing into, and everything
+/// below it moved down the page. The writing column is a `UITextView`
+/// (`BlockTextView`), so these are too, set up the same way: same font, same
+/// alignment, same underline attribute, same zero insets.
+///
+/// Deliberately inert — not selectable, no gestures of its own. It is a
+/// renderer. Everything a reader can do to a line (two taps to write in it, hold
+/// for the menu) belongs to the row around it, and a text view that answered
+/// touches itself would swallow both.
+struct ScriptText: UIViewRepresentable {
+    let text: String
+    let font: UIFont
+    let alignment: NSTextAlignment
+    let isUnderlined: Bool
+    /// Drawn in the secondary colour: sections and synopses, which are the
+    /// writer's own marginalia rather than the script.
+    var isSecondary = false
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.isEditable = false
+        view.isSelectable = false
+        view.isScrollEnabled = false
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        // Spoken by the row, which names the element type and reads the whole
+        // of it — see `BlockRowView.accessibilityDescription`.
+        view.isAccessibilityElement = false
+        apply(to: view)
+        return view
+    }
+
+    /// Wrap at the width SwiftUI offers rather than at the text's own idea of
+    /// how wide it wants to be — and round the height up exactly as the
+    /// editable row does, so the two stack to the same place.
+    func sizeThatFits(_ proposal: ProposedViewSize,
+                      uiView: UITextView,
+                      context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0, width.isFinite else { return nil }
+        let fitted = uiView.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(fitted.height))
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        apply(to: view)
+    }
+
+    @MainActor
+    private func apply(to view: UITextView) {
+        let colour: UIColor = isSecondary ? .secondaryLabel : .label
+        // One assignment, as an attributed string: the underline is the one
+        // style a `UIFont` cannot carry, and nothing here is ever typed into,
+        // so there is no caret arithmetic to protect the way `BlockTextView`
+        // has to protect its own.
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: colour
+        ]
+        if isUnderlined { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        attributes[.paragraphStyle] = paragraph
+
+        let attributed = NSAttributedString(string: text, attributes: attributes)
+        if view.attributedText != attributed { view.attributedText = attributed }
+    }
+}
+
+/// The screenplay's name, at the head of the column — on both surfaces.
+///
+/// Here rather than in either of them for the reason the chrome above is here:
+/// the writing column and the reader each head the page with the project's
+/// title, and each resolved the type for itself. They disagreed twice. The
+/// column asked for the *shipped* face rather than the writer's chosen one, so a
+/// script set in Times was headed in Courier until it was read; and it sized the
+/// heading against the writer's type control alone while the reader folded
+/// Dynamic Type in as well, so at any OS text size but the default the two names
+/// were set at different sizes and everything under them started at a different
+/// height.
+@MainActor
+enum ScriptTitleType {
+    /// The heading's size: one line of the column, at whatever scale the screen
+    /// resolved — which carries the writer's type-size control and the system's
+    /// Dynamic Type setting together, exactly as the elements below it do.
+    static func size(scale: CGFloat) -> CGFloat { ProseFont.baseSize * scale }
+
+    /// The script's own face — the writer's chosen default, never the shipped
+    /// one, for the reason `ScriptFont.element` gives.
+    ///
+    /// Bold in the font itself rather than through `.fontWeight`, because the
+    /// writing column's heading is a `TextField` while it is being typed over,
+    /// and a weight modifier on the view around a field does not reach the text
+    /// inside it.
+    static func font(scale: CGFloat) -> Font {
+        Font(PresentationSettings.shared.defaultFont
+            .uiFont(size: size(scale: scale), traits: .traitBold))
+    }
+
+    /// The air under it: two blank lines, the way a title page leaves them.
+    static func gap(scale: CGFloat) -> CGFloat { size(scale: scale) * 2 }
+}
+
 private struct ScriptRowChromeKey: EnvironmentKey {
     static let defaultValue = ScriptRowChrome()
 }
@@ -322,11 +459,10 @@ struct BlockRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             elementView
-                // How the lines of a wrapped element line up with each other.
-                // Without it a centred element centres as a block here while
-                // the text view centres each line, so the two disagree from the
-                // second line down.
-                .multilineTextAlignment(multilineAlignment)
+                // How the lines of a wrapped element line up with each other is
+                // the text view's own business now — `ScriptText` carries the
+                // block's alignment in its paragraph style, the way the
+                // editable row hands `BlockTextView` the same value.
                 .blockHighlight(block)
             BlockTagRow(block: block)
         }
@@ -425,13 +561,11 @@ struct BlockRowView: View {
                 .screenplayBox(block.blockType, in: chrome)
 
         case .section:
-            styledText(displayContent)
-                .foregroundStyle(.secondary)
+            styledText(displayContent, secondary: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .synopsis:
-            styledText(displayContent)
-                .foregroundStyle(.secondary)
+            styledText(displayContent, secondary: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .note:
@@ -502,40 +636,17 @@ struct BlockRowView: View {
         }
     }
 
-    /// The `TextAlignment` counterpart of the text view's own alignment — see
-    /// `EditableBlockRow.nsAlignment`, which resolves the same question the same
-    /// way for the row this one stands in for.
-    private var multilineAlignment: TextAlignment {
-        if let override = TextAlign(serverValue: block.textAlign) {
-            switch override {
-            case .left: return .leading
-            case .center: return .center
-            case .right: return .trailing
-            }
-        }
-        switch block.blockType {
-        case .centered: return .center
-        case .transition: return .trailing
-        default: return .leading
-        }
-    }
-
-    private func styledText(_ string: String) -> Text {
-        var text = Text(string.isEmpty ? " " : string)
-            .font(baseFont)
-        if block.textUnderline ?? false { text = text.underline() }
-        return text
-    }
-
-    /// The element's face, weight and italics in one resolved font — the same
-    /// one the text view that replaces this row when the script is unlocked
-    /// asks for, so locking editing cannot re-wrap a single line.
-    ///
-    /// Fixed size: the scale in the environment already carries both the
-    /// script's own type-size control and the system's Dynamic Type setting,
-    /// and letting the text style apply the second one again would compound it.
-    private var baseFont: Font {
-        Font(ScriptFont.element(block, size: fontSize))
+    /// One line of a locked element, through the same text engine the writer
+    /// types into — see `ScriptText`. `secondary` is the marginalia colour a
+    /// section and a synopsis are drawn in, which used to be a
+    /// `.foregroundStyle` on the view and cannot be, now that the view is a
+    /// text view that colours its own glyphs.
+    private func styledText(_ string: String, secondary: Bool = false) -> some View {
+        ScriptText(text: string.isEmpty ? " " : string,
+                   font: ScriptFont.element(block, size: fontSize),
+                   alignment: block.nsTextAlignment,
+                   isUnderlined: block.textUnderline ?? false,
+                   isSecondary: secondary)
     }
 
     /// One line of the writing column, in points — the same base every other
