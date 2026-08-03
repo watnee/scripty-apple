@@ -47,6 +47,8 @@ struct SongsWorkspaceView: View {
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
     @State private var showingIgnoredWords = false
+    /// Whether the two-versions screen is up, over every song open here.
+    @State private var showingConflicts = false
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
@@ -116,6 +118,16 @@ struct SongsWorkspaceView: View {
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
+            }
+            .sheet(isPresented: $showingConflicts) {
+                SyncConflictsView(
+                    conflicts: openConflicts,
+                    keepMine: { conflict in
+                        guard let lyric = lyric(holding: conflict) else { return .failed }
+                        return await lyric.keepMine(conflict)
+                    },
+                    keepTheirs: { conflict in lyric(holding: conflict)?.keepTheirs(conflict) },
+                    noun: "line")
             }
             // Leaving flushes every song that was opened: a line half-typed in
             // the third song down is no less precious than one in the first.
@@ -406,9 +418,26 @@ struct SongsWorkspaceView: View {
     /// first, and nothing else here would say so while that song is collapsed.
     private var cloudState: CloudSyncState? {
         guard !app.isDemo else { return nil }
+        // Ahead of the rest, as everywhere else: those clear up on their own
+        // and this one is waiting on the writer.
+        if !openConflicts.isEmpty { return .conflicted }
         if !app.connectivity.isOnline { return .offline }
         if lyrics.values.contains(where: \.hasFailedSaves) { return .failed }
         return lyrics.values.contains(where: \.hasUnsavedChanges) ? .holding : .synced
+    }
+
+    /// Every unanswered disagreement across the songs opened here, oldest
+    /// first. Only the songs that have been opened have a lyric model to have
+    /// found one — the same limit the held-line count above lives with.
+    private var openConflicts: [SyncConflict] {
+        lyrics.values.flatMap(\.conflicts).sorted { $0.detectedAt < $1.detectedAt }
+    }
+
+    /// Which song's lyric a conflict belongs to. The workspace shows one list
+    /// over many models, so the resolution has to be handed back to the model
+    /// that filed it — anything else would write a verse into the wrong song.
+    private func lyric(holding conflict: SyncConflict) -> SongBlockModel? {
+        lyrics.values.first { $0.conflicts.contains { $0.id == conflict.id } }
     }
 
     /// Lines still kept on this device, counted across every open song.
@@ -431,7 +460,9 @@ struct SongsWorkspaceView: View {
         // anywhere but here.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
-                CloudSyncBadge(state: cloud, heldCount: heldLineCount)
+                CloudSyncBadge(state: cloud, heldCount: heldLineCount,
+                               conflictCount: openConflicts.count,
+                               review: openConflicts.isEmpty ? nil : { showingConflicts = true })
             }
             .sharedBackgroundVisibility(.hidden)
         }

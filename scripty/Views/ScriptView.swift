@@ -55,6 +55,11 @@ struct ScriptView: View {
     @State private var showingOutline = false
     @State private var showingStats = false
     @State private var showingIgnoredWords = false
+    /// Whether the two-versions screen is up. Never opened on its own: a sheet
+    /// that took the script away mid-sentence because a sweep found something
+    /// would be the writing equivalent of being interrupted mid-word. The
+    /// banner and the cloud badge wait to be pressed.
+    @State private var showingConflicts = false
     /// Whether the format bar is unfolded above the element-type bar. Off by
     /// default and deliberately not persisted: formatting is an occasional
     /// errand, and each session should start with the screen it saves.
@@ -262,6 +267,9 @@ struct ScriptView: View {
         .environment(\.scriptRowChrome, rowChrome)
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                // Above the held-work strip: everything that one reports is
+                // waiting on a connection, and this is waiting on the writer.
+                conflictBanner
                 unsavedBanner
                 editionBanner
             }
@@ -627,6 +635,12 @@ struct ScriptView: View {
         .sheet(isPresented: $showingIgnoredWords) {
             SpellcheckWordsView()
         }
+        .sheet(isPresented: $showingConflicts) {
+            SyncConflictsView(conflicts: model.conflicts,
+                              keepMine: { await model.keepMine($0) },
+                              keepTheirs: { model.keepTheirs($0) },
+                              noun: "change")
+        }
         // Importing replaces every element, so the picker, its destructive
         // confirmation and the result all live here rather than on the toolbar
         // button — the File menu's ⌘⇧I opens the same picker, focus mode or not.
@@ -676,6 +690,10 @@ struct ScriptView: View {
     /// work is one question, not two.
     private var cloudState: CloudSyncState? {
         guard !model.app.isDemo else { return nil }
+        // First of all: the other states clear up on their own and this one
+        // cannot. A writer who reads "offline" over two versions of their own
+        // scene waits for a connection that will not settle anything.
+        if model.hasConflicts { return .conflicted }
         if !model.app.connectivity.isOnline { return .offline }
         // Refused beats retrying: with both on screen, the one that will not
         // fix itself is the one the badge must name.
@@ -766,6 +784,17 @@ struct ScriptView: View {
                     "\(count) " + (count == 1 ? "element is" : "elements are")
                     + " not saved to the server yet. Your work is kept on this device "
                     + "and will be saved when the connection returns.")
+        }
+    }
+
+    /// Two versions of something exist and only the writer can say which one
+    /// wins. Its own strip rather than a fourth state of the one below,
+    /// because it is not a state of the connection and — alone among these —
+    /// it is a thing to press rather than a thing to read.
+    @ViewBuilder
+    private var conflictBanner: some View {
+        if !model.conflicts.isEmpty {
+            ConflictBanner(count: model.conflicts.count) { showingConflicts = true }
         }
     }
 
@@ -2257,7 +2286,9 @@ struct ScriptView: View {
                 CloudSyncBadge(state: cloud,
                                heldCount: model.unsavedBlockIds.count + model.heldDocumentIds.count,
                                lastSyncedAt: model.lastSyncedAt,
-                               sync: { await model.syncNow() })
+                               sync: { await model.syncNow() },
+                               conflictCount: model.conflicts.count,
+                               review: { showingConflicts = true })
             }
             .sharedBackgroundVisibility(.hidden)
         }

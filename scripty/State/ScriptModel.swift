@@ -134,6 +134,24 @@ final class ScriptModel {
     /// status bar and the reconnect sweep both read this.
     private(set) var heldDocumentIds: Set<Int> = []
 
+    /// Where words that cannot be sent *without a decision* wait. Nil exactly
+    /// when the draft store is (signed out, demo), in which case `conflicts`
+    /// below is the whole memory and lasts the session.
+    @ObservationIgnored private let conflictStore: ConflictStore?
+
+    /// The disagreements between this device's copy and the server's that are
+    /// waiting on the writer. Held here as well as on disk because this is
+    /// what the banner counts and the review sheet draws — the store only
+    /// makes it outlive the launch.
+    ///
+    /// Deliberately *not* part of `hasHeldWork`: nothing retries a conflict.
+    /// A sweep that treated these as work to push would either clobber the
+    /// other version or spin forever, and the badge would promise a
+    /// connection could finish something only a person can.
+    private(set) var conflicts: [SyncConflict] = []
+
+    var hasConflicts: Bool { !conflicts.isEmpty }
+
     /// Set when the script on screen is the offline copy rather than the
     /// server's answer, with when that copy was saved.
     private(set) var offlineCopySavedAt: Date?
@@ -153,16 +171,21 @@ final class ScriptModel {
 
     init(app: AppModel, project: Project, draftStore: UnsavedDraftStore? = nil,
          offlineStore: OfflineStore? = nil, createQueue: OfflineBlockQueue? = nil,
-         documentDrafts: UnsavedDocumentStore? = nil) {
+         documentDrafts: UnsavedDocumentStore? = nil, conflictStore: ConflictStore? = nil) {
         self.app = app
         self.project = project
         self.draftStore = draftStore ?? app.draftScope.map { UnsavedDraftStore(scope: $0) }
         self.offlineStore = offlineStore ?? app.offlineStore
         self.createQueue = createQueue ?? app.draftScope.map { OfflineBlockQueue(scope: $0) }
         self.documentDrafts = documentDrafts ?? app.draftScope.map { UnsavedDocumentStore(scope: $0) }
+        self.conflictStore = conflictStore ?? app.draftScope.map { ConflictStore(scope: $0) }
         // Left by an earlier run; the sweep's flags come up with the model so
         // the badge never claims "synced" over words still only on this device.
         heldDocumentIds = Set(self.documentDrafts?.drafts(projectId: project.id).keys.map { $0 } ?? [])
+        // Same reason, one step further: a conflict nobody answered before the
+        // app was last put down is still unanswered, and the version it holds
+        // exists nowhere else.
+        conflicts = self.conflictStore?.conflicts(collectionId: project.id) ?? []
     }
 
     // MARK: - Loading
@@ -743,12 +766,14 @@ final class ScriptModel {
     /// retry machinery and the unsaved-work banner take over. Idempotent —
     /// a block already being edited (or already restored) is left alone.
     ///
-    /// A draft whose base no longer matches the server is *dropped*: someone
-    /// edited that element elsewhere since the save failed, and the server is
-    /// last-write-wins, so pushing the old draft would clobber newer words.
+    /// A draft whose base no longer matches the server is not adopted and not
+    /// thrown away either: someone edited that element elsewhere since the save
+    /// failed, the server is last-write-wins, and pushing the old draft would
+    /// clobber their newer words. Both versions go to `conflicts`, where the
+    /// writer picks one. See `SyncConflict`.
     func adoptPersistedDrafts() {
         guard let store = draftStore else { return }
-        var setAside = 0
+        var conflicted = 0
         for (id, draft) in store.drafts(projectId: project.id) {
             guard liveText[id] == nil, !unsavedBlockIds.contains(id) else { continue }
             guard let block = blocks.first(where: { $0.id == id }) else {
@@ -764,22 +789,139 @@ final class ScriptModel {
             guard draft.baseText == nil || draft.baseText == server else {
                 // Someone edited this element elsewhere since the save failed,
                 // and the server is last-write-wins: pushing the draft would
-                // clobber the newer words. The draft goes — but these are
-                // words the writer typed and never saw land, so it must not
-                // go silently.
+                // clobber the newer words. Neither version is this client's to
+                // discard, so the draft leaves the retry machinery — nothing
+                // here is going to be sent on a timer — and both copies wait
+                // together for the one person who can choose between them.
                 store.remove(blockId: id, projectId: project.id)
-                setAside += 1
+                recordConflict(SyncConflict(
+                    subject: .block(id: id), reason: .changedElsewhere,
+                    mine: draft.text, theirs: server, base: draft.baseText,
+                    label: block.blockType.label, detectedAt: draft.savedAt))
+                conflicted += 1
                 continue
             }
             liveText[id] = draft.text
             unsavedBlockIds.insert(id)
             scheduleCommit(id)
         }
-        if setAside > 0 {
-            presentToast(setAside == 1
-                ? "An offline edit was set aside — that line changed elsewhere"
-                : "\(setAside) offline edits were set aside — those lines changed elsewhere")
+        if conflicted > 0 {
+            presentToast(conflicted == 1
+                ? "An offline edit needs your choice — that line changed elsewhere"
+                : "\(conflicted) offline edits need your choice — those lines changed elsewhere")
         }
+    }
+
+    // MARK: - Conflicts
+
+    /// File a disagreement, or bring one already filed for the same thing up
+    /// to date. The store is the durable copy; `conflicts` is what the screen
+    /// reads, and stays right even signed out, where there is no store.
+    private func recordConflict(_ conflict: SyncConflict) {
+        if let store = conflictStore {
+            store.record(conflict, collectionId: project.id)
+            conflicts = store.conflicts(collectionId: project.id)
+            return
+        }
+        var entry = conflict
+        if let index = conflicts.firstIndex(where: { $0.id == conflict.id }) {
+            // The store's rule, kept by hand: a repeat is the same
+            // disagreement seen again, and when it began does not move.
+            entry.detectedAt = conflicts[index].detectedAt
+            entry.base = conflicts[index].base ?? conflict.base
+            conflicts[index] = entry
+        } else {
+            conflicts.append(entry)
+        }
+        conflicts.sort { $0.detectedAt < $1.detectedAt }
+    }
+
+    private func forgetConflict(_ id: String) {
+        conflictStore?.remove(id: id, collectionId: project.id)
+        conflicts.removeAll { $0.id == id }
+    }
+
+    /// Keep the words typed on this device, over whatever the server has now.
+    ///
+    /// The choice is made once, here — after this the words go back into the
+    /// ordinary held-work machinery (live on screen, snapshotted as a draft,
+    /// retried on the usual backoff), which exists precisely so that words
+    /// waiting on a connection are never lost. So the conflict is resolved
+    /// even when this particular write does not land: a second copy of the
+    /// same words sitting in `conflicts` would be counted twice by the banner
+    /// and answered twice by the writer.
+    ///
+    /// Returns what became of the write, so the sheet can say "sent" or "kept
+    /// on this device" rather than guessing.
+    @discardableResult
+    func keepMine(_ conflict: SyncConflict) async -> ConflictResolution {
+        switch conflict.subject {
+        case let .block(id):
+            guard blocks.contains(where: { $0.id == id }) else { return .failed }
+            forgetConflict(conflict.id)
+            liveText[id] = conflict.mine
+            unsavedBlockIds.insert(id)
+            failedBlockIds.remove(id)
+            // A decision is a fresh start, not a continuation of whatever
+            // backoff this element had run out of days ago.
+            retryAttempts[id] = nil
+            switch await commitOutcome(id) {
+            case .saved:
+                // The words are the server's now; nothing on screen is
+                // holding them and the live copy can go back to being a
+                // mirror rather than the only copy.
+                if !unsavedBlockIds.contains(id) { liveText[id] = nil }
+                return .sent
+            case .held: return .held
+            case .failed: return .failed
+            }
+        case let .document(id):
+            guard let document = documents.first(where: { $0.id == id }) else { return .failed }
+            forgetConflict(conflict.id)
+            // The base handed in is the copy this conflict was found against —
+            // what the server said a moment ago — so if the write has to wait
+            // and the note moves on again, the next sweep judges it against
+            // the right thing rather than against a state from before the
+            // divergence.
+            switch await saveDocumentOutcome(document,
+                                             title: conflict.mineTitle ?? document.title ?? "",
+                                             content: conflict.mine,
+                                             baseTitle: conflict.theirsTitle,
+                                             baseContent: conflict.hasTheirs ? conflict.theirs : nil) {
+            case .saved: return .sent
+            case .held: return .held
+            case .failed: return .failed
+            }
+        case .lyricLine:
+            // A lyric line belongs to `SongBlockModel`, which keeps its own
+            // conflicts against its own collection. Nothing to apply here.
+            return .failed
+        }
+    }
+
+    /// Let the server's version stand and drop this device's. Nothing to send:
+    /// the words on screen already are the server's — this only stops asking.
+    func keepTheirs(_ conflict: SyncConflict) {
+        forgetConflict(conflict.id)
+        // Belt and braces: if anything left a stale live copy over the row,
+        // the server's words take the screen back.
+        if case let .block(id) = conflict.subject, !unsavedBlockIds.contains(id) {
+            liveText[id] = nil
+        }
+    }
+
+    /// Answer every open conflict the same way. Offered because the common
+    /// shape of this is a batch — one offline stretch, one other person
+    /// working through the same scene — and going one by one to say the same
+    /// thing ten times is its own small punishment.
+    func keepAllMine() async {
+        for conflict in conflicts where conflict.canKeepMine {
+            await keepMine(conflict)
+        }
+    }
+
+    func keepAllTheirs() {
+        for conflict in conflicts { keepTheirs(conflict) }
     }
 
     // MARK: - Elements written offline
@@ -2151,6 +2293,28 @@ final class ScriptModel {
         documentDrafts?.draft(documentId: document.id, projectId: project.id)
     }
 
+    /// The editor sheet found what the sweep looks for: it opened over a note
+    /// this device is holding words for, and the server's copy has moved on
+    /// since. Same treatment as the sweep's, from the other side — the draft
+    /// stops being work to send, and both versions wait for the answer.
+    func quarantineDocumentDraft(_ draft: UnsavedDocumentDraft,
+                                 serverTitle: String, serverContent: String) {
+        discardDocumentDraft(for: draft.documentId)
+        recordConflict(SyncConflict(
+            subject: .document(id: draft.documentId), reason: .changedElsewhere,
+            mine: draft.content, mineTitle: draft.title,
+            theirs: serverContent, theirsTitle: serverTitle,
+            base: draft.baseContent,
+            label: serverTitle.isEmpty ? draft.title : serverTitle,
+            detectedAt: draft.savedAt))
+    }
+
+    /// The conflicts filed against one document — what its editor sheet shows,
+    /// where the script's own banner shows all of them.
+    func conflicts(forDocument id: Int) -> [SyncConflict] {
+        conflicts.filter { $0.subject == .document(id: id) }
+    }
+
     /// Drop a document's held words — the editor adopting a draft found stale,
     /// or a writer discarding their own edits.
     func discardDocumentDraft(for id: Int) {
@@ -2179,10 +2343,18 @@ final class ScriptModel {
                 if listIsLoaded {
                     // The note is gone — deleted here or elsewhere. Held
                     // words for a document that no longer exists cannot ever
-                    // land; carrying them means a badge that counts a ghost
-                    // forever. They go, and not silently.
+                    // land; carrying them as held work means a badge that
+                    // counts a ghost forever. They stop being work to send
+                    // and become something to read: a whole note's writing is
+                    // too much to drop on a toast's say-so, and copying it
+                    // somewhere else is the only rescue left.
                     discardDocumentDraft(for: draft.documentId)
-                    presentToast("An offline edit to “\(draft.title)” was set aside — that note was deleted")
+                    recordConflict(SyncConflict(
+                        subject: .document(id: draft.documentId), reason: .targetDeleted,
+                        mine: draft.content, mineTitle: draft.title, theirs: "",
+                        base: draft.baseContent, label: draft.title,
+                        detectedAt: draft.savedAt))
+                    presentToast("Your edit to “\(draft.title)” is kept here — that note was deleted")
                 }
                 continue
             }
@@ -2199,9 +2371,16 @@ final class ScriptModel {
             guard baseMatches else {
                 // Someone edited this note elsewhere since the save failed,
                 // and the server is last-write-wins: pushing the draft would
-                // clobber the newer words. It goes — never silently.
+                // clobber the newer words. Neither version is the sweep's to
+                // throw away, so both wait for the writer.
                 discardDocumentDraft(for: draft.documentId)
-                presentToast("An offline edit to “\(draft.title)” was set aside — it changed elsewhere")
+                recordConflict(SyncConflict(
+                    subject: .document(id: draft.documentId), reason: .changedElsewhere,
+                    mine: draft.content, mineTitle: draft.title,
+                    theirs: serverContent, theirsTitle: serverTitle,
+                    base: draft.baseContent, label: serverTitle.isEmpty ? draft.title : serverTitle,
+                    detectedAt: draft.savedAt))
+                presentToast("“\(draft.title)” needs your choice — it changed elsewhere")
                 continue
             }
             switch await saveDocumentOutcome(full, title: draft.title, content: draft.content) {
@@ -2209,10 +2388,18 @@ final class ScriptModel {
                 landed = true
             case .failed:
                 // Refused — a failure no sweep will fix, and a draft that
-                // stays would re-raise the same alert on every reconnect.
-                // Set it aside, and say so.
+                // stays would re-raise the same alert on every reconnect. It
+                // leaves the sweep, but the words themselves stay: a refusal
+                // is the one case where the writer's copy may be the only one
+                // that exists, and they get to keep or copy it.
                 discardDocumentDraft(for: draft.documentId)
-                presentToast("An offline edit to “\(draft.title)” couldn't be saved and was set aside")
+                recordConflict(SyncConflict(
+                    subject: .document(id: draft.documentId), reason: .refused,
+                    mine: draft.content, mineTitle: draft.title,
+                    theirs: serverContent, theirsTitle: serverTitle,
+                    base: draft.baseContent, label: serverTitle.isEmpty ? draft.title : serverTitle,
+                    detectedAt: draft.savedAt))
+                presentToast("“\(draft.title)” couldn't be saved — your version is kept here")
             case .held:
                 break
             }

@@ -791,6 +791,10 @@ struct ProjectsSidebarView: View {
             // keeps the cached rows and the offline footer instead — but the
             // switch must speak for every state the badge can wear.
             "The list couldn't be refreshed. Showing the screenplays saved on this device."
+        case .conflicted:
+            // Nor this: two versions of the same words are a thing inside one
+            // screenplay, and this list has no screenplay open to say it of.
+            "Some changes are waiting for you to choose a version. Open the screenplay to review them."
         }
     }
 

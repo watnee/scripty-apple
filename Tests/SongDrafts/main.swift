@@ -169,7 +169,8 @@ func run() async {
                                 baseText: "First verse.", savedAt: .now),
                    projectId: song.id)
         // Stale: the server no longer matches this draft's base — someone
-        // edited the line elsewhere, so the draft must be dropped, not pushed.
+        // edited the line elsewhere, so the draft must not be pushed. Nor
+        // dropped: both versions are kept for the writer to choose between.
         store.save(UnsavedDraft(blockId: 41, text: "Old offline words.",
                                 baseText: "What the server used to say.", savedAt: .now),
                    projectId: song.id)
@@ -183,7 +184,10 @@ func run() async {
         checkEqual("the stale draft leaves the server's words alone",
                    model.currentText(model.blocks[1]), "Second verse.")
         check("and is gone from disk", store.drafts(projectId: song.id)[41] == nil)
-        check("the set-aside words are named to the writer", model.errorMessage != nil)
+        checkEqual("but the words are kept for the writer to choose",
+                   model.conflicts.first?.mine, "Old offline words.")
+        check("said by the banner, not by an alert demanding a tap before the "
+              + "next word", model.errorMessage == nil)
     }
 
     print()
@@ -499,26 +503,33 @@ func checkNoteDraftDrain() async {
     checkEqual("and the server now says it", after?.content, "Written on the train.")
 
     // A draft whose base no longer matches: someone edited elsewhere, so the
-    // sweep sets it aside rather than clobbering their words.
+    // sweep keeps both versions and asks rather than clobbering their words.
     store.save(UnsavedDocumentDraft(documentId: note.id,
                                     title: full.title ?? "", content: "Stale offline words.",
                                     baseTitle: full.title, baseContent: "Not what the server says.",
                                     savedAt: .now),
                projectId: project.id)
     await model.syncHeldWork()
-    check("the stale draft is set aside", store.drafts(projectId: project.id).isEmpty)
+    check("the stale draft leaves the sweep", store.drafts(projectId: project.id).isEmpty)
     let unchanged = await model.fetchDocument(note)
     checkEqual("and the server's words stand", unchanged?.content, "Written on the train.")
+    checkEqual("but the writer's words are kept to choose from",
+               model.conflicts.first?.mine, "Stale offline words.")
+    checkEqual("beside the server's", model.conflicts.first?.theirs, "Written on the train.")
 
     // A draft for a note that no longer exists: with the list loaded, the
-    // sweep sets it aside rather than counting a ghost in the badge forever.
+    // sweep stops counting a ghost in the badge — but a whole note's writing
+    // is not dropped on a toast's say-so, so it is kept to be copied out.
     store.save(UnsavedDocumentDraft(documentId: 987654,
                                     title: "Gone", content: "Held for a deleted note.",
                                     baseTitle: nil, baseContent: nil, savedAt: .now),
                projectId: project.id)
     await model.syncHeldWork()
-    check("a draft for a deleted note is set aside",
+    check("a draft for a deleted note leaves the sweep",
           store.drafts(projectId: project.id).isEmpty)
+    let orphan = model.conflicts.first { $0.subject == .document(id: 987654) }
+    checkEqual("and its words are kept", orphan?.mine, "Held for a deleted note.")
+    check("with nothing to put them back into", orphan?.canKeepMine == false)
 }
 
 @MainActor

@@ -180,13 +180,31 @@ final class SongBlockModel {
         hasUndoStack || undoRedo != nil || !localHistory.isEmpty
     }
 
+    /// Where a line's two versions wait when they cannot be reconciled without
+    /// the writer. Keyed by document id in a folder of its own, for the reason
+    /// the drafts are: lyric line ids and screenplay block ids are different id
+    /// spaces. Nil exactly when the draft store is.
+    @ObservationIgnored private let conflictStore: ConflictStore?
+
+    /// The disagreements waiting on the writer in this lyric. The store keeps
+    /// them across launches; this is what the editor draws. Not part of the
+    /// held-work count — nothing retries a conflict.
+    private(set) var conflicts: [SyncConflict] = []
+
+    var hasConflicts: Bool { !conflicts.isEmpty }
+
     init(app: AppModel, document: TextDocument, draftStore: UnsavedDraftStore? = nil,
-         offlineStore: OfflineStore? = nil) {
+         offlineStore: OfflineStore? = nil, conflictStore: ConflictStore? = nil) {
         self.app = app
         self.document = document
         self.draftStore = draftStore
             ?? app.draftScope.map { UnsavedDraftStore(scope: $0, folder: "SongDrafts") }
         self.offlineStore = offlineStore ?? app.offlineStore
+        self.conflictStore = conflictStore
+            ?? app.draftScope.map { ConflictStore(scope: $0, folder: "SongConflicts") }
+        // An unanswered question is still unanswered after a relaunch, and the
+        // version it holds exists nowhere else.
+        conflicts = self.conflictStore?.conflicts(collectionId: document.id) ?? []
     }
 
     /// Takes the name a rename has just landed on the server.
@@ -424,9 +442,11 @@ final class SongBlockModel {
     /// live text and arm the ordinary debounced commit, so the retry machinery
     /// takes over. Idempotent — a line already being edited is left alone.
     ///
-    /// A draft whose base no longer matches the server is *dropped*: someone
-    /// edited that line elsewhere since the save failed, and the server is
-    /// last-write-wins, so pushing the old draft would clobber newer words.
+    /// A draft whose base no longer matches the server is neither adopted nor
+    /// thrown away: someone edited that line elsewhere since the save failed,
+    /// and the server is last-write-wins, so pushing the old draft would
+    /// clobber newer words. Both versions become a `SyncConflict` the writer
+    /// answers.
     ///
     /// That gate needs the server's word for what a line says, so it is only
     /// applied over a live load. Over the *offline copy* the comparison would
@@ -438,7 +458,6 @@ final class SongBlockModel {
     /// in-session rule the screenplay's reconnect deliberately follows.
     func adoptPersistedDrafts() {
         guard let store = draftStore else { return }
-        var setAside = 0
         for (id, draft) in store.drafts(projectId: document.id) {
             guard liveText[id] == nil, !unsavedBlockIds.contains(id) else { continue }
             guard let line = block(id) else {
@@ -458,22 +477,94 @@ final class SongBlockModel {
                 continue
             }
             guard draft.baseText == nil || draft.baseText == server else {
+                // Neither version is this client's to discard: the draft
+                // leaves the retry machinery — nothing here can be sent on a
+                // timer any more — and both copies wait together for the one
+                // person who can choose between them. See `SyncConflict`.
                 store.remove(blockId: id, projectId: document.id)
-                setAside += 1
+                recordConflict(SyncConflict(
+                    subject: .lyricLine(id: id), reason: .changedElsewhere,
+                    mine: draft.text, theirs: server, base: draft.baseText,
+                    label: line.order.map { "Line \($0)" } ?? "Lyric line",
+                    detectedAt: draft.savedAt))
                 continue
             }
             liveText[id] = draft.text
             unsavedBlockIds.insert(id)
             scheduleCommit(id)
         }
-        if setAside > 0 {
-            // These are words the writer typed and never saw land, so they
-            // must not go silently. The editor's error alert is the only
-            // mouth this model has.
-            errorMessage = setAside == 1
-                ? "An offline edit was set aside — that line changed elsewhere"
-                : "\(setAside) offline edits were set aside — those lines changed elsewhere"
+    }
+
+    // MARK: - Conflicts
+
+    /// File a disagreement, or bring one already filed for the same line up to
+    /// date. The store is the durable copy; `conflicts` is what the editor
+    /// reads, and stays right in the demo, where there is no store.
+    ///
+    /// Nothing is said out loud here. The screenplay toasts because it has a
+    /// seam for it; this editor's only mouth is `errorMessage`, an alert —
+    /// and an alert demands a tap before the next word can be typed, over a
+    /// choice that can perfectly well wait. The banner says it instead.
+    private func recordConflict(_ conflict: SyncConflict) {
+        if let store = conflictStore {
+            store.record(conflict, collectionId: document.id)
+            conflicts = store.conflicts(collectionId: document.id)
+            return
         }
+        var entry = conflict
+        if let index = conflicts.firstIndex(where: { $0.id == conflict.id }) {
+            entry.detectedAt = conflicts[index].detectedAt
+            entry.base = conflicts[index].base ?? conflict.base
+            conflicts[index] = entry
+        } else {
+            conflicts.append(entry)
+        }
+        conflicts.sort { $0.detectedAt < $1.detectedAt }
+    }
+
+    private func forgetConflict(_ id: String) {
+        conflictStore?.remove(id: id, collectionId: document.id)
+        conflicts.removeAll { $0.id == id }
+    }
+
+    /// Keep the words typed on this device, over whatever the server has now.
+    /// Resolved once, here — after this the words are back in the ordinary
+    /// held-work machinery (live on screen, on disk, retrying), so a write
+    /// that cannot get out costs the writer nothing and asking them twice
+    /// would cost them a second decision. The screenplay's `keepMine` makes
+    /// the same trade for the same reason.
+    @discardableResult
+    func keepMine(_ conflict: SyncConflict) async -> ConflictResolution {
+        guard case let .lyricLine(id) = conflict.subject,
+              let line = block(id) else { return .failed }
+        forgetConflict(conflict.id)
+        liveText[id] = conflict.mine
+        unsavedBlockIds.insert(id)
+        failedBlockIds.remove(id)
+        // A decision is a fresh start, not a continuation of a backoff that
+        // ran out days ago.
+        retryAttempts[id] = nil
+        let landed = await commit(line)
+        return landed ? .sent : (failedBlockIds.contains(id) ? .failed : .held)
+    }
+
+    /// Let the server's line stand and drop this device's. Nothing to send —
+    /// what is on screen already is the server's copy.
+    func keepTheirs(_ conflict: SyncConflict) {
+        forgetConflict(conflict.id)
+        if case let .lyricLine(id) = conflict.subject, !unsavedBlockIds.contains(id) {
+            liveText[id] = nil
+        }
+    }
+
+    func keepAllMine() async {
+        for conflict in conflicts where conflict.canKeepMine {
+            await keepMine(conflict)
+        }
+    }
+
+    func keepAllTheirs() {
+        for conflict in conflicts { keepTheirs(conflict) }
     }
 
     /// The badge's "Sync Now": push what is typed but not yet sent, drain what

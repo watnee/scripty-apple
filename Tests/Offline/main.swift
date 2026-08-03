@@ -624,7 +624,7 @@ func checkStructuralEditsOffline() async {
                queue.pending(projectId: 1).first?.type, "SCENE")
 
     print()
-    print("== A draft whose line changed elsewhere is set aside, but never silently ==")
+    print("== A draft whose line changed elsewhere is kept for the writer to choose ==")
     let conflictDirectory = scratchDirectory("conflict")
     let conflictStore = OfflineStore(scope: "server|alice", directory: conflictDirectory)
     conflictStore.save(Data(blocksJSON.utf8), .blocks(projectId: 1))
@@ -638,9 +638,13 @@ func checkStructuralEditsOffline() async {
     await conflicted.loadBlocks()
     checkEqual("the stale draft is not pushed over the newer words",
                conflicted.currentText(conflicted.blocks[0]), "First line.")
-    check("and is off the disk", drafts.drafts(projectId: 1).isEmpty)
-    check("but the writer is told",
-          conflicted.historyToast?.text.contains("set aside") == true)
+    check("and is off the retry machinery", drafts.drafts(projectId: 1).isEmpty)
+    check("but the words are kept, not dropped",
+          conflicted.conflicts.first?.mine == "Words typed offline.")
+    check("beside the server's version",
+          conflicted.conflicts.first?.theirs == "First line.")
+    check("and the writer is told",
+          conflicted.historyToast?.text.contains("needs your choice") == true)
 }
 
 /// Undo with no connection: the changes held on this device — text kept for

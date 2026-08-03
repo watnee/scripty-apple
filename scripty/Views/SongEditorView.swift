@@ -134,6 +134,10 @@ struct SongEditorView: View {
     @State private var formatting: NoteEditorController
     @FocusState private var titleFocused: Bool
     @State private var showingIgnoredWords = false
+    /// Whether the two-versions screen is up. Opened by a press only — the
+    /// banner and the badge both offer it, and neither takes the words away
+    /// without being asked.
+    @State private var showingConflicts = false
 
     /// What was on screen when the document finished loading. Anything typed
     /// after that is the work a discard would throw away.
@@ -235,6 +239,25 @@ struct SongEditorView: View {
 
     /// The word for what is being written, for the sentences that need it.
     private var kindWord: String { type == .song ? "song" : "note" }
+
+    /// The versions of *this* document waiting to be chosen between. The
+    /// script's own banner counts every conflict in the project; a sheet over
+    /// one note has no business speaking for the others.
+    ///
+    /// Filed under the document this sheet is editing — which for a document
+    /// created here is the one that landed, not the nil it opened with.
+    private var conflicts: [SyncConflict] {
+        guard let id = (created ?? document)?.id else { return [] }
+        return model.conflicts(forDocument: id)
+    }
+
+    /// Two versions of this note exist and only the writer can settle it.
+    @ViewBuilder
+    private var conflictBanner: some View {
+        if !conflicts.isEmpty {
+            ConflictBanner(count: conflicts.count) { showingConflicts = true }
+        }
+    }
 
     /// What the server ends up holding for a title field containing `raw`:
     /// the trimmed words, or — where a document is allowed to have no name —
@@ -359,13 +382,24 @@ struct SongEditorView: View {
             // Above the words, where the lyric editor keeps its own: a locked
             // note looks exactly like an unlocked one, so a tap that does
             // nothing needs something on screen to say why.
-            .safeAreaInset(edge: .top, spacing: 0) { lockBanner }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    conflictBanner
+                    lockBanner
+                }
+            }
             .safeAreaBar(edge: .bottom, spacing: 0) { footer }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
+            }
+            .sheet(isPresented: $showingConflicts) {
+                SyncConflictsView(conflicts: conflicts,
+                                  keepMine: { await model.keepMine($0) },
+                                  keepTheirs: { model.keepTheirs($0) },
+                                  noun: kindWord)
             }
             // ⌘Z belongs to the words in here, not to the script this sheet
             // covers — see `DocumentEditorActions`, and `NoteHistory` for why
@@ -484,6 +518,9 @@ struct SongEditorView: View {
     /// must never tell.
     private var cloudState: CloudSyncState? {
         guard !model.app.isDemo else { return nil }
+        // Ahead of every other state, as everywhere else: the rest pass by
+        // themselves and this one is waiting on the person reading it.
+        if !conflicts.isEmpty { return .conflicted }
         if !model.app.connectivity.isOnline { return .offline }
         switch saveStatus {
         case .failed: return .failed
@@ -698,7 +735,9 @@ struct SongEditorView: View {
         // are anywhere but here.
         if let cloud = cloudState {
             ToolbarItem(placement: .topBarLeading) {
-                CloudSyncBadge(state: cloud, label: cloudLabel)
+                CloudSyncBadge(state: cloud, label: cloudLabel,
+                               conflictCount: conflicts.count,
+                               review: conflicts.isEmpty ? nil : { showingConflicts = true })
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -952,9 +991,12 @@ struct SongEditorView: View {
         let baseMatches = (draft.baseContent == nil && draft.baseTitle == nil)
             || (draft.baseContent == savedContent && (draft.baseTitle ?? savedTitle) == savedTitle)
         guard baseMatches else {
-            model.discardDocumentDraft(for: document.id)
-            errorMessage = "An offline edit was set aside — this "
-                + (type == .song ? "song" : "note") + " changed elsewhere."
+            // Both versions are real writing and the server's is the newer
+            // one; neither is this sheet's to throw away. The draft becomes a
+            // conflict — the banner below offers the choice, and the words
+            // survive the sheet being closed on it.
+            model.quarantineDocumentDraft(draft, serverTitle: savedTitle,
+                                          serverContent: savedContent)
             return
         }
         title = draft.title
