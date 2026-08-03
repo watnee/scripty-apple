@@ -2349,23 +2349,64 @@ struct ScriptView: View {
             // opened offline never fetched its status, and hiding the button
             // then would hide it exactly when the local steps exist.
             //
-            // A plain button, not a menu. It was a menu for a while so that a
-            // long press could offer Redo, and that cost more than the gesture
-            // was worth: a menu control reads as "there is something else in
-            // here" wherever the platform draws its indicator, and it greyed
-            // out on the *pair* being empty rather than on undo being empty,
-            // so a fresh script showed a live Undo that did nothing. Redo
-            // keeps its place in the overflow below, which was always the
-            // discoverable path anyway — a hold is a gesture nobody is told
-            // about. Now the button says exactly what it does and greys out
-            // exactly when there is nothing to undo.
+            // A hold offers Redo — the same hold-for-the-other-half gesture
+            // Safari's back button taught, and the one `documentButton` already
+            // uses in this bar for the last songs and notes. It puts redo one
+            // gesture from undo instead of a trip into the "…", without
+            // spending the capsule budget a second button would.
+            //
+            // It follows `documentButton`'s rule to the letter: a menu only
+            // where there is something in it. With nothing to redo this is a
+            // plain button, which is what an earlier round arrived at after a
+            // menu-for-everything version proved worse — a menu control reads
+            // as "there is something else in here" wherever the platform draws
+            // its indicator, and greying on the *pair* being empty left a fresh
+            // script showing a live Undo that did nothing. A fresh script has
+            // nothing to redo, so it takes the plain branch and greys out
+            // exactly when there is nothing to undo, as before.
+            //
+            // Only with something to redo does the menu appear, and then it
+            // holds *both* halves, each greyed on its own stack. That is what
+            // answers the other half of the old complaint: the control has to
+            // stay live while redo is live, so undoing back to the very start
+            // leaves a button whose tap does nothing — and the hold is where it
+            // says why, with Undo greyed beside a live Redo.
+            //
+            // Redo keeps its place in the overflow below either way: a hold is
+            // a gesture nobody is told about, so it is the fast path for those
+            // who know it, not the only path.
             if model.offersUndoRedo, !settings.isPageView, !isReading {
-                Button {
-                    Task { await model.undo() }
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
+                if model.canRedo {
+                    Menu {
+                        Button {
+                            Task { await model.undo() }
+                        } label: {
+                            Label("Undo", systemImage: "arrow.uturn.backward")
+                        }
+                        .disabled(!model.canUndo)
+
+                        Button {
+                            Task { await model.redo() }
+                        } label: {
+                            Label("Redo", systemImage: "arrow.uturn.forward")
+                        }
+                    } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                    } primaryAction: {
+                        // Guarded rather than disabled: the control is live
+                        // because redo is, and a tap with nothing behind it
+                        // must not walk the stack the wrong way.
+                        guard model.canUndo else { return }
+                        Task { await model.undo() }
+                    }
+                } else {
+                    Button {
+                        Task { await model.undo() }
+                    } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!model.canUndo)
                 }
-                .disabled(!model.canUndo)
             }
 
             if model.hasScriptContent && !settings.isFocusMode {
@@ -2467,11 +2508,11 @@ struct ScriptView: View {
             }
         }
 
-        // Redo, the half of the pair the bar had no room to draw. A long press
-        // on Undo reaches it too, but a hold is not a gesture anyone is told
-        // about, so this stays as the visible path. It stays in the overflow
-        // in focus mode too, where undo is still up in the bar — the two are
-        // useless apart.
+        // Redo, the half of the pair the bar had no room to draw. A hold on
+        // Undo reaches it too once there is something to redo, but a hold is
+        // not a gesture anyone is told about, so this stays as the visible
+        // path. It stays in the overflow in focus mode too, where undo is
+        // still up in the bar — the two are useless apart.
         if model.offersUndoRedo, !settings.isPageView {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
