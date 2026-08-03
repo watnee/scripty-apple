@@ -1322,6 +1322,36 @@ struct ScriptView: View {
     /// which is exactly when an Edit button is worth drawing.
     private var isReadyToEdit: Bool { isReading && canEditScript }
 
+    /// How wide this pane has to be before the navigation bar can draw every
+    /// control at once — the View capsule, the seven-strong action capsule,
+    /// the songs-and-notes pair, and a title.
+    ///
+    /// Measured rather than reasoned: on a 13" iPad with the projects sidebar
+    /// open this pane is about 700pt and the bar came up one control short,
+    /// where the same iPad with the sidebar away has 1032pt and draws them
+    /// all. 900 sits between the two, and above an 11" iPad held upright —
+    /// which has a little more room than the narrow case but not enough of it
+    /// to trust.
+    private static let fullToolbarWidth: CGFloat = 900
+
+    /// Whether the bar has the room for its full hand.
+    ///
+    /// Regular width is not the same as room — the trap `BulkActionBar`
+    /// already records for the selection bar. With the sidebar open, the bar
+    /// ran out of room and iOS truncated it from the trailing end, which took
+    /// *Notes* out of the pair it is drawn as half of and left it reachable
+    /// only under the "…". Nothing said so: a toolbar that overflows looks
+    /// exactly like a toolbar that was built that way.
+    ///
+    /// So the choice of what to lose is made here instead of by the system —
+    /// see `toolbar`, where Print is what steps back.
+    ///
+    /// Zero until the first layout, which counts as "no room": the bar can
+    /// then only gain a control as the measure arrives, never drop one.
+    private var hasRoomForFullToolbar: Bool {
+        availableWidth >= Self.fullToolbarWidth
+    }
+
     /// How long the script is, while it is being written.
     ///
     /// Off until asked for, as in the web app — a word count in the corner is
@@ -2446,7 +2476,14 @@ struct ScriptView: View {
 
             if !model.exportOptions.isEmpty && !settings.isFocusMode {
                 ExportButton(exporter: exporter)
-                PrintButton(exporter: exporter)
+                // Print gives up its place first when the bar is short. It is
+                // the rarest errand in this capsule — export is the one that
+                // carries a draft away, and print is the once-a-draft one —
+                // and the overflow is exactly where a phone already keeps it.
+                // Standing back one control is what lets Notes stay drawn.
+                if hasRoomForFullToolbar {
+                    PrintButton(exporter: exporter)
+                }
             }
         }
 
@@ -2490,6 +2527,14 @@ struct ScriptView: View {
             }
 
             ToolbarItemGroup(placement: .secondaryAction) {
+                // Where Print waits out a bar too short to hold it. Declared
+                // here rather than left to the system's own overflow so that
+                // it lands among named items instead of as a bare glyph, and
+                // so the bar's last slot can go to Notes.
+                if !model.exportOptions.isEmpty && !hasRoomForFullToolbar {
+                    PrintButton(exporter: exporter)
+                }
+
                 if model.hasScriptContent {
                     Button {
                         showingStats = true
@@ -2513,7 +2558,12 @@ struct ScriptView: View {
         // not a gesture anyone is told about, so this stays as the visible
         // path. It stays in the overflow in focus mode too, where undo is
         // still up in the bar — the two are useless apart.
-        if model.offersUndoRedo, !settings.isPageView {
+        //
+        // Which is why it carries the reader's gate as well: undo is drawn
+        // `!isReading`, and without the same test here the reader's overflow
+        // offered a lone Redo — half a pair, on a screen with nothing to redo
+        // into, and no Undo anywhere to make sense of it.
+        if model.offersUndoRedo, !settings.isPageView, !isReading {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     Task { await model.redo() }
