@@ -225,9 +225,9 @@ struct ScriptCommands: Commands {
             Button("Title Page…") { actions?.titlePage?() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .disabled(actions?.titlePage == nil)
-            // ⌘⌥P, not ⌘⇧P: the toolbar's Page View toggle already claims that
-            // chord, as the browser does, and two views binding one chord means
-            // whichever loses the responder race silently does nothing.
+            // ⌘⌥P, not ⌘⇧P: the View menu's Page View toggle already claims
+            // that chord, as the browser does, and two views binding one chord
+            // means whichever loses the responder race silently does nothing.
             Button("Page Setup…") { actions?.pageSetup?() }
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(actions?.pageSetup == nil)
@@ -487,21 +487,31 @@ struct ScriptCommands: Commands {
     @ViewBuilder
     private var viewMenu: some View {
         Divider()
+        // ⌘⇧P, the browser's chord and the one the toolbar's View menu used to
+        // claim for the same toggle. Both were live at once: two chords for one
+        // command, only one of which the shortcuts sheet could be documenting.
+        // ⌘⌥1 was the other, and it is better free — the note editor uses it
+        // for Heading 1, and a note cover is exactly where it was reachable.
         Button(settings.isPageView ? "Show as List" : "Show as Pages") {
             settings.isPageView.toggle()
         }
-        .keyboardShortcut("1", modifiers: [.command, .option])
+        .keyboardShortcut("p", modifiers: [.command, .shift])
 
+        // ⌘⇧F for the same reason, and because ⌘⌃D is the Mac's own Look Up.
         Button(settings.isFocusMode ? "Exit Focus Mode" : "Focus Mode") {
             settings.isFocusMode.toggle()
         }
-        .keyboardShortcut("d", modifiers: [.command, .control])
+        .keyboardShortcut("f", modifiers: [.command, .shift])
 
+        // Offered only where it changes anything, which is what the View menu's
+        // own copy of this was gated on before it stopped claiming the chord:
+        // the page view lays the script out on paper, which has a width of its
+        // own, and the reader holds to its own measure.
         Button(settings.isFullWidth ? "Standard Screenplay Width" : "Full Page Width") {
             settings.isFullWidth.toggle()
         }
         .keyboardShortcut("\\", modifiers: .command)
-        .disabled(settings.isPageView)
+        .disabled(settings.isPageView || actions?.isReadingScript == true)
 
         // ⌘⇧O is the browser's outline *mode*, so it stays with the mode here
         // too; the outline panel — which is ours, and has no counterpart on the

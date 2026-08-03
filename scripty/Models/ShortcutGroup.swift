@@ -140,7 +140,9 @@ extension ShortcutGroup {
             title: "View",
             systemImage: "eye",
             context: "How the screenplay is shown.",
-            note: "Focus mode also answers to ⌘⌃D, the key the Mac menu bar lists.",
+            note: "Each of these is bound in one place — the Mac menu bar — so the "
+                + "key does the same thing whether the toolbar's View menu is on "
+                + "screen or not.",
             entries: [
                 ShortcutEntry("Page view", "⌘⇧P"),
                 ShortcutEntry("Page setup", "⌘⌥P"),

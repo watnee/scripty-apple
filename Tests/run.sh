@@ -293,6 +293,17 @@ swiftc "${FLAGS[@]}" -o "$BUILD/launchproject" \
 "$BUILD/launchproject" || status=1
 
 echo
+echo "== The keyboard reference agrees with itself =="
+# Pure data, so it compiles alone. It cannot see the `.keyboardShortcut` calls
+# that actually bind these keys — what it catches is the reference claiming one
+# chord for two things in one situation, which is what a chord bound twice in
+# the code looks like from here.
+swiftc "${FLAGS[@]}" -o "$BUILD/shortcuts" \
+    "$SRC/Models/ShortcutGroup.swift" \
+    "$ROOT/Tests/Shortcuts/main.swift"
+run_suite "$BUILD/shortcuts" || status=1
+
+echo
 echo "== Song and note shortcuts =="
 swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
     "$SRC/Models/TextDocument.swift" \
