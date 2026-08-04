@@ -1836,8 +1836,13 @@ struct ScriptView: View {
                 selection.toggle(block.id)
             }
             .blockReorderDrag(block, in: model)
+            // The same swipe goes on working inside the mode it opened —
+            // a gesture that stopped meaning anything the moment it was used
+            // would read as one that had gone wrong.
+            .swipeToSelect(swipeSelectAction(block))
         } else if block.isEditable && !options.isEditingLocked {
-            EditableBlockRow(model: model, block: block, autocomplete: autocomplete) { commented in
+            EditableBlockRow(model: model, block: block, autocomplete: autocomplete,
+                             selection: canSwipeToSelect ? selection : nil) { commented in
                 commentTarget = commented
             }
         } else {
@@ -1852,7 +1857,24 @@ struct ScriptView: View {
                          commentCount: model.commentCount(for: block),
                          onComment: block.hasLink(.comments) ? { commentTarget = block } : nil)
                 .doubleTapToEdit(startWriting(at: block))
+                .swipeToSelect(swipeSelectAction(block))
         }
+    }
+
+    /// Whether a swipe across an element is worth offering — the same question
+    /// the toolbar's Select Elements button asks, since the gesture is a second
+    /// door onto the mode that button opens. A server offering no bulk action
+    /// at all has nothing behind either of them.
+    ///
+    /// Page view and the reading surface draw their own rows and never reach
+    /// this one, so neither has to be excluded here.
+    private var canSwipeToSelect: Bool { model.canSelectBlocks }
+
+    /// What a swipe across this element does, or nil where there is nothing for
+    /// it to do — and then no gesture is attached to the row at all.
+    private func swipeSelectAction(_ block: Block) -> (() -> Void)? {
+        guard canSwipeToSelect else { return nil }
+        return { selection.toggleEnteringMode(block.id) }
     }
 
     /// The double-tap way out of a locked script, as Pages and Word both offer

@@ -407,10 +407,16 @@ extension HelpTopic {
                     "Select Elements turns the script read-only and puts a checkmark on "
                     + "every row. Tick the ones you want and the action bar offers what "
                     + "the server allows for the set — tagging, retyping and deleting.",
+                    "You can also swipe an element to the left to pick it out where it "
+                    + "sits. The first swipe turns Select Elements on around it, and each "
+                    + "one after that takes a row or puts it back — a swipe on a ticked "
+                    + "row unticks it. Swiping right is left alone: that is how iOS goes "
+                    + "back out of the screenplay.",
                     "Each bulk action is one request and one undo step, so a change of "
                     + "mind costs one Undo rather than twenty."
                 ],
-                keywords: ["bulk", "multiple", "checkbox", "select all", "tags", "batch"]),
+                keywords: ["bulk", "multiple", "checkbox", "select all", "tags", "batch",
+                           "swipe"]),
             HelpTopic(
                 id: "spelling",
                 title: "Spelling",
