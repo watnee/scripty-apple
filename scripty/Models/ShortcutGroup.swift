@@ -174,7 +174,11 @@ extension ShortcutGroup {
                 // note is open these belong to it and never to the screenplay
                 // underneath.
                 ShortcutEntry("Undo", "⌘Z"),
-                ShortcutEntry("Redo", "⌘⇧Z")
+                ShortcutEntry("Redo", "⌘⇧Z"),
+                // And the script's Read Aloud, aimed the same way: over an open
+                // song or note the chord reads *that*, never the screenplay the
+                // sheet is covering.
+                ShortcutEntry("Read the note or song aloud", "⌘⇧A")
             ]),
         ShortcutGroup(
             id: "help",

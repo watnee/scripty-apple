@@ -195,6 +195,82 @@ do {
           false)
 }
 
+print("\nA song")
+do {
+    // Two verses, with the blank line between them that a writer typed and a
+    // singer leaves a beat for.
+    let lyric = [
+        NarrationLine(id: 10, text: "We drove out past the water"),
+        NarrationLine(id: 11, text: "with the radio down low"),
+        NarrationLine(id: 12, text: ""),
+        NarrationLine(id: 13, text: "AND YOU SAID YOU'D NEVER GO"),
+    ]
+    let cues = ScriptNarration.cues(forLyric: lyric)
+    check("blank lines make no cue", cues.count, 3)
+    check("the line keeps its own id", cues[0].blockId, 10)
+    check("every line is speech", cues.allSatisfy { $0.kind == .speech }, true)
+    // A lyric has one voice. Naming a speaker would put a name on the Lock
+    // Screen that no cue in the song actually says.
+    check("nobody is named", cues.contains { $0.speaker != nil }, false)
+    // The shouted line is the one that would otherwise come back spelled out
+    // a letter at a time.
+    check("shouting is lowered", cues[2].text, "and you said you'd never go")
+    check("a line inside the verse follows closely",
+          cues[1].pause, NarrationKind.speech.pause)
+    check("the line after the break waits",
+          cues[2].pause, ScriptNarration.breakPause)
+    check("a lyric of blank lines is silent",
+          ScriptNarration.cues(forLyric: [NarrationLine(id: 1, text: "  ")]).count, 0)
+}
+
+print("\nA note")
+do {
+    let note = """
+    # Act One
+
+    - find the ending
+    - and the way back to it
+
+    It was always the same road.
+    """
+    let cues = ScriptNarration.cues(forNote: note)
+    check("cue count", cues.count, 4)
+    // The markers are how the line is written, not what it says: a heading is
+    // read as a heading, and a bullet is read as its words.
+    check("the hash comes off the heading", shape(cues[0]), "heading|-|Act One")
+    check("the dash comes off the item", shape(cues[1]), "description|-|find the ending")
+    check("prose is the narrator's", shape(cues[3]), "description|-|It was always the same road.")
+    // The heading takes its own air; the paragraph after the list takes the
+    // break the blank line asked for; an item inside a list does not.
+    check("the second item follows on",
+          cues[2].pause, NarrationKind.description.pause)
+    check("a new paragraph waits", cues[3].pause, ScriptNarration.breakPause)
+    check("an empty note is silent", ScriptNarration.cues(forNote: "\n\n  \n").count, 0)
+}
+
+print("\nWhat each kind of document offers")
+do {
+    let song = NarrationSource.lyric([NarrationLine(id: 4, text: "one line")])
+    let note = NarrationSource.note("one line")
+    let script = NarrationSource.script([block(1, .action, "One line.")])
+
+    // The four "Read" switches are screenplay grammar — character names,
+    // parentheticals, a voice each. Offered over a lyric they would change
+    // nothing, and "Action and Headings" left off from a run-lines session
+    // would read as the reason the song had gone quiet.
+    check("only a script offers the read options",
+          [script, song, note].map(\.offersScriptOptions), [true, false, false])
+    check("a song's options are ignored",
+          song.cues(options: NarrationOptions(announcesSpeakers: false,
+                                              includesDescription: false,
+                                              includesDirections: false,
+                                              usesDistinctVoices: false)).count,
+          1)
+    check("elements are lines outside a script",
+          [script, song, note].map(\.elementNoun), ["Element", "Line", "Line"])
+    check("a song's elements are its lines", song.elementIds, [4])
+}
+
 print()
 if failures == 0 {
     print("Narration checks passed.")

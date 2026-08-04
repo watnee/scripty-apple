@@ -17,6 +17,17 @@
 //  makes that safe, because a stale callback from the cancelled queue looks up
 //  an utterance that is no longer in the map and is ignored.
 //
+//  There is one of these on the device — `shared` — and every surface that can
+//  be read aloud borrows it: the screenplay, the lyric editor and the note
+//  sheet. A narrator each looked tidier and was wrong in three ways at once. A
+//  song read while the script was still reading would have been two voices in
+//  one room; the Lock Screen has a single card and a single pair of headphone
+//  buttons, which two narrators would have fought over; and the preferences
+//  below are the writer's, not the document's. So starting a reading anywhere
+//  ends whatever was being read before it, which is also what a person would
+//  expect from a device with one voice. `subject` is how a screen asks whether
+//  the reading currently running is its own.
+//
 
 import AVFoundation
 import Foundation
@@ -29,6 +40,10 @@ import UIKit
 @Observable
 @MainActor
 final class ScriptNarrator {
+
+    /// The device's voice. See the note at the top of this file for why there
+    /// is only one.
+    static let shared = ScriptNarrator()
 
     /// Whether anything is loaded, and if so whether it is running.
     enum Playback: Equatable {
@@ -48,9 +63,14 @@ final class ScriptNarrator {
     private(set) var currentIndex: Int? {
         didSet { publishNowPlaying() }
     }
-    /// The script being read, for the Lock Screen to name. The reader knows it
-    /// and the blocks do not, so it arrives with them.
+    /// The document being read, for the Lock Screen to name. The screen that
+    /// asked for the reading knows it and the words themselves do not, so it
+    /// arrives with them.
     private(set) var scriptTitle = ""
+    /// Which screenplay, song or note the current run belongs to. Nil when
+    /// nothing is loaded — and the answer to "is that voice reading me?", which
+    /// every surface has to ask now that they share one narrator.
+    private(set) var subject: NarrationSubject?
 
     var isActive: Bool { playback != .idle }
     var isSpeaking: Bool { playback == .speaking }
@@ -69,11 +89,22 @@ final class ScriptNarrator {
 
     /// Whose line is being read: the one thing a transport — or a locked
     /// screen — can say that the highlight cannot.
+    ///
+    /// A song and a note have no speakers, and "Narration" over a lyric would
+    /// be a label that says nothing at all. What they show instead is the line
+    /// itself, which is the same thing the screenplay's highlight shows and the
+    /// only thing worth reading on a locked screen.
     var nowReading: String {
         guard let cue = currentCue else { return "Paused" }
         if let speaker = cue.speaker, cue.kind.isSpoken { return speaker }
-        return "Narration"
+        return source.namesTheNarrator ? "Narration" : cue.text
     }
+
+    /// Whether the options menu's "Read" section applies to what is loaded.
+    var offersScriptOptions: Bool { source.offersScriptOptions }
+
+    /// What the transport's two arrows step by, in this document's own word.
+    var elementNoun: String { source.elementNoun }
 
     // MARK: - Preferences
 
@@ -162,9 +193,9 @@ final class ScriptNarrator {
     /// it back resumes a reading that was actually running — rather than
     /// starting one the writer had already paused themselves.
     @ObservationIgnored private var pausedByInterruption = false
-    /// The blocks the current run was built from, kept so the run can be
-    /// rebuilt when an option changes without the reader handing them back.
-    @ObservationIgnored private var blocks: [Block] = []
+    /// What the current run was built from, kept so it can be rebuilt when an
+    /// option changes without the screen handing the words back.
+    @ObservationIgnored private var source: NarrationSource = .script([])
     /// Which cue each queued utterance says. Cleared before re-queuing, which
     /// is what makes callbacks from a cancelled queue harmless.
     @ObservationIgnored private var utteranceIndex: [ObjectIdentifier: Int] = [:]
@@ -203,15 +234,29 @@ final class ScriptNarrator {
 
     // MARK: - Loading
 
-    /// Points the narrator at a script. Safe to call again when the script
-    /// changes underneath it — a run in progress keeps its place if it can.
-    func prepare(_ blocks: [Block], title: String = "") {
+    /// Points the narrator at a screenplay, a song or a note.
+    ///
+    /// Safe to call again when the words change underneath it — a run in
+    /// progress keeps its place if it can. Handing it a *different* document
+    /// ends the reading of the last one rather than keeping a place in words
+    /// that are no longer loaded: one voice, one thing being read.
+    func prepare(_ source: NarrationSource,
+                 subject: NarrationSubject,
+                 title: String = "") {
         if title != scriptTitle {
             scriptTitle = title
             publishNowPlaying()
         }
-        guard blocks != self.blocks else { return }
-        self.blocks = blocks
+        if subject != self.subject {
+            // Whatever was running belonged to something else.
+            if isActive { stop() }
+            self.subject = subject
+            self.source = source
+            reload(keepingPlace: false)
+            return
+        }
+        guard source != self.source else { return }
+        self.source = source
         reload(keepingPlace: true)
     }
 
@@ -219,7 +264,7 @@ final class ScriptNarrator {
     /// place across to the cue for the same element.
     private func reload(keepingPlace: Bool) {
         let blockId = keepingPlace ? currentBlockId : nil
-        cues = ScriptNarration.cues(for: blocks, options: options)
+        cues = source.cues(options: options)
         buildCast()
 
         guard isActive else {
@@ -265,7 +310,8 @@ final class ScriptNarrator {
     /// itself be one the reading skips (a note, a synopsis, a page break).
     func play(atOrAfter blockId: Int) {
         guard hasSomethingToRead else { return }
-        guard let start = blocks.firstIndex(where: { $0.id == blockId }) else {
+        let elements = source.elementIds
+        guard let start = elements.firstIndex(of: blockId) else {
             play()
             return
         }
@@ -273,8 +319,8 @@ final class ScriptNarrator {
         for cue in cues where firstCue[cue.blockId] == nil {
             firstCue[cue.blockId] = cue.index
         }
-        for block in blocks[start...] {
-            if let index = firstCue[block.id] {
+        for element in elements[start...] {
+            if let index = firstCue[element] {
                 speak(from: index)
                 return
             }
@@ -320,6 +366,9 @@ final class ScriptNarrator {
         synthesizer.stopSpeaking(at: .immediate)
         playback = .idle
         currentIndex = nil
+        // Nothing is being read, so nothing owns the voice — and no screen
+        // should recognise the run that has just ended as its own.
+        subject = nil
         keepScreenAwake(false)
         deactivateAudioSession()
     }
@@ -395,7 +444,7 @@ final class ScriptNarrator {
         let utterance = AVSpeechUtterance(string: cue.text)
         utterance.voice = voice(for: cue)
         utterance.rate = rate
-        utterance.preUtteranceDelay = cue.kind.pause
+        utterance.preUtteranceDelay = cue.pause
         // The narrator sits a shade below the cast, which is enough to tell
         // the page apart from the people even on one voice.
         utterance.pitchMultiplier = cue.kind.isSpoken ? 1.0 : 0.95
