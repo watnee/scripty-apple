@@ -87,7 +87,7 @@ func runRoundTrip() {
     let writing = OpenEditorState(defaults: store)
     writing.rememberProject(7, in: here)
     writing.record(.songsAndNotes(.song), atDepth: 0)
-    writing.record(.document(42), atDepth: 1)
+    writing.record(.document(id: 42, uid: nil), atDepth: 1)
 
     check("stored so it reads as English",
           store.string(forKey: pathKey) ?? "", "songs-and-notes:SONG/document:42")
@@ -98,7 +98,7 @@ func runRoundTrip() {
     let path = reopening.claimReopenPath(forProject: 7, in: here)
     check("both screens come back", path.count, 2)
     check("the list is outermost", path.first == .songsAndNotes(.song), true)
-    check("the editor is on top of it", path.last == .document(42), true)
+    check("the editor is on top of it", path.last == .document(id: 42, uid: nil), true)
 }
 
 @MainActor
@@ -164,7 +164,7 @@ func runReRecordingIsNotAChange() {
     let writing = OpenEditorState(defaults: store)
     writing.rememberProject(7, in: here)
     writing.record(.songsAndNotes(.song), atDepth: 0)
-    writing.record(.document(42), atDepth: 1)
+    writing.record(.document(id: 42, uid: nil), atDepth: 1)
 
     // The project restore notices the same project it stored. If that counted
     // as a change it would drop the screens it came to reopen.
@@ -188,7 +188,7 @@ func runTruncation() {
     let state = OpenEditorState(defaults: store)
     state.rememberProject(7, in: here)
     state.record(.songsAndNotes(.song), atDepth: 0)
-    state.record(.document(42), atDepth: 1)
+    state.record(.document(id: 42, uid: nil), atDepth: 1)
 
     // Closing the editor leaves the list it was opened from.
     state.record(nil, atDepth: 1)
@@ -210,7 +210,7 @@ func runTruncation() {
           store.string(forKey: pathKey) ?? "—", "—")
 
     // Nothing is open beneath it, so there is nothing for it to be above.
-    state.record(.document(9), atDepth: 1)
+    state.record(.document(id: 9, uid: nil), atDepth: 1)
     check("a rung with no rung under it is ignored",
           store.string(forKey: pathKey) ?? "—", "—")
 }
@@ -220,7 +220,7 @@ func runTokens() {
     print("")
     print("Every screen survives a round trip through storage")
     let screens: [OpenEditor] = [
-        .songsAndNotes(.song), .songsAndNotes(.notes), .document(1),
+        .songsAndNotes(.song), .songsAndNotes(.notes), .document(id: 1, uid: nil), .document(id: 2, uid: "abc-123"),
         .songWorkspace, .characters, .outline, .titlePage,
     ]
     for screen in screens {
@@ -238,6 +238,95 @@ func runTokens() {
     check("an empty record is an empty path", OpenEditorState.decode("").count, 0)
 }
 
+@MainActor
+func runCarryingAcrossASignIn() {
+    print("")
+    print("A song being written when the session changes comes with it")
+
+    // The whole point of the uid: the writer is mid-verse on a signed-out
+    // device, signs in, and their song is now filed in the account under a
+    // different number. The record crosses under the name both of them know.
+    let store = scratch("carry")
+    let local = OpenEditorState(defaults: store)
+    local.rememberProject(7, in: elsewhere)
+    local.record(.songsAndNotes(.song), atDepth: 0)
+    local.record(.document(id: 42, uid: "the-song"), atDepth: 1)
+    // Spent, exactly as it is by the time anyone signs in — this launch's
+    // restore happened long ago.
+    _ = local.claimReopenPath(forProject: 7, in: elsewhere)
+
+    // Screenplay 7 on the device is screenplay 300 in the account.
+    local.carry(from: elsewhere, to: here) { $0 == 7 ? 300 : nil }
+
+    let account = OpenEditorState(defaults: store)
+    check("the screenplay crossed", account.rememberedProjectId(in: here) ?? -1, 300)
+    check("and is no longer claimed by the workspace left behind",
+          account.rememberedProjectId(in: elsewhere) as Int? ?? -1, -1)
+    let path = account.claimReopenPath(forProject: 300, in: here)
+    check("both screens crossed with it", path.count, 2)
+    check("the song is named by what it is, not by its number",
+          path.last == .document(id: 42, uid: "the-song"), true)
+
+    // A screenplay the account does not have is not a screenplay to cross to.
+    let other = scratch("carrynowhere")
+    let stranded = OpenEditorState(defaults: other)
+    stranded.rememberProject(7, in: elsewhere)
+    stranded.record(.outline, atDepth: 0)
+    stranded.carry(from: elsewhere, to: here) { _ in nil }
+    check("nothing is written for a screenplay with no counterpart",
+          stranded.rememberedProjectId(in: here) as Int? ?? -1, -1)
+    check("and the record it had is left where it was",
+          stranded.rememberedProjectId(in: elsewhere) ?? -1, 7)
+}
+
+@MainActor
+func runANamelessSongDoesNotCross() {
+    print("")
+    print("A song with no name of its own stops at the crossing")
+
+    // Its id means something here and something else over there. Reopening by
+    // it would not be a stale song — it would be somebody else's, which is the
+    // one outcome worse than opening the list.
+    let store = scratch("nameless")
+    let local = OpenEditorState(defaults: store)
+    local.rememberProject(7, in: elsewhere)
+    local.record(.songsAndNotes(.song), atDepth: 0)
+    local.record(.document(id: 42, uid: nil), atDepth: 1)
+    local.carry(from: elsewhere, to: here) { _ in 300 }
+
+    let account = OpenEditorState(defaults: store)
+    let path = account.claimReopenPath(forProject: 300, in: here)
+    check("the list still crosses", path.count, 1)
+    check("the song does not", path.first == .songsAndNotes(.song), true)
+}
+
+@MainActor
+func runResolvingTheRememberedSong() {
+    print("")
+    print("Finding the song a record names")
+
+    // Ids as they would be in an account that has never met this device: the
+    // song the writer means is number 9 here and was number 42 there, and 42 is
+    // somebody else's note.
+    func document(_ id: Int, _ uid: String?, _ title: String) -> TextDocument {
+        let json = """
+        {"id": \(id), \(uid.map { "\"uid\": \"\($0)\"," } ?? "") "title": "\(title)"}
+        """
+        return try! JSONDecoder().decode(TextDocument.self, from: Data(json.utf8))
+    }
+    let list = [document(9, "the-song", "Opening Number"),
+                document(42, "another-thing", "Scratch Notes")]
+
+    check("the name wins over the number",
+          list.rememberedOne(id: 42, uid: "the-song")?.displayTitle ?? "—", "Opening Number")
+    check("a record with no name falls back to the number",
+          list.rememberedOne(id: 42, uid: nil)?.displayTitle ?? "—", "Scratch Notes")
+    check("a name nothing answers to falls back too",
+          list.rememberedOne(id: 9, uid: "deleted-since")?.displayTitle ?? "—", "Opening Number")
+    check("and a song that is gone is nothing to reopen",
+          list.rememberedOne(id: 404, uid: "gone") == nil, true)
+}
+
 MainActor.assumeIsolated {
     runFirstRun()
     runAnotherWorkspace()
@@ -248,6 +337,9 @@ MainActor.assumeIsolated {
     runReRecordingIsNotAChange()
     runTruncation()
     runTokens()
+    runCarryingAcrossASignIn()
+    runANamelessSongDoesNotCross()
+    runResolvingTheRememberedSong()
 }
 
 print("")

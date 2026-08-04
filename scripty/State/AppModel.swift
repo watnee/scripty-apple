@@ -969,7 +969,14 @@ final class AppModel {
     }
 
     /// Moves the "which screenplay was open" record across a crossing, so the
-    /// writer comes out of it in the screenplay they went into it in.
+    /// writer comes out of it in the screenplay they went into it in — and, when
+    /// they were inside one, in the song or note they were writing.
+    ///
+    /// Two records, because they answer different questions: one is which script
+    /// the window is showing, the other is what was open above it. The screen a
+    /// writer reaches for Sign In from is very often a lyric editor, and landing
+    /// them on the screenplay it belongs to would be the app forgetting where
+    /// they were in the middle of a step they took to keep that lyric.
     ///
     /// Nothing is written when the two sides have no such screenplay in common:
     /// the record left behind belongs to a workspace this is not, and reads as
@@ -979,6 +986,7 @@ final class AppModel {
         let lastOpened = LastOpenedProject()
         guard let there = lastOpened.projectId(in: from), let here = translate(there) else { return }
         lastOpened.remember(here, in: to)
+        OpenEditorState.shared.carry(from: from, to: to, translating: translate)
     }
 
     private func report(copied: [String], stranded: [String]) {

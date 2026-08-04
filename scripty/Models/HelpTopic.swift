@@ -204,6 +204,13 @@ extension HelpTopic {
                     + "out go up into that same screenplay. You are never asked to keep "
                     + "it again, and no second copy appears — Scripty does the carrying "
                     + "each time you cross, as long as you are online when you do.",
+                    "The songs and notes inside it come across as themselves, not as "
+                    + "copies. A song you started signed out is the same song in your "
+                    + "account — the same lyric, the same versions behind it — and when "
+                    + "you sign out again it is the same song on this device, holding "
+                    + "whatever verses you added in either place. Scripty puts you back "
+                    + "in the one you were writing in, too: sign in from a lyric and the "
+                    + "lyric is what you land in.",
                     "If the same screenplay has been written in both places at once — "
                     + "here while signed out, and in your account from a browser or "
                     + "another device — neither version is thrown away. What you wrote "
@@ -219,7 +226,8 @@ extension HelpTopic {
                            "guest", "sign in", "sign out", "account", "no account",
                            "without an account", "local", "kept", "saved", "backup",
                            "sync", "same project", "same screenplay", "copy", "duplicate",
-                           "cloud"])
+                           "cloud", "song", "songs", "note", "notes", "lyrics",
+                           "same song", "same note"])
         ]),
         HelpSection(id: "writing", title: "Writing", topics: [
             HelpTopic(

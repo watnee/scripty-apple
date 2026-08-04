@@ -34,6 +34,18 @@ enum DocumentType: String, Codable, Sendable, CaseIterable {
 
 struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
     let id: Int
+    /// What this song or note is, as against where it happens to be kept.
+    ///
+    /// The same song can exist in an account and on a device that was signed
+    /// out when it was written; the two number their documents separately and
+    /// always will, so `id` cannot say they are the same song and this can. It
+    /// is what the app matches on across a sign-in or a sign-out — see
+    /// `AppModel.carryOpenDocument`.
+    ///
+    /// Optional: a server older than the field simply does not send it, and
+    /// nothing here fails for the want of it — the crossing just does not
+    /// reopen the song it would otherwise have reopened.
+    var uid: String?
     var projectId: Int?
     var projectTitle: String?
     var title: String?
@@ -54,7 +66,7 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
     let links: HALLinks?
 
     private enum CodingKeys: String, CodingKey {
-        case id, projectId, projectTitle, title, documentType, documentTypeLabel
+        case id, uid, projectId, projectTitle, title, documentType, documentTypeLabel
         case content, preview, sortOrder, createdAt, updatedAt, archivedAt
         case links = "_links"
     }
@@ -79,6 +91,24 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
 }
 
 extension Array where Element == TextDocument {
+    /// The song or note a remembered record names, by whichever of its two
+    /// names still applies here.
+    ///
+    /// The uid first, because it is the one that survives a crossing: the record
+    /// may have been written in a signed-out workspace and be being read in an
+    /// account, where the same song is filed under a different number. The id is
+    /// the fallback, for a record with no uid — an older build's, or one written
+    /// against a server that does not publish them — and for the ordinary case
+    /// where nothing has crossed anything and the two agree.
+    ///
+    /// Nil when neither finds it, which is a song deleted since. Every caller
+    /// treats that as "reopen nothing", because the alternative is opening a
+    /// song the writer never asked for.
+    func rememberedOne(id: Int, uid: String?) -> TextDocument? {
+        if let uid, !uid.isEmpty, let matched = first(where: { $0.uid == uid }) { return matched }
+        return first { $0.id == id }
+    }
+
     /// The most recently edited first, at most `limit` of them.
     ///
     /// One definition of "recent" for the two places that offer a shortcut

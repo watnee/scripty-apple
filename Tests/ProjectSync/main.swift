@@ -449,9 +449,138 @@ func checkAWorkspaceCannotBeEmptiedByAccident() async {
                await lines(localId, on: device), ["Words that must survive."])
 }
 
+// MARK: - The same song, on both sides of the crossing
+
+/// Songs and notes as the backend holds them: the number it files each under,
+/// and the name it knows the song by wherever it is kept.
+@MainActor
+func documentRows(_ projectId: Int,
+                  on backend: DemoBackend) async -> [(id: Int, uid: String, title: String)] {
+    let response = await backend.respond(
+        method: "GET", url: url("/api/document?projectId=\(projectId)"), body: nil)
+    return embedded(json(response)).compactMap { entry in
+        guard let id = entry["id"] as? Int, let title = entry["title"] as? String else { return nil }
+        return (id, entry["uid"] as? String ?? "", title)
+    }
+}
+
+/// A song's lyric, line by line, as the lyric editor would load it.
+@MainActor
+func lyric(_ documentId: Int, on backend: DemoBackend) async -> [String] {
+    let response = await backend.respond(
+        method: "GET", url: url("/api/song/block?documentId=\(documentId)"), body: nil)
+    return embedded(json(response)).compactMap { $0["content"] as? String }
+}
+
+@MainActor
+func addDocument(_ title: String, type: String, content: String,
+                 to projectId: Int, on backend: DemoBackend) async -> Int? {
+    let response = await backend.respond(
+        method: "POST", url: url("/api/document"),
+        body: body(["projectId": projectId, "title": title,
+                    "documentType": type, "content": content]))
+    return json(response)["id"] as? Int
+}
+
+@MainActor
+func checkSongsAndNotesStayThemselves() async {
+    print()
+    print("== A song written signed out stays one song ==")
+
+    let directory = scratchDirectory("songs")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let device = DemoBackend(store: LocalWorkspaceStore(directory: directory))
+    let account = DemoBackend(store: nil)
+    let accountClient = APIClient(baseURL: DemoBackend.baseURL, demo: account)
+
+    let made = json(await device.respond(method: "POST", url: url("/api/project"),
+                                         body: body(["title": "The Long Way"])))
+    guard let localId = made["id"] as? Int,
+          let localSong = await addDocument("Opening Number", type: "SONG",
+                                            content: "A first line\nA second line",
+                                            to: localId, on: device),
+          let localNote = await addDocument("Blocking", type: "NOTES",
+                                            content: "Stage left.", to: localId, on: device)
+    else {
+        check("a song and a note are written without an account", false)
+        return
+    }
+    // Load the lyric, which is what splits the text into lines the first time.
+    checkEqual("the song has its lines on the device",
+               await lyric(localSong, on: device), ["A first line", "A second line"])
+    let deviceRows = await documentRows(localId, on: device)
+    let songUid = deviceRows.first { $0.id == localSong }?.uid ?? ""
+    check("and a name of its own, not just a number", !songUid.isEmpty)
+
+    // 1. Kept into the account.
+    guard let kept = await keep(localId, from: device, into: accountClient) else {
+        check("the account takes the screenplay", false)
+        return
+    }
+    let accountRows = await documentRows(kept.id, on: account)
+    checkEqual("the account has both", accountRows.map(\.title).sorted(),
+               ["Blocking", "Opening Number"])
+    checkEqual("and knows the song by the name the device gave it",
+               accountRows.first { $0.title == "Opening Number" }?.uid, songUid)
+    guard let accountSong = accountRows.first(where: { $0.title == "Opening Number" })?.id,
+          let accountNote = accountRows.first(where: { $0.title == "Blocking" })?.id else {
+        check("the account's song can be found", false)
+        return
+    }
+    checkEqual("with the lyric it was written with",
+               await lyric(accountSong, on: account), ["A first line", "A second line"])
+
+    // 2. A verse added in the account, then signing out.
+    _ = await account.respond(
+        method: "POST", url: url("/api/song/block?documentId=\(accountSong)"),
+        body: body(["content": "A third line"]))
+    guard let afterEditing = await project(kept.id, on: accountClient),
+          await bringDown(afterEditing, into: localId, on: device, from: accountClient) else {
+        check("the account's copy comes down on the way out", false)
+        return
+    }
+    let backOnDevice = await documentRows(localId, on: device)
+    checkEqual("the device still has one song and one note, not four",
+               backOnDevice.count, 2)
+    checkEqual("the song is the same row it always was",
+               backOnDevice.first { $0.uid == songUid }?.id, localSong)
+    checkEqual("holding the verse written in the account",
+               await lyric(localSong, on: device),
+               ["A first line", "A second line", "A third line"])
+    checkEqual("and the note is the same note",
+               backOnDevice.first { $0.title == "Blocking" }?.id, localNote)
+
+    // 3. A verse added on the device, then signing back in.
+    _ = await device.respond(
+        method: "POST", url: url("/api/song/block?documentId=\(localSong)"),
+        body: body(["content": "A fourth line"]))
+    guard let remote = await project(kept.id, on: accountClient),
+          await send(localId, from: device, into: remote, on: accountClient) != nil else {
+        check("the account takes the update", false)
+        return
+    }
+    let backInAccount = await documentRows(kept.id, on: account)
+    checkEqual("the account still has one song and one note",
+               backInAccount.count, 2)
+    checkEqual("the song is the row the account already had",
+               backInAccount.first { $0.uid == songUid }?.id, accountSong)
+    checkEqual("the note likewise",
+               backInAccount.first { $0.title == "Blocking" }?.id, accountNote)
+    checkEqual("and the lyric is what the writer has been writing",
+               await lyric(accountSong, on: account),
+               ["A first line", "A second line", "A third line", "A fourth line"])
+
+    // Nothing was trashed on the way: a song written into rather than replaced
+    // leaves no wreckage behind it.
+    let trashed = embedded(json(await account.respond(
+        method: "GET", url: url("/api/document/trash?projectId=\(kept.id)"), body: nil)))
+    checkEqual("with nothing left in the trash to explain", trashed.count, 0)
+}
+
 // MARK: - Run
 
 await checkRoundTrip()
+await checkSongsAndNotesStayThemselves()
 await checkNothingIsLost()
 await checkArchivedDocumentsSurvive()
 checkTheRule()

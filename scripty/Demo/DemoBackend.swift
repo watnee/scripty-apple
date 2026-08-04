@@ -84,6 +84,21 @@ actor DemoBackend {
         var sortOrder: Int
         var createdAt: Date
         var updatedAt: Date
+        /// What this song or note *is*, as against where it happens to be kept.
+        ///
+        /// The id names a row in this workspace and an account numbers its own
+        /// documents from 1 as well, so the two can never recognise each other
+        /// by it. This they can: it is minted here, travels in the archive, and
+        /// is what the account matches on when the same song comes back — which
+        /// is the whole of how a lyric written signed out stays one lyric across
+        /// signing in, out, and in again. The server's column of the same name
+        /// (V58) is the other end of it.
+        ///
+        /// Optional because workspaces were already on disk before it existed: a
+        /// synthesised decoder reads a missing key as a failed decode, and a
+        /// failed decode is read as no workspace at all. `uidOf` fills one in
+        /// the first time it is asked for.
+        var uid: String? = nil
     }
 
     private var projects: [DemoProject] = []
@@ -256,6 +271,10 @@ actor DemoBackend {
             return false
         }
         restore(snapshot)
+        // A workspace written before songs and notes had durable names. Given
+        // them here and written straight back, so the name a song is carried
+        // under is the same one every time it is carried.
+        if nameDocumentsWithoutUids() { persist() }
         return true
     }
 
@@ -876,9 +895,16 @@ actor DemoBackend {
     /// in it now — the client side of `replaceFromArchive`.
     ///
     /// The screenplay keeps its id, so everything pointing at it still points at
-    /// it. What it held goes to the same places the server sends it: the script
-    /// onto the undo stack, the songs and notes into the document trash, so a
-    /// replace nobody meant is not the end of the words it replaced.
+    /// it. So does each song and note the file names: those are matched by uid
+    /// and written where they stand, which is what makes a lyric survive the
+    /// crossing as the same lyric — same id, same lines, same place in the
+    /// widgets and the reopen record — instead of as a copy of itself under a
+    /// new number.
+    ///
+    /// What the file does *not* name goes where the server sends it: the script
+    /// onto the undo stack and into the version history, the leftover songs and
+    /// notes into the document trash, so a replace nobody meant is not the end
+    /// of the words it replaced.
     private func replaceProject(_ projectId: Int, fromArchive archive: [String: Any]) {
         guard projects.contains(where: { $0.id == projectId }) else { return }
         snapshot(projectId)
@@ -886,14 +912,60 @@ actor DemoBackend {
         // goes into the version history, which is where a writer would go
         // looking for it.
         recordVersion(projectId, label: nil, autoSave: true)
-        for document in documents[projectId] ?? [] {
-            deletedDocuments[projectId, default: []].append(
-                DeletedDemoDocument(document: document, deletedAt: Date()))
+
+        // Everything the file could be talking about, taken out of both stores
+        // and offered to it. Archived documents are in here as well as listed
+        // ones: an archive carries both, so leaving the put-aside ones out would
+        // mean every crossing added a second copy of each of them.
+        let here = (documents[projectId] ?? []) + (archivedDocuments[projectId] ?? []).map(\.document)
+        var claimable: [String: DemoDocument] = [:]
+        for document in here {
+            guard let uid = document.uid, !uid.isEmpty else { continue }
+            claimable[uid] = document
         }
+        // A document with no uid at all — written before they existed and never
+        // restored since — can be claimed by nothing, so it is not offered and
+        // is dealt with below as a leftover. That is what this did for
+        // everything before uids, and it is still whole and recoverable.
+        let unnamed = here.filter { $0.uid?.isEmpty ?? true }
+
         blocks[projectId] = []
         people[projectId] = []
         documents[projectId] = []
-        applyArchive(archive, to: projectId)
+        archivedDocuments[projectId] = []
+
+        let leftovers = applyArchive(archive, to: projectId, claimable: claimable) + unnamed
+        for document in leftovers {
+            deletedDocuments[projectId, default: []].append(
+                DeletedDemoDocument(document: document, deletedAt: Date()))
+        }
+    }
+
+    /// Puts a document back into the store the archive says it belongs in.
+    private func place(_ document: DemoDocument, archived: Bool, in projectId: Int) {
+        if archived {
+            archivedDocuments[projectId, default: []].append(
+                ArchivedDemoDocument(document: document, archivedAt: Date()))
+        } else {
+            documents[projectId, default: []].append(document)
+        }
+    }
+
+    /// Makes a song's lines say what its text now says.
+    ///
+    /// Needed only where an archive was read into a song that already existed:
+    /// lines are seeded from the text once, on a song that has none, so without
+    /// this the lyric on screen would go on showing what it said before the file
+    /// arrived while the text underneath it said something else. The lines it
+    /// replaces go on the song's undo stack, so an unwanted crossing is one
+    /// ⌘Z away.
+    private func reseedSongLines(_ documentId: Int) {
+        guard let editionId = resolveSongEdition(documentId, editionId: nil) else { return }
+        ensureSongBlocks(documentId, editionId: editionId)
+        snapshotSong(editionId)
+        songBlocks[editionId] = nil
+        ensureSongBlocks(documentId, editionId: editionId)
+        syncSongText(documentId, editionId: editionId)
     }
 
     /// Everything an archive says a project holds, written into one that is
@@ -902,8 +974,17 @@ actor DemoBackend {
     /// Shared by importing a file into a project made a moment ago and by
     /// reading one back into a project that has just been emptied — what is
     /// different about those two happened before this ran.
-    private func applyArchive(_ archive: [String: Any], to projectId: Int) {
-        guard let index = projects.firstIndex(where: { $0.id == projectId }) else { return }
+    ///
+    /// `claimable` is the songs and notes already here that the file might be
+    /// describing, by uid; empty when this is an import, since a project made a
+    /// moment ago has none. Answers the ones it did not claim, which is what the
+    /// caller trashes.
+    @discardableResult
+    private func applyArchive(_ archive: [String: Any], to projectId: Int,
+                              claimable: [String: DemoDocument] = [:]) -> [DemoDocument] {
+        guard let index = projects.firstIndex(where: { $0.id == projectId }) else {
+            return Array(claimable.values)
+        }
         let info = archive["project"] as? [String: Any]
         projects[index].title = (info?["title"] as? String)
             ?? (archive["title"] as? String) ?? projects[index].title
@@ -923,14 +1004,43 @@ actor DemoBackend {
             if let key = entry["key"] as? Int { peopleByKey[key] = person.id }
         }
 
+        var unclaimed = claimable
+        // Every name this project will answer to once this is done. A second
+        // entry naming one of them is not that song — it is a file describing
+        // the same song twice — and must not be given its name.
+        var spokenFor = Set(claimable.keys)
         for entry in archive["documents"] as? [[String: Any]] ?? [] {
             guard let title = entry["title"] as? String else { continue }
-            let document = addDocument(projectId: projectId, title: title,
-                                       type: normalizeDocumentType(entry["documentType"] as? String) ?? "NOTES",
-                                       content: entry["content"] as? String ?? "")
-            // A song put aside stays put aside: it goes straight to the archive
-            // rather than turning up in the list as if it had been brought back.
-            if entry["archived"] as? Bool == true,
+            let type = normalizeDocumentType(entry["documentType"] as? String) ?? "NOTES"
+            let content = entry["content"] as? String ?? ""
+            // A song put aside stays put aside: it goes to the archive rather
+            // than turning up in the list as if it had been brought back.
+            let isArchived = entry["archived"] as? Bool == true
+            let uid = (entry["uid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+
+            if let uid, var claimed = unclaimed.removeValue(forKey: uid) {
+                // The file is talking about a song this project already has, so
+                // it is written where it stands — same id, same lyric lines,
+                // same everything pointing at it.
+                let lyricChanged = type == "SONG" && claimed.content != content
+                claimed.title = title
+                claimed.documentType = type
+                claimed.content = content
+                claimed.sortOrder = entry["sortOrder"] as? Int ?? claimed.sortOrder
+                claimed.updatedAt = .now
+                place(claimed, archived: isArchived, in: projectId)
+                if lyricChanged { reseedSongLines(claimed.id) }
+                continue
+            }
+
+            let document = addDocument(projectId: projectId, title: title, type: type,
+                                       content: content,
+                                       // Keep the file's name for it where nothing here
+                                       // answers to that name yet: that is how a song
+                                       // written in one place goes on being the same song
+                                       // in the other. Otherwise it starts afresh.
+                                       uid: uid.flatMap { spokenFor.insert($0).inserted ? $0 : nil })
+            if isArchived,
                let position = documents[projectId]?.firstIndex(where: { $0.id == document.id }),
                let removed = documents[projectId]?.remove(at: position) {
                 archivedDocuments[projectId, default: []].append(
@@ -958,6 +1068,8 @@ actor DemoBackend {
             nextBlockId += 1
             blocks[projectId, default: []].append(block)
         }
+
+        return Array(unclaimed.values)
     }
 
     /// Replaces a project's script from an uploaded file. The demo parses only
@@ -1412,7 +1524,7 @@ actor DemoBackend {
             let type = normalizeDocumentType(fields["documentType"] as? String) ?? "SONG"
             let document = addDocument(projectId: projectId, title: title, type: type,
                                        content: fields["content"] as? String ?? "")
-            recordWork(projectId)
+            touch(projectId)
             return ok(documentJSON(document, includeContent: true))
         case ("POST", "import"):
             return importDocument(body: body)
@@ -1476,7 +1588,7 @@ actor DemoBackend {
             }
             documents[projectId]?[index].content = fields["content"] as? String ?? ""
             documents[projectId]?[index].updatedAt = .now
-            recordWork(projectId)
+            touch(projectId)
             return ok(documentJSON(documents[projectId]![index], includeContent: true))
         case ("DELETE", nil):
             // A soft delete, as on the server: the document is kept aside so a
@@ -1777,14 +1889,54 @@ actor DemoBackend {
 
     @discardableResult
     private func addDocument(projectId: Int, title: String, type: String,
-                             content: String) -> DemoDocument {
+                             content: String, uid: String? = nil) -> DemoDocument {
         let order = (documents[projectId] ?? []).map(\.sortOrder).max().map { $0 + 1 } ?? 0
         let document = DemoDocument(id: nextDocumentId, projectId: projectId, title: title,
                                     documentType: type, content: content, sortOrder: order,
-                                    createdAt: .now, updatedAt: .now)
+                                    createdAt: .now, updatedAt: .now,
+                                    // A name of its own from the moment it exists, so a song
+                                    // written here can be recognised as the same song once an
+                                    // account holds it too — see `DemoDocument.uid`. Callers
+                                    // reading an archive pass the one the file already knows.
+                                    uid: uid ?? UUID().uuidString)
         nextDocumentId += 1
         documents[projectId, default: []].append(document)
         return document
+    }
+
+    /// Gives every document written before uids existed one, once.
+    ///
+    /// Done on the way in rather than lazily on the way out, because the one
+    /// thing that needs a uid is an archive being built — and archives are
+    /// built by GETs, which deliberately do not write the workspace back. A name
+    /// minted there and forgotten would be a different name next time, which is
+    /// worse than none: the account would collect a fresh copy of the song on
+    /// every crossing.
+    ///
+    /// Answers whether anything changed, so a workspace that needs nothing costs
+    /// nothing.
+    @discardableResult
+    private func nameDocumentsWithoutUids() -> Bool {
+        var changed = false
+        func name(_ document: inout DemoDocument) {
+            guard document.uid?.isEmpty ?? true else { return }
+            document.uid = UUID().uuidString
+            changed = true
+        }
+        for projectId in documents.keys {
+            for index in documents[projectId]!.indices { name(&documents[projectId]![index]) }
+        }
+        for projectId in archivedDocuments.keys {
+            for index in archivedDocuments[projectId]!.indices {
+                name(&archivedDocuments[projectId]![index].document)
+            }
+        }
+        for projectId in deletedDocuments.keys {
+            for index in deletedDocuments[projectId]!.indices {
+                name(&deletedDocuments[projectId]![index].document)
+            }
+        }
+        return changed
     }
 
     /// One document as the server renders it.
@@ -1848,6 +2000,11 @@ actor DemoBackend {
         ]
         if includeContent {
             json["content"] = document.content
+        }
+        // As the server publishes it: the one thing that names this song in a
+        // workspace that is not this one.
+        if let uid = document.uid, !uid.isEmpty {
+            json["uid"] = uid
         }
         if let archivedAt {
             json["archivedAt"] = iso.string(from: archivedAt)
@@ -1936,11 +2093,11 @@ actor DemoBackend {
         case let .live(projectId, index):
             documents[projectId]?[index].content = content
             documents[projectId]?[index].updatedAt = .now
-            recordWork(projectId)
+            touch(projectId)
         case let .archived(projectId, index):
             archivedDocuments[projectId]?[index].document.content = content
             archivedDocuments[projectId]?[index].document.updatedAt = .now
-            recordWork(projectId)
+            touch(projectId)
         case nil:
             break
         }
@@ -4447,9 +4604,17 @@ actor DemoBackend {
             .map { ($0, true) }
         let documentEntries = (liveEntries + archivedEntries)
             .map { document, isArchived -> [String: Any] in
-                ["key": document.id, "title": document.title,
-                 "documentType": document.documentType, "content": document.content,
-                 "sortOrder": document.sortOrder, "archived": isArchived]
+                var entry: [String: Any] = [
+                    "key": document.id, "title": document.title,
+                    "documentType": document.documentType, "content": document.content,
+                    "sortOrder": document.sortOrder, "archived": isArchived,
+                ]
+                // Unlike `key`, which only wires this file together and is
+                // thrown away on the way in, this travels: it is how the far
+                // end knows this is a song it already has rather than a new
+                // one. See `DemoDocument.uid`.
+                if let uid = document.uid, !uid.isEmpty { entry["uid"] = uid }
+                return entry
             }
 
         let blockEntries = (blocks[project.id] ?? [])
@@ -4589,14 +4754,18 @@ actor DemoBackend {
         }
     }
 
-    /// Marks a project as written without moving its `lastEdited`.
+    /// Marks a project as written: the flag the sign-in offer and the linked
+    /// crossing are both built from.
     ///
-    /// Songs and notes go through here rather than through `touch`: on the
-    /// server a note is its own resource with its own timestamp and the
-    /// screenplay's date does not move for it, and a demo that disagreed would
-    /// re-sort the sidebar where production would not. What it *is*, though, is
-    /// work — so a guest who has only written notes is still asked whether to
-    /// keep them.
+    /// Songs and notes reach this through `touch` like everything else. They
+    /// used not to — the reasoning being that a note is its own resource with
+    /// its own timestamp and the screenplay's date does not move for it — but
+    /// the server does not work that way: `TextDocumentServiceImpl` and
+    /// `SongBlockServiceImpl` both stamp the project on every save. That matters
+    /// beyond where a row sorts. The account's `lastEdited` is the whole of how
+    /// this client decides whether someone else has written in a screenplay
+    /// since the two copies last met, and a demo that disagreed would have the
+    /// checks rehearsing a conflict production cannot have.
     private func recordWork(_ projectId: Int) {
         writtenProjectIds.insert(projectId)
     }
