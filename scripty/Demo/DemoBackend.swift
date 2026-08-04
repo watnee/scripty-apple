@@ -398,6 +398,66 @@ actor DemoBackend {
         persist()
     }
 
+    /// Un-notes it: no account has this screenplay after all.
+    ///
+    /// For the one case that can say so — an account that was given a copy and
+    /// has since deleted it. What is left here is then the only copy there is,
+    /// and it goes back to being work worth offering rather than a screenplay
+    /// wearing "already kept" for the rest of its life.
+    func forgetHandOff(projectIds ids: [Int]) {
+        for id in ids where projects.contains(where: { $0.id == id }) {
+            handedOffProjectIds.remove(id)
+            writtenProjectIds.insert(id)
+        }
+        persist()
+    }
+
+    /// Whether this screenplay holds words the account has not been given.
+    ///
+    /// The same flag the sign-in offer is built from, asked one project at a
+    /// time — which is what a linked screenplay needs: a device that has not
+    /// been written in since the two were last in step has nothing to send, and
+    /// the crossing should cost the writer nothing and say nothing.
+    func hasUnsentWork(projectId: Int) -> Bool {
+        writtenProjectIds.contains(projectId)
+    }
+
+    func projectExists(_ id: Int) -> Bool {
+        projects.contains { $0.id == id }
+    }
+
+    /// Makes this device's copy of a screenplay match the account's, from the
+    /// archive the account just handed over.
+    ///
+    /// The other half of `hasUnsentWork`: this is the crossing in the other
+    /// direction, run as the writer signs out, so what they wrote in the account
+    /// is what they find in front of them a moment later rather than the words
+    /// as they stood whenever the two last met.
+    ///
+    /// The screenplay keeps its local id, so the sidebar's selection, the
+    /// remembered place and the widgets all still name it. Afterwards the device
+    /// has nothing the account has not got, which is exactly what
+    /// `hasUnsentWork` should then say.
+    @discardableResult
+    func mirrorProject(_ id: Int, fromArchive data: Data) -> Bool {
+        guard projects.contains(where: { $0.id == id }),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        let archive = (object["projects"] as? [[String: Any]])?.first ?? object
+        // A file that describes no project at all would empty the screenplay and
+        // call it success. Refuse it: an unreadable answer is a reason to leave
+        // the copy on the device alone, not to clear it.
+        guard archive["project"] != nil || archive["blocks"] != nil || archive["documents"] != nil else {
+            return false
+        }
+        replaceProject(id, fromArchive: archive)
+        writtenProjectIds.remove(id)
+        handedOffProjectIds.insert(id)
+        persist()
+        return true
+    }
+
     // MARK: - Router
 
     func respond(method: String, url: URL, body: Data?) -> (status: Int, data: Data) {
@@ -700,6 +760,12 @@ actor DemoBackend {
             return projectCollection()
         case ("POST", "import-script"):
             return demoImportScript(projectId: id, body: body)
+        case ("POST", "replace-from-archive"):
+            guard let archive = singleArchive(in: body) else { return badRequest("file") }
+            replaceProject(id, fromArchive: archive)
+            guard let replaced = projects.first(where: { $0.id == id }) else { return notFound() }
+            writtenProjectIds.insert(id)
+            return ok(projectJSON(replaced))
         case ("DELETE", nil):
             // A soft delete, as on the server: everything belonging to the
             // project is kept aside so a restore can bring it back whole.
@@ -765,39 +831,87 @@ actor DemoBackend {
     /// file (see `projectArchive`), so everything lands in one script, exactly
     /// as it does when the server reads the same document.
     private func demoImport(body: Data?) -> (Int, Data) {
-        guard let body, let text = String(data: body, encoding: .utf8),
-              let headerEnd = text.range(of: "\r\n\r\n") else {
-            return badRequest("file")
-        }
-        var payload = String(text[headerEnd.upperBound...])
-        if let closing = payload.range(of: "\r\n--\(APIClient.multipartBoundary)--") {
-            payload = String(payload[..<closing.lowerBound])
-        }
-        guard let jsonData = payload.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            return badRequest("file")
-        }
+        guard let object = archiveDocument(in: body) else { return badRequest("file") }
         let archives = (object["projects"] as? [[String: Any]]) ?? [object]
         let created = archives.map(importArchive)
         guard let first = created.first else { return badRequest("file") }
         return ok(projectJSON(first))
     }
 
+    /// The archive document out of a multipart upload, or nil for anything that
+    /// is not one.
+    private func archiveDocument(in body: Data?) -> [String: Any]? {
+        guard let body, let text = String(data: body, encoding: .utf8),
+              let headerEnd = text.range(of: "\r\n\r\n") else { return nil }
+        var payload = String(text[headerEnd.upperBound...])
+        if let closing = payload.range(of: "\r\n--\(APIClient.multipartBoundary)--") {
+            payload = String(payload[..<closing.lowerBound])
+        }
+        guard let jsonData = payload.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+    }
+
+    /// The one project an upload is about, for the routes that act on a project
+    /// that already exists: a single-project file, or a bundle's first.
+    private func singleArchive(in body: Data?) -> [String: Any]? {
+        guard let object = archiveDocument(in: body) else { return nil }
+        if let bundled = object["projects"] as? [[String: Any]] { return bundled.first }
+        return object
+    }
+
     /// One archive document, turned back into a project.
     private func importArchive(_ archive: [String: Any]) -> DemoProject {
-        let info = archive["project"] as? [String: Any]
-        let title = (info?["title"] as? String) ?? (archive["title"] as? String) ?? "Imported Project"
-        var project = DemoProject(id: nextProjectId, title: title, lastEdited: .now)
-        project.screenplayTitle = info?["screenplayTitle"] as? String
-        project.writers = info?["writers"] as? String
-        project.contactInfo = info?["contactInfo"] as? String
-        project.screenplayVersion = info?["screenplayVersion"] as? String
+        let project = DemoProject(id: nextProjectId, title: "Imported Project", lastEdited: .now)
         nextProjectId += 1
         projects.append(project)
         blocks[project.id] = []
         people[project.id] = []
         documents[project.id] = []
         writtenProjectIds.insert(project.id)
+        applyArchive(archive, to: project.id)
+        return projects.first { $0.id == project.id } ?? project
+    }
+
+    /// Reads an archive into a project that already exists, in place of what is
+    /// in it now — the client side of `replaceFromArchive`.
+    ///
+    /// The screenplay keeps its id, so everything pointing at it still points at
+    /// it. What it held goes to the same places the server sends it: the script
+    /// onto the undo stack, the songs and notes into the document trash, so a
+    /// replace nobody meant is not the end of the words it replaced.
+    private func replaceProject(_ projectId: Int, fromArchive archive: [String: Any]) {
+        guard projects.contains(where: { $0.id == projectId }) else { return }
+        snapshot(projectId)
+        // As the server does before the same write: the script being replaced
+        // goes into the version history, which is where a writer would go
+        // looking for it.
+        recordVersion(projectId, label: nil, autoSave: true)
+        for document in documents[projectId] ?? [] {
+            deletedDocuments[projectId, default: []].append(
+                DeletedDemoDocument(document: document, deletedAt: Date()))
+        }
+        blocks[projectId] = []
+        people[projectId] = []
+        documents[projectId] = []
+        applyArchive(archive, to: projectId)
+    }
+
+    /// Everything an archive says a project holds, written into one that is
+    /// ready for it.
+    ///
+    /// Shared by importing a file into a project made a moment ago and by
+    /// reading one back into a project that has just been emptied — what is
+    /// different about those two happened before this ran.
+    private func applyArchive(_ archive: [String: Any], to projectId: Int) {
+        guard let index = projects.firstIndex(where: { $0.id == projectId }) else { return }
+        let info = archive["project"] as? [String: Any]
+        projects[index].title = (info?["title"] as? String)
+            ?? (archive["title"] as? String) ?? projects[index].title
+        projects[index].screenplayTitle = info?["screenplayTitle"] as? String
+        projects[index].writers = info?["writers"] as? String
+        projects[index].contactInfo = info?["contactInfo"] as? String
+        projects[index].screenplayVersion = info?["screenplayVersion"] as? String
+        projects[index].lastEdited = .now
 
         // The file's own keys only wire its parts together; every id here is
         // freshly minted, exactly as the server's importer does it.
@@ -805,15 +919,23 @@ actor DemoBackend {
         for entry in archive["characters"] as? [[String: Any]] ?? [] {
             guard let name = entry["name"] as? String else { continue }
             let person = addPerson(name: name, fullName: entry["fullName"] as? String ?? name)
-            people[project.id]?.append(person)
+            people[projectId, default: []].append(person)
             if let key = entry["key"] as? Int { peopleByKey[key] = person.id }
         }
 
         for entry in archive["documents"] as? [[String: Any]] ?? [] {
             guard let title = entry["title"] as? String else { continue }
-            _ = addDocument(projectId: project.id, title: title,
-                            type: normalizeDocumentType(entry["documentType"] as? String) ?? "NOTES",
-                            content: entry["content"] as? String ?? "")
+            let document = addDocument(projectId: projectId, title: title,
+                                       type: normalizeDocumentType(entry["documentType"] as? String) ?? "NOTES",
+                                       content: entry["content"] as? String ?? "")
+            // A song put aside stays put aside: it goes straight to the archive
+            // rather than turning up in the list as if it had been brought back.
+            if entry["archived"] as? Bool == true,
+               let position = documents[projectId]?.firstIndex(where: { $0.id == document.id }),
+               let removed = documents[projectId]?.remove(at: position) {
+                archivedDocuments[projectId, default: []].append(
+                    ArchivedDemoDocument(document: removed, archivedAt: Date()))
+            }
         }
 
         let entries = (archive["blocks"] as? [[String: Any]] ?? [])
@@ -834,9 +956,8 @@ actor DemoBackend {
             block.textItalic = entry["textItalic"] as? Bool
             block.textUnderline = entry["textUnderline"] as? Bool
             nextBlockId += 1
-            blocks[project.id]?.append(block)
+            blocks[projectId, default: []].append(block)
         }
-        return project
     }
 
     /// Replaces a project's script from an uploaded file. The demo parses only
@@ -3891,6 +4012,11 @@ actor DemoBackend {
                 "exportArchive": link("/api/project/\(project.id)/export/scripty"),
                 "actors": link("/api/actor?projectId=\(project.id)"),
                 "importScript": link("/api/project/\(project.id)/import-script"),
+                // The other direction of `exportArchive`: a whole archive read
+                // back into this project rather than into a new one, which is
+                // how a copy kept on a signed-out device comes home as the same
+                // screenplay instead of as a second one.
+                "replaceFromArchive": link("/api/project/\(project.id)/replace-from-archive"),
                 "versions": link("/api/project/version?projectId=\(project.id)"),
                 "editions": link("/api/project/edition?projectId=\(project.id)"),
                 "activity": link("/api/project/\(project.id)/activity"),
@@ -4307,12 +4433,23 @@ actor DemoBackend {
             ["key": person.id, "name": person.name, "fullName": person.fullName]
         }
 
-        let documentEntries = (documents[project.id] ?? [])
+        // Archived songs and notes travel too, flagged as archived. They are
+        // whole documents that happen not to be listed, and a file that left
+        // them out would quietly lose them — which matters most where the file
+        // is not a download but the device's copy of a screenplay being made to
+        // match the account's.
+        let liveEntries = (documents[project.id] ?? [])
             .sorted { $0.sortOrder < $1.sortOrder }
-            .map { document -> [String: Any] in
+            .map { ($0, false) }
+        let archivedEntries = (archivedDocuments[project.id] ?? [])
+            .map(\.document)
+            .sorted { $0.sortOrder < $1.sortOrder }
+            .map { ($0, true) }
+        let documentEntries = (liveEntries + archivedEntries)
+            .map { document, isArchived -> [String: Any] in
                 ["key": document.id, "title": document.title,
                  "documentType": document.documentType, "content": document.content,
-                 "sortOrder": document.sortOrder]
+                 "sortOrder": document.sortOrder, "archived": isArchived]
             }
 
         let blockEntries = (blocks[project.id] ?? [])

@@ -156,11 +156,14 @@ struct ContentView: View {
             openBookmarkDestination()
         }
         .onChange(of: quickActions.pending) { _, _ in performQuickAction() }
-        // Screenplays written before signing in, just copied into the account.
+        // Screenplays written before signing in, just saved to the account.
         // They arrive after this list has already loaded for the new session,
         // so nothing else would bring them in until the next refresh.
         .onChange(of: app.guestWorkImports) { _, _ in
-            Task { await projectList.refresh() }
+            Task {
+                await projectList.refresh()
+                openKeptProject()
+            }
         }
         // The app was already running when the widget row was tapped, so the
         // list is in hand and the only thing that changed is the request.
@@ -205,6 +208,23 @@ struct ContentView: View {
         selectedProjectId = (remembered
                              ?? LaunchProject.opened(in: projectList.projects,
                                                      isEphemeralDemo: app.isEphemeralDemo))?.id
+    }
+
+    /// Opens the screenplay the writer was in before they signed in, now that
+    /// the account has it.
+    ///
+    /// `AppModel` moves the "which screenplay was open" record across as the
+    /// work is kept — it knows which one in the account each local one became;
+    /// this is what acts on it, once the list holds that screenplay.
+    ///
+    /// Only where nothing is open. A writer who has since chosen a screenplay
+    /// has said where they want to be, and being pulled out of it a second later
+    /// by a sheet they already dismissed would be the app arguing with them.
+    private func openKeptProject() {
+        guard selectedProjectId == nil, !app.isEphemeralDemo,
+              let id = lastOpened.projectId(in: app.workspaceScope),
+              projectList.projects.contains(where: { $0.id == id }) else { return }
+        selectedProjectId = id
     }
 
     /// Takes on a project the screenplay screen renamed or re-imported.

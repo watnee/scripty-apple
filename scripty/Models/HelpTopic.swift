@@ -192,23 +192,34 @@ extension HelpTopic {
                     + "deleting the app takes the writing with it.",
                     "Sign In, in the sidebar menu or on the banner above the list, "
                     + "attaches an account. Keep Your Work? then lists everything you "
-                    + "wrote before signing in, ticked to begin with: Keep copies "
-                    + "those screenplays into your account. Nothing leaves the device "
-                    + "— your account gets a copy, and this workspace keeps its own.",
-                    "Signing out brings this workspace back rather than shutting you "
-                    + "out, with everything you wrote here still in it, copied or not. "
-                    + "From then on the two go their own way: the copy in your account "
-                    + "and the one on this device are separate screenplays, and writing "
-                    + "in one does not change the other. Sign in again and a screenplay "
-                    + "you have already copied says so on the Keep Your Work? list, and "
-                    + "arrives unticked — keeping it a second time adds a second "
-                    + "screenplay to your account rather than updating the first.",
-                    "The screenplays in your account stay in your account: signing out "
-                    + "does not bring them onto this device."
+                    + "wrote before signing in, ticked to begin with: Keep saves those "
+                    + "screenplays to your account. They stay on this device as well — "
+                    + "keeping is not moving.",
+                    "Kept screenplays say so: signed out, the ones your account "
+                    + "has carry a Kept badge in the list, and the ones without "
+                    + "it are on this device and nowhere else.",
+                    "A screenplay you have kept stays one screenplay. Sign out and it "
+                    + "is there to go on writing in, holding whatever you last wrote in "
+                    + "your account; sign back in and the words you added while signed "
+                    + "out go up into that same screenplay. You are never asked to keep "
+                    + "it again, and no second copy appears — Scripty does the carrying "
+                    + "each time you cross, as long as you are online when you do.",
+                    "If the same screenplay has been written in both places at once — "
+                    + "here while signed out, and in your account from a browser or "
+                    + "another device — neither version is thrown away. What you wrote "
+                    + "here is saved to your account as a screenplay of its own and "
+                    + "Scripty says so, leaving you to decide which is which. The "
+                    + "version that any update replaces is kept in that project's "
+                    + "version history too.",
+                    "A screenplay you leave unticked is not kept, and stays on this "
+                    + "device only. Screenplays that were only ever in your account "
+                    + "stay there: signing out does not bring them onto this device."
                 ],
                 keywords: ["sample", "try", "offline", "test", "example", "demo",
                            "guest", "sign in", "sign out", "account", "no account",
-                           "without an account", "local", "kept", "saved", "backup"])
+                           "without an account", "local", "kept", "saved", "backup",
+                           "sync", "same project", "same screenplay", "copy", "duplicate",
+                           "cloud"])
         ]),
         HelpSection(id: "writing", title: "Writing", topics: [
             HelpTopic(

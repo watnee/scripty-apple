@@ -63,6 +63,16 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     /// reads back, so this is the round trip that moves a project between servers.
     static let exportArchive = Rel("exportArchive")
 
+    /// The same archive read back into a project that already exists, rather
+    /// than into a new one. Advertised on a project the caller can edit.
+    ///
+    /// This is what keeps a screenplay one screenplay across signing in and out.
+    /// A device with no account writes locally and hands the account a copy;
+    /// afterwards both copies are live, and words written on the device while
+    /// signed out have nowhere to go — `importProject` can only ever make a
+    /// second screenplay out of them. See `AppModel.syncLinkedProjects`.
+    static let replaceFromArchive = Rel("replaceFromArchive")
+
     /// Every project the signed-in user can see, as one archive. Advertised on
     /// the project collection rather than on a project — it is the collection
     /// it exports — and only when there is something in it.
