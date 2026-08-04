@@ -40,6 +40,11 @@ struct BlockTextView: UIViewRepresentable, Equatable {
     /// Names the screenplay element type for VoiceOver; the spoken value stays
     /// the block's own text.
     let accessibilityLabel: String
+    /// The script's selection, when a swipe across this line is a way into it,
+    /// and nil where selection would lead nowhere. A text view swallows the
+    /// touches a SwiftUI gesture would need, so the swipe is a recogniser of
+    /// its own here — see `SwipeToSelect`.
+    let selection: BlockSelectionModel?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(model: model, block: block, autocomplete: autocomplete)
@@ -74,6 +79,12 @@ struct BlockTextView: UIViewRepresentable, Equatable {
             coordinator?.dismissSuggestions()
         }
         context.coordinator.textView = view
+        context.coordinator.swipeToSelect.attach(to: view)
+        context.coordinator.swipeToSelect.select = { [weak coordinator = context.coordinator] in
+            coordinator?.selectThisElement()
+        }
+        context.coordinator.selection = selection
+        context.coordinator.swipeToSelect.setOffered(selection != nil)
         apply(font: font, alignment: alignment, capitalize: autocapitalize,
               spellChecks: spellChecks, revision: spellcheckRevision, to: view)
         if view.accessibilityLabel != accessibilityLabel {
@@ -101,6 +112,8 @@ struct BlockTextView: UIViewRepresentable, Equatable {
 
     func updateUIView(_ view: BlockUITextView, context: Context) {
         context.coordinator.block = block
+        context.coordinator.selection = selection
+        context.coordinator.swipeToSelect.setOffered(selection != nil)
 
         // The model's value goes back into the view whenever the two have
         // genuinely diverged — including while `liveText` stands.
@@ -181,6 +194,10 @@ struct BlockTextView: UIViewRepresentable, Equatable {
             && lhs.accessibilityLabel == rhs.accessibilityLabel
             && lhs.model === rhs.model
             && lhs.autocomplete === rhs.autocomplete
+            // By identity, like the two above: it is one object per script, and
+            // what it holds — which rows are ticked — is nothing this view
+            // draws. The mode coming on takes the row away entirely.
+            && lhs.selection === rhs.selection
     }
 
     private func apply(font: UIFont, alignment: NSTextAlignment,
@@ -245,6 +262,11 @@ struct BlockTextView: UIViewRepresentable, Equatable {
         let autocomplete: ScriptAutocomplete
         var block: Block
         weak var textView: BlockUITextView?
+        /// The swipe that picks this element out, and the selection it picks it
+        /// into. The gesture is attached once in `makeUIView` and outlives every
+        /// rebuild of the view, so it is held here rather than made per update.
+        let swipeToSelect = SwipeToSelectGesture()
+        var selection: BlockSelectionModel?
 
         init(model: ScriptModel, block: Block, autocomplete: ScriptAutocomplete) {
             self.model = model
@@ -378,6 +400,18 @@ struct BlockTextView: UIViewRepresentable, Equatable {
         func dismissSuggestions() {
             guard isSuggesting else { return }
             autocomplete.dismiss(showing: textView?.text ?? "")
+        }
+
+        /// A swipe across the line being typed into: this element joins the
+        /// selection, and the mode comes on around it if it was off.
+        ///
+        /// Nothing is done about the keyboard here. Selection mode swaps this
+        /// row for a read-only one, which takes the text view out of the window
+        /// — that resigns first responder, which ends editing, which flushes
+        /// whatever was typed through `blur`. The words are saved before the
+        /// row is gone.
+        func selectThisElement() {
+            selection?.toggleEnteringMode(block.id)
         }
 
         func backspaceAtStart() {

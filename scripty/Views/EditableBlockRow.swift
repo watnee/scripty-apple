@@ -16,6 +16,11 @@ struct EditableBlockRow: View {
     /// Shared with every other row, so only the element being typed into can
     /// have a list open.
     let autocomplete: ScriptAutocomplete
+    /// The script's selection, so a sideways swipe across the line can pick it
+    /// out without a trip to the toolbar — nil where selection would lead
+    /// nowhere, and then no swipe is offered. Carried down to the text view,
+    /// which is where the gesture has to live: see `SwipeToSelect`.
+    var selection: BlockSelectionModel?
     /// Opens the comment thread for an element. Handed in so the sheet lives
     /// on the script view rather than one per row.
     var onComment: (Block) -> Void = { _ in }
@@ -55,7 +60,8 @@ struct EditableBlockRow: View {
                           autocapitalize: capitalization,
                           spellChecks: spellChecks,
                           spellcheckRevision: spellcheckRevision,
-                          accessibilityLabel: accessibilityDescription)
+                          accessibilityLabel: accessibilityDescription,
+                          selection: selection)
                 .equatable()
                 .blockHighlight(block)
                 .noteCard(block.blockType)

@@ -41,6 +41,19 @@ final class BlockSelectionModel {
         }
     }
 
+    /// Picks an element out without the toolbar: the mode comes on if it was
+    /// off, and the element is then taken or dropped exactly as a tap inside
+    /// the mode would take or drop it.
+    ///
+    /// What a swipe across a row means — see `SwipeToSelect`. The rule lives
+    /// here rather than at the gesture because it is a rule about the mode
+    /// rather than about a finger: the same two steps would be wanted by any
+    /// other shortcut into selection, and only one of them is obvious.
+    func toggleEnteringMode(_ id: Int) {
+        isSelecting = true
+        toggle(id)
+    }
+
     func clear() { selected.removeAll() }
 
     /// Selects every element currently listed. The web app's select-all

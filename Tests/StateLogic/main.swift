@@ -237,6 +237,26 @@ func selectionChecks() {
         selection.isSelecting = false
         check("leaving selection mode clears it", selection.isEmpty)
     }
+
+    // What a swipe across a row means: the mode comes on around the element it
+    // was made on, and the element is in the set — the toolbar never involved.
+    do {
+        let selection = BlockSelectionModel()
+        selection.toggleEnteringMode(4)
+        check("a swipe turns the mode on", selection.isSelecting)
+        checkEqual("and the element it was made on is in the set",
+                   selection.orderedIds(in: script), [4])
+
+        // Inside the mode it goes on meaning what a tap means, both ways.
+        selection.toggleEnteringMode(2)
+        checkEqual("a second swipe adds to the set",
+                   selection.orderedIds(in: script), [2, 4])
+        selection.toggleEnteringMode(4)
+        checkEqual("swiping a picked element again drops it",
+                   selection.orderedIds(in: script), [2])
+        check("and the mode stays on whether the swipe took or dropped",
+              selection.isSelecting)
+    }
 }
 
 @MainActor
