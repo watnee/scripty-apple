@@ -154,6 +154,16 @@ struct RootView: View {
             .sheet(item: $guestWork) { offer in
                 GuestWorkView(app: app, offer: offer)
             }
+            // A screenplay the device and the account both hold is caught up
+            // silently, because there is nothing to decide about it. This is for
+            // the two cases where there is: a screenplay written in both places
+            // at once, and one the account could not be given yet.
+            .alert("Your Screenplays", isPresented: syncNoticeBinding,
+                   presenting: app.syncNotice) { _ in
+                Button("OK") { app.syncNotice = nil }
+            } message: { notice in
+                Text(notice.message)
+            }
             // Re-runs whenever a link arrives, whatever the phase.
             .task(id: app.passwordResetToken) { await adoptResetToken() }
             .sheet(item: $pendingReset, onDismiss: { app.passwordResetToken = nil }) { pending in
@@ -242,6 +252,14 @@ struct RootView: View {
 
     private var helpBinding: Binding<HelpPresentation.Screen?> {
         Binding(get: { help.screen }, set: { help.screen = $0 })
+    }
+
+    /// The notice is the model's, so dismissing has to clear it there — an
+    /// alert that only closed itself would be back the next time anything
+    /// redrew this view.
+    private var syncNoticeBinding: Binding<Bool> {
+        Binding(get: { app.syncNotice != nil },
+                set: { if !$0 { app.syncNotice = nil } })
     }
 
     /// Never up in the signed-out phase: the login screen *is* that phase, and

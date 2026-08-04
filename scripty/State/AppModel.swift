@@ -69,6 +69,27 @@ final class AppModel {
     /// loaded for the new session.
     private(set) var guestWorkImports = 0
 
+    /// Something worth telling the writer about the last crossing between this
+    /// device and an account. Nil for the ordinary case, which is silence: a
+    /// screenplay carried over without incident is not news.
+    var syncNotice: SyncNotice?
+
+    /// One thing to say about a sync, and the identity a sheet or an alert
+    /// needs to tell one from the next.
+    struct SyncNotice: Identifiable {
+        let id: Int
+        let message: String
+    }
+
+    private var nextNoticeId = 0
+
+    /// Which screenplay here is which screenplay in an account.
+    ///
+    /// The record that makes a screenplay written without an account go on being
+    /// the same screenplay after signing in, out, and in again — see
+    /// `ProjectLinks` and `syncLinkedProjects`.
+    let projectLinks = ProjectLinkStore()
+
     var signInError: String?
 
     /// The token from a recovery email's link, when one has opened the app.
@@ -193,7 +214,12 @@ final class AppModel {
     /// user); the local session has exactly one workspace per device and needs
     /// no more than a name. It contains no `|`, which every account scope does,
     /// so the two can never collide.
-    var workspaceScope: String { draftScope ?? "local" }
+    var workspaceScope: String { draftScope ?? Self.localWorkspaceScope }
+
+    /// What the local workspace is called in a record that names one. Spelled
+    /// once because the crossing between sessions has to name the *other* side's
+    /// scope while still standing in this one.
+    static let localWorkspaceScope = "local"
 
     /// Counts the offers made, so each gets an identity of its own.
     private var nextOfferId = 0
@@ -237,6 +263,10 @@ final class AppModel {
             phase = .signedIn
             offlineStore?.save(data, .root)
             loadEditorPreferences()
+            // A launch that comes up signed in can still owe the account words:
+            // an upload that failed at the last sign-in, or a server that could
+            // not take one yet. Nothing happens where there is nothing owed.
+            catchUpLinkedProjects()
         } catch APIError.unauthorized {
             guard token == session else { return }
             client.credentials = nil
@@ -361,20 +391,36 @@ final class AppModel {
             isSessionPersisted = false
         }
         signInError = nil
+        // Straight over, and before anything is on screen for the new session:
+        // the writer was in a screenplay a moment ago, and this account has that
+        // screenplay. Landing them on the project list instead would be the app
+        // forgetting where they were in the middle of a step they took to keep
+        // their work.
+        carryOpenProject(from: Self.localWorkspaceScope, to: workspaceScope) {
+            projectLinks.remoteId(forLocal: $0, in: workspaceScope)
+        }
         phase = .signedIn
         loadEditorPreferences()
-        if let guestBackend, !written.isEmpty {
+        // Only work this account has never been given. A screenplay it already
+        // holds is not a thing to copy — it is the same screenplay, and it is
+        // caught up below without asking.
+        let offerable = written.filter {
+            projectLinks.remoteId(forLocal: $0.id, in: workspaceScope) == nil
+        }
+        if let guestBackend, !offerable.isEmpty {
             nextOfferId += 1
             pendingGuestWorkOffer = GuestWorkOffer(
                 id: nextOfferId,
                 backend: guestBackend,
-                projects: written.map {
+                projects: offerable.map {
                     GuestWorkOffer.Item(id: $0.id, title: $0.title, elements: $0.blockCount,
-                                        alreadyKept: $0.alreadyKept)
+                                        alreadyKept: $0.alreadyKept
+                                            || projectLinks.isLinkedAnywhere(local: $0.id))
                 })
         }
         // Last: the sheet coming down is what `RootView` presents the offer on.
         isPresentingSignIn = false
+        catchUpLinkedProjects()
     }
 
     /// Gives up on a sign-in attempt: the refused credentials come off the
@@ -454,7 +500,7 @@ final class AppModel {
     func enterDemo(persisted: Bool = true) async {
         guard !isDemo else { return }
         session += 1
-        let backend = DemoBackend(store: persisted ? LocalWorkspaceStore() : nil)
+        let backend = persisted ? localWorkspaceBackend() : DemoBackend(store: nil)
         let demoClient = APIClient(baseURL: DemoBackend.baseURL, demo: backend)
         do {
             apiRoot = try await demoClient.fetch(APIRoot.self, from: demoClient.rootLink)
@@ -484,8 +530,31 @@ final class AppModel {
     /// the app. What was written in the account stays in the account, and the
     /// local session comes back to whatever *it* was last left holding —
     /// including anything a previous sign-in was offered and declined.
+    ///
+    /// A screenplay the two of them share is brought down first, so what the
+    /// writer finds on the other side of this is what they were just looking at
+    /// rather than the words as they stood whenever the copies last met. That is
+    /// the whole difference between a copy and the same screenplay, and it is
+    /// done here — while there is still a session to ask.
+    ///
+    /// Offline it simply does not happen: the local copy is left exactly as it
+    /// was, which is stale but whole, and the next sign-in works out what to do
+    /// about it.
     func signOutToLocal() async {
+        let scope = workspaceScope
+        // Read before the session goes, written before the local one is on
+        // screen: `ContentView` reopens what this names as soon as it has a
+        // list, so a record arriving after that would be a step late.
+        carryOpenProject(from: scope, to: Self.localWorkspaceScope) {
+            projectLinks.localId(forRemote: $0, in: scope)
+        }
+        let mirrors = await gatherMirrorsBeforeLeaving()
         endSession()
+        // Into the workspace before it is opened, not after: a screenplay
+        // brought down once the local session is already on screen would appear
+        // to change under the writer, and the script view has no reason to look
+        // again.
+        await applyMirrors(mirrors, in: scope)
         await enterDemo()
     }
 
@@ -550,8 +619,15 @@ final class AppModel {
     /// special-cased: the guest backend writes the same document the server's
     /// own export writes, and the server reads it the same way.
     ///
-    /// A copy, not a move: what is on the device stays on the device, so the
-    /// next sign-out still opens on it.
+    /// Not a move, and no longer a fork either: what is on the device stays on
+    /// the device, and a link is written down saying which screenplay in the
+    /// account each local one has become. From here on the two are one
+    /// screenplay kept in two places — see `syncLinkedProjects`.
+    ///
+    /// One project per upload rather than one bundle for all of them, which is
+    /// the only change the link needed: an import answers with the screenplay it
+    /// made, and a bundle of four answers with one of them. Without knowing
+    /// which is which there is nothing to link.
     ///
     /// Answers an error message, or nil when it landed.
     func uploadGuestWork(_ offer: GuestWorkOffer, ids: [Int]) async -> String? {
@@ -559,27 +635,53 @@ final class AppModel {
         guard let projectsLink = apiRoot?.link(.projects) else {
             return "This account can't take new screenplays."
         }
-        let (status, bundle) = await offer.backend.demoProjectsBundle(ids: ids)
-        guard status == 200, !bundle.isEmpty else {
-            return "That work could not be read back."
-        }
         do {
             let collection: HALCollection<Project> = try await client.fetch(from: projectsLink)
             guard let importLink = collection.links[.importProject] else {
                 return "This account can't take new screenplays."
             }
-            _ = try await client.upload(to: importLink,
-                                        fileName: "Scripty.scripty.json",
-                                        fileData: bundle,
-                                        mimeType: "application/json")
-            // Only now, and only what was taken. The local copies stay where
+            var kept: [Int] = []
+            var failure: String?
+            for id in ids {
+                let (status, bundle) = await offer.backend.demoProjectsBundle(ids: [id])
+                guard status == 200, !bundle.isEmpty else {
+                    failure = "That work could not be read back."
+                    break
+                }
+                do {
+                    let created: Project = try await client.upload(
+                        to: importLink,
+                        fileName: "Scripty.scripty.json",
+                        fileData: bundle,
+                        mimeType: "application/json")
+                    projectLinks.record(ProjectLink(localId: id, scope: workspaceScope,
+                                                    remoteId: created.id,
+                                                    syncedRemoteEdited: created.lastEdited))
+                    kept.append(id)
+                } catch {
+                    guard !error.isCancelledRequest else { break }
+                    handle(error)
+                    failure = error.localizedDescription
+                    break
+                }
+            }
+            // Only what was taken, and only now. The local copies stay where
             // they are — signing out later must not take the writer's
             // screenplay away with the session — so all this records is that
             // the account has them, which is what keeps the next sign-in from
             // offering the same work twice.
-            await offer.backend.markHandedOff(projectIds: ids)
-            guestWorkImports += 1
-            return nil
+            if !kept.isEmpty {
+                await offer.backend.markHandedOff(projectIds: kept)
+                // The screenplay they were in when they reached for Sign In is
+                // now one of the account's. Point the record at it, so the list
+                // reloading behind this sheet puts them back in it rather than
+                // beside it — `ContentView.openKeptProject` acts on this.
+                carryOpenProject(from: Self.localWorkspaceScope, to: workspaceScope) {
+                    kept.contains($0) ? projectLinks.remoteId(forLocal: $0, in: workspaceScope) : nil
+                }
+                guestWorkImports += 1
+            }
+            return failure
         } catch {
             // A cancelled upload is the writer leaving, not a failure — see
             // `isCancelledRequest`.
@@ -587,6 +689,320 @@ final class AppModel {
             handle(error)
             return error.localizedDescription
         }
+    }
+
+    // MARK: - One screenplay, on the device and in the account
+
+    /// The local workspace's backend, kept for as long as the app runs.
+    ///
+    /// One instance, whichever session is in front. Two of them on the same file
+    /// would each hold a whole copy of the workspace in memory and write it out
+    /// whole, so the second to save would quietly undo the first — and a signed-
+    /// in session now writes here too, catching the device's copy up with the
+    /// account's.
+    private var localWorkspace: DemoBackend?
+
+    private func localWorkspaceBackend() -> DemoBackend {
+        if let localWorkspace { return localWorkspace }
+        let backend = DemoBackend(store: LocalWorkspaceStore())
+        localWorkspace = backend
+        return backend
+    }
+
+    /// Catches an account up with a linked screenplay written on this device
+    /// while signed out. Runs by itself on the way in, and says nothing when
+    /// there is nothing to carry.
+    private func catchUpLinkedProjects() {
+        guard !isDemo, !projectLinks.links(in: workspaceScope).isEmpty else { return }
+        linkSyncTask = Task { await syncLinkedProjects() }
+    }
+
+    /// The crossing on the way in, while it is still going. Held so the
+    /// crossing on the way *out* can wait for it: bringing the account's copy
+    /// down over words that are still on their way up would undo them.
+    private var linkSyncTask: Task<Void, Never>?
+
+    /// Everything needed to leave: whatever the way-in crossing is still doing,
+    /// then the account's copy of each linked screenplay.
+    ///
+    /// Bounded, because a writer who taps Sign Out has asked to leave, not to
+    /// wait on a network. Past the deadline the work is cancelled and whatever
+    /// arrived in time is used; a screenplay left behind is stale but whole, and
+    /// the next sign-in works out what to do about it.
+    private func gatherMirrorsBeforeLeaving(
+        within seconds: Double = 8) async -> [LinkedArchive] {
+        let work = Task { [self] () -> [LinkedArchive] in
+            await linkSyncTask?.value
+            return await archivesOfLinkedProjects()
+        }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            work.cancel()
+        }
+        let mirrors = await work.value
+        deadline.cancel()
+        return mirrors
+    }
+
+    /// The crossing on the way in: words written on this device while signed out
+    /// go into the account's copy of the same screenplay, rather than becoming a
+    /// second screenplay beside it.
+    ///
+    /// The three cases, in the order they are decided:
+    ///
+    /// - The account no longer has it, or this device no longer does. The link
+    ///   is a statement about two things, and with one of them gone it is only
+    ///   a way to be wrong later. Forgotten; nothing else moves.
+    /// - Nothing was written here since the two last met. Then this crossing has
+    ///   nothing to carry, and all that is recorded is where the account's copy
+    ///   has got to.
+    /// - Something was written here. It goes up, into that same screenplay,
+    ///   unless the account's copy has moved on too — two writers on the same
+    ///   screenplay is the one case where neither copy can be thrown away, so
+    ///   the local one is kept as a second screenplay and the writer is told.
+    func syncLinkedProjects() async {
+        guard !isDemo, let projectsLink = apiRoot?.link(.projects) else { return }
+        let scope = workspaceScope
+        let links = projectLinks.links(in: scope)
+        guard !links.isEmpty else { return }
+        let backend = localWorkspaceBackend()
+        guard let collection: HALCollection<Project> =
+                try? await client.fetch(from: projectsLink) else { return }
+        let remotes = Dictionary(collection.items.map { ($0.id, $0) }) { first, _ in first }
+
+        var updated = false
+        var copied: [String] = []
+        var stranded: [String] = []
+        for link in links {
+            let localExists = await backend.projectExists(link.localId)
+            let localHasWork = localExists
+                ? await backend.hasUnsentWork(projectId: link.localId)
+                : false
+            let remote = remotes[link.remoteId]
+            switch LinkSync.decide(link, localExists: localExists, remote: remote,
+                                   localHasWork: localHasWork) {
+            case .forget:
+                projectLinks.forget(local: link.localId, in: scope)
+                // A screenplay the account has deleted is one this device may
+                // now be the only copy of. It goes back on the list of work to
+                // offer, unless some other account still holds a copy.
+                if localExists, !projectLinks.isLinkedAnywhere(local: link.localId) {
+                    await backend.forgetHandOff(projectIds: [link.localId])
+                }
+            case .nothingToSend:
+                guard let remote else { break }
+                projectLinks.record(ProjectLink(localId: link.localId, scope: scope,
+                                                remoteId: link.remoteId,
+                                                syncedRemoteEdited: remote.lastEdited))
+            case .keepBoth:
+                if let copy = await keepAsNewProject(link.localId, backend: backend) {
+                    copied.append(copy.displayTitle)
+                    updated = true
+                } else if let remote {
+                    stranded.append(remote.displayTitle)
+                }
+            case .send:
+                guard let remote else { break }
+                switch await push(link.localId, into: remote, backend: backend, scope: scope) {
+                case .sent: updated = true
+                case .unsupported: stranded.append(remote.displayTitle)
+                case .failed: break
+                }
+            }
+        }
+        if updated { guestWorkImports += 1 }
+        report(copied: copied, stranded: stranded)
+    }
+
+    /// What to do about one linked screenplay on the way in.
+    ///
+    /// A rule rather than a run of conditions inside the loop, because it is the
+    /// part of this that can lose someone's writing if it is wrong, and it can
+    /// be read — and checked — without a session, a network or a backend.
+    enum LinkSync: Equatable {
+        /// One of the two copies is gone. The link is a statement about both of
+        /// them, so it is only a way to be wrong later.
+        case forget
+        /// Nothing has been written on this device since the two last met, so
+        /// there is nothing to carry.
+        case nothingToSend
+        /// Words here that the account has not got, and a copy in the account
+        /// that nobody else has touched: they go into it.
+        case send
+        /// Both copies have been written in. Neither can be thrown away, so the
+        /// device's becomes a screenplay of its own in the account.
+        case keepBoth
+
+        static func decide(_ link: ProjectLink, localExists: Bool,
+                           remote: Project?, localHasWork: Bool) -> LinkSync {
+            guard localExists, let remote else { return .forget }
+            guard localHasWork else { return .nothingToSend }
+            return hasMovedSinceSync(remote, link) ? .keepBoth : .send
+        }
+
+        /// Whether the account's copy has been written in somewhere else since
+        /// the two were last in step.
+        ///
+        /// Anything unknown — a link recorded before this was, a project the
+        /// server gives no date for — counts as "it has". The cost of being
+        /// wrong that way is a second screenplay; the cost of being wrong the
+        /// other way is somebody's writing.
+        static func hasMovedSinceSync(_ remote: Project, _ link: ProjectLink) -> Bool {
+            guard let known = link.syncedRemoteEdited, let now = remote.lastEdited else { return true }
+            // A second's tolerance: the two ends of this round trip spell dates
+            // to different precision, and a screenplay is not re-uploaded over a
+            // rounding difference.
+            return abs(now.timeIntervalSince(known)) > 1
+        }
+    }
+
+    private enum PushOutcome {
+        case sent
+        /// The server has no `replaceFromArchive` — an older deployment. Nothing
+        /// is uploaded, and nothing is lost: the words stay on the device, still
+        /// flagged as unsent, and the next sign-in tries again.
+        case unsupported
+        case failed
+    }
+
+    /// Sends this device's copy of a screenplay into the account's copy of it.
+    private func push(_ localId: Int, into remote: Project,
+                      backend: DemoBackend, scope: String) async -> PushOutcome {
+        guard let replaceLink = remote.links?[.replaceFromArchive] else { return .unsupported }
+        let (status, bundle) = await backend.demoProjectsBundle(ids: [localId])
+        guard status == 200, !bundle.isEmpty else { return .failed }
+        do {
+            let replaced: Project = try await client.upload(
+                to: replaceLink,
+                fileName: "Scripty.scripty.json",
+                fileData: bundle,
+                mimeType: "application/json")
+            await backend.markHandedOff(projectIds: [localId])
+            projectLinks.record(ProjectLink(localId: localId, scope: scope,
+                                            remoteId: replaced.id,
+                                            syncedRemoteEdited: replaced.lastEdited))
+            return .sent
+        } catch {
+            guard !error.isCancelledRequest else { return .failed }
+            handle(error)
+            return .failed
+        }
+    }
+
+    /// Files this device's copy as a screenplay of its own in the account, and
+    /// points the link at it. The way out of a conflict: both versions kept,
+    /// which is what this app does everywhere else two copies disagree.
+    private func keepAsNewProject(_ localId: Int, backend: DemoBackend) async -> Project? {
+        guard let projectsLink = apiRoot?.link(.projects) else { return nil }
+        let (status, bundle) = await backend.demoProjectsBundle(ids: [localId])
+        guard status == 200, !bundle.isEmpty else { return nil }
+        do {
+            let collection: HALCollection<Project> = try await client.fetch(from: projectsLink)
+            guard let importLink = collection.links[.importProject] else { return nil }
+            let created: Project = try await client.upload(
+                to: importLink,
+                fileName: "Scripty.scripty.json",
+                fileData: bundle,
+                mimeType: "application/json")
+            await backend.markHandedOff(projectIds: [localId])
+            projectLinks.record(ProjectLink(localId: localId, scope: workspaceScope,
+                                            remoteId: created.id,
+                                            syncedRemoteEdited: created.lastEdited))
+            return created
+        } catch {
+            guard !error.isCancelledRequest else { return nil }
+            handle(error)
+            return nil
+        }
+    }
+
+    /// The account's copy of every linked screenplay, as archives, fetched while
+    /// there is still a session to fetch them with. For the crossing on the way
+    /// out — see `signOutToLocal`.
+    private func archivesOfLinkedProjects() async -> [LinkedArchive] {
+        guard !isDemo, let projectsLink = apiRoot?.link(.projects) else { return [] }
+        let links = projectLinks.links(in: workspaceScope)
+        guard !links.isEmpty else { return [] }
+        guard let collection: HALCollection<Project> =
+                try? await client.fetch(from: projectsLink) else { return [] }
+        let remotes = Dictionary(collection.items.map { ($0.id, $0) }) { first, _ in first }
+
+        var mirrors: [LinkedArchive] = []
+        for link in links {
+            guard let remote = remotes[link.remoteId],
+                  let archiveLink = remote.links?[.exportArchive],
+                  let data = try? await client.data(for: archiveLink) else { continue }
+            mirrors.append(LinkedArchive(localId: link.localId, data: data,
+                                         edited: remote.lastEdited))
+        }
+        return mirrors
+    }
+
+    /// The account's copy of one linked screenplay, in hand and on its way to
+    /// the device.
+    struct LinkedArchive: Sendable {
+        let localId: Int
+        let data: Data
+        /// What the account said `lastEdited` was, so the record of where the
+        /// two last met is written from the same answer the file came from.
+        let edited: Date?
+    }
+
+    /// Writes those archives into the device's own copies, so the local session
+    /// opens on the screenplay as the account has it.
+    ///
+    /// A copy with words of its own is left alone. That only happens when the
+    /// crossing on the way *in* could not be made — an older server, a failed
+    /// upload — and in that case the device's words are the ones that exist
+    /// nowhere else.
+    private func applyMirrors(_ mirrors: [LinkedArchive], in scope: String) async {
+        guard !mirrors.isEmpty else { return }
+        let backend = localWorkspaceBackend()
+        for mirror in mirrors {
+            guard await !backend.hasUnsentWork(projectId: mirror.localId) else { continue }
+            guard await backend.mirrorProject(mirror.localId, fromArchive: mirror.data),
+                  let link = projectLinks.link(local: mirror.localId, in: scope) else { continue }
+            projectLinks.record(ProjectLink(localId: link.localId, scope: scope,
+                                            remoteId: link.remoteId,
+                                            syncedRemoteEdited: mirror.edited))
+        }
+    }
+
+    /// Moves the "which screenplay was open" record across a crossing, so the
+    /// writer comes out of it in the screenplay they went into it in.
+    ///
+    /// Nothing is written when the two sides have no such screenplay in common:
+    /// the record left behind belongs to a workspace this is not, and reads as
+    /// no record at all from here.
+    private func carryOpenProject(from: String, to: String,
+                                  translating translate: (Int) -> Int?) {
+        let lastOpened = LastOpenedProject()
+        guard let there = lastOpened.projectId(in: from), let here = translate(there) else { return }
+        lastOpened.remember(here, in: to)
+    }
+
+    private func report(copied: [String], stranded: [String]) {
+        var lines: [String] = []
+        if !copied.isEmpty {
+            lines.append(
+                copied.count == 1
+                    ? "“\(copied[0])” had also been changed in your account, so what you wrote "
+                        + "on this device was kept as a separate screenplay. Both versions are here."
+                    : "\(copied.count) screenplays had also been changed in your account, so what "
+                        + "you wrote on this device was kept separately. Both versions are here.")
+        }
+        if !stranded.isEmpty {
+            lines.append(
+                stranded.count == 1
+                    ? "“\(stranded[0])” could not be updated in your account just now. What you "
+                        + "wrote is still on this device, and will go up next time you sign in."
+                    : "\(stranded.count) screenplays could not be updated in your account just "
+                        + "now. What you wrote is still on this device, and will go up next time "
+                        + "you sign in.")
+        }
+        guard !lines.isEmpty else { return }
+        nextNoticeId += 1
+        syncNotice = SyncNotice(id: nextNoticeId, message: lines.joined(separator: "\n\n"))
     }
 }
 
