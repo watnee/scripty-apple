@@ -325,6 +325,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
@@ -357,6 +360,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
@@ -390,6 +396,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songhistory" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
@@ -476,6 +485,34 @@ swiftc "${FLAGS[@]}" -o "$BUILD/localworkspace" \
 run_suite "$BUILD/localworkspace" || status=1
 
 echo
+echo "== One screenplay, on the device and in an account =="
+# Two demo backends: one is the device's workspace, the other stands in for the
+# account, reached through a real APIClient so the archive upload and the
+# replace affordance are the ones the app uses.
+swiftc "${FLAGS[@]}" -o "$BUILD/projectsync" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/ProjectSync/main.swift"
+run_suite "$BUILD/projectsync" || status=1
+
+echo
 echo "== Unsaved work survives a failed save =="
 swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/API/APIClient.swift" \
@@ -486,6 +523,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
@@ -518,6 +558,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/conflicts" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
@@ -548,6 +591,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
@@ -580,6 +626,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/firstelement" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
@@ -613,6 +662,9 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$SRC/Demo/DemoBackend.swift" \
     "$SRC/Demo/LocalWorkspaceStore.swift" \
     "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
     "$SRC/State/AppModel.swift" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \

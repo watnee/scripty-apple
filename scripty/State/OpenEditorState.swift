@@ -41,8 +41,18 @@ import Foundation
 enum OpenEditor: Equatable {
     /// The Songs & Notes screen, on whichever of its two lists was showing.
     case songsAndNotes(DocumentType)
-    /// A song or note in its own editor, by document id.
-    case document(Int)
+    /// A song or note in its own editor.
+    ///
+    /// Two names for it, because after a sign-in or a sign-out only one of them
+    /// still means anything. `id` is the number this workspace files it under
+    /// and is what reopens it in the ordinary case; `uid` is what the song *is*
+    /// (see `TextDocument.uid`), the one name an account and a signed-out device
+    /// both know it by. Crossing between the two renumbers everything, so a
+    /// record carried across is resolved by uid and falls back to the id.
+    ///
+    /// Nil uid is a record written by an older build, or a server too old to
+    /// publish one: it reopens by id exactly as it always did.
+    case document(id: Int, uid: String?)
     /// Every song on one page.
     case songWorkspace
     case characters
@@ -59,7 +69,12 @@ extension OpenEditor {
     var token: String {
         switch self {
         case .songsAndNotes(let type): return "songs-and-notes:\(type.rawValue)"
-        case .document(let id): return "document:\(id)"
+        // `|` separates the two names. It cannot appear in either — the id is
+        // digits and a uid is a uuid — and it is neither of the characters this
+        // format already spends (`:` between name and value, `/` between rungs).
+        case .document(let id, let uid):
+            guard let uid, !uid.isEmpty else { return "document:\(id)" }
+            return "document:\(id)|\(uid)"
         case .songWorkspace: return "song-workspace"
         case .characters: return "characters"
         case .outline: return "outline"
@@ -75,8 +90,9 @@ extension OpenEditor {
             guard let type = DocumentType(rawValue: String(value)) else { return nil }
             self = .songsAndNotes(type)
         case "document":
-            guard let id = Int(value) else { return nil }
-            self = .document(id)
+            let parts = value.split(separator: "|", maxSplits: 1)
+            guard let first = parts.first, let id = Int(first) else { return nil }
+            self = .document(id: id, uid: parts.count > 1 ? String(parts[1]) : nil)
         case "song-workspace": self = .songWorkspace
         case "characters": self = .characters
         case "outline": self = .outline
@@ -135,6 +151,44 @@ final class OpenEditorState {
         hasHandedOverPath = true
         guard projectId == rememberedProjectId(in: workspace) else { return [] }
         return storedPath
+    }
+
+    /// Moves the record onto the other side of a crossing between the local
+    /// workspace and an account, so signing in or out comes back to the song the
+    /// writer was in rather than to the screenplay it happens to live in.
+    ///
+    /// Only the screenplay is translated here, by the caller, which is the only
+    /// one that knows which screenplay in the account each local one is. The
+    /// songs and notes above it are left exactly as they are: each carries the
+    /// name it has in both places (`OpenEditor.document`), and the screen that
+    /// reopens it resolves that against the list it is holding — which is the
+    /// only place either id is known for certain.
+    ///
+    /// The handover is opened again on the way through. It is spent once a
+    /// launch precisely so a writer who reached past the restore is not dragged
+    /// back into last night's song; a crossing is the opposite case — they were
+    /// in that song a second ago, and the session changing under them is not
+    /// them asking to leave it.
+    ///
+    /// Nothing is written when the two sides have no such screenplay in common,
+    /// or when the record belongs to neither of them.
+    func carry(from: String, to: String, translating translate: (Int) -> Int?) {
+        guard let there = rememberedProjectId(in: from), let here = translate(there) else { return }
+        // A song rung with no uid is the one thing that must not cross. Its id
+        // is a number in the workspace being left, and the workspace being
+        // entered numbers its songs from 1 as well — so reopening by it would
+        // not be the writer's song at all, but whichever of the other side's
+        // happened to share a number. Better the list than the wrong lyric, so
+        // the path stops there.
+        var path: [OpenEditor] = []
+        for screen in storedPath {
+            if case .document(_, let uid) = screen, uid?.isEmpty ?? true { break }
+            path.append(screen)
+        }
+        defaults.set(to, forKey: Key.workspace)
+        defaults.set(here, forKey: Key.project)
+        store(path)
+        hasHandedOverPath = false
     }
 
     // MARK: - Keeping the record

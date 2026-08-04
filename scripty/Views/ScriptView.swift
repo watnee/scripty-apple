@@ -1764,7 +1764,7 @@ struct ScriptView: View {
     /// one of them can be up; the order below only settles which wins if two
     /// flags were ever set in the same turn.
     private var openEditor: OpenEditor? {
-        if let openingDocument { return .document(openingDocument.id) }
+        if let openingDocument { return .document(id: openingDocument.id, uid: openingDocument.uid) }
         if let documentsSheet { return .songsAndNotes(documentsSheet.type) }
         if showingCharacters { return .characters }
         if showingOutline { return .outline }
@@ -1800,10 +1800,10 @@ struct ScriptView: View {
             // reads it.
             reopeningInSongs = Array(path.dropFirst())
             documentsSheet = DocumentsRequest(type: type)
-        case .document(let id):
+        case .document(let id, let uid):
             // A song deleted since is not found, and the script simply opens
             // without it.
-            guard let document = model.documents.first(where: { $0.id == id }) else { return }
+            guard let document = model.documents.rememberedOne(id: id, uid: uid) else { return }
             openingDocument = document
         case .characters:
             guard model.canViewCharacters else { return }

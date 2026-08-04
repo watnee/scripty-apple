@@ -14,9 +14,15 @@
 //
 //  Nothing here leaves the device. The account is given a copy and the device
 //  keeps its own, so signing out later opens on the screenplay rather than on
-//  the hole where it used to be. The two do then drift apart, which is why a
-//  screenplay that has been through here before says so, and arrives unticked:
-//  keeping it a second time makes a second screenplay.
+//  the hole where it used to be — and from then on the two are kept in step
+//  rather than drifting apart: signing out brings the account's copy down,
+//  signing in sends what was written here up, and this sheet never asks about
+//  that screenplay again (see `AppModel.syncLinkedProjects`).
+//
+//  So what is listed here is only ever work this account has never seen. The
+//  one row that still warns is a screenplay a *different* account was given a
+//  copy of: that one really would become a second screenplay, and it arrives
+//  unticked saying so.
 //
 
 import SwiftUI
@@ -72,9 +78,11 @@ struct GuestWorkView: View {
                 } header: {
                     Text("Written on this device")
                 } footer: {
-                    Text("Your account gets a copy. Everything here stays on "
-                         + "this device either way, so it is all still yours to "
-                         + "write in next time you sign out.")
+                    Text("Kept work lives in your account and on this device, "
+                         + "and Scripty keeps the two the same screenplay — sign "
+                         + "out and you carry on writing in it, sign back in and "
+                         + "what you wrote goes up. Anything left unticked stays "
+                         + "on this device only.")
                 }
 
                 if let errorMessage {
@@ -115,13 +123,15 @@ struct GuestWorkView: View {
         count == 1 ? "1 element" : "\(count) elements"
     }
 
-    /// What the row says under the title. A screenplay an account already has a
-    /// copy of says that instead of its size: the size is not the thing the
-    /// writer has to weigh, and what "Keep" means for this row is different —
-    /// a second screenplay rather than a first.
+    /// What the row says under the title. A screenplay another account already
+    /// has a copy of says that instead of its size: the size is not the thing
+    /// the writer has to weigh, and what "Keep" means for this row is different
+    /// — a second screenplay rather than a first. (This account's own
+    /// screenplays are not on this list at all; they are caught up without
+    /// being asked about.)
     private func subtitle(for project: GuestWorkOffer.Item) -> String {
         project.alreadyKept
-            ? "Already copied to an account — keeping adds a second copy"
+            ? "Already kept by another account — this makes a second copy"
             : elementCount(project.elements)
     }
 

@@ -866,7 +866,7 @@ struct SongsView: View {
     /// stored to reopen, and an app that came back up on an empty editor would
     /// look like it had lost the one that was there.
     private var openEditor: OpenEditor? {
-        if let editingDocument { return .document(editingDocument.id) }
+        if let editingDocument { return .document(id: editingDocument.id, uid: editingDocument.uid) }
         if showingWorkspace { return .songWorkspace }
         return nil
     }
@@ -879,8 +879,8 @@ struct SongsView: View {
     /// simply stays on screen, which is where the writer would have to go anyway.
     private func reopenRememberedScreen() {
         switch reopening.first {
-        case .document(let id):
-            editingDocument = model.documents.first { $0.id == id }
+        case .document(let id, let uid):
+            editingDocument = model.documents.rememberedOne(id: id, uid: uid)
         case .songWorkspace:
             // Same gate the toolbar button has: a workspace needs more than one
             // document to stack — of whichever list is being restored onto.

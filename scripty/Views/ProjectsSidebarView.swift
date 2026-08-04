@@ -399,7 +399,11 @@ struct ProjectsSidebarView: View {
     /// list it is in, and the two lists mean different things by "selected".
     @ViewBuilder
     private func projectRow(for project: Project) -> some View {
-        ProjectRow(project: project) {
+        // Whether an account has this screenplay is only a question worth
+        // answering signed out — signed in, everything in the list is in the
+        // account by definition.
+        ProjectRow(project: project,
+                   isKept: app.isDemo && app.projectLinks.isLinkedAnywhere(local: project.id)) {
             Task { await model.toggleDefault(project) }
         }
         // The same actions as the swipe, plus the ones that have no swipe slot.
@@ -917,6 +921,11 @@ private struct DemoBanner: View {
 
 private struct ProjectRow: View {
     let project: Project
+    /// Whether an account has been given this screenplay and is kept in step
+    /// with it. Only ever true in the local session, where "is this anywhere
+    /// but here?" is a real question and the banner above the list only answers
+    /// it for the device as a whole.
+    var isKept = false
     let onToggleDefault: () -> Void
 
     private var isDefault: Bool { project.isDefault ?? false }
@@ -962,6 +971,9 @@ private struct ProjectRow: View {
                     .lineLimit(1)
                 if isDefault {
                     badge("Default")
+                }
+                if isKept {
+                    badge("Kept")
                 }
             }
             // Who wrote it — the title page's own second line, and the one
@@ -1031,6 +1043,7 @@ private struct ProjectRow: View {
     private var accessibilityDescription: String {
         var parts = [project.displayTitle]
         if isDefault { parts.append("Default project") }
+        if isKept { parts.append("Kept in your account") }
         if let writers { parts.append("Written by \(writers)") }
         if let version { parts.append(version) }
         if let lastEdited = project.lastEdited {
