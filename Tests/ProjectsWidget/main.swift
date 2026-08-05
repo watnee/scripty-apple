@@ -143,10 +143,9 @@ func runPicker() {
     let stored = [project(id: 1, title: "Wide Awake", lastEdited: daysAgo(1)),
                   project(id: 2, title: "Nightfall", lastEdited: daysAgo(9))]
 
-    check("the picker offers what the widget has",
-          ids(ProjectsWidgetStore.suggested(in: ProjectsSnapshot(projects: stored, savedAt: now))),
-          "1,2")
-
+    // What the picker offers is IntentTargets' business now, and is checked in
+    // Tests/AppIntents. What is left here is the other half: turning the ids it
+    // came back with into rows again.
     check("an id already chosen finds its screenplay",
           ProjectsWidgetStore.pick(ids: [2], in: stored).first?.title ?? "none", "Nightfall")
     // Pickers pair the answers back up against the ids they sent, so the order

@@ -53,7 +53,7 @@ enum IntentSession {
     /// last. A named screenplay that the list does not hold is an error rather
     /// than a fallback: writing into a different draft than the one asked for
     /// is worse than not writing at all.
-    static func project(_ entity: ProjectEntity?, in app: AppModel) async throws -> Project {
+    static func project(_ entity: ScreenplayEntity?, in app: AppModel) async throws -> Project {
         let list = ProjectListModel(app: app)
         await list.refresh()
         if let entity {
@@ -66,6 +66,21 @@ enum IntentSession {
             throw IntentError.noProjects
         }
         return preferred
+    }
+
+    /// The screenplay an intent hands back, with everything the picker's own
+    /// rows carry.
+    ///
+    /// Filled in rather than left as an id and a title: the entity's fields are
+    /// `@Property`, so a shortcut can read them off whatever an intent returned
+    /// — and a Last Edited that is always empty is a worse answer than none.
+    static func entity(for project: Project) -> ScreenplayEntity {
+        ScreenplayEntity(WidgetProject(id: project.id,
+                                       title: project.displayTitle,
+                                       writers: project.writers,
+                                       version: project.screenplayVersion,
+                                       lastEdited: project.lastEdited,
+                                       isDefault: project.isDefault == true))
     }
 
     /// A model to write this screenplay through. Nothing is preloaded: the

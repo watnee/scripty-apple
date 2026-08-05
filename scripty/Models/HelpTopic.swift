@@ -1050,13 +1050,25 @@ extension HelpTopic {
                     + "where the words landed rather than leaving you to find them.",
                     "The same actions are in the Shortcuts app under Scripty, so they "
                     + "can be put in a shortcut of your own — dictate a line on a walk, "
-                    + "or open the songs list from a Home Screen icon.",
+                    + "or open the songs list from a Home Screen icon. Where an action "
+                    + "asks which screenplay, song or note, type part of the title and "
+                    + "it is found: an exact name comes first, then one that starts that "
+                    + "way, and accents and capitals are not something you have to get "
+                    + "right.",
                     "Your screenplays, songs and notes are in Spotlight too: type part "
-                    + "of a title from the Home Screen and the document is a result that "
-                    + "opens it. Signing out clears all of it from the device."
+                    + "of a title from the Home Screen and it is a result that opens the "
+                    + "thing it names. A screenplay can also be found by who it is by, "
+                    + "and a song or a note by the screenplay it belongs to. Signing out "
+                    + "clears all of it from the device.",
+                    "For anything more particular there are Find Screenplays and Find "
+                    + "Songs & Notes in the Shortcuts app, which take conditions — a "
+                    + "title that contains something, only the songs, only what was "
+                    + "written this week, only your starred screenplay — and hand back "
+                    + "what matched for the next step to work on."
                 ],
                 keywords: ["voice", "hey siri", "dictate", "speak", "automation",
-                           "search", "spotlight", "app shortcuts", "hands free"]),
+                           "search", "spotlight", "app shortcuts", "hands free",
+                           "find", "filter", "look up", "by name"]),
             HelpTopic(
                 id: "widgets",
                 title: "Widgets and Control Centre",

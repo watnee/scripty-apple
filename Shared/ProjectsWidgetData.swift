@@ -212,24 +212,16 @@ enum ProjectsWidgetStore {
     ///
     /// Pure, and separate from the file above, so the ordering can be checked
     /// without an app group container to write into.
-    /// The rows a Shortcuts or Siri picker offers when it asks which screenplay.
-    ///
-    /// Separate from `ordered` only in name: a picker wants the same list the
-    /// widget draws, and there is nothing to gain by letting the two drift.
-    static func suggested(in snapshot: ProjectsSnapshot) -> [WidgetProject] {
-        snapshot.projects
-    }
-
     /// The rows behind a set of ids a picker has already settled on.
     ///
     /// An id the snapshot has never heard of gets a placeholder rather than
     /// being dropped, and this is the whole reason the method exists. When iOS
-    /// asks what a configured widget's saved id stands for and is told nothing,
-    /// it does not ask again — it decides the widget needs reconfiguring and
-    /// throws the writer's choice away. A screenplay that is merely absent from
-    /// this device's last snapshot (signed out, in the demo, or simply not
-    /// loaded yet) is not a screenplay that is gone, and it should survive a
-    /// launch that happened to be offline.
+    /// asks what a saved id in a shortcut stands for and is told nothing, it
+    /// does not ask again — it decides that step needs reconfiguring and throws
+    /// the writer's choice away. A screenplay that is merely absent from this
+    /// device's last snapshot (signed out, in the demo, or simply not loaded
+    /// yet) is not a screenplay that is gone, and it should survive a launch
+    /// that happened to be offline.
     ///
     /// The order asked for is the order returned: pickers pair these back up
     /// against the ids they sent.

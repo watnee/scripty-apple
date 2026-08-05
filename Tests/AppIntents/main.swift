@@ -1,19 +1,23 @@
 //
-//  App Intents routing checks
+//  App Intents search checks
 //
-//  What Siri, Spotlight and the Shortcuts app can ask for, and what the app does
-//  when it arrives. Neither half fails loudly:
+//  What Siri, Spotlight and the Shortcuts app can find, and which of the things
+//  they found comes first. None of it fails loudly:
 //
 //  A name matched wrong opens a screenplay — just not the one that was named,
 //  and a writer who says "open Wake" and lands in *Wakefield* has no way to tell
-//  that from having mumbled. A link written by an intent and not read by the app
-//  brings the app to the front on whatever was last on screen, which reads as a
-//  slow request rather than a broken one.
+//  that from having mumbled. A Find action that filters one row too many looks
+//  exactly like a screenplay that is not there.
 //
 //  The AppIntents half of the surface is not checked here — an entity query
 //  wants an App Group container and a running system, and neither exists in a
-//  command-line binary. What is checked is everything those queries and intents
-//  delegate to, which is all of the decisions and none of the framework.
+//  command-line binary. What is checked is everything those queries delegate to,
+//  which is all of the decisions and none of the framework: the ranking behind
+//  every picker and every spoken title, and the filtering and ordering behind
+//  **Find Screenplays** and **Find Songs & Notes**.
+//
+//  The links the intents hand back are checked next door in Tests/QuickActions,
+//  which owns ScriptyLink and IntentRouting.
 //
 //  Run via Tests/run.sh.
 //
@@ -44,27 +48,19 @@ private func titles(_ documents: [WidgetDocument]) -> String {
     documents.map(\.title).joined(separator: ",")
 }
 
-/// Spellings that do not depend on how the compiler happens to name this module,
-/// which is not the app's name when these sources are built here.
-private func describe(_ action: QuickAction?) -> String {
-    switch action {
-    case .songs: "songs"
-    case .notes: "notes"
-    case .project(let id): "project \(id)"
-    case nil: "none"
-    }
-}
-
-private func project(id: Int, title: String, lastEdited: Date? = nil) -> WidgetProject {
-    WidgetProject(id: id, title: title, lastEdited: lastEdited)
+private func project(id: Int, title: String, writers: String? = nil,
+                     lastEdited: Date? = nil, isDefault: Bool = false) -> WidgetProject {
+    WidgetProject(id: id, title: title, writers: writers,
+                  lastEdited: lastEdited, isDefault: isDefault)
 }
 
 private func document(id: Int,
                       title: String,
                       projectId: Int = 1,
+                      projectTitle: String = "A Draft",
                       isSong: Bool = true,
                       updatedAt: Date) -> WidgetDocument {
-    WidgetDocument(id: id, projectId: projectId, projectTitle: "A Draft",
+    WidgetDocument(id: id, projectId: projectId, projectTitle: projectTitle,
                    title: title, isSong: isSong, updatedAt: updatedAt)
 }
 
@@ -116,7 +112,7 @@ func runNameable() {
 
 func runMatching() {
     print()
-    print("Matching what was said against what there is")
+    print("Matching what was said, or typed, against what there is")
 
     let rows = [project(id: 1, title: "Wakefield", lastEdited: daysAgo(1)),
                 project(id: 2, title: "Wake", lastEdited: daysAgo(20)),
@@ -133,6 +129,23 @@ func runMatching() {
     check("and a buried one still counts",
           titles(IntentTargets.screenplays(matching: "Long", in: rows)),
           "The Long Wake Up")
+
+    // What a search field needs and a dictated title did not. Someone typing
+    // "wake" means the word: the screenplay that has it as a word is a better
+    // answer than one that merely contains the letters, however recent.
+    let buried = [project(id: 1, title: "Awakening", lastEdited: daysAgo(1)),
+                  project(id: 2, title: "The Long Wake Up", lastEdited: daysAgo(30))]
+    check("a whole word beats the same letters inside another",
+          titles(IntentTargets.screenplays(matching: "wake", in: buried)),
+          "The Long Wake Up,Awakening")
+
+    // Words in whatever order they came to mind. Last of all the tiers, so it
+    // can never displace a title that really does read that way.
+    check("every word present is a match, in any order",
+          titles(IntentTargets.screenplays(matching: "up long", in: rows)),
+          "The Long Wake Up")
+    check("but only if all of them are",
+          titles(IntentTargets.screenplays(matching: "long casablanca", in: rows)), "")
 
     check("case is not what was asked about",
           titles(IntentTargets.screenplays(matching: "wakefield", in: rows)), "Wakefield")
@@ -164,78 +177,134 @@ func runMatching() {
           "1,2")
 }
 
-// MARK: - The links
+// MARK: - Settling on one
 
-func runLinks() {
+func runBest() {
     print()
-    print("The links an intent hands back")
+    print("Settling on the one a name meant")
 
-    // Every one of these is written by an intent and read by the app. A pair
-    // that stops agreeing does not fail to build; it just stops opening
-    // anything.
-    check("songs round-trips", describe(ShortcutLink.action(in: ShortcutLink.url(for: .songs))),
-          "songs")
-    check("notes round-trips", describe(ShortcutLink.action(in: ShortcutLink.url(for: .notes))),
-          "notes")
-    check("a named screenplay round-trips",
-          describe(ShortcutLink.action(in: ShortcutLink.url(for: .project(id: 42)))),
-          "project 42")
+    // What the lyric intent does with a song named out loud. There is no picker
+    // and nobody to choose, so this has to be the same answer a picker would
+    // have put at the top — and it has to be *an* answer, or a dictated line
+    // has nowhere to go.
+    let songs = [document(id: 1, title: "Wake Up", updatedAt: daysAgo(1)),
+                 document(id: 2, title: "Wake", updatedAt: daysAgo(20))]
+    check("an exact title still wins",
+          IntentTargets.best(matching: "Wake", in: songs, name: \.title)?.id ?? 0, 2)
+    check("a near miss lands somewhere rather than nowhere",
+          IntentTargets.best(matching: "wake u", in: songs, name: \.title)?.id ?? 0, 1)
+    check("a name nothing answers to still fails",
+          IntentTargets.best(matching: "Casablanca", in: songs, name: \.title)?.id ?? 0, 0)
+    // Unlike a picker, where an empty field means everything: writing into
+    // "the first song there is" because nothing was said is not a near miss,
+    // it is writing into a document nobody named.
+    check("and an empty name settles on nothing at all",
+          IntentTargets.best(matching: "  ", in: songs, name: \.title)?.id ?? 0, 0)
+}
 
-    check("songs is spelled as it reads",
-          ShortcutLink.url(for: .songs).absoluteString, "scripty://songs")
-    check("notes likewise",
-          ShortcutLink.url(for: .notes).absoluteString, "scripty://notes")
+// MARK: - The Find actions
 
-    // The screenplay link is the Screenplays widget's own, not a second
-    // spelling of it — two spellings of one route is how the two quietly stop
-    // agreeing.
-    check("a screenplay reuses the widget's link",
-          ShortcutLink.url(for: .project(id: 7)).absoluteString,
-          ProjectWidgetLink.url(projectId: 7).absoluteString)
+func runFinding() {
+    print()
+    print("What a Find action keeps")
 
-    check("the list link names no screenplay",
-          describe(ShortcutLink.action(in: ShortcutLink.screenplaysURL)), "none")
+    let rows = [project(id: 1, title: "Wakefield", writers: "A. Writer",
+                        lastEdited: daysAgo(1)),
+                project(id: 2, title: "Révolution", writers: "B. Writer",
+                        lastEdited: daysAgo(20), isDefault: true),
+                project(id: 3, title: "The Long Wake Up", lastEdited: daysAgo(10))]
 
-    check("the demo link is the demo", ShortcutLink.isDemo(ShortcutLink.demoURL), true)
-    // Both spellings people write, because a Shortcut that quietly does nothing
-    // is a poor way to find out which one this app meant.
-    check("written with a slash it is still the demo",
-          ShortcutLink.isDemo(URL(string: "scripty:///demo")!), true)
-    check("the demo is not a screen request",
-          describe(ShortcutLink.action(in: ShortcutLink.demoURL)), "none")
-    check("and a screen request is not the demo",
-          ShortcutLink.isDemo(ShortcutLink.url(for: .songs)), false)
+    // The conditions are Shortcuts' own words, folded the way the picker folds
+    // them: a shortcut filtering for "revolution" and a writer who typed
+    // *Révolution* mean each other.
+    let contains: (WidgetProject) -> Bool = {
+        IntentTargets.TextTest.contains("wake").matches($0.title)
+    }
+    let starred: (WidgetProject) -> Bool = { $0.isDefault }
 
-    // Everything else arriving at the same door. A recovery email's link must
-    // not be read as a request to open a screenplay.
-    check("another app's scheme is not ours",
-          describe(ShortcutLink.action(in: URL(string: "other://songs")!)), "none")
-    check("a recovery link is left alone",
-          describe(ShortcutLink.action(in: URL(string: "https://example.com/reset?token=x")!)),
-          "none")
-    check("nor is a recovery link the demo",
-          ShortcutLink.isDemo(URL(string: "https://example.com/demo")!), false)
+    check("a condition on the title keeps what matches it",
+          titles(IntentTargets.rows(rows, passing: [contains], all: true)),
+          "Wakefield,The Long Wake Up")
+    check("an accent is not a screenplay nobody can filter for",
+          titles(IntentTargets.rows(rows, passing: [{
+              IntentTargets.TextTest.exactly("revolution").matches($0.title)
+          }], all: true)),
+          "Révolution")
+    check("begins with is not contains",
+          titles(IntentTargets.rows(rows, passing: [{
+              IntentTargets.TextTest.beginsWith("wake").matches($0.title)
+          }], all: true)),
+          "Wakefield")
 
-    // The widget's document link is the one an intent reuses rather than
-    // reinventing: a row tapped on the Home Screen and a song asked for out
-    // loud are the same request arriving two ways.
-    let song = WidgetLink.url(projectId: 3, documentId: 9, isSong: true)
-    check("a song link still says which screenplay it belongs to",
-          WidgetLink.destination(in: song).map { "\($0.projectId)/\($0.documentId ?? -1)" }
-              ?? "none",
-          "3/9")
-    check("a song link is not mistaken for a screenplay request",
-          describe(ShortcutLink.action(in: song)), "none")
+    check("all of the following means all of them",
+          titles(IntentTargets.rows(rows, passing: [contains, starred], all: true)), "")
+    check("any of the following means either",
+          titles(IntentTargets.rows(rows, passing: [contains, starred], all: false)),
+          "Wakefield,Révolution,The Long Wake Up")
+
+    // What the action looks like the moment it is dragged into a shortcut. An
+    // empty result there reads as a broken action rather than an unfinished one.
+    check("no conditions is every row",
+          titles(IntentTargets.rows(rows, passing: [], all: true)),
+          "Wakefield,Révolution,The Long Wake Up")
+}
+
+func runOrdering() {
+    print()
+    print("What order a Find action returns them in")
+
+    let rows = [project(id: 1, title: "Wakefield", lastEdited: daysAgo(1)),
+                project(id: 2, title: "Anthem", lastEdited: daysAgo(20)),
+                // Never dated: made and not yet touched.
+                project(id: 3, title: "Untouched")]
+
+    check("newest first is the default, and the undated sort last",
+          titles(IntentTargets.screenplays(rows, sortedBy: .edited, ascending: false)),
+          "Wakefield,Anthem,Untouched")
+    check("oldest first turns it round rather than dropping anything",
+          titles(IntentTargets.screenplays(rows, sortedBy: .edited, ascending: true)),
+          "Untouched,Anthem,Wakefield")
+    check("by title is alphabetical",
+          titles(IntentTargets.screenplays(rows, sortedBy: .title, ascending: true)),
+          "Anthem,Untouched,Wakefield")
+    check("and reversed the other way",
+          titles(IntentTargets.screenplays(rows, sortedBy: .title, ascending: false)),
+          "Wakefield,Untouched,Anthem")
+
+    // Swift's sort promises nothing about equal elements, and a shortcut that
+    // reshuffles its own results between runs is a bug nobody can reproduce.
+    let sameDay = [document(id: 1, title: "Beats", updatedAt: daysAgo(3)),
+                   document(id: 2, title: "Alto", updatedAt: daysAgo(3))]
+    check("documents of the same age break the tie on title",
+          titles(IntentTargets.documents(sameDay, sortedBy: .edited, ascending: false)),
+          "Alto,Beats")
+    // The other way round: one name, two documents, and the newer of them first
+    // whichever direction the titles were asked for.
+    let sameName = [document(id: 1, title: "Beats", updatedAt: daysAgo(9)),
+                    document(id: 2, title: "Beats", projectId: 2, updatedAt: daysAgo(2))]
+    check("and a repeated name breaks it on age",
+          IntentTargets.documents(sameName, sortedBy: .title, ascending: true)
+              .map { String($0.id) }.joined(separator: ","),
+          "2,1")
+
+    check("songs and notes sort by their own date",
+          titles(IntentTargets.documents(
+              [document(id: 1, title: "Older", updatedAt: daysAgo(9)),
+               document(id: 2, title: "Newer", isSong: false, updatedAt: daysAgo(2))],
+              sortedBy: .edited, ascending: false)),
+          "Newer,Older")
 }
 
 runNameable()
 runMatching()
-runLinks()
+runBest()
+runFinding()
+runOrdering()
 
 print()
 if failures == 0 {
-    print("App Intents routing: all checks passed.")
+    print("App Intents search: all checks passed.")
 } else {
-    print("App Intents routing: \(failures) check(s) FAILED.")
+    print("App Intents search: \(failures) check(s) FAILED.")
 }
 exit(failures == 0 ? 0 : 1)

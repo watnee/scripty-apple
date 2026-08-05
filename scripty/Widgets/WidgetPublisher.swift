@@ -51,22 +51,52 @@ enum WidgetPublisher {
                                   isSong: document.kind == .song,
                                   updatedAt: updatedAt)
         }
+        // What was stored a moment ago, so the songs and notes that have since
+        // left can be taken out of Spotlight by name.
+        let before = SongsNotesWidgetStore.load().documents
         // Only the widget whose rows actually changed is reloaded. Reloads are
         // rationed by the system, and an afternoon spent on the songs leaves
         // the Notes widget drawing exactly what it already drew.
-        for kind in SongsNotesWidgetStore.publish(rows, forProject: project.id) {
+        //
+        // Nothing changed is also nothing to donate, and that is the common
+        // case: the documents are loaded on every visit to the script, and most
+        // visits leave them exactly as they were.
+        let changed = SongsNotesWidgetStore.publish(rows, forProject: project.id)
+        guard !changed.isEmpty else { return }
+        for kind in changed {
             WidgetCenter.shared.reloadTimelines(ofKind: kind.widgetKind)
         }
+        // Read back rather than recomputed: the store merges this project's
+        // rows into every other project's and trims each half on the way in, so
+        // Spotlight should be told what is actually stored and not this file's
+        // second guess at it.
+        //
+        // Donated after the reload rather than instead of it. The two are not
+        // alternatives — a widget draws six rows of one project, Spotlight
+        // answers for every row of every project this device has opened — and
+        // until this existed the app indexed screenplays only, while the help
+        // told writers their songs and notes were searchable too.
+        let stored = SongsNotesWidgetStore.load().documents
+        let gone = before.map(\.id).filter { id in !stored.contains { $0.id == id } }
+        SpotlightIndex.replace(stored.map(DocumentEntity.init), removing: gone)
     }
 
     /// Empties both widgets. Signing out goes through here: the next person to
     /// pick up the phone should not be able to read the last writer's song
-    /// titles off the Home Screen.
+    /// titles off the Home Screen — nor, since the same titles are donated to
+    /// Spotlight, out of a search field.
+    ///
+    /// `SpotlightIndex.clear()` takes the whole index rather than this half of
+    /// it, and so does the screenplays publisher's own `clear()`. They are only
+    /// ever called together, at sign-out, so the second is a no-op; the point of
+    /// calling it here anyway is that neither publisher is left depending on the
+    /// other having run first to keep a promise it makes on its own.
     static func clear() {
         SongsNotesWidgetStore.clear()
         for kind in SongsNotesWidgetStore.widgetKinds {
             WidgetCenter.shared.reloadTimelines(ofKind: kind)
         }
+        SpotlightIndex.clear()
     }
 }
 

@@ -14,12 +14,19 @@
 //  it substitutes is `CFBundleDisplayName`, which is why the app target sets
 //  one at all.
 //
-//  Ten shortcuts is the ceiling; seven leaves room. Deliberately none of them
+//  Ten shortcuts is the ceiling; eight leaves room. Deliberately none of them
 //  takes a screenplay: a phrase with an entity in it makes Siri enumerate the
 //  picker while it is matching, so what Siri would recognise would depend on
 //  which screenplays this device happened to have cached — and the picker is
 //  empty in the demo and signed out. "Open Notes in Wide Awake" is available in
 //  the Shortcuts app, where a picker looks like a picker.
+//
+//  Which is why the two intents that *require* a name — Open Screenplay and
+//  Open Song or Note — are not here at all. They are reached by searching:
+//  through the Shortcuts app's picker, and through Spotlight, where typing half
+//  a title is a better way to name one of thirty than a sentence that has to
+//  guess the title in advance. What is here instead is their unnamed twin,
+//  which needs no picker to work.
 //
 
 import AppIntents
@@ -40,7 +47,7 @@ struct ScriptyAppShortcuts: AppShortcutsProvider {
                     shortTitle: "Open Notes",
                     systemImageName: "note.text")
 
-        AppShortcut(intent: OpenScreenplayIntent(),
+        AppShortcut(intent: OpenPreferredScreenplayIntent(),
                     phrases: ["Open my screenplay in \(.applicationName)",
                               "Open my \(.applicationName) script"],
                     shortTitle: "Open Screenplay",

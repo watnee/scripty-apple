@@ -255,45 +255,81 @@ Spotlight and open it from the result. Nothing to set up: the phrases and the
 actions are registered by the app itself, and the Shortcuts app lists them under
 **Scripty** the moment it is installed.
 
-| Ask for                    | You get                                          |
-| -------------------------- | ------------------------------------------------ |
-| "Open my songs in Scripty" | The songs of your default screenplay             |
-| "Open my notes in Scripty" | The notes of the same one                        |
-| "Open my screenplays in Scripty" | The projects list                          |
-| **Open Screenplay**        | A screenplay you name — also a Spotlight result  |
-| **Open Song or Note**      | A song or note you name, in its screenplay       |
+Seven phrases, said with the app's name in them:
 
-The last two take a name, so they are offered through the Shortcuts app's picker
-and through Spotlight rather than as a fixed phrase — searching thirty titles is
-something a search field does better than a sentence that has to guess the title
-in advance.
+| Say                                | You get                                       |
+| ---------------------------------- | --------------------------------------------- |
+| "Open Songs in Scripty"            | The songs of your starred screenplay          |
+| "Open Notes in Scripty"            | The notes of the same one                     |
+| "Open my screenplay in Scripty"    | That screenplay's script                      |
+| "New note in Scripty"              | A note, with what you dictate already in it   |
+| "New song in Scripty"              | A song, the same way                          |
+| "Add a lyric in Scripty"           | A line on the end of a song you name          |
+| "Add an action line in Scripty"    | A line on the end of a screenplay             |
 
-Everything nameable comes out of the same App Group snapshots the widgets draw
+None of the phrases takes a screenplay's title, on purpose: a phrase with an
+entity in it makes Siri enumerate the picker while it is still matching, so what
+it recognised would depend on which screenplays this device happened to have
+cached. Naming one is what the Shortcuts app and Spotlight are for.
+
+### Finding one
+
+Two actions take a name rather than a phrase — **Open Screenplay** and **Open
+Song or Note**. Both are searched rather than spoken: type part of a title into
+the Shortcuts app's picker, or into Spotlight, where every screenplay, song and
+note is a result that opens the thing it names.
+
+Typing matches more loosely than saying does, and in a deliberate order. An
+exact title wins outright, then a title that starts that way, then one with the
+word in it, then one that merely contains the letters, and last of all a title
+that has all of the words in some other order. So *Wake* beats *Wakefield* even
+if *Wakefield* was written more recently, and *The Long Wake Up* beats
+*Awakening*. Case and accents are folded throughout: *revolution* finds
+*Révolution*.
+
+The Shortcuts app also vends a **Find Screenplays** and a **Find Songs & Notes**
+action, which the app writes no code for beyond saying what can be asked:
+
+| Find Screenplays where | Find Songs & Notes where |
+| --- | --- |
+| Title contains / begins with / is | Title contains / begins with / is |
+| Writers contains | Kind is (or is not) Song or Note |
+| Last Edited before / after | Screenplay contains / is |
+| Starred is true | Last Edited before / after |
+
+Both sort by title or by when they were last edited, take a limit, and hand back
+screenplays and documents whose own fields — title, writers, draft version, last
+edited, starred — a later step can read.
+
+Everything findable comes out of the same App Group snapshots the widgets draw
 from, and for the same reason: an entity query is answered by a copy of the app
 woken in the background, with no screen and often with no network, so asking the
 server would mean a request that works at a desk and fails on the Tube. It also
 means the same rules apply — the demo offers nothing, and signing out empties the
 Spotlight index along with both widgets and the Home Screen menu.
 
-Each intent ends by handing back a `scripty://` link and letting the app's own
-front door answer it, which is what the widgets have always done. So every one
-of these is available to a shortcut you build by hand, using exactly the link
-Siri uses:
+The intents that only ask for a screen park the same request a tapped widget row
+parks, so there is one arrival path rather than two, and the same routes are
+reachable by hand from a shortcut you build yourself:
 
 | Link | What it opens |
 | --- | --- |
-| `scripty://songs`, `scripty://notes` | Your default screenplay's songs or notes |
+| `scripty://songs`, `scripty://notes` | Your starred screenplay's songs or notes |
 | `scripty://project?id=…` | That screenplay; `scripty://project` for the list |
 | `scripty://document?project=…&id=…&kind=…` | One song or note |
 
-The pieces are in [scripty/Intents](scripty/Intents): the entities Siri can name
+The pieces are in [scripty/Intents](scripty/Intents): the two entities the system
+can name, search and index
 ([ScreenplayEntity.swift](scripty/Intents/ScreenplayEntity.swift),
-[DocumentEntity.swift](scripty/Intents/DocumentEntity.swift)), the intents
-themselves ([OpenIntents.swift](scripty/Intents/OpenIntents.swift)), the spoken
-phrases ([ScriptyShortcuts.swift](scripty/Intents/ScriptyShortcuts.swift)), and
-two files deliberately free of the AppIntents framework so `Tests/AppIntents` can
-check them without a simulator — the links
-([ShortcutLink.swift](scripty/Intents/ShortcutLink.swift)) and the name matching
+[DocumentEntity.swift](scripty/Intents/DocumentEntity.swift)), the intents that
+ask for a screen ([OpenIntents.swift](scripty/Intents/OpenIntents.swift)) and
+those that write something
+([CaptureIntents.swift](scripty/Intents/CaptureIntents.swift)), the spoken
+phrases ([ScriptyAppShortcuts.swift](scripty/Intents/ScriptyAppShortcuts.swift)),
+the Spotlight donation ([SpotlightIndex.swift](scripty/Intents/SpotlightIndex.swift)),
+and one file deliberately free of the AppIntents framework so `Tests/AppIntents`
+can check it without a simulator — the ranking, filtering and ordering behind
+every one of the above
 ([IntentTargets.swift](scripty/Intents/IntentTargets.swift)).
 
 **None of this can be verified in the Simulator.** Its App Intents metadata store
