@@ -47,6 +47,19 @@ final class ReadingViewSettings {
     enum Document: Hashable, Sendable {
         case screenplay(project: Int)
         case document(id: Int)
+        /// Every song in a project on one screen — the all-songs workspace,
+        /// which is a surface rather than a document and so has no id of its
+        /// own to be filed under. Keyed by project for the reason a screenplay
+        /// is: that is the identity everything else about this screen, down to
+        /// which songs were left open, is remembered by.
+        ///
+        /// Deliberately *not* the same key as any song it shows. A song put
+        /// into reading view in its own editor has said nothing about how a
+        /// screen of every song should come up, and a writer who reaches this
+        /// one through a button called "Edit All on One Page" has said the
+        /// opposite — see `chosenReadingView`, which is what lets this screen
+        /// open to be written in while the documents keep their own rule.
+        case songsWorkspace(project: Int)
     }
 
     /// Whether documents nobody has made a choice about open ready to type in.
@@ -66,10 +79,21 @@ final class ReadingViewSettings {
     /// the switch, so turning "Open in Edit View" on affects the documents the
     /// writer has never had an opinion about and leaves the rest alone.
     func opensInReadingView(_ document: Document) -> Bool {
-        if let chosen = defaults.object(forKey: Self.key(for: document)) as? Bool {
-            return chosen
-        }
-        return !opensInEditView
+        chosenReadingView(document) ?? !opensInEditView
+    }
+
+    /// The choice the writer has actually made about this one, or nil where
+    /// they have made none.
+    ///
+    /// The same answer `opensInReadingView` starts from, without the fallback,
+    /// for the one surface that needs a different fallback. A screen reached
+    /// by pressing "Edit All on One Page" opens to be written in whatever the
+    /// app-wide switch says — the button is the writer saying so — but it
+    /// still has to reopen the way they last left it, and "left it in the
+    /// editor" and "never touched the mode" are answers this is the only way
+    /// to tell apart.
+    func chosenReadingView(_ document: Document) -> Bool? {
+        defaults.object(forKey: Self.key(for: document)) as? Bool
     }
 
     /// Records which way this document was last put, which is what makes the
@@ -94,6 +118,7 @@ final class ReadingViewSettings {
         switch document {
         case .screenplay(let project): return "scripty-reading-view-project-\(project)"
         case .document(let id): return "scripty-reading-view-document-\(id)"
+        case .songsWorkspace(let project): return "scripty-reading-view-songs-workspace-\(project)"
         }
     }
 

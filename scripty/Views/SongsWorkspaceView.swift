@@ -15,6 +15,17 @@
 //  afterwards, so collapsing and expanding costs nothing and half-typed lines
 //  survive it. Nothing is loaded for a song nobody has opened.
 //
+//  It reads as well as writes. The other job a screen of every song does is
+//  the one nobody can do in the song editor at all — reading the set through,
+//  song after song, to hear whether the third one follows the second. That was
+//  a page of live text fields with a caret waiting in every one of them, which
+//  is exactly the accident the reading view exists to stop. So the mode the
+//  song editor has is here too, taken across the whole screen rather than song
+//  by song: one press swaps every open lyric for the reading column in place
+//  and everything around them — the headers, the open set, the banners, the
+//  saving — stays exactly where it was. Two taps in a verse, or Edit in the
+//  same corner, hands it all back.
+//
 
 import SwiftUI
 
@@ -23,11 +34,20 @@ struct SongsWorkspaceView: View {
     let model: ScriptModel
 
     /// Only here to seed the printer, which needs the model the moment this
-    /// screen is made rather than the first time something is printed.
+    /// screen is made rather than the first time something is printed — and to
+    /// settle which way the screen comes up.
     init(app: AppModel, model: ScriptModel) {
         self.app = app
         self.model = model
         _printer = State(initialValue: DocumentPrintModel(model: model))
+        // The remembered choice only, with no fall back to the app-wide "open
+        // documents for reading" switch: this screen is reached by pressing
+        // "Edit All on One Page", and coming up with no caret in it would be
+        // the button's own word contradicted. So it writes unless the writer
+        // has put *this* screen into reading themselves — see
+        // `ReadingViewSettings.chosenReadingView`.
+        _isReading = State(initialValue: ReadingViewSettings.shared
+            .chosenReadingView(.songsWorkspace(project: model.project.id)) ?? false)
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -66,6 +86,19 @@ struct SongsWorkspaceView: View {
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
+    /// Whether the songs are up to be read rather than written in. The song
+    /// editor's own mode, taken across every song on screen: the editable lines
+    /// are swapped for the reading column in place, and the headers, the open
+    /// set and everything in the bars stay put.
+    ///
+    /// One flag for the screen rather than one per song, because this screen is
+    /// one thing — a set read through, or a set worked on — and a page where
+    /// the second song takes a caret and the third does not is neither. A song
+    /// that wants a posture of its own has an editor where it can have one.
+    @State private var isReading: Bool
+
+    /// Which way this screen was last put, remembered per project.
+    private let readingViews = ReadingViewSettings.shared
 
     /// Which songs were left open, remembered per project. Shared with the web,
     /// which stores the same set under the same key.
@@ -87,7 +120,7 @@ struct SongsWorkspaceView: View {
                 if isArranging {
                     arrangingList
                 } else {
-                    writingList
+                    songList
                 }
             }
             .listStyle(.plain)
@@ -190,10 +223,55 @@ struct SongsWorkspaceView: View {
         }
     }
 
+    // MARK: - Reading and writing
+
+    /// The mode, as a Toggle can use it — through the two functions below
+    /// rather than straight at the state, so choosing it in the "…" is
+    /// remembered, and flushes what is half-typed, exactly as the button is.
+    private var readingBinding: Binding<Bool> {
+        Binding(get: { isReading },
+                set: { reading in
+                    if reading { enterReadingView() } else { beginEditing() }
+                })
+    }
+
+    /// Hands the songs back to the writer, and remembers that this is a screen
+    /// they write on — so Edit is a cost paid once rather than on every visit.
+    private func beginEditing() {
+        isReading = false
+        readingViews.remember(false, for: .songsWorkspace(project: model.project.id))
+    }
+
+    /// Puts the songs up to be read, and remembers that too.
+    ///
+    /// Half-typed lines go first: every row leaves the screen the moment the
+    /// flag flips, and a line still holding uncommitted text would have nowhere
+    /// left to send it from. Focus goes with them, or a row would grant itself
+    /// first responder the moment the lines came back and put the keyboard up
+    /// over a lyric nobody asked to type into. Arranging goes too — it is the
+    /// other thing this screen can be in the middle of, and reading is an
+    /// answer to "show me the songs", not "show me the order".
+    private func enterReadingView() {
+        focusedLine = nil
+        for lyric in lyrics.values {
+            lyric.focusedBlockId = nil
+            lyric.focusRequest = nil
+        }
+        Task {
+            await commitEverything()
+            isArranging = false
+            isReading = true
+            readingViews.remember(true, for: .songsWorkspace(project: model.project.id))
+        }
+    }
+
     // MARK: - The two lists
 
-    /// Every song open to be written in — the screen this is most of the time.
-    private var writingList: some View {
+    /// Every song, open to be written in or to be read — the screen this is
+    /// most of the time. Which of the two it is changes the lines inside each
+    /// section and nothing else about it: the headers, the open set and the
+    /// scroll position all survive the mode being swapped under them.
+    private var songList: some View {
         List {
             ForEach(songs) { song in
                 Section {
@@ -324,7 +402,10 @@ struct SongsWorkspaceView: View {
         // Claimed even with the caret nowhere, so the chord cannot fall through
         // the cover and send the screenplay behind it to the printer.
         let printSongs: (() -> Void)? = songs.isEmpty ? nil : { printAll() }
-        guard let lyric = focusedLyric else {
+        // Nothing to step back through on a page being read — and still
+        // published, so ⌘Z over the songs can never fall through to the script
+        // this screen is covering.
+        guard !isReading, let lyric = focusedLyric else {
             return DocumentEditorActions(print: printSongs)
         }
         return DocumentEditorActions(
@@ -366,9 +447,13 @@ struct SongsWorkspaceView: View {
     /// collapsed one — and only where there is a history to walk, which offline
     /// means the steps this device is holding. Same order and same symbols as
     /// the song editor's own pair, so the gesture reads the same in both.
+    ///
+    /// Gone while the songs are being read, as the editor's pair is: there is
+    /// nothing on that surface for a step back to be a step back from.
     @ViewBuilder
     private func historyButtons(_ song: TextDocument) -> some View {
-        if expanded.contains(song.id), let lyric = lyrics[song.id], lyric.offersUndoRedo {
+        if !isReading, expanded.contains(song.id),
+           let lyric = lyrics[song.id], lyric.offersUndoRedo {
             Button {
                 Task { await lyric.undo() }
             } label: {
@@ -528,7 +613,17 @@ struct SongsWorkspaceView: View {
     @ViewBuilder
     private func lines(for song: TextDocument) -> some View {
         if let lyric = lyrics[song.id] {
-            lockBanner(song, lyric)
+            // Not while reading. The strip is an offer to take a lock off so
+            // the words can be typed into, and there is no typing on this
+            // surface to be stopped — the padlock in the header still says
+            // which song is closed, which is all a reader needs told. In the
+            // song editor it stands through both modes because there it is one
+            // strip at the top of one song; here it would be one inside every
+            // open lyric, down a page whose whole point is an uninterrupted
+            // read.
+            if !isReading {
+                lockBanner(song, lyric)
+            }
             // The same honesty the song editor's banner gives: an out-of-date
             // lyric must not look current — and the same ✕, since a writer who
             // has read it should be able to get the row back.
@@ -555,12 +650,23 @@ struct SongsWorkspaceView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            ForEach(lyric.blocks) { block in
-                SongLineRow(model: lyric,
-                            block: block,
-                            isLocked: isLocked(song),
-                            focusedLine: $focusedLine,
-                            startWriting: startWriting(song))
+            if isReading {
+                // Fed from what is on screen rather than from what was last
+                // saved, as the song editor's reader is: a line typed a moment
+                // ago has to read as typed whether or not its save has landed.
+                // Still one row per line, and still the lines' own ids — the
+                // rows are what the mode changes, not how many there are.
+                ForEach(lyric.blocks) { block in
+                    readingLine(lyric.currentText(block), in: song, of: lyric)
+                }
+            } else {
+                ForEach(lyric.blocks) { block in
+                    SongLineRow(model: lyric,
+                                block: block,
+                                isLocked: isLocked(song),
+                                focusedLine: $focusedLine,
+                                startWriting: startWriting(song, lyric))
+                }
             }
             // No Add Line button under a song that has lines. This screen
             // stacks every song in the project, so a button under each one
@@ -568,7 +674,11 @@ struct SongsWorkspaceView: View {
             // verse. Return at the end of a line makes the next line, which is
             // how a lyric is written anyway. A song with nothing in it has no
             // line to press Return at, so that one keeps the offer.
-            if lyric.blocks.isEmpty, !lyric.isLoading,
+            //
+            // Never while reading: a page being read has no room for an offer
+            // to start writing on it, which is the rule the song editor's own
+            // reader follows.
+            if !isReading, lyric.blocks.isEmpty, !lyric.isLoading,
                lyric.canAddLine, !isLocked(song) {
                 Button {
                     Task {
@@ -580,6 +690,38 @@ struct SongsWorkspaceView: View {
                 }
             }
         }
+    }
+
+    /// One line of a lyric, set to be read: the writing surface's own text view
+    /// with the caret taken out of it — `ProseText`, which is what the song
+    /// editor's reader is built from too.
+    ///
+    /// The padding, the row insets and the single spacing are the editable
+    /// row's own, down to the two points above and below, because that is the
+    /// whole rule of this mode: the words do not move on the way into reading.
+    /// Same engine, same face, same width, same left edge, line for line — the
+    /// only difference is that one takes a caret and the other does not.
+    ///
+    /// A blank line is drawn as a space so it stands as tall as the empty row
+    /// it replaces; a verse break is something the writer typed and can see
+    /// themselves having typed.
+    ///
+    /// Highlights are deliberately not drawn, as `ReadSongView` does not draw
+    /// them: a tint is a working mark on a line to come back to, which is not
+    /// what this surface is for.
+    private func readingLine(_ text: String,
+                             in song: TextDocument,
+                             of lyric: SongBlockModel) -> some View {
+        ProseText(text: text.isEmpty ? " " : text,
+                  textScale: settings.textScale,
+                  // Two taps in the words are the same instruction as Edit in
+                  // the corner, the way they are in Pages and Word.
+                  startWriting: startWriting(song, lyric))
+            .padding(.vertical, 2)
+            .padding(.horizontal, 4)
+            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 
     /// Says this song is closed to typing, and takes the lock off when tapped —
@@ -708,6 +850,32 @@ struct SongsWorkspaceView: View {
         // the room, and the "All" they lose is the part the buttons never
         // needed: every song on screen is what this screen is.
         ToolbarItemGroup(placement: .primaryAction) {
+            // The mode, leading the group so a phone — which draws about two
+            // controls on the trailing side before the rest go to the "…" —
+            // always draws it. Icon-only like its neighbours, and in the one
+            // capsule with them rather than as an item of its own: a third
+            // toolbar item beside Done and the badge is what tips this bar into
+            // dropping something, and not the same something twice.
+            //
+            // One button that swaps rather than a pair, so this corner is
+            // always one tap to whichever surface is not up — the arrangement
+            // the song editor arrived at.
+            if isReading {
+                Button {
+                    beginEditing()
+                } label: {
+                    Label("Edit", systemImage: "square.and.pencil")
+                }
+                .labelStyle(.iconOnly)
+            } else {
+                Button {
+                    enterReadingView()
+                } label: {
+                    Label("Read Songs", systemImage: "book")
+                }
+                .labelStyle(.iconOnly)
+                .disabled(songs.isEmpty)
+            }
             // Only the songs currently passing the filter, so "expand all"
             // means the same thing the writer can see.
             Button {
@@ -725,6 +893,17 @@ struct SongsWorkspaceView: View {
             }
             .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
+        }
+        // The mode itself, in the "…" this screen has instead of a View menu —
+        // the song editor's own toggle, in the plural. It says which way the
+        // screen is currently put, which a button that swaps its own label
+        // cannot, and it is the way back for anyone the button above is not
+        // enough for.
+        ToolbarItem(placement: .secondaryAction) {
+            Toggle(isOn: readingBinding) {
+                Label("Read Songs", systemImage: "book")
+            }
+            .disabled(songs.isEmpty && !isReading)
         }
         // In the overflow rather than the bar itself, which on an iPhone is
         // already one item from dropping something. Arranging is a thing a
@@ -813,17 +992,27 @@ struct SongsWorkspaceView: View {
         locks[song.id]?.isEditingLocked ?? false
     }
 
-    /// The double tap that takes a locked song's lock off, so a writer working
-    /// down this screen can start typing in the one song they meant without
-    /// hunting for its lock in the row's menu. Nil for a song that is already
-    /// open to be typed in — there is nothing to undo.
+    /// The double tap into writing, for both of the things that can stand
+    /// between a writer and a lyric here: the reading view the screen is in,
+    /// and this song's own lock. Whatever is in the way comes off, so a verse
+    /// being read is one gesture from the keyboard rather than two.
     ///
     /// Only this song's lock: the others on screen were each locked on purpose,
     /// one at a time, and a gesture that cleared them all would be the accident
-    /// the lock exists to prevent.
-    private func startWriting(_ song: TextDocument) -> (() -> Void)? {
-        guard isLocked(song) else { return nil }
-        return { locks[song.id]?.setEditingLocked(false) }
+    /// the lock exists to prevent. Reading, on the other hand, is the screen's
+    /// posture and comes off for the screen — there is no such thing as one
+    /// song being read here while its neighbours are typed into.
+    ///
+    /// Nil where nothing is in the way, or where the server never offered this
+    /// song to be written in: the lines are already taking a caret, or nothing
+    /// this device can undo would give them one.
+    private func startWriting(_ song: TextDocument,
+                              _ lyric: SongBlockModel) -> (() -> Void)? {
+        guard isWritable(lyric), isReading || isLocked(song) else { return nil }
+        return {
+            if isLocked(song) { locks[song.id]?.setEditingLocked(false) }
+            if isReading { beginEditing() }
+        }
     }
 
     /// Reopens the songs left open last time. Runs after the documents load so

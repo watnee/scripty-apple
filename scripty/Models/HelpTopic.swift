@@ -814,6 +814,18 @@ extension HelpTopic {
                     + "corner, puts the writing back where you left it, and both take "
                     + "the same device-wide text size. A document with nothing in it "
                     + "opens for writing instead — there is nothing to read.",
+                    "The all-songs workspace reads as well as writes. Read Songs, in "
+                    + "the top corner beside Expand and Collapse and in the \u{201C}…\u{201D} "
+                    + "menu, puts every song open on the screen up to be read at once "
+                    + "— which is how you hear whether the third song follows the "
+                    + "second — and Edit, in the same corner, hands them all back. "
+                    + "Two taps in a verse do the same, and take any lock on that one "
+                    + "song off on the way. It is the whole screen rather than one "
+                    + "song at a time, and the screen remembers which way you left "
+                    + "it; a song's own choice in its editor is its own, and says "
+                    + "nothing about the page that shows them all. Because you reach "
+                    + "this screen by tapping Edit All on One Page, it opens ready to "
+                    + "type in unless you have put it up to be read yourself.",
                     "The name sits at the head of a song or note either way — over the "
                     + "words while you read, over the lines while you write, in the "
                     + "same face and the same place — and you can type over it there "
@@ -911,6 +923,7 @@ extension HelpTopic {
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
                            "workspace", "list", "bullets", "heading",
                            "read", "reading", "read song", "read note", "prose",
+                           "read songs", "all songs", "one page", "set list",
                            "verse", "stanza", "distraction",
                            "aloud", "read aloud", "speech", "speak", "voice",
                            "listen", "audio", "text to speech", "sing",

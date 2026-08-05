@@ -91,6 +91,42 @@ func runRemembered() {
 }
 
 @MainActor
+func runWorkspace() {
+    print("")
+    print("The all-songs workspace, which asks the question the other way round")
+    let store = scratch("workspace")
+    let settings = ReadingViewSettings(defaults: store)
+    let screen = ReadingViewSettings.Document.songsWorkspace(project: 7)
+
+    // The screen is reached by pressing "Edit All on One Page", so it opens to
+    // be written in even though every *document* on a first run opens to be
+    // read. That is what `chosenReadingView` is for: nil means the writer has
+    // said nothing, and this one surface reads that as "write".
+    check("nobody has chosen for it yet", settings.chosenReadingView(screen) == nil, true)
+    check("while the songs it shows still open for reading",
+          settings.opensInReadingView(.document(id: 3)), true)
+
+    settings.remember(true, for: screen)
+    check("putting it into reading is remembered",
+          settings.chosenReadingView(screen) == true, true)
+    check("and survives a relaunch",
+          ReadingViewSettings(defaults: store).chosenReadingView(screen) == true, true)
+
+    settings.remember(false, for: screen)
+    check("and Edit puts it back for good",
+          settings.chosenReadingView(screen) == false, true)
+
+    // The screen and the screenplay share a project number and must not share
+    // an answer: one is a page of songs, the other is the script itself.
+    check("the screenplay of the same project is untouched",
+          settings.chosenReadingView(.screenplay(project: 7)) == nil, true)
+    // Nor does a song's own choice speak for the screen that shows every song.
+    settings.remember(true, for: .document(id: 7))
+    check("nor does a song that happens to share the number",
+          settings.chosenReadingView(screen) == false, true)
+}
+
+@MainActor
 func runKeys() {
     print("")
     print("Storage")
@@ -103,6 +139,7 @@ func runKeys() {
 
     settings.remember(true, for: .screenplay(project: 42))
     settings.remember(false, for: .document(id: 42))
+    settings.remember(true, for: .songsWorkspace(project: 42))
     // Kept in the same family as the per-project view options next door, and —
     // the reason both halves are checked — a screenplay and a song with the
     // same id must not land on the same key.
@@ -110,6 +147,9 @@ func runKeys() {
           store.object(forKey: "scripty-reading-view-project-42") as? Bool ?? false, true)
     check("a song or note under its own id",
           store.object(forKey: "scripty-reading-view-document-42") as? Bool ?? true, false)
+    check("and the all-songs screen under a key of its own",
+          store.object(forKey: "scripty-reading-view-songs-workspace-42") as? Bool ?? false,
+          true)
 
     // "Never chosen" has to stay distinguishable from "chosen: edit view", or
     // the switch could never reach a document again once it had been opened.
@@ -121,6 +161,7 @@ func runKeys() {
 MainActor.assumeIsolated {
     runDefaults()
     runRemembered()
+    runWorkspace()
     runKeys()
 }
 
