@@ -33,6 +33,9 @@ import Foundation
 /// not to the main one.
 nonisolated struct LocalWorkspaceStore: Sendable {
     private let url: URL
+    /// Where the things too big for the document go — today, a song's
+    /// recordings. One file each, named by the backend.
+    private let mediaDirectory: URL
 
     /// `directory` is injectable so the checks can point a store at a temporary
     /// path instead of the real Application Support one.
@@ -42,6 +45,7 @@ nonisolated struct LocalWorkspaceStore: Sendable {
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "scripty", isDirectory: true)
             .appendingPathComponent("LocalWorkspace", isDirectory: true)
         url = base.appendingPathComponent("workspace.json")
+        mediaDirectory = base.appendingPathComponent("Media", isDirectory: true)
     }
 
     /// Atomic, so a crash mid-write leaves the previous workspace intact rather
@@ -63,5 +67,31 @@ nonisolated struct LocalWorkspaceStore: Sendable {
     /// session starts clean rather than on a second copy of it.
     func clear() {
         try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: mediaDirectory)
+    }
+
+    // MARK: - The large things
+
+    /// A recording's bytes, in a file of their own.
+    ///
+    /// Apart from the workspace document because that file is rewritten in full
+    /// after every change: a few megabytes of audio base64'd into it would be
+    /// re-encoded and re-written on every keystroke that touched anything at
+    /// all. These are written once, read when a take is played, and deleted
+    /// with it — so the atomicity the document needs is not needed here. A
+    /// dangling file is a wasted megabyte, not a broken workspace, and
+    /// `clear()` takes the lot when the session's work has gone to an account.
+    func saveMedia(_ data: Data, named name: String) {
+        try? FileManager.default.createDirectory(
+            at: mediaDirectory, withIntermediateDirectories: true)
+        try? data.write(to: mediaDirectory.appendingPathComponent(name), options: .atomic)
+    }
+
+    func loadMedia(named name: String) -> Data? {
+        try? Data(contentsOf: mediaDirectory.appendingPathComponent(name))
+    }
+
+    func deleteMedia(named name: String) {
+        try? FileManager.default.removeItem(at: mediaDirectory.appendingPathComponent(name))
     }
 }

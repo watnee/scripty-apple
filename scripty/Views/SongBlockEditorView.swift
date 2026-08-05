@@ -57,6 +57,10 @@ struct SongBlockEditorView: View {
     @State private var showingVersions = false
     @State private var showingTrash = false
     @State private var showingIgnoredWords = false
+    /// Whether the song's recordings are up — the demo, the voice memo, the
+    /// reference track. A sheet like the version history, for the reason given
+    /// in `SongRecordingsView`: this column is for the words.
+    @State private var showingRecordings = false
     /// Whether the two-versions screen is up. Only ever opened by a press —
     /// a sheet that appeared over a half-typed line because a sweep found
     /// something would interrupt the one thing this screen is for.
@@ -205,7 +209,15 @@ struct SongBlockEditorView: View {
                 // Reading wins while it is on; the lines wait underneath and
                 // come back exactly as they were left.
                 if isReading {
-                    reader
+                    VStack(spacing: 0) {
+                        reader
+                        // Under the page rather than in it: the reader sets the
+                        // words exactly as they were written, and a control
+                        // inside that column would be one more thing in the
+                        // lyric. The writing surface keeps its own copy at the
+                        // foot of the lines — see `recordingsRow`.
+                        recordingsBar
+                    }
                 } else {
                     lyricList
                 }
@@ -328,6 +340,9 @@ struct SongBlockEditorView: View {
             }
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
+            }
+            .sheet(isPresented: $showingRecordings) {
+                SongRecordingsView(app: model.app, document: model.document)
             }
             .sheet(isPresented: $showingTrash) {
                 if let trash = model.trashLink {
@@ -471,6 +486,8 @@ struct SongBlockEditorView: View {
                         // backgrounds still separate highlighted lines.
                         .listRowSeparator(.hidden)
                 }
+
+                recordingsRow
             }
             .listStyle(.plain)
             // The list pads every row up to its default minimum height,
@@ -500,6 +517,66 @@ struct SongBlockEditorView: View {
         // empty state of its own, and "Add Line" is an offer that makes no
         // sense on a page being read.
         .overlay { emptyState }
+    }
+
+    /// The way to what this song sounds like, under the words it is made of —
+    /// the voice memo the tune was first sung into, the demo, the reference
+    /// track being chased.
+    ///
+    /// In the lyric itself rather than in the "…", which is where a row like
+    /// this would ordinarily go. That menu is full: this sheet defines more
+    /// toolbar items than iOS will draw, and the ones past the limit are
+    /// dropped without a word — Print… already is, on a phone, and a
+    /// Recordings item put up there was never seen once. A row at the foot of
+    /// the verse is also where the browser keeps its own recordings panel, so
+    /// the two clients now say the same thing in the same place.
+    ///
+    /// Drawn only where the server advertised the collection — an older
+    /// deployment has never heard of recordings and this client then says
+    /// nothing about them anywhere — and offered to readers as well as
+    /// writers, since listening needs no permission to type.
+    @ViewBuilder
+    private var recordingsRow: some View {
+        if model.document.hasLink(.audioRecordings) {
+            recordingsButton
+                .listRowSeparator(.hidden)
+                .padding(.top, 24)
+        }
+    }
+
+    /// The same row under the reading surface, which is not a list and has no
+    /// row to put it in. A song opens here whenever the writer left it here,
+    /// and someone reading a lyric is exactly the person who wants to hear it.
+    @ViewBuilder
+    private var recordingsBar: some View {
+        if model.document.hasLink(.audioRecordings) {
+            VStack(spacing: 0) {
+                Divider()
+                recordingsButton
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+            }
+        }
+    }
+
+    private var recordingsButton: some View {
+        Button {
+            showingRecordings = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform")
+                Text("Recordings")
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Recordings kept with this song")
     }
 
     /// The song's name at the head of the lyric, in the face, the size and the
