@@ -118,6 +118,16 @@ swiftc "${FLAGS[@]}" -o "$BUILD/printpdf" \
 run_suite "$BUILD/printpdf" || status=1
 
 echo
+echo "== Offline song/note print PDF =="
+# The other renderer the print fallback draws with — a song or a note rather
+# than a script sheet. Core Text alone, so it checks here for the same reason
+# the screenplay's does.
+swiftc "${FLAGS[@]}" -o "$BUILD/docprintpdf" \
+    "$SRC/Models/DocumentPDF.swift" \
+    "$ROOT/Tests/DocumentPrint/main.swift"
+run_suite "$BUILD/docprintpdf" || status=1
+
+echo
 echo "== Element clipboard =="
 swiftc "${FLAGS[@]}" -o "$BUILD/clipboard" \
     "$SRC/Models/Block.swift" \

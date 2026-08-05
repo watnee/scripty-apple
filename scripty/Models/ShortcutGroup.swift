@@ -178,7 +178,11 @@ extension ShortcutGroup {
                 // And the script's Read Aloud, aimed the same way: over an open
                 // song or note the chord reads *that*, never the screenplay the
                 // sheet is covering.
-                ShortcutEntry("Read the note or song aloud", "⌘⇧A")
+                ShortcutEntry("Read the note or song aloud", "⌘⇧A"),
+                // Print is aimed the same way again — and on either workspace
+                // it means every song or note on the screen, which is what that
+                // screen is.
+                ShortcutEntry("Print the note or song", "⌘P")
             ]),
         ShortcutGroup(
             id: "help",

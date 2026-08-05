@@ -30,6 +30,13 @@ struct NotesWorkspaceView: View {
     let app: AppModel
     let model: ScriptModel
 
+    /// Only here to seed the printer, as in the songs workspace.
+    init(app: AppModel, model: ScriptModel) {
+        self.app = app
+        self.model = model
+        _printer = State(initialValue: DocumentPrintModel(model: model))
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
@@ -62,6 +69,9 @@ struct NotesWorkspaceView: View {
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
+    /// Every note on screen on paper. One printer for the screen, as the notes
+    /// list keeps one for the list.
+    @State private var printer: DocumentPrintModel
     /// Which note holds the caret, so a keyboard ⌘Z has an unambiguous answer.
     /// Reported by the panes themselves rather than kept in a `@FocusState`:
     /// these are bridged text views that grant themselves first responder, and
@@ -121,6 +131,7 @@ struct NotesWorkspaceView: View {
             // would rewind the script behind it. Published even when it can do
             // nothing, so a step here never falls through to the script.
             .focusedSceneValue(\.documentEditorActions, menuActions)
+            .documentPrintPresentation(printer)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -292,13 +303,40 @@ struct NotesWorkspaceView: View {
     /// caret nowhere the chord does nothing rather than guessing at a note, or
     /// reaching past this cover to the script.
     private var menuActions: DocumentEditorActions {
+        // ⌘P means every note on this screen, whatever the caret is doing —
+        // and is claimed even when there is nothing to print, so the chord
+        // cannot fall through this cover to the screenplay behind it.
+        let printNotes: (() -> Void)? = notes.isEmpty ? nil : { printAll() }
         guard let id = focusedNote, let draft = drafts[id], canWrite(id) else {
-            return DocumentEditorActions()
+            return DocumentEditorActions(print: printNotes)
         }
         return DocumentEditorActions(undo: { draft.history.undo() },
                                      redo: { draft.history.redo() },
                                      canUndo: draft.history.canUndo,
-                                     canRedo: draft.history.canRedo)
+                                     canRedo: draft.history.canRedo,
+                                     print: printNotes)
+    }
+
+    /// The notes on screen on paper, one to a sheet — the same file the list's
+    /// own Print All produces.
+    ///
+    /// The notes open here answer for themselves where the sheet has to be
+    /// drawn on the device: their panes hold what has been typed this minute.
+    /// A note nobody expanded was never fetched, so it falls back to whatever
+    /// copy this device kept.
+    private func printAll() {
+        printer.print(all: notes, of: .notes, named: printJobName) { note in
+            guard let draft = drafts[note.id], !draft.content.isEmpty else { return nil }
+            return draft.content.components(separatedBy: "\n")
+        }
+    }
+
+    /// What the printer queue calls the job — the same name the notes list
+    /// gives the file it downloads.
+    private var printJobName: String {
+        model.project.displayTitle.isEmpty
+            ? "notes"
+            : model.project.displayTitle + " Notes"
     }
 
     /// What the header says on the right: how far a save has got while one is
@@ -541,6 +579,19 @@ struct NotesWorkspaceView: View {
         }
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
+        }
+        // Every note at once is the screen a writer prints a set of them from.
+        // In the overflow, where the songs workspace keeps its own: the bar
+        // itself is an item from dropping something on a phone.
+        if !notes.isEmpty {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    printAll()
+                } label: {
+                    Label("Print All Notes…", systemImage: "printer")
+                }
+                .disabled(printer.isPrinting)
+            }
         }
     }
 

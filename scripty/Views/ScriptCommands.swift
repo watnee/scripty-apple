@@ -174,6 +174,13 @@ struct DocumentEditorActions {
     /// nothing to say, which leaves the item disabled rather than falling
     /// through.
     var readAloud: (() -> Void)?
+
+    /// Put this document on paper — ⌘P aimed at the song or note in front of
+    /// the script rather than at the script. Present for the reason the two
+    /// above are: without it the chord reaches past the sheet and sends the
+    /// screenplay to the printer, which is never what a writer standing over a
+    /// lyric means by it. Nil where there is nothing on the document to print.
+    var print: (() -> Void)?
 }
 
 struct DocumentEditorActionsKey: FocusedValueKey {
@@ -336,6 +343,17 @@ struct ScriptCommands: Commands {
         return actions?.readAloud
     }
 
+    /// What ⌘P sends to the printer, by the same rule: the song or note in
+    /// front where there is one, and the screenplay otherwise. The script's
+    /// side is nil without a PDF rel or while an export is already in flight,
+    /// which is what used to disable the item.
+    private var printTarget: (() -> Void)? {
+        if let document = documentActions { return document.print }
+        guard let exporter = actions?.exporter, !exporter.isExporting,
+              let printable = exporter.printableOption else { return nil }
+        return { exporter.print(printable) }
+    }
+
     /// The two lists, and the documents under them.
     ///
     /// One item each, matching the toolbar: an item named "Songs & Notes" could
@@ -407,13 +425,13 @@ struct ScriptCommands: Commands {
         }
         .disabled((exporter?.options ?? []).isEmpty || exporter?.isExporting == true)
 
-        Button("Print…") {
-            if let printable = exporter?.printableOption {
-                exporter?.print(printable)
-            }
-        }
-        .keyboardShortcut("p", modifiers: .command)
-        .disabled(exporter?.printableOption == nil || exporter?.isExporting == true)
+        // A song or a note open over the script takes ⌘P for itself, the way it
+        // takes ⌘Z and ⌘⇧A — see `DocumentEditorActions`. The Export menu above
+        // stays the screenplay's: a document's own formats are offered where
+        // the document is, and there is no second export menu to swap in here.
+        Button("Print…") { printTarget?() }
+            .keyboardShortcut("p", modifiers: .command)
+            .disabled(printTarget == nil)
     }
 
     @ViewBuilder

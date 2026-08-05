@@ -218,7 +218,13 @@ struct SongEditorView: View {
         _options = State(initialValue: document.map {
             DocumentViewOptions(documentId: $0.id, kind: Self.lockKind(for: type))
         })
+        _printer = State(initialValue: DocumentPrintModel(model: model))
     }
+
+    /// This document on paper — the server's PDF where there is a route to it,
+    /// and the words on screen drawn here where there is not. Built from the
+    /// screenplay's model, which is what holds the export links.
+    @State private var printer: DocumentPrintModel
 
     /// Whether documents open to be read, and which way this one was last put.
     private let readingViews = ReadingViewSettings.shared
@@ -531,6 +537,7 @@ struct SongEditorView: View {
             } message: {
                 Text(insertMessage ?? "")
             }
+            .documentPrintPresentation(printer)
         }
     }
 
@@ -544,12 +551,50 @@ struct SongEditorView: View {
     /// reach past this sheet and start the screenplay behind it reading itself.
     private var undoActions: DocumentEditorActions {
         let readAloud: (() -> Void)? = hasWordsToSpeak ? { toggleReadAloud() } : nil
-        guard canEdit else { return DocumentEditorActions(readAloud: readAloud) }
+        // ⌘P too, and for the same reason: the chord would otherwise reach the
+        // screenplay behind this sheet and print a script the writer cannot see.
+        guard canEdit else {
+            return DocumentEditorActions(readAloud: readAloud, print: printAction)
+        }
         return DocumentEditorActions(undo: { formatting.undo() },
                                      redo: { formatting.redo() },
                                      canUndo: formatting.canUndo,
                                      canRedo: formatting.canRedo,
-                                     readAloud: readAloud)
+                                     readAloud: readAloud,
+                                     print: printAction)
+    }
+
+    /// Sending this document to the printer, or nil while it has no words to
+    /// send. A document that has never reached the server prints too — the
+    /// sheet is drawn here from what is on screen, and a note typed on a train
+    /// is exactly the one somebody wants a copy of.
+    private var printAction: (() -> Void)? {
+        guard hasWordsToPrint else { return nil }
+        return {
+            if let target {
+                printer.print(target, lines: printableLines)
+            } else {
+                printer.print(title: printTitle, lines: printableLines)
+            }
+        }
+    }
+
+    /// Whether there is anything here worth a sheet of paper. The same question
+    /// `hasWordsToSpeak` asks, and it deliberately does not wait for the
+    /// document to exist on the server either.
+    private var hasWordsToPrint: Bool { hasWordsToSpeak }
+
+    /// The words as they go to the printer: what is on screen, line for line,
+    /// blank lines and all — the server splits its own copy the same way.
+    /// Read only at the moment of printing, so nothing here runs per keystroke.
+    private var printableLines: [String] { content.components(separatedBy: "\n") }
+
+    /// What the job is called for a document the server has never seen, where
+    /// there is no `displayTitle` to ask for. The same words the list would
+    /// draw for it.
+    private var printTitle: String {
+        let name = title.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Untitled \(type.label)" : name
     }
 
     /// What a step out of the history does to the title field: puts the name
@@ -1065,6 +1110,20 @@ struct SongEditorView: View {
                     Label(isPausing ? "Pause Reading" : "Read Aloud",
                           systemImage: isPausing ? "pause.fill" : "speaker.wave.2")
                 }
+            }
+        }
+        // The third way of taking the words off this screen, beside the two
+        // ways of reading them. Printing is a read, so a view-only collaborator
+        // is offered it too — and a document the server has never seen prints
+        // as well, since the sheet for that one is drawn here.
+        if let printDocument = printAction {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    printDocument()
+                } label: {
+                    Label("Print…", systemImage: "printer")
+                }
+                .disabled(printer.isPrinting)
             }
         }
         // Reached from here rather than from a screenplay's View menu, which is
