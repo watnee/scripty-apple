@@ -1361,6 +1361,23 @@ struct ScriptView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .labelStyle(.titleAndIcon)
+                } else if isReadyToRead {
+                    // The way back to the reader, in the slot Edit vacates, so
+                    // the head of this row is always the one tap to the other
+                    // surface. On a phone the toolbar's own copy is the
+                    // overflow's — the same measurement that put Edit down here
+                    // — and a mode a writer swaps in and out of while working
+                    // is the last thing that should cost a menu each way.
+                    //
+                    // Icon-only and plain, unlike Edit: this one is an errand
+                    // like the three beside it, where Edit is a reader's door
+                    // into their own screenplay. The title stays on the `Label`
+                    // for VoiceOver.
+                    Button {
+                        setReading(true)
+                    } label: {
+                        Label("Read Script", systemImage: "book")
+                    }
                 }
                 if model.canViewDocuments {
                     songsButton
@@ -1397,6 +1414,19 @@ struct ScriptView: View {
     /// Whether the script is up to be read and there is somewhere to type —
     /// which is exactly when an Edit button is worth drawing.
     private var isReadyToEdit: Bool { isReading && canEditScript }
+
+    /// The mirror of it: the writing surface is up and there is something on it
+    /// to read, which is exactly when a Read Script button is worth drawing.
+    ///
+    /// Ungated by `canEditScript` — reading is nobody's privilege, and a reader
+    /// who stepped out onto the locked column needs the way back most of all.
+    /// Gated by focus mode, though, where the Edit button is not: that mode
+    /// keeps what a writer needs to get back to writing, and the reader is
+    /// somewhere to go rather than a way back. The View menu, which stays,
+    /// carries the toggle for the writer who wants it from in there.
+    private var isReadyToRead: Bool {
+        !isReading && model.hasScriptContent && !settings.isFocusMode
+    }
 
     /// How wide this pane has to be before the navigation bar can draw every
     /// control at once — the View capsule, the seven-strong action capsule,
@@ -2503,6 +2533,24 @@ struct ScriptView: View {
                     setReading(false)
                 } label: {
                     Label("Edit", systemImage: "square.and.pencil")
+                }
+            } else if isReadyToRead {
+                // The same slot, the other way round: whichever surface is up,
+                // this corner is the one tap to the other one. The mode had
+                // only ever been reachable from *inside* the View menu on the
+                // way back — a writer who took the Edit button out of the
+                // reader had to remember which menu the door home was in, which
+                // is two taps and a hunt for the thing they had just used one
+                // tap to leave.
+                //
+                // Titled "Read Script", not "Read": it is the View menu's own
+                // words for the mode and the menu bar's, and where a short bar
+                // spills this into the "…" it lands among named items beside a
+                // Read Aloud it must not be mistaken for.
+                Button {
+                    setReading(true)
+                } label: {
+                    Label("Read Script", systemImage: "book")
                 }
             }
         }

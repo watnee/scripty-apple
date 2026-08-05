@@ -496,9 +496,13 @@ extension HelpTopic {
                     + "many times you tap it.",
                     "That choice is remembered for that document, so it opens ready "
                     + "to type in from then on — the button is a one-time cost, not "
-                    + "a toll on every visit. To put a document back, choose Read "
-                    + "Script in the View menu, or Read Song or Read Note in a song "
-                    + "or note's “…” menu.",
+                    + "a toll on every visit. To put a document back up to be read, "
+                    + "tap Read Script — or Read Song or Read Note — which takes the "
+                    + "same place the Edit button had: the top corner on iPad and "
+                    + "Mac, and on iPhone the bar at the foot of the screenplay. So "
+                    + "whichever surface you are on, one tap in that spot is the "
+                    + "other one. Read Script is in the View menu as well, and Read "
+                    + "Song and Read Note stay in a song or note's “…” menu.",
                     "Open in Edit View, in the account menu on the project list, "
                     + "turns the default round for every document you have never "
                     + "made a choice about; documents you have chosen for keep the "
@@ -556,7 +560,9 @@ extension HelpTopic {
                     + "editing controls and the working annotations — synopses and notes "
                     + "— left out. It swaps in on the script screen itself, opening at "
                     + "the place you were writing; the Edit button, or choosing it "
-                    + "again in the View menu, puts the writing back. Both surfaces "
+                    + "again in the View menu, puts the writing back — and the Read "
+                    + "Script button in that same corner brings the reading back, so "
+                    + "the two are one tap apart in both directions. Both surfaces "
                     + "measure the page the same way, so switching does not move the "
                     + "script: an element keeps its indent, its line breaks and the air "
                     + "around it, and so does a script with editing locked. To copy a "
