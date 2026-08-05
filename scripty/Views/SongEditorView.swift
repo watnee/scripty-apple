@@ -951,6 +951,31 @@ struct SongEditorView: View {
                     Label("Edit", systemImage: "square.and.pencil")
                 }
             }
+        } else if !isReading && hasSomethingToRead {
+            // The way back, in the corner Edit leaves empty, so that corner is
+            // one tap to whichever surface is not up. The mode could only be
+            // re-entered from inside the "…" until now, which made a posture a
+            // writer swaps between while working cost one tap out and two back
+            // — and the toggle in there gives no sign from the bar that the
+            // reading surface is a tap away at all. It stays, all the same: it
+            // is the way in for a reader this button is never drawn for, and
+            // the place the mode is named beside the rest of the view controls.
+            //
+            // Ungated by `isDocumentEditable`: reading is nobody's privilege.
+            //
+            // It leads Find on the trailing side, which on an iPhone draws two
+            // controls: with both up they are exactly those two, and where a
+            // bar is too short for the pair Find is what falls into the "…" —
+            // the mode a writer swaps between is worth more of the bar than the
+            // errand they go looking for.
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    enterReadingView()
+                } label: {
+                    Label(type == .song ? "Read Song" : "Read Note",
+                          systemImage: "book")
+                }
+            }
         }
         // Beside the way out, where the lyric editor and the screenplay both
         // keep it: leaving is the moment a writer wonders whether their words

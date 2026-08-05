@@ -928,6 +928,24 @@ struct SongBlockEditorView: View {
                 } label: {
                     Label("Edit", systemImage: "square.and.pencil")
                 }
+            } else if !isReading && !model.blocks.isEmpty {
+                // And the way back, in the slot Edit leaves behind, so this
+                // corner is one tap to whichever surface is not up. Reading was
+                // reachable only from inside the "…" on the way back, which
+                // made a mode that is swapped in and out of while working cost
+                // one tap out and two in. Ungated by `isSongEditable`: reading
+                // is nobody's privilege, and the toggle in the "…" stays for
+                // the reader whose song this button never appears on.
+                //
+                // It leads Search here, as Edit leads it while reading: the
+                // trailing side draws about two controls on a phone, so the
+                // pair of them is what a phone shows, and where there is room
+                // for only one this is the one worth having.
+                Button {
+                    enterReadingView()
+                } label: {
+                    Label("Read Song", systemImage: "book")
+                }
             }
             // No keyboard shortcut on Search: the screenplay's own button owns
             // ⌘F, and this editor opens over it — the same reason the text-size
