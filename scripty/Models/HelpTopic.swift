@@ -606,7 +606,9 @@ extension HelpTopic {
                            "review", "distraction free",
                            "copy", "select", "selection", "highlight text",
                            "aloud", "speech", "speak", "voice", "listen", "audio",
-                           "table read", "run lines", "text to speech"]),
+                           "table read", "run lines", "text to speech",
+                           "voices", "enhanced", "premium", "download voice",
+                           "narrator", "speed", "faster", "slower"]),
             HelpTopic(
                 id: "outline",
                 title: "Navigator and Outline Mode",
