@@ -524,7 +524,12 @@ extension HelpTopic {
                     + "(MORE) and resumes under CHARACTER (CONT'D).",
                     "Page Setup chooses the paper size, the margins and where the page "
                     + "numbers sit. The same choice is used for the PDF export and for "
-                    + "printing, so what you see is what comes out."
+                    + "printing, so what you see is what comes out.",
+                    "The View menu turns it on from anywhere. While you are reading "
+                    + "on an iPhone there is a button for it in the bar at the foot of "
+                    + "the screen instead, next to Read Aloud, and it turns back into "
+                    + "the reading you came from rather than dropping you into the "
+                    + "writing column — see Read Script."
                 ],
                 keywords: ["pages", "paper", "pagination", "letter", "a4", "margins",
                            "print", "more", "cont'd"]),
@@ -559,7 +564,10 @@ extension HelpTopic {
                     + "continuously, without page breaks or page numbers: page view "
                     + "is the one for reading it as paper, and turning Read Script on "
                     + "switches page view off rather than leaving it waiting "
-                    + "underneath. This is also the surface a "
+                    + "underneath. On an iPhone the two sit side by side: Page View "
+                    + "is a button in the bar at the foot of the screen, beside Read "
+                    + "Aloud, and while the pages are up the same button reads Read "
+                    + "Script and brings the reading back. This is also the surface a "
                     + "screenplay opens on — see Documents Open for Reading, which is "
                     + "also where the Edit button is described. Double tapping a "
                     + "line does the same thing and lands you in that line, the way "

@@ -79,6 +79,19 @@ struct ScriptView: View {
     /// for the documents nobody has chosen for — and `setReading` is what
     /// tells it which way this one was put.
     @State private var isReading: Bool
+    /// Whether the paper on screen was reached from the reader, by the bottom
+    /// bar's Page View button.
+    ///
+    /// The two are exclusive — asking for paper takes the reader down (see the
+    /// `isPageView` hook) — so without this the button would be a one-way door:
+    /// tap it while reading and the way back is the View menu, three taps up in
+    /// the corner, and what it lands on is the writing column rather than the
+    /// reading you left. Remembering which posture the paper came from is what
+    /// lets the one button make the round trip.
+    ///
+    /// Cleared whenever paper goes off, whichever route turned it off, so a
+    /// stale true can never put the reader up over a writer's script.
+    @State private var paperCameFromReader = false
     /// The voice that reads out loud. The device's one narrator rather than
     /// this screen's own, since the song and note editors read through it too —
     /// see `ScriptNarrator`. A reading still survives the reading mode coming
@@ -448,6 +461,13 @@ struct ScriptView: View {
             // answering that by leaving the reader would undo the mode the
             // writer just asked for.
             if on { setReading(false, remember: false) }
+            // Paper going off ends the errand the bottom bar's Page View
+            // button started, whichever route turned it off — its own second
+            // tap, the View menu, ⌘⇧P, or the reader coming up over it. Left
+            // standing, the flag would draw a "Read Script" button in a
+            // *writer's* bar, one tap from putting the reader over the script
+            // they were typing into.
+            if !on { paperCameFromReader = false }
             // Changing surface is not leaving the page: the paper opens on the
             // sheet the column was showing, and the column comes back to the
             // element the sheet started with. Both read the position the other
@@ -1343,6 +1363,24 @@ struct ScriptView: View {
                 }
                 if model.hasScriptContent {
                     readAloudButton
+                    // Beside listening because it is the other thing a reader
+                    // reaches for: the reader runs continuously, and "how long
+                    // is this, and where do the pages fall" is a question it
+                    // deliberately cannot answer — page view is the surface
+                    // that can. Reaching it meant the View menu in the far
+                    // corner, which on a phone is the one control the bar
+                    // draws beside the "…", so the paper was two taps and a
+                    // scan of a fourteen-item menu away from the posture that
+                    // most wants it.
+                    //
+                    // Drawn while reading, and while the paper it opened is
+                    // up — that second half is the way back. It stays out of
+                    // the writing posture's bar entirely: a writer has the
+                    // View menu's toggle and ⌘⇧P, and the bottom bar is
+                    // already the fullest thing on the screen.
+                    if isReading || paperCameFromReader {
+                        pageViewButton
+                    }
                 }
             }
             .buttonStyle(.bordered)
@@ -2274,6 +2312,41 @@ struct ScriptView: View {
         } label: {
             Label(isPausing ? "Pause Reading" : "Read Aloud",
                   systemImage: isPausing ? "pause.fill" : "speaker.wave.2")
+        }
+    }
+
+    /// The bottom bar's other reading surface: the screenplay on paper, and the
+    /// way back off it.
+    ///
+    /// One button for the round trip rather than two, because it is one
+    /// question — which of the two ways of reading is up — and because the trip
+    /// back is not simply "paper off": the reader and the paper are exclusive,
+    /// so turning paper off drops the script into the writing column, which is
+    /// not what someone who was reading a moment ago asked for. It puts the
+    /// reader back instead, and says so in its label rather than staying a
+    /// ticked "Page View" the way a toggle would.
+    ///
+    /// It names the surface it goes to, as the menu bar's own pair does
+    /// ("Show as Pages" / "Show as List"): a control in a bar has no tick to
+    /// carry state with, so the label is the only thing that can say which way
+    /// a tap goes.
+    private var pageViewButton: some View {
+        let onPaper = settings.isPageView
+        return Button {
+            if onPaper {
+                // `setReading` clears the paper itself — going through it
+                // rather than round it is what keeps every route between the
+                // two modes in one place. Not remembered: this is a reader
+                // coming back from a look at the pages, not a writer saying
+                // how the screenplay should open next time.
+                setReading(true, remember: false)
+            } else {
+                paperCameFromReader = isReading
+                settings.isPageView = true
+            }
+        } label: {
+            Label(onPaper ? "Read Script" : "Page View",
+                  systemImage: onPaper ? "book" : "doc.richtext")
         }
     }
 
