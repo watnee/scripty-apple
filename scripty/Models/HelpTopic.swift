@@ -745,10 +745,21 @@ extension HelpTopic {
                     "Songs and notes are offered the same things. Both export as text, "
                     + "PDF, Word or EPUB, on their own or as one file of the whole list; "
                     + "both can be emailed to a collaborator; and Edit selects several "
-                    + "at once to delete, archive, email or export together. The one "
-                    + "format that stays with songs is MusicXML, which is a score to "
+                    + "at once to delete, archive, email, print or export together. The "
+                    + "one format that stays with songs is MusicXML, which is a score to "
                     + "open in a notation program, and a page of scene notes is not a "
                     + "thing to set to music.",
+                    "Print sits beside Export wherever Export is, because it is an "
+                    + "errand rather than another format: on a row's menu for that one "
+                    + "song or note, in either editor's \u{201C}…\u{201D} menu for the "
+                    + "one you have open, and in the list's and the workspace's menus "
+                    + "for the whole list at once — one document to a sheet, headed with "
+                    + "its title. \u{2318}P prints whichever song or note is in front of "
+                    + "you, and the screenplay when none is. As with a script, the paper "
+                    + "comes from the PDF, so it is the file you would have exported; "
+                    + "with no connection the sheet is drawn here instead, from the "
+                    + "words on screen — including the ones typed since the last save, "
+                    + "and from a note that has never reached the server at all.",
                     "Archiving is not deleting. A song or note set aside from its "
                     + "menu leaves the list whole and readable, with nothing counting "
                     + "down against it; Archived Songs & Notes lists what is on the "
@@ -901,6 +912,7 @@ extension HelpTopic {
                            "bring back", "bulk", "several", "multiple",
                            "at once", "batch",
                            "export", "email", "share", "put back", "select",
+                           "print", "printing", "printer", "paper", "lyric sheet",
                            "musicxml", "mistake", "history", "step back",
                            "dismiss", "close",
                            "lock", "locked", "read only", "protect",

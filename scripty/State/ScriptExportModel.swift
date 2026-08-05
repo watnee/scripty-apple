@@ -79,17 +79,8 @@ final class ScriptExportModel {
     }
 
     private func presentPrintPanel(for url: URL) {
-        let info = UIPrintInfo.printInfo()
-        info.outputType = .general
-        info.jobName = model.project.displayTitle
-
-        let controller = UIPrintInteractionController.shared
-        controller.printInfo = info
-        controller.printingItem = url
-        controller.present(animated: true) { _, _, error in
-            MainActor.assumeIsolated {
-                if let error { self.errorMessage = error.localizedDescription }
-            }
+        PrintPanel.present(url, jobName: model.project.displayTitle) { message in
+            self.errorMessage = message
         }
     }
 

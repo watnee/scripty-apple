@@ -114,6 +114,7 @@ struct SongsView: View {
         let opening = listType ?? remembered ?? .song
         _listType = State(initialValue: opening)
         _creatingType = State(initialValue: creating ? opening : nil)
+        _printer = State(initialValue: DocumentPrintModel(model: model))
     }
 
     @State private var editingDocument: TextDocument?
@@ -124,6 +125,9 @@ struct SongsView: View {
     @State private var shareEmail = ""
     /// The finished song export, waiting for the system share sheet.
     @State private var exportedSong: ExportedSong?
+    /// Printing, for a row, for the ticked rows, and for the whole list. One
+    /// printer for the three so a download in flight holds all of them.
+    @State private var printer: DocumentPrintModel
     @State private var showingImporter = false
     @State private var showingWorkspace = false
     /// The songs ticked in edit mode, by id. Edit mode is held here rather
@@ -201,13 +205,18 @@ struct SongsView: View {
         model.collectionExportOptions(for: listType)
     }
 
+    /// Everything the list on screen holds, before any search narrows it —
+    /// which is what the collection export and the collection print both act
+    /// on, as they do on the web.
+    private var shownListDocuments: [TextDocument] {
+        listType == .song ? model.songs : model.notes
+    }
+
     /// How many documents the list on screen holds, before any search narrows
     /// it. The controls that need "is there more than one of these?" ask this
     /// rather than `shown`, so searching down to a single row cannot take a
     /// control away mid-search.
-    private var shownListCount: Int {
-        listType == .song ? model.songs.count : model.notes.count
-    }
+    private var shownListCount: Int { shownListDocuments.count }
 
     /// The word for what this list holds, for the sentences that need it.
     private var kindWord: String { listType == .song ? "song" : "note" }
@@ -485,6 +494,9 @@ struct SongsView: View {
             } message: {
                 Text(statusMessage ?? "")
             }
+            // Its own alert rather than the status one above: a print reports
+            // through the same place from every screen that offers it.
+            .documentPrintPresentation(printer)
         }
     }
 
@@ -613,6 +625,9 @@ struct SongsView: View {
                     Label("Export…", systemImage: "square.and.arrow.up")
                 }
             }
+            // Beside the export menu rather than in it, as the screenplay's
+            // toolbar keeps the two apart — printing is an errand, not a format.
+            DocumentPrintButton(printer: printer, document: document)
             if document.hasLink(.archive) {
                 // Not destructive: archiving keeps the document whole and is
                 // one tap from undone. It sits above Delete because it is the
@@ -787,6 +802,25 @@ struct SongsView: View {
                         Label("Export \(selection.count)…", systemImage: "square.and.arrow.up")
                     }
                 }
+                // The ticked rows on paper, one document per sheet — the same
+                // file the export menu's PDF would hand over, sent to the
+                // printer instead. Beside Export rather than inside it, as
+                // everywhere else in the app.
+                //
+                // The count is in the label to match its four siblings, though
+                // none of them actually says it: this bar draws every Label
+                // icon-only whatever its style. The printer glyph beside the
+                // share glyph is what a writer sees, and the two read as the
+                // pair they are.
+                if model.collectionPrintOption(
+                        for: listType, ids: selectedDocuments.map(\.id)) != nil {
+                    Button {
+                        printSelection()
+                    } label: {
+                        Label("Print \(selection.count)…", systemImage: "printer")
+                    }
+                    .disabled(printer.isPrinting)
+                }
             }
         }
         // Nothing to put in an order until there are two of them. Gated on the
@@ -823,6 +857,21 @@ struct SongsView: View {
                     Label(listType == .song ? "Export All Songs…" : "Export All Notes…",
                           systemImage: "square.and.arrow.up.on.square")
                 }
+            }
+        }
+        // The same gathering, on paper. Next to the export menu and outside it,
+        // and a read like the export, so a view-only collaborator is offered it
+        // too.
+        if model.collectionPrintOption(for: listType) != nil {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    printer.print(all: shownListDocuments, of: listType,
+                                  named: collectionName())
+                } label: {
+                    Label(listType == .song ? "Print All Songs…" : "Print All Notes…",
+                          systemImage: "printer")
+                }
+                .disabled(printer.isPrinting)
             }
         }
         if canEdit {
@@ -1029,13 +1078,20 @@ struct SongsView: View {
     /// The file is named after the project, not after any one document, since
     /// that is what it holds — unless the writer picked exactly one, where its
     /// own title says more than "Project Songs" would.
-    private func exportCollection(_ option: ScriptModel.ExportOption,
-                                  of selected: [TextDocument] = []) {
+    ///
+    /// Shared with the print of the same gathering, so a job in the printer
+    /// queue is called what the download would have been called.
+    private func collectionName(of selected: [TextDocument] = []) -> String {
+        if selected.count == 1 { return selected[0].displayTitle }
         let suffix = listType == .song ? " Songs" : " Notes"
-        let project = model.project.displayTitle.isEmpty
+        return model.project.displayTitle.isEmpty
             ? kindWordPlural
             : model.project.displayTitle + suffix
-        let name = selected.count == 1 ? selected[0].displayTitle : project
+    }
+
+    private func exportCollection(_ option: ScriptModel.ExportOption,
+                                  of selected: [TextDocument] = []) {
+        let name = collectionName(of: selected)
         Task {
             do {
                 let url = try await model.downloadExport(option, named: name)
@@ -1044,6 +1100,14 @@ struct SongsView: View {
                 statusMessage = "Could not export the \(kindWordPlural)."
             }
         }
+    }
+
+    /// The ticked rows on paper. The selection is kept, unlike the bulk actions
+    /// that change the list: nothing has moved, and a writer who has just
+    /// printed three songs may well want to email the same three.
+    private func printSelection() {
+        printer.print(selected: selectedDocuments, of: listType,
+                      named: collectionName(of: selectedDocuments))
     }
 
     /// Trashes the ticked rows. The selection is dropped either way: on

@@ -2910,6 +2910,58 @@ final class ScriptModel {
         collectionExportOptions(for: .song, ids: ids)
     }
 
+    /// What one song or note prints from, when the server can render it.
+    ///
+    /// The screenplay's rule, applied to a document: printing goes through the
+    /// PDF export rather than drawing the words again on the device, so the
+    /// paper is the file the writer would have exported. `DocumentPDF` is the
+    /// offline exception, and mirrors the server's song layout for the same
+    /// reason `ScreenplayPDF` mirrors the paginator's.
+    ///
+    /// A note has this too — the server's renderer lays out a title and its
+    /// lines, which is what a note is.
+    func documentPrintOption(for document: TextDocument) -> ExportOption? {
+        songExportOptions(for: document).first { $0.rel == .exportSongPdf }
+    }
+
+    /// What a whole list prints from — the songbook as a PDF, or the same file
+    /// made of notes — narrowed to the ticked rows where there are any.
+    func collectionPrintOption(for type: DocumentType, ids: [Int] = []) -> ExportOption? {
+        collectionExportOptions(for: type, ids: ids)
+            .first { $0.rel == .exportSongsPdf || $0.rel == .exportNotesPdf }
+    }
+
+    /// The words this device last saw for a song or a note, for the print that
+    /// cannot reach the server.
+    ///
+    /// Three places to look, newest first: a song's cached lyric lines, a
+    /// document's cached full text, and — for the caller holding a row rather
+    /// than a fetched document — whatever content the row itself carries. The
+    /// row's `preview` is deliberately not among them: it is truncated, and
+    /// half a note on paper looking like the whole of it is worse than saying
+    /// the print needs a connection.
+    ///
+    /// Nil when this device has never held the document's words.
+    func cachedDocumentLines(_ document: TextDocument) -> [String]? {
+        let projectId = document.projectId ?? project.id
+        if let snapshot = offlineStore?.load(
+                .songBlocks(projectId: projectId, documentId: document.id)),
+           let lines: HALCollection<SongBlock> = try? app.client.decode(from: snapshot.data),
+           !lines.items.isEmpty {
+            return lines.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }.map(\.text)
+        }
+        if let snapshot = offlineStore?.load(
+                .document(projectId: projectId, documentId: document.id)),
+           let cached: TextDocument = try? app.client.decode(from: snapshot.data),
+           let content = cached.content, !content.isEmpty {
+            return content.components(separatedBy: "\n")
+        }
+        if let content = document.content, !content.isEmpty {
+            return content.components(separatedBy: "\n")
+        }
+        return nil
+    }
+
     /// Downloads an export with auth and writes it to a shareable temp file,
     /// named after whatever is being exported.
     ///
