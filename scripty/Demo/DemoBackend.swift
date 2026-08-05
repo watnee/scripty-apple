@@ -1555,8 +1555,10 @@ actor DemoBackend {
         if method == "GET", path.first == "export-songs" {
             guard let projectId = query["projectId"].flatMap(Int.init),
                   documents[projectId] != nil else { return badRequest("projectId") }
+            // `type` names the other list, exactly as the server's parameter
+            // does — one endpoint, two gatherings.
             return demoSongbookExport(projectId: projectId, format: query["format"] ?? "txt",
-                                      ids: idList(query["ids"]))
+                                      type: query["type"], ids: idList(query["ids"]))
         }
 
         // …and so is the bulk delete, which trashes a selection of songs.
@@ -1769,6 +1771,16 @@ actor DemoBackend {
             "archived": link("/api/document/archive?projectId=\(projectId)"),
             "bulkArchive": link("/api/document/bulk/archive?projectId=\(projectId)"),
         ]
+        if (documents[projectId] ?? []).contains(where: { $0.documentType != "SONG" }) {
+            // The same gathering made of notes, which the server advertises
+            // once there is a note to put in it. Four rather than five: a note
+            // is refused a score, so there is no MusicXML here.
+            for (rel, format) in [("exportNotesTxt", "txt"), ("exportNotesPdf", "pdf"),
+                                  ("exportNotesDocx", "docx"), ("exportNotesEpub", "epub")] {
+                links[rel] = link(
+                    "/api/document/export-songs?projectId=\(projectId)&format=\(format)&type=NOTES")
+            }
+        }
         if (documents[projectId] ?? []).contains(where: { $0.documentType == "SONG" }) {
             for (rel, format) in [("exportSongsTxt", "txt"), ("exportSongsPdf", "pdf"),
                                   ("exportSongsDocx", "docx"), ("exportSongsEpub", "epub"),
@@ -1784,13 +1796,30 @@ actor DemoBackend {
         return links
     }
 
-    /// A song exported on its own. The demo serves the format it can actually
-    /// produce — a PDF shell or the lyric text — so the export rel resolves
-    /// offline; the point is the round trip, not a faithful renderer.
+    /// What the exporter heads a sheet with when nobody named the document —
+    /// the server's own two placeholders, which are also the words the list
+    /// draws for it.
+    private func untitled(_ document: DemoDocument) -> String {
+        document.documentType == "SONG" ? "Untitled Song" : "Untitled Notes"
+    }
+
+    /// A song or a note exported on its own. The demo serves the format it can
+    /// actually produce, so the export rel resolves offline; the point is the
+    /// round trip, not a faithful renderer.
+    ///
+    /// The PDF is the exception, and stopped being a shell when printing
+    /// arrived: `DocumentPDF` already draws a document the server's own way for
+    /// the offline fallback, so the demo hands back the same file rather than
+    /// an empty sheet with a title in the metadata. A demo print that produces
+    /// a blank page looks like the feature is broken.
     private func demoSongExport(_ document: DemoDocument, format: String) -> (Int, Data) {
         switch format {
         case "pdf":
-            return (200, minimalPDF(title: document.title))
+            return (200, DocumentPDF.render(
+                [DocumentPDF.Section(title: document.title.isEmpty
+                                        ? untitled(document) : document.title,
+                                     text: document.content)],
+                title: document.title))
         case "musicxml":
             // A real score, not a shell: this is the one export the demo can
             // produce faithfully, and the one whose file is meant to come back.
@@ -1804,18 +1833,29 @@ actor DemoBackend {
     }
 
     /// Every song in a project, one after another — the songbook the web's
-    /// Export menu downloads. Same shortcut as the single-song export: the
+    /// Export menu downloads — or the same gathering made of notes, which is
+    /// what `type` asks for. Same shortcut as the single-document export: the
     /// point is that the rel resolves and a file comes back. A non-empty `ids`
-    /// list narrows the book to those songs, keeping the project's order.
-    private func demoSongbookExport(projectId: Int, format: String, ids: [Int] = []) -> (Int, Data) {
+    /// list narrows the file to those documents, keeping the project's order.
+    private func demoSongbookExport(projectId: Int, format: String, type: String? = nil,
+                                    ids: [Int] = []) -> (Int, Data) {
         let chosen = Set(ids)
+        let wantsSongs = type == nil || type?.uppercased() == "SONG"
         let songs = (documents[projectId] ?? [])
-            .filter { $0.documentType == "SONG" && (chosen.isEmpty || chosen.contains($0.id)) }
+            .filter { ($0.documentType == "SONG") == wantsSongs
+                        && (chosen.isEmpty || chosen.contains($0.id)) }
             .sorted { $0.sortOrder < $1.sortOrder }
-        let title = projects.first { $0.id == projectId }?.title ?? "Songs"
+        let kind = wantsSongs ? "Songs" : "Notes"
+        let title = projects.first { $0.id == projectId }?.title ?? kind
         switch format {
         case "pdf":
-            return (200, minimalPDF(title: title))
+            return (200, DocumentPDF.render(
+                songs.map {
+                    DocumentPDF.Section(title: $0.title.isEmpty ? untitled($0) : $0.title,
+                                        text: $0.content)
+                },
+                placeholder: wantsSongs ? "No songs yet." : "No notes yet.",
+                title: title))
         case "musicxml":
             return (200, DemoMusicXml.score(
                 title: title,
@@ -1961,8 +2001,8 @@ actor DemoBackend {
             "duplicate": link("/api/document/\(document.id)/duplicate"),
             "changeType": link("/api/document/\(document.id)/change-type"),
         ]
-        // Songs and notes both archive — unlike the export and email rels
-        // below, there is nothing song-shaped about putting one aside. One
+        // Songs and notes both archive — as, now, do all but one of the
+        // exports below; the email rel is what is still song-shaped here. One
         // direction or the other, never both.
         if archivedAt == nil {
             links["archive"] = link("/api/document/\(document.id)/archive")
@@ -1976,15 +2016,19 @@ actor DemoBackend {
             // to scope. A note is plain text with nothing to vary.
             links["editions"] = link("/api/song/edition?documentId=\(document.id)")
             links["songBlocks"] = link("/api/song/block?documentId=\(document.id)")
-            // A song exports on its own; a note has no song layout, so these are
-            // song-only, matching the server.
-            links["exportSongTxt"] = link("/api/document/\(document.id)/export-song?format=txt")
-            links["exportSongPdf"] = link("/api/document/\(document.id)/export-song?format=pdf")
-            links["exportSongDocx"] = link("/api/document/\(document.id)/export-song?format=docx")
-            links["exportSongEpub"] = link("/api/document/\(document.id)/export-song?format=epub")
             // A score rather than a document to read, and the format the song
-            // importer reads back.
+            // importer reads back. The one export that is still song-only: the
+            // server refuses a note a stave rather than handing back an empty
+            // one.
             links["exportSongMusicXml"] = link("/api/document/\(document.id)/export-song?format=musicxml")
+        }
+        // Not song-only any more, matching the server: the exporter lays out a
+        // title and its lines, which is what a note is too. Outside the edit
+        // gate as well, since taking a copy away is a read — which the demo,
+        // where every document is the writer's own, cannot tell apart anyway.
+        for (rel, format) in [("exportSongTxt", "txt"), ("exportSongPdf", "pdf"),
+                              ("exportSongDocx", "docx"), ("exportSongEpub", "epub")] {
+            links[rel] = link("/api/document/\(document.id)/export-song?format=\(format)")
         }
         var json: [String: Any] = [
             "id": document.id,

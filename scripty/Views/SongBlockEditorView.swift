@@ -102,6 +102,12 @@ struct SongBlockEditorView: View {
     /// Whether documents open to be read, and which way this song was last put.
     private let readingViews = ReadingViewSettings.shared
 
+    /// This song on paper — the server's PDF where there is a route to it, and
+    /// the lines on screen drawn here where there is not. Made from the
+    /// screenplay behind the sheet because that is what holds the project's
+    /// export links, exactly as the insert action does.
+    @State private var printer: DocumentPrintModel
+
     /// The device's voice, shared with the screenplay behind this sheet and
     /// with the note editor — see `ScriptNarrator`. Reading a song ends
     /// whatever was being read before it, which is the only sane answer on a
@@ -112,6 +118,7 @@ struct SongBlockEditorView: View {
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
+        _printer = State(initialValue: DocumentPrintModel(model: scriptModel))
         _isReading = State(initialValue: ReadingViewSettings.shared
             .opensInReadingView(.document(id: document.id)))
         _options = State(initialValue: DocumentViewOptions(documentId: document.id, kind: .song))
@@ -148,15 +155,37 @@ struct SongBlockEditorView: View {
     /// sheet reading itself.
     private var menuActions: DocumentEditorActions {
         let readAloud: (() -> Void)? = model.blocks.isEmpty ? nil : { toggleReadAloud() }
+        // ⌘P rides along for the reason ⌘⇧A does: the chord would otherwise
+        // reach the screenplay behind this sheet and print a script the writer
+        // cannot see.
+        let printSong: (() -> Void)? = canPrintSong
+            ? { printer.print(model.document, lines: printableLines) }
+            : nil
         guard !isReading else {
-            return DocumentEditorActions(readAloud: readAloud)
+            return DocumentEditorActions(readAloud: readAloud, print: printSong)
         }
         return DocumentEditorActions(
             undo: { Task { await model.undo(); runSearch() } },
             redo: { Task { await model.redo(); runSearch() } },
             canUndo: model.canUndo,
             canRedo: model.canRedo,
-            readAloud: readAloud)
+            readAloud: readAloud,
+            print: printSong)
+    }
+
+    /// Whether there is a lyric to put on paper. Not gated on a link: with
+    /// lines on screen this device can draw the sheet itself, which is the
+    /// whole point of the offline fallback.
+    private var canPrintSong: Bool { !model.blocks.isEmpty }
+
+    /// The lyric as it goes to the printer — what is on screen, line for line,
+    /// blank lines and all. `currentText` for the reason the reader and the
+    /// narrator use it: a line typed a moment ago should print as typed.
+    ///
+    /// Only ever read at the moment of printing, so a song being written does
+    /// not gather its own lyric on every keystroke.
+    private var printableLines: [String] {
+        model.blocks.map { model.currentText($0) }
     }
 
     /// Recomputes the matched set from what the lines currently say.
@@ -321,6 +350,7 @@ struct SongBlockEditorView: View {
             } message: {
                 Text(model.errorMessage ?? "")
             }
+            .documentPrintPresentation(printer)
             .alert("Insert into Script", isPresented: insertMessageBinding) {
                 Button("OK", role: .cancel) { insertMessage = nil }
             } message: {
@@ -1027,6 +1057,24 @@ struct SongBlockEditorView: View {
                     Label(isPausing ? "Pause Reading" : "Read Aloud",
                           systemImage: isPausing ? "pause.fill" : "speaker.wave.2")
                 }
+            }
+        }
+        // The lyric on paper. In the "…" with the two ways of reading it,
+        // because it is the third of them: a printed lyric sheet is what a
+        // song is taken into a room to be sung from.
+        //
+        // Offered wherever there is a lyric — printing is a read, so it is not
+        // gated on being able to type — and it prints the words on screen
+        // rather than the words the server has, which are not the same thing
+        // for a verse typed a moment ago on a device with no route out.
+        if canPrintSong {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    printer.print(model.document, lines: printableLines)
+                } label: {
+                    Label("Print…", systemImage: "printer")
+                }
+                .disabled(printer.isPrinting)
             }
         }
         // The same device-wide spelling controls the screenplay's View menu

@@ -1099,14 +1099,20 @@ func run() async {
     //
     // A song exports on its own, in the formats SongExportService offers. Like
     // script export, these sit outside the edit gate — a reader can take a copy.
-    // Song-only: a note has no song layout, so it carries none of these links.
-    for rel in ["exportSongTxt", "exportSongPdf", "exportSongDocx", "exportSongEpub",
-                "exportSongMusicXml"] {
+    // Not song-only: the service lays out a title and its lines, which is what
+    // a note is too, so a note carries the four document formats.
+    for rel in ["exportSongTxt", "exportSongPdf", "exportSongDocx", "exportSongEpub"] {
         check("a song advertises `\(rel)`",
               (songDoc["_links"] as? [String: Any])?[rel] != nil)
-        check("a note does not advertise `\(rel)`",
-              (noteDoc["_links"] as? [String: Any])?[rel] == nil)
+        check("and so does a note",
+              (noteDoc["_links"] as? [String: Any])?[rel] != nil)
     }
+    // The one exception, which is a score rather than a document to read: the
+    // server refuses a note one rather than handing back an empty stave.
+    check("a song advertises `exportSongMusicXml`",
+          (songDoc["_links"] as? [String: Any])?["exportSongMusicXml"] != nil)
+    check("a note does not",
+          (noteDoc["_links"] as? [String: Any])?["exportSongMusicXml"] == nil)
     if let href = ((songDoc["_links"] as? [String: Any])?["exportSongTxt"]
         as? [String: Any])?["href"] as? String, let exportURL = URL(string: href) {
         let exported = await be.respond(method: "GET", url: exportURL, body: nil)
@@ -1764,7 +1770,9 @@ func checkDocumentCopyAndType(pid: Int) async {
           "got \(toNote["documentType"] as? String ?? "nil")")
     check("and relabels it", toNote["documentTypeLabel"] as? String == "Notes")
     check("a note drops the song-only rels",
-          links(toNote)["songBlocks"] == nil && links(toNote)["exportSongTxt"] == nil)
+          links(toNote)["songBlocks"] == nil && links(toNote)["exportSongMusicXml"] == nil)
+    check("but keeps the exports every document has",
+          links(toNote)["exportSongTxt"] != nil && links(toNote)["exportSongPdf"] != nil)
     let backToSong = json(await be.respond(
         method: "POST", url: url("/api/document/\(id)/change-type"),
         body: body(["type": "SONG"])).data)
@@ -1823,6 +1831,28 @@ func checkBundleExports(pid: Int) async {
                            url: url("/api/document/export-songs?projectId=987654"),
                            body: nil).status == 400)
 
+    // The same gathering made of notes: four formats rather than five, since
+    // the endpoint refuses a note a score.
+    let notesRels = ["exportNotesTxt", "exportNotesPdf", "exportNotesDocx", "exportNotesEpub"]
+    check("the collection advertises every notes format too",
+          notesRels.allSatisfy { links(collection)[$0] != nil },
+          "got \(links(collection).keys.sorted())")
+    check("and no MusicXML among them", links(collection)["exportNotesMusicXml"] == nil)
+    if let notesHref = (links(collection)["exportNotesTxt"] as? [String: Any])?["href"] as? String,
+       let notesURL = URL(string: notesHref) {
+        let file = await be.respond(method: "GET", url: notesURL, body: nil)
+        let text = String(data: file.data, encoding: .utf8) ?? ""
+        let noteTitles = embedded(collection)
+            .filter { $0["documentType"] as? String != "SONG" }
+            .compactMap { $0["title"] as? String }
+        check("the notes file holds the notes and not the songs",
+              file.status == 200 && !noteTitles.isEmpty && noteTitles.allSatisfy(text.contains)
+                  && !songTitles.contains(where: text.contains),
+              "got \(file.status)")
+    } else {
+        check("the notes file link is followable", false)
+    }
+
     // A project of notes alone has no songbook to offer.
     let notesOnly = json(await be.respond(
         method: "POST", url: url("/api/project"), body: body(["title": "Notes Only"])).data)
@@ -1831,6 +1861,8 @@ func checkBundleExports(pid: Int) async {
             method: "GET", url: url("/api/document?projectId=\(emptyId)"), body: nil).data)
         check("a project without songs advertises no songbook",
               songbookRels.allSatisfy { links(empty)[$0] == nil })
+        check("and a project without notes advertises no notes file",
+              notesRels.allSatisfy { links(empty)[$0] == nil })
     }
 
     // --- every project as one bundle ---

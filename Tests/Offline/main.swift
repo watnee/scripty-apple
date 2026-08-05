@@ -96,6 +96,8 @@ func run() async {
     print()
     await checkDocumentFallback()
     print()
+    await checkPrintableWordsOffline()
+    print()
     await checkReconnectHoldsWork()
     print()
     await checkQueueArithmetic()
@@ -322,6 +324,69 @@ func checkDocumentFallback() async {
     print()
     print("== A rename refuses to work from a copy this device is only guessing at ==")
     check("the rename is not attempted", await model.renameDocument(row, title: "Casting") == false)
+}
+
+@MainActor
+func checkPrintableWordsOffline() async {
+    print("== A song or note prints from the copy this device kept ==")
+    let directory = scratchDirectory("printable")
+    let store = OfflineStore(scope: "server|alice", directory: directory)
+    // A song is lyric lines on the server, so its cache is a line collection —
+    // out of order here, as a server's page of them may well be.
+    let lyricJSON = """
+    {"_embedded": {"songBlockResourceList": [
+        {"id": 21, "documentId": 3, "order": 2, "content": "and the barn door swings"},
+        {"id": 20, "documentId": 3, "order": 1, "content": "The horse is out again"},
+        {"id": 22, "documentId": 3, "order": 3, "content": ""}
+    ]}}
+    """
+    store.save(Data(lyricJSON.utf8), .songBlocks(projectId: 1, documentId: 3))
+    let noteJSON = """
+    {"id": 7, "projectId": 1, "title": "Casting thoughts", "documentType": "NOTES",
+     "content": "Maya reads younger than the part.\\nAsk about the accent.",
+     "_links": {"self": {"href": "/api/documents/7"}}}
+    """
+    store.save(Data(noteJSON.utf8), .document(projectId: 1, documentId: 7))
+
+    let offline = ConnectivityMonitor(startMonitoring: false)
+    offline.adopt(false)
+    let model = ScriptModel(app: AppModel(connectivity: offline), project: project,
+                            draftStore: nil, offlineStore: store)
+
+    let song: TextDocument = decode(TextDocument.self, """
+    {"id": 3, "projectId": 1, "title": "Barn Song", "documentType": "SONG",
+     "preview": "The horse is out…"}
+    """)
+    checkEqual("the lyric comes back in its own order, blank lines and all",
+               model.cachedDocumentLines(song) ?? [],
+               ["The horse is out again", "and the barn door swings", ""])
+
+    let note: TextDocument = decode(TextDocument.self, """
+    {"id": 7, "projectId": 1, "title": "Casting thoughts", "documentType": "NOTES",
+     "preview": "Maya reads younger…"}
+    """)
+    checkEqual("a note comes back as its lines",
+               model.cachedDocumentLines(note) ?? [],
+               ["Maya reads younger than the part.", "Ask about the accent."])
+
+    // The row's truncated preview is deliberately not a source: half a note on
+    // paper looking like the whole of it is worse than saying it needs a route.
+    let uncached: TextDocument = decode(TextDocument.self, """
+    {"id": 9, "projectId": 1, "title": "Never opened", "documentType": "NOTES",
+     "preview": "The first line of it…"}
+    """)
+    check("a document this device never held prints nothing",
+          model.cachedDocumentLines(uncached) == nil)
+
+    // A fetched document carries its own words, which is what the archive and
+    // the editors hand over.
+    let inHand: TextDocument = decode(TextDocument.self, """
+    {"id": 9, "projectId": 1, "title": "In hand", "documentType": "NOTES",
+     "content": "One line.\\n\\nAnother."}
+    """)
+    checkEqual("but one holding its own content does",
+               model.cachedDocumentLines(inHand) ?? [],
+               ["One line.", "", "Another."])
 }
 
 @MainActor

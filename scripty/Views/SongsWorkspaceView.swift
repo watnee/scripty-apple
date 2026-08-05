@@ -22,6 +22,14 @@ struct SongsWorkspaceView: View {
     let app: AppModel
     let model: ScriptModel
 
+    /// Only here to seed the printer, which needs the model the moment this
+    /// screen is made rather than the first time something is printed.
+    init(app: AppModel, model: ScriptModel) {
+        self.app = app
+        self.model = model
+        _printer = State(initialValue: DocumentPrintModel(model: model))
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedLine: Int?
@@ -49,6 +57,9 @@ struct SongsWorkspaceView: View {
     @State private var showingIgnoredWords = false
     /// Whether the two-versions screen is up, over every song open here.
     @State private var showingConflicts = false
+    /// Every song on screen on paper. One printer for the screen, as the songs
+    /// list keeps one for the list.
+    @State private var printer: DocumentPrintModel
     /// Whether the screen is showing the songs to be dragged into order rather
     /// than to be written in. See `arrangingList`.
     @State private var isArranging = false
@@ -116,6 +127,7 @@ struct SongsWorkspaceView: View {
             // would rewind the script behind it. Published even when it can do
             // nothing, so a step here never falls through to the script.
             .focusedSceneValue(\.documentEditorActions, menuActions)
+            .documentPrintPresentation(printer)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -308,12 +320,41 @@ struct SongsWorkspaceView: View {
     }
 
     private var menuActions: DocumentEditorActions {
-        guard let lyric = focusedLyric else { return DocumentEditorActions() }
+        // ⌘P means every song on this screen, which is what this screen is.
+        // Claimed even with the caret nowhere, so the chord cannot fall through
+        // the cover and send the screenplay behind it to the printer.
+        let printSongs: (() -> Void)? = songs.isEmpty ? nil : { printAll() }
+        guard let lyric = focusedLyric else {
+            return DocumentEditorActions(print: printSongs)
+        }
         return DocumentEditorActions(
             undo: { Task { await lyric.undo() } },
             redo: { Task { await lyric.redo() } },
             canUndo: lyric.canUndo,
-            canRedo: lyric.canRedo)
+            canRedo: lyric.canRedo,
+            print: printSongs)
+    }
+
+    /// The songs on screen on paper, one to a sheet — the same file the list's
+    /// own Print All produces, since it is the same gathering.
+    ///
+    /// The lyrics open here answer for themselves where the print has to be
+    /// drawn on the device: they hold what has been typed this minute, which
+    /// is newer than the copy on disk. A song nobody expanded falls back to
+    /// that copy like everything else.
+    private func printAll() {
+        printer.print(all: songs, of: .song, named: printJobName) { song in
+            guard let lyric = lyrics[song.id], !lyric.blocks.isEmpty else { return nil }
+            return lyric.blocks.map { lyric.currentText($0) }
+        }
+    }
+
+    /// What the printer queue calls the job — the same name the songs list
+    /// gives the songbook it downloads.
+    private var printJobName: String {
+        model.project.displayTitle.isEmpty
+            ? "songs"
+            : model.project.displayTitle + " Songs"
     }
 
     /// Undo and redo for one song's lyric, in the header that names it.
@@ -702,6 +743,19 @@ struct SongsWorkspaceView: View {
         // read past, so the switch belongs here as much as anywhere.
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
+        }
+        // Every song at once is also the screen a writer prints a set list
+        // from. In the overflow with Arrange, for the reason that one is: the
+        // bar itself is an item from dropping something on a phone.
+        if !songs.isEmpty {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    printAll()
+                } label: {
+                    Label("Print All Songs…", systemImage: "printer")
+                }
+                .disabled(printer.isPrinting)
+            }
         }
     }
 
