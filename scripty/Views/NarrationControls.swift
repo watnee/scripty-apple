@@ -113,7 +113,7 @@ struct NarrationOptionsMenu: View {
             Section("Speed") {
                 Picker("Speed", selection: $narrator.speed) {
                     ForEach(ScriptNarrator.speedChoices, id: \.self) { speed in
-                        Text(speedLabel(speed)).tag(speed)
+                        Text(NarrationSpeed.label(speed)).tag(speed)
                     }
                 }
                 .pickerStyle(.inline)
@@ -121,12 +121,30 @@ struct NarrationOptionsMenu: View {
 
             Menu {
                 Picker("Voice", selection: $narrator.voiceIdentifier) {
-                    Text("Default").tag(String?.none)
-                    ForEach(narrator.availableVoices, id: \.identifier) { voice in
-                        Text(voice.name).tag(String?.some(voice.identifier))
+                    // Named rather than "Default", because it is not obvious
+                    // which voice that is — and it is not necessarily the one
+                    // the system would have picked, since a voice the writer
+                    // downloaded outranks the built-in one.
+                    Text(defaultVoiceLabel).tag(String?.none)
+                    ForEach(narrator.availableVoices) { voice in
+                        Text(voice.label).tag(String?.some(voice.identifier))
                     }
                 }
                 .pickerStyle(.inline)
+
+                // Every voice on this device is a built-in one, so the reading
+                // is as good as it can be made from in here. Where the better
+                // ones come from is worth saying — and there is no way to open
+                // that page from an app, so it is said rather than linked.
+                if !narrator.hasDownloadedVoice {
+                    Section {
+                        Button {} label: {
+                            Label("Better voices: Settings › Accessibility › Spoken Content › Voices",
+                                  systemImage: "arrow.down.circle")
+                        }
+                        .disabled(true)
+                    }
+                }
             } label: {
                 Label(voiceName, systemImage: "waveform")
             }
@@ -144,7 +162,8 @@ struct NarrationOptionsMenu: View {
         return "Voice: \(name)"
     }
 
-    private func speedLabel(_ speed: Double) -> String {
-        speed == 1 ? "Normal" : String(format: "%g×", speed)
+    private var defaultVoiceLabel: String {
+        guard let name = narrator.defaultVoiceName else { return "Default" }
+        return "Default (\(name))"
     }
 }

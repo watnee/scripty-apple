@@ -448,6 +448,10 @@ enum ScriptNarration {
     /// The stop is what makes a slug line read as "interior. house." rather
     /// than one long noun phrase, and dropping it runs the setting into the
     /// location with no breath between them.
+    ///
+    /// The bare "int" and "ext" are here because plenty of writers leave the
+    /// stop off, and a heading that reads "int hallway" comes back as a word
+    /// rather than a room.
     private static let sceneAbbreviations: [(String, String)] = [
         ("int./ext.", "interior, exterior,"),
         ("ext./int.", "exterior, interior,"),
@@ -456,6 +460,10 @@ enum ScriptNarration {
         ("int.", "interior,"),
         ("ext.", "exterior,"),
         ("est.", "establishing,"),
+        ("int", "interior,"),
+        ("ext", "exterior,"),
+        ("p.o.v.", "point of view"),
+        ("pov", "point of view"),
     ]
 
     /// The extensions that ride along with a character cue, and the two that
@@ -468,11 +476,35 @@ enum ScriptNarration {
         ("cont\u{2019}d", "continued"),
     ]
 
+    /// Expands abbreviations, but only where the abbreviation is the whole
+    /// word.
+    ///
+    /// A plain substring replacement is what this used to be, and it reached
+    /// inside words: "est." lives in "WEST.", "int." in "SPRINT.", so
+    /// "WEST. HOUSE" came back as "westablishing, house" and a sprint became
+    /// an interior. The matching is anchored on both sides instead — no word
+    /// character either side of the abbreviation — which is a boundary the
+    /// trailing full stop needs spelled out, since `\b` after a stop means the
+    /// opposite of what is wanted here.
+    ///
+    /// Only the front of an abbreviation that ends in a stop is anchored: the
+    /// stop is itself the boundary, and requiring another one after it would
+    /// leave "INT.HOUSE" — a heading somebody typed in a hurry — unexpanded.
     private static func expanding(_ text: String, _ rules: [(String, String)]) -> String {
         rules.reduce(text) { partial, rule in
-            partial.replacingOccurrences(of: rule.0,
-                                         with: rule.1,
-                                         options: [.caseInsensitive])
+            let trailing = rule.0.hasSuffix(".") ? "" : "(?![\\w'’])"
+            let pattern = "(?<![\\w'’])"
+                + NSRegularExpression.escapedPattern(for: rule.0)
+                + trailing
+            guard let regex = try? NSRegularExpression(pattern: pattern,
+                                                       options: [.caseInsensitive]) else {
+                return partial
+            }
+            let range = NSRange(partial.startIndex..., in: partial)
+            return regex.stringByReplacingMatches(
+                in: partial,
+                range: range,
+                withTemplate: NSRegularExpression.escapedTemplate(for: rule.1))
         }
     }
 }

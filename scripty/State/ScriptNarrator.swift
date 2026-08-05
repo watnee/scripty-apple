@@ -118,10 +118,12 @@ final class ScriptNarrator {
         }
     }
 
-    /// Multiplier on the system's default speaking rate.
+    /// Multiplier on the system's default speaking rate. What it takes to get
+    /// there is `NarrationSpeed`'s problem — the dial the synthesizer offers is
+    /// nothing like a multiplier.
     var speed: Double {
         didSet {
-            let clamped = min(Self.maxSpeed, max(Self.minSpeed, speed))
+            let clamped = NarrationSpeed.clamped(speed)
             if clamped != speed {
                 // See PresentationSettings: an `@Observable` property whose
                 // `didSet` writes back to itself unconditionally never settles.
@@ -132,15 +134,16 @@ final class ScriptNarrator {
             defaults.set(speed, forKey: Key.speed)
             // The rate is baked into each utterance, so a speed change only
             // reaches the queue by rebuilding it.
-            restartFromCurrentIfSpeaking()
+            requeue()
         }
     }
 
-    static let minSpeed = 0.5
-    static let maxSpeed = 2.0
-    static let speedChoices: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+    static let minSpeed = NarrationSpeed.minimum
+    static let maxSpeed = NarrationSpeed.maximum
+    static let speedChoices = NarrationSpeed.choices
 
-    /// The chosen voice, or nil for the system's default for this language.
+    /// The chosen voice, or nil for the best the device has — see
+    /// `narratorVoice`.
     var voiceIdentifier: String? {
         didSet {
             guard voiceIdentifier != oldValue else { return }
@@ -149,30 +152,84 @@ final class ScriptNarrator {
             } else {
                 defaults.removeObject(forKey: Key.voice)
             }
+            resolveNarratorVoice()
             buildCast()
-            restartFromCurrentIfSpeaking()
+            requeue()
         }
     }
 
-    /// The installed voices worth offering: the ones that speak the language
-    /// the device is set to. Falling back to every installed voice matters on
-    /// a device whose language has none — an empty picker looks broken.
-    var availableVoices: [AVSpeechSynthesisVoice] {
-        let all = AVSpeechSynthesisVoice.speechVoices()
-        let language = AVSpeechSynthesisVoice.currentLanguageCode()
-        let family = language.split(separator: "-").first.map(String.init) ?? language
-        let matching = all.filter { $0.language.hasPrefix(family) }
-        return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
+    /// What the device has, as this file sorts voices. Held rather than asked
+    /// for: building a run asks who is speaking once per cue, and a feature
+    /// screenplay is thousands of cues. The device tells us when the set
+    /// changes — a voice downloaded in Settings arrives here without a relaunch.
+    private(set) var installedVoices: [NarrationVoice] = []
+
+    /// The voices worth offering, best-sounding first — `NarrationVoices` has
+    /// the rules and the reasons. The device's own answer is an inventory
+    /// rather than a menu: it holds the joke voices and it holds the same voice
+    /// twice when a better download of it exists.
+    var availableVoices: [NarrationVoice] {
+        NarrationVoices.offered(from: installedVoices,
+                                language: AVSpeechSynthesisVoice.currentLanguageCode(),
+                                keeping: voiceIdentifier)
     }
 
     /// The voice the narrator reads in, and the one every character shares
     /// unless the cast is being cast.
-    var narratorVoice: AVSpeechSynthesisVoice? {
-        if let voiceIdentifier,
-           let chosen = AVSpeechSynthesisVoice(identifier: voiceIdentifier) {
-            return chosen
+    private(set) var narratorVoice: AVSpeechSynthesisVoice?
+
+    /// What "Default" actually resolves to, which the menu names: the system's
+    /// voice for this language, upgraded to the best edition of it the device
+    /// has been given. A writer who downloaded a good voice downloaded it to be
+    /// used, and the system default stays the small built-in one regardless.
+    var defaultVoiceName: String? {
+        guard let identifier = defaultVoiceIdentifier else { return nil }
+        return installedVoices.first { $0.identifier == identifier }?.label
+    }
+
+    /// Whether the device has anything better than its built-in voices. When it
+    /// does not, no amount of choosing improves the reading and the menu says
+    /// where better ones come from.
+    var hasDownloadedVoice: Bool { NarrationVoices.hasDownloadedVoice(availableVoices) }
+
+    @ObservationIgnored private var defaultVoiceIdentifier: String?
+
+    /// Takes the device's inventory again, and works out what "Default" means
+    /// on it. Called once at startup and whenever the device's voices change.
+    private func refreshVoices() {
+        let language = AVSpeechSynthesisVoice.currentLanguageCode()
+        installedVoices = AVSpeechSynthesisVoice.speechVoices().map(Self.described)
+        defaultVoiceIdentifier = NarrationVoices.best(
+            from: NarrationVoices.offered(from: installedVoices, language: language),
+            systemDefault: AVSpeechSynthesisVoice(language: language).map(Self.described)
+        )?.identifier
+        resolveNarratorVoice()
+        // A voice that has just arrived is one the cast can use.
+        buildCast()
+    }
+
+    private func resolveNarratorVoice() {
+        let wanted = voiceIdentifier ?? defaultVoiceIdentifier
+        narratorVoice = wanted.flatMap(AVSpeechSynthesisVoice.init(identifier:))
+    }
+
+    /// An `AVSpeechSynthesisVoice` as the sorting in `NarrationVoices` sees it.
+    private static func described(_ voice: AVSpeechSynthesisVoice) -> NarrationVoice {
+        let grade: NarrationVoiceGrade
+        if voice.voiceTraits.contains(.isPersonalVoice) {
+            grade = .personal
+        } else {
+            switch voice.quality {
+            case .premium: grade = .premium
+            case .enhanced: grade = .enhanced
+            default: grade = .compact
+            }
         }
-        return AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
+        return NarrationVoice(identifier: voice.identifier,
+                              name: voice.name,
+                              language: voice.language,
+                              grade: grade,
+                              isNovelty: voice.voiceTraits.contains(.isNoveltyVoice))
     }
 
     /// Who is reading which part, when distinct voices are on. Empty otherwise.
@@ -193,19 +250,28 @@ final class ScriptNarrator {
     /// it back resumes a reading that was actually running — rather than
     /// starting one the writer had already paused themselves.
     @ObservationIgnored private var pausedByInterruption = false
+    /// Set when a setting that is baked into every queued utterance — the
+    /// voice, the speed, what is read at all — changed while the reading was
+    /// paused. See `resume()`.
+    @ObservationIgnored private var queueIsStale = false
     /// What the current run was built from, kept so it can be rebuilt when an
     /// option changes without the screen handing the words back.
     @ObservationIgnored private var source: NarrationSource = .script([])
     /// Which cue each queued utterance says. Cleared before re-queuing, which
     /// is what makes callbacks from a cancelled queue harmless.
     @ObservationIgnored private var utteranceIndex: [ObjectIdentifier: Int] = [:]
+    /// The device telling us it has been given a voice, or lost one.
+    @ObservationIgnored private var voicesChanged: (any NSObjectProtocol)?
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
         let storedSpeed = defaults.object(forKey: Key.speed) as? Double
-        speed = min(Self.maxSpeed, max(Self.minSpeed, storedSpeed ?? 1.0))
+        // A speed saved before the scale was measured can be one the engine
+        // never actually delivered — a stored "0.5×" was a hair under
+        // three-quarter pace in practice — so it comes back clamped.
+        speed = NarrationSpeed.clamped(storedSpeed ?? 1.0)
         voiceIdentifier = defaults.string(forKey: Key.voice)
 
         var options = NarrationOptions()
@@ -230,6 +296,21 @@ final class ScriptNarrator {
         remote = NarrationRemote { [weak self] command in
             self?.perform(command)
         }
+
+        refreshVoices()
+        // A writer sent to Settings for a better voice comes back to an app
+        // that already has it, rather than to the same list and a relaunch.
+        voicesChanged = NotificationCenter.default.addObserver(
+            forName: AVSpeechSynthesizer.availableVoicesDidChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshVoices() }
+        }
+    }
+
+    deinit {
+        if let voicesChanged { NotificationCenter.default.removeObserver(voicesChanged) }
     }
 
     // MARK: - Loading
@@ -279,6 +360,9 @@ final class ScriptNarrator {
             speak(from: index)
         } else {
             currentIndex = index
+            // Paused, and the words themselves have changed underneath the
+            // queue that is sitting in the synthesizer.
+            queueIsStale = true
         }
     }
 
@@ -351,6 +435,14 @@ final class ScriptNarrator {
     func resume() {
         guard playback == .paused else { return }
         pausedByInterruption = false
+        // A voice or a speed chosen while paused is a setting the writer
+        // changed *in order to hear it*, and the queue sitting in the
+        // synthesizer was built with the old one baked into every utterance —
+        // so resuming that queue would carry on in the voice they just left.
+        if queueIsStale, let currentIndex {
+            speak(from: currentIndex)
+            return
+        }
         // An interruption leaves the session deactivated behind it, so the
         // session is claimed again rather than assumed. Claiming one already
         // held costs nothing.
@@ -362,6 +454,7 @@ final class ScriptNarrator {
 
     func stop() {
         pausedByInterruption = false
+        queueIsStale = false
         utteranceIndex.removeAll()
         synthesizer.stopSpeaking(at: .immediate)
         playback = .idle
@@ -413,6 +506,7 @@ final class ScriptNarrator {
     private func speak(from index: Int) {
         guard cues.indices.contains(index) else { return }
         pausedByInterruption = false
+        queueIsStale = false
 
         // Clearing the map before cancelling is what makes the cancelled
         // queue's callbacks no-ops: they arrive holding an utterance nothing
@@ -429,35 +523,47 @@ final class ScriptNarrator {
         keepScreenAwake(true)
 
         for cue in cues[index...] {
-            let utterance = utterance(for: cue)
+            // The pause in front of a cue is the air between it and the cue
+            // before it — and at the head of the queue there is no cue before
+            // it, only a writer who has just pressed play. Three quarters of a
+            // second of silence there reads as a button that did not work.
+            let utterance = utterance(for: cue, opening: cue.index == index)
             utteranceIndex[ObjectIdentifier(utterance)] = cue.index
             synthesizer.speak(utterance)
         }
     }
 
-    private func restartFromCurrentIfSpeaking() {
-        guard playback == .speaking, let currentIndex else { return }
-        speak(from: currentIndex)
+    /// A setting baked into the queued utterances has changed. A reading in
+    /// progress is rebuilt around where it is; a paused one is marked, because
+    /// re-queueing it would mean starting it.
+    private func requeue() {
+        guard let currentIndex else { return }
+        if playback == .speaking {
+            speak(from: currentIndex)
+        } else if playback == .paused {
+            queueIsStale = true
+        }
     }
 
-    private func utterance(for cue: NarrationCue) -> AVSpeechUtterance {
+    private func utterance(for cue: NarrationCue, opening: Bool = false) -> AVSpeechUtterance {
         let utterance = AVSpeechUtterance(string: cue.text)
         utterance.voice = voice(for: cue)
         utterance.rate = rate
-        utterance.preUtteranceDelay = cue.pause
+        utterance.preUtteranceDelay = opening ? 0 : cue.pause
         // The narrator sits a shade below the cast, which is enough to tell
         // the page apart from the people even on one voice.
         utterance.pitchMultiplier = cue.kind.isSpoken ? 1.0 : 0.95
         return utterance
     }
 
-    /// The synthesizer's rate is an absolute 0…1, not a multiplier, so the
-    /// preference is applied to the system default and clamped to the range
-    /// the synthesizer accepts.
+    /// The synthesizer's rate is an absolute 0…1 whose two halves are on
+    /// different scales, so the writer's multiplier goes through the measured
+    /// curve in `NarrationSpeed` rather than being multiplied into it. Doing
+    /// the obvious thing put "2×" at the top of the dial, which is four times
+    /// the default pace and not words any more.
     private var rate: Float {
-        let scaled = AVSpeechUtteranceDefaultSpeechRate * Float(speed)
-        return min(AVSpeechUtteranceMaximumSpeechRate,
-                   max(AVSpeechUtteranceMinimumSpeechRate, scaled))
+        min(AVSpeechUtteranceMaximumSpeechRate,
+            max(AVSpeechUtteranceMinimumSpeechRate, NarrationSpeed.rate(forSpeed: speed)))
     }
 
     private func voice(for cue: NarrationCue) -> AVSpeechSynthesisVoice? {
@@ -471,11 +577,17 @@ final class ScriptNarrator {
     /// first speak. The narrator's own voice is held back so the page and the
     /// people never sound the same; when there are more characters than voices
     /// the list wraps, which is still better than one voice for everyone.
+    ///
+    /// The pool is the offered list, so the best-sounding voices are cast
+    /// first and the joke voices are cast never. That filter matters more here
+    /// than in the picker: nobody chooses Trinoids, but a cast walking down the
+    /// device's raw list is handed it without being asked.
     private func buildCast() {
         cast.removeAll()
         guard options.usesDistinctVoices else { return }
-        let narrator = narratorVoice?.identifier
-        let pool = availableVoices.filter { $0.identifier != narrator }
+        let pool = NarrationVoices.cast(from: availableVoices,
+                                        narrator: narratorVoice?.identifier)
+            .compactMap { AVSpeechSynthesisVoice(identifier: $0.identifier) }
         guard !pool.isEmpty else { return }
         for (offset, speaker) in ScriptNarration.speakers(in: cues).enumerated() {
             cast[speaker] = pool[offset % pool.count]
@@ -498,6 +610,7 @@ final class ScriptNarrator {
 
     private func finish() {
         pausedByInterruption = false
+        queueIsStale = false
         utteranceIndex.removeAll()
         playback = .idle
         currentIndex = nil

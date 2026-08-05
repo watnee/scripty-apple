@@ -143,6 +143,23 @@ do {
           "interior, exterior, car, day")
     check("I/E.", ScriptNarration.spoken("I/E. CAR - DAY", as: .scene),
           "interior, exterior, car, day")
+    check("a stop is not required",
+          ScriptNarration.spoken("INT HOUSE - DAY", as: .scene),
+          "interior, house, day")
+    check("a heading typed in a hurry still expands",
+          ScriptNarration.spoken("INT.HOUSE", as: .scene), "interior,house")
+    // An abbreviation has to be the whole word. Plain substring replacement —
+    // which is what this was — found "est." inside "WEST." and "int." inside
+    // "SPRINT.", so a west-facing house was "westablishing" and a sprint was
+    // an interior.
+    check("EST. inside WEST. is left alone",
+          ScriptNarration.spoken("WEST. HOUSE - DAY", as: .scene),
+          "west. house, day")
+    check("INT. inside SPRINT. is left alone",
+          ScriptNarration.spoken("SPRINT. FINISH LINE", as: .scene),
+          "sprint. finish line")
+    check("POV", ScriptNarration.spoken("MAYA'S POV - THE DOOR", as: .scene),
+          "maya's point of view, the door")
     check("cue extension", ScriptNarration.spoken("MAYA (V.O.)", as: .character),
           "maya (voice over)")
     check("continued", ScriptNarration.spoken("MAYA (CONT'D)", as: .character),
@@ -269,6 +286,132 @@ do {
     check("elements are lines outside a script",
           [script, song, note].map(\.elementNoun), ["Element", "Line", "Line"])
     check("a song's elements are its lines", song.elementIds, [4])
+}
+
+print("\nWhich voices are worth offering")
+do {
+    // A device's answer to "what voices have you got" is an inventory: the
+    // same voice more than once when a better download exists, a dozen joke
+    // voices, and every language it has ever shipped.
+    let installed = [
+        NarrationVoice(identifier: "compact.Samantha", name: "Samantha",
+                       language: "en-US", grade: .compact),
+        NarrationVoice(identifier: "enhanced.Samantha", name: "Samantha",
+                       language: "en-US", grade: .enhanced),
+        NarrationVoice(identifier: "compact.Daniel", name: "Daniel",
+                       language: "en-GB", grade: .compact),
+        NarrationVoice(identifier: "premium.Ava", name: "Ava",
+                       language: "en-US", grade: .premium),
+        NarrationVoice(identifier: "novelty.Zarvox", name: "Zarvox",
+                       language: "en-US", grade: .compact, isNovelty: true),
+        NarrationVoice(identifier: "compact.Amelie", name: "Amélie",
+                       language: "fr-CA", grade: .compact),
+    ]
+    let offered = NarrationVoices.offered(from: installed, language: "en-GB")
+
+    check("the joke voices are not offered",
+          offered.contains { $0.isNovelty }, false)
+    check("another language is not offered",
+          offered.contains { $0.name == "Amélie" }, false)
+    check("a British device is still offered American voices",
+          offered.contains { $0.name == "Samantha" }, true)
+    // One row per name: two "Samantha"s with no way to tell which is the good
+    // one is the picker this sorting exists to avoid.
+    check("one row per name", offered.map(\.name), ["Ava", "Samantha", "Daniel"])
+    check("and it is the better edition of it",
+          offered.first { $0.name == "Samantha" }?.identifier ?? "-", "enhanced.Samantha")
+    check("the best-sounding come first", offered.map(\.grade),
+          [NarrationVoiceGrade.premium, .enhanced, .compact])
+    check("the grade is on the row", offered[0].label, "Ava (Premium)")
+    check("except the ordinary one, which needs no warning",
+          offered.last?.label ?? "-", "Daniel")
+
+    // A picker whose current selection is missing from its own list shows no
+    // selection at all, so the chosen voice survives the deduplication.
+    let keeping = NarrationVoices.offered(from: installed, language: "en-US",
+                                          keeping: "compact.Samantha")
+    check("a chosen voice is kept even when outranked",
+          keeping.contains { $0.identifier == "compact.Samantha" }, true)
+    check("and the name is not then listed twice",
+          keeping.filter { $0.name == "Samantha" }.count, 1)
+
+    // Every rule here is a preference, and an empty picker looks broken.
+    let jokesOnly = installed.filter(\.isNovelty)
+    check("a device with nothing but joke voices offers them",
+          NarrationVoices.offered(from: jokesOnly, language: "en-US").count, 1)
+    check("a language with no voice at all is offered every other voice",
+          NarrationVoices.offered(from: installed, language: "cy").count, 4)
+}
+
+print("\nThe voice to read in")
+do {
+    let compact = NarrationVoice(identifier: "compact.Samantha", name: "Samantha",
+                                 language: "en-US", grade: .compact)
+    let enhanced = NarrationVoice(identifier: "enhanced.Samantha", name: "Samantha",
+                                  language: "en-US", grade: .enhanced)
+    let premium = NarrationVoice(identifier: "premium.Ava", name: "Ava",
+                                 language: "en-US", grade: .premium)
+
+    // The system hands out the small built-in voice even when the writer has
+    // gone and downloaded a better one. Upgrading in place comes first: a
+    // writer who hears Samantha every day should keep hearing Samantha.
+    check("the same voice, better",
+          NarrationVoices.best(from: [premium, enhanced], systemDefault: compact)?.identifier ?? "-",
+          "enhanced.Samantha")
+    // Only when there is no better edition of it does the choice move house.
+    check("otherwise the best there is",
+          NarrationVoices.best(from: [premium, compact], systemDefault: compact)?.identifier ?? "-",
+          "premium.Ava")
+    check("nothing better means no change",
+          NarrationVoices.best(from: [compact], systemDefault: compact)?.identifier ?? "-",
+          "compact.Samantha")
+    check("and with no default at all, the best on offer",
+          NarrationVoices.best(from: [premium, compact], systemDefault: nil)?.identifier ?? "-",
+          "premium.Ava")
+
+    // A cast walking down the device's raw list is handed Zarvox without being
+    // asked — worse than the picker, where at least somebody chose.
+    let cast = NarrationVoices.cast(from: [premium, enhanced, compact],
+                                    narrator: "premium.Ava")
+    check("the narrator is not in their own cast",
+          cast.contains { $0.identifier == "premium.Ava" }, false)
+    check("and the best voices are cast first",
+          cast.first?.grade == .enhanced, true)
+
+    check("a device with only built-in voices says so",
+          NarrationVoices.hasDownloadedVoice([compact]), false)
+    check("and one with a download does not",
+          NarrationVoices.hasDownloadedVoice([compact, enhanced]), true)
+}
+
+print("\nSpeed, against the engine's measured curve")
+do {
+    // `rate` is a 0…1 dial whose halves are on different scales, not a
+    // multiplier. Multiplying the default by the writer's choice — the obvious
+    // reading, and what this used to do — put "2×" at the top of the dial,
+    // which is over four times the default pace.
+    check("normal is the default rate",
+          NarrationSpeed.rate(forSpeed: 1.0), Float(0.5))
+    check("twice the pace is nowhere near the top of the dial",
+          NarrationSpeed.rate(forSpeed: 2.0) < 0.7, true)
+    check("and is not the old naive answer",
+          NarrationSpeed.rate(forSpeed: 2.0) < 0.9 * 1.0, true)
+    check("half again lands where the measurement says",
+          abs(NarrationSpeed.rate(forSpeed: 1.5) - 0.585) < 0.01, true)
+
+    let rates = NarrationSpeed.choices.map(NarrationSpeed.rate(forSpeed:))
+    check("faster is always faster", zip(rates, rates.dropFirst()).allSatisfy(<), true)
+    check("every choice is a rate the engine accepts",
+          rates.allSatisfy { $0 >= 0 && $0 <= 1 }, true)
+
+    // The slow end of the dial bottoms out at about three-quarters of the
+    // default pace, so a "0.5×" the engine cannot deliver is not offered — and
+    // one saved from before the scale was measured comes back clamped.
+    check("the slowest offered is the slowest there is",
+          NarrationSpeed.choices.first ?? 0, 0.75)
+    check("an old stored speed is clamped", NarrationSpeed.clamped(0.5), 0.75)
+    check("as is one from the wrong end", NarrationSpeed.clamped(4), 2.0)
+    check("normal reads as normal", NarrationSpeed.label(1.0), "Normal")
 }
 
 print()

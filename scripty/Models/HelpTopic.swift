@@ -589,10 +589,18 @@ extension HelpTopic {
                     + "character names, action and headings, and parentheticals can each "
                     + "be left out — dialogue alone is how you run lines. “A Voice Each” "
                     + "hands the speaking parts different voices, as far as the voices "
-                    + "installed on the device stretch; add more in the Settings app "
-                    + "under Accessibility. Those four are screenplay grammar, so a "
-                    + "song or a note — which can be read aloud too, see Songs and "
-                    + "Notes — is offered the speed and the voice alone."
+                    + "installed on the device stretch. Those four are screenplay "
+                    + "grammar, so a song or a note — which can be read aloud too, see "
+                    + "Songs and Notes — is offered the speed and the voice alone.",
+                    "The voice list is the device’s, sorted: the best-sounding first, "
+                    + "one entry per voice, and the joke voices left out. A voice marked "
+                    + "Enhanced or Premium is one that has been downloaded — they sound "
+                    + "far better than the built-in ones, and Default picks the best "
+                    + "edition you have. To get more, go to the Settings app, then "
+                    + "Accessibility › Spoken Content › Voices, and download one; it "
+                    + "appears here next time the menu opens. Speeds are honest "
+                    + "multiples of the normal pace, so 2× is twice as fast and still "
+                    + "words."
                 ],
                 keywords: ["reader", "reading", "format", "courier", "indents",
                            "review", "distraction free",
