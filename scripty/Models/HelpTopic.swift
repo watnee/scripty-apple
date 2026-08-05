@@ -573,7 +573,9 @@ extension HelpTopic {
                     + "line does the same thing and lands you in that line, the way "
                     + "it does in Pages and Word.",
                     "Read Aloud (⌘⇧A) speaks the script from wherever you are, on "
-                    + "whichever surface is up. The element being read is highlighted "
+                    + "whichever surface is up. On a phone it is the speaker in the "
+                    + "bar along the bottom, and on every device it is also in the "
+                    + "“…” menu in the corner. The element being read is highlighted "
                     + "and scrolls itself into view, and the transport at the foot of "
                     + "the screen steps back and forward an element at a time; hold an "
                     + "element for “Read Aloud From Here”.",

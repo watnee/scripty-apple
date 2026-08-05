@@ -1319,12 +1319,17 @@ struct ScriptView: View {
     /// It draws no background of its own — the `.safeAreaBar` already floats it
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
     ///
-    /// Read Aloud lives here and nowhere else in the chrome. It had a toolbar
+    /// Read Aloud is drawn here rather than in the bar proper. It had a toolbar
     /// button beside Search and Outline, which on a phone was always the
     /// overflow's — the very menu this bar exists to keep things out of — and
     /// on an iPad or a Mac was a second door onto what the View menu's ⌘⇧A
     /// already opens. Listening is also the posture this bar suits best: a
     /// thumb on the bottom edge, not a reach for the corner.
+    ///
+    /// The same button is also named in the "…" (see `toolbar`), which is not
+    /// the slot-costing toolbar button that was removed: this bar is
+    /// compact-only and folds with the chrome, so every width and posture it
+    /// does not cover had nowhere to start a reading from at all.
     @ViewBuilder
     private var documentsBar: some View {
         // Not while elements are being selected: the selection bar already
@@ -2292,7 +2297,9 @@ struct ScriptView: View {
                        recents: model.notes)
     }
 
-    /// The bottom bar's listening button. Reading happens on this very screen:
+    /// The listening button, drawn in the phone's bottom bar and named again in
+    /// the "…" for the widths and postures that bar does not reach. Reading
+    /// happens on this very screen:
     /// the voice starts from wherever the writer is and the transport bar comes
     /// up at the bottom, so while it runs the button is the pause it will be
     /// reached for as.
@@ -2686,6 +2693,23 @@ struct ScriptView: View {
             }
 
             ToolbarItemGroup(placement: .secondaryAction) {
+                // Listening, in the menu every other surface already keeps it
+                // in — the song and note editors both put Read Aloud here, and
+                // the screenplay was the one document you could not start a
+                // reading of from the "…".
+                //
+                // `documentsBar` still carries the phone's button, and this is
+                // deliberately the second door to it rather than a replacement:
+                // that bar is compact-only and folds away with the chrome, so
+                // on an iPad or a Mac, and on a phone mid-scroll or mid-
+                // selection, the menu was the only place left to look and it
+                // was not there. The earlier round removed a *toolbar* button
+                // for costing a slot the bar could not spare; an overflow item
+                // costs no slot.
+                if model.hasScriptContent {
+                    readAloudButton
+                }
+
                 // Where Print waits out a bar too short to hold it. Declared
                 // here rather than left to the system's own overflow so that
                 // it lands among named items instead of as a bare glyph, and
@@ -2830,8 +2854,9 @@ struct ScriptView: View {
                 // A mode among the modes, not a screen: the toggle swaps the
                 // column for the reader in place, and toggling it off —
                 // or asking for page or outline mode — puts the writing back.
-                // Read Aloud is not beside it: that one is a button out in
-                // the bar, and reading aloud never needs this mode.
+                // Read Aloud is not beside it: that one is a button of its own
+                // — the phone's bottom bar and the "…" — and reading aloud
+                // never needs this mode.
                 Toggle(isOn: readingBinding) {
                     Label("Read Script", systemImage: "book")
                 }
