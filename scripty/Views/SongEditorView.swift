@@ -975,21 +975,24 @@ struct SongEditorView: View {
         // but only while the caret is in the words — a writer who has put the
         // keyboard away, or who is looking at a note from the title field, had
         // no way back on a device with no ⌘Z.
+        //
+        // Held, either one keeps walking — see `HistoryStepButton`, which the
+        // lyric editor's pair and the screenplay's Undo are made of too. This
+        // history is the finest-grained of the three: a burst of typing is one
+        // step, so a page written and thought better of is a dozen of them.
         if canEdit {
             ToolbarItemGroup(placement: .navigation) {
-                Button {
+                HistoryStepButton(title: "Undo",
+                                  systemImage: "arrow.uturn.backward",
+                                  isOffered: { formatting.canUndo }) {
                     formatting.undo()
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
                 }
-                .disabled(!formatting.canUndo)
 
-                Button {
+                HistoryStepButton(title: "Redo",
+                                  systemImage: "arrow.uturn.forward",
+                                  isOffered: { formatting.canRedo }) {
                     formatting.redo()
-                } label: {
-                    Label("Redo", systemImage: "arrow.uturn.forward")
                 }
-                .disabled(!formatting.canRedo)
             }
         }
         // Find, where the lyric editor keeps its own Search. The system's find
