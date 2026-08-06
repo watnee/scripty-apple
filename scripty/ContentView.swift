@@ -219,7 +219,7 @@ struct ContentView: View {
     ///
     /// Only where nothing is open. A writer who has since chosen a screenplay
     /// has said where they want to be, and being pulled out of it a second later
-    /// by a sheet they already dismissed would be the app arguing with them.
+    /// by an upload finishing would be the app arguing with them.
     private func openKeptProject() {
         guard selectedProjectId == nil, !app.isEphemeralDemo,
               let id = lastOpened.projectId(in: app.workspaceScope),

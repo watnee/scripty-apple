@@ -72,7 +72,7 @@ func decode<T: Decodable>(_ type: T.Type, _ text: String) -> T {
 
 /// The device's copy of a screenplay, written into the account.
 ///
-/// The same three calls `AppModel.uploadGuestWork` makes, in the same order:
+/// The same three calls `AppModel.keepGuestWork` makes, in the same order:
 /// one project's archive out of the local backend, the account's own import
 /// affordance, and the screenplay the account answers with — which is the only
 /// thing that can tell the device *which* screenplay it now has.

@@ -55,15 +55,6 @@ final class AppModel {
     /// workspace instead, and cancelling leaves everything they wrote in place.
     var isPresentingSignIn = false
 
-    /// Work written without an account, waiting to be offered to the account
-    /// that just signed in.
-    ///
-    /// Parked rather than presented: the sign-in sheet is on its way out at
-    /// exactly this moment, and a sheet raised while another is being dismissed
-    /// is dropped without a word. `RootView` picks this up once that one has
-    /// gone, and clears it.
-    var pendingGuestWorkOffer: GuestWorkOffer?
-
     /// Bumped when guest work has been copied into the account, so the project
     /// list knows to reload — the upload happens after the list has already
     /// loaded for the new session.
@@ -221,9 +212,6 @@ final class AppModel {
     /// scope while still standing in this one.
     static let localWorkspaceScope = "local"
 
-    /// Counts the offers made, so each gets an identity of its own.
-    private var nextOfferId = 0
-
     /// Bumped whenever the session is replaced. An in-flight bootstrap that
     /// resumes against a stale token must not overwrite the newer session —
     /// otherwise a passkey sign-in that lands while the stored-credential check
@@ -266,7 +254,7 @@ final class AppModel {
             // A launch that comes up signed in can still owe the account words:
             // an upload that failed at the last sign-in, or a server that could
             // not take one yet. Nothing happens where there is nothing owed.
-            catchUpLinkedProjects()
+            crossIntoAccount()
         } catch APIError.unauthorized {
             guard token == session else { return }
             client.credentials = nil
@@ -363,13 +351,13 @@ final class AppModel {
     ///
     /// The client is installed here rather than before the request, so a guest
     /// session survives a failed attempt untouched. When the writer came from
-    /// one, what they wrote there is offered to the account they have just
-    /// reached — the backend is held open past the swap for exactly that.
+    /// one, what they wrote there goes into the account they have just reached —
+    /// the backend is held open past the swap for exactly that.
     private func adopt(_ root: APIRoot, rootData: Data, from attempt: APIClient,
                        credentials: Credentials) async {
-        // Asked first, and awaited before anything else moves: taking the sheet
-        // down is what makes the offer presentable, so the offer has to exist
-        // by then. Everything below this line is synchronous for that reason.
+        // Asked before the session is swapped out from under it: this is the
+        // guest session's own question about the guest session's own work, and a
+        // moment later there is no guest session to ask.
         let guestBackend = isDemo ? client.demoBackend : nil
         let written = await guestBackend?.guestWork() ?? []
 
@@ -401,26 +389,18 @@ final class AppModel {
         }
         phase = .signedIn
         loadEditorPreferences()
-        // Only work this account has never been given. A screenplay it already
-        // holds is not a thing to copy — it is the same screenplay, and it is
-        // caught up below without asking.
-        let offerable = written.filter {
-            projectLinks.remoteId(forLocal: $0.id, in: workspaceScope) == nil
+        // Only work no account has ever been given. A screenplay this one
+        // already holds is not a thing to copy — it is the same screenplay, and
+        // it is caught up below. One some *other* account holds a copy of is
+        // left alone: sending it up here would silently make a second
+        // screenplay, and unlike catching one up that is a decision, not
+        // housekeeping. It stays on the device, where the writer put it.
+        let unkept = written.filter {
+            !$0.alreadyKept && !projectLinks.isLinkedAnywhere(local: $0.id)
         }
-        if let guestBackend, !offerable.isEmpty {
-            nextOfferId += 1
-            pendingGuestWorkOffer = GuestWorkOffer(
-                id: nextOfferId,
-                backend: guestBackend,
-                projects: offerable.map {
-                    GuestWorkOffer.Item(id: $0.id, title: $0.title, elements: $0.blockCount,
-                                        alreadyKept: $0.alreadyKept
-                                            || projectLinks.isLinkedAnywhere(local: $0.id))
-                })
-        }
-        // Last: the sheet coming down is what `RootView` presents the offer on.
         isPresentingSignIn = false
-        catchUpLinkedProjects()
+        crossIntoAccount(keeping: unkept.map { GuestWork(id: $0.id, title: $0.title) },
+                         from: guestBackend)
     }
 
     /// Gives up on a sign-in attempt: the refused credentials come off the
@@ -489,7 +469,7 @@ final class AppModel {
     /// writable and none of it leaves the device — but it does now outlive the
     /// app being quit, so a writer without an account has somewhere to keep
     /// working rather than a session that expires when they put the phone down.
-    /// Signing in still offers to take it with them.
+    /// Signing in takes it with them.
     ///
     /// `persisted: false` is the demo proper — the screenshot runs, which want
     /// the same app every time and would be worse than useless if they showed
@@ -529,7 +509,7 @@ final class AppModel {
     /// with no account belongs: signing out is not a reason to be shut out of
     /// the app. What was written in the account stays in the account, and the
     /// local session comes back to whatever *it* was last left holding —
-    /// including anything a previous sign-in was offered and declined.
+    /// including a screenplay a previous sign-in could not take.
     ///
     /// A screenplay the two of them share is brought down first, so what the
     /// writer finds on the other side of this is what they were just looking at
@@ -571,7 +551,6 @@ final class AppModel {
             client.credentials = nil
         }
         guestSignInClient = nil
-        pendingGuestWorkOffer = nil
         apiRoot = nil
         signInError = nil
         isOfflineSession = false
@@ -613,82 +592,94 @@ final class AppModel {
 
     // MARK: - Keeping what was written without an account
 
-    /// Copies chosen screenplays from the guest session into the account that
-    /// has just signed in, as one `.scripty.json` bundle through the very
-    /// import the projects list already offers. Nothing about the archive is
-    /// special-cased: the guest backend writes the same document the server's
-    /// own export writes, and the server reads it the same way.
+    /// A screenplay written on a device with no account, on its way into the
+    /// account that has just signed in. The title travels with the id because
+    /// the only thing left to say about one of these is that it could not be
+    /// sent, and that has to name it.
+    struct GuestWork: Sendable {
+        let id: Int
+        let title: String
+    }
+
+    /// Copies screenplays from the guest session into the account that has just
+    /// signed in, as one `.scripty.json` bundle each through the very import the
+    /// projects list already offers. Nothing about the archive is special-cased:
+    /// the guest backend writes the same document the server's own export
+    /// writes, and the server reads it the same way.
     ///
-    /// Not a move, and no longer a fork either: what is on the device stays on
-    /// the device, and a link is written down saying which screenplay in the
-    /// account each local one has become. From here on the two are one
-    /// screenplay kept in two places — see `syncLinkedProjects`.
+    /// It is done rather than offered. There used to be a sheet here asking
+    /// which of it to keep, ticked to begin with — and the answer was always
+    /// "all of it", because the alternative it was really offering was leaving
+    /// the writing on one device with no backup. Keeping costs nothing: it is
+    /// not a move, and not a fork. What is on the device stays on the device,
+    /// and a link is written down saying which screenplay in the account each
+    /// local one has become, so from here on the two are one screenplay kept in
+    /// two places — see `syncLinkedProjects`. So the question had one sensible
+    /// answer and a sheet in front of it, and now it has neither.
     ///
     /// One project per upload rather than one bundle for all of them, which is
-    /// the only change the link needed: an import answers with the screenplay it
-    /// made, and a bundle of four answers with one of them. Without knowing
-    /// which is which there is nothing to link.
-    ///
-    /// Answers an error message, or nil when it landed.
-    func uploadGuestWork(_ offer: GuestWorkOffer, ids: [Int]) async -> String? {
-        guard !ids.isEmpty else { return nil }
-        guard let projectsLink = apiRoot?.link(.projects) else {
-            return "This account can't take new screenplays."
+    /// what the link needs: an import answers with the screenplay it made, and a
+    /// bundle of four answers with one of them. Without knowing which is which
+    /// there is nothing to link.
+    private func keepGuestWork(_ work: [GuestWork], from backend: DemoBackend) async {
+        guard !work.isEmpty else { return }
+        guard let projectsLink = apiRoot?.link(.projects),
+              let collection: HALCollection<Project> =
+                try? await client.fetch(from: projectsLink),
+              let importLink = collection.links[.importProject] else {
+            // An account that cannot take a screenplay leaves every one of them
+            // on the device, still flagged as unsent.
+            report(unkept: work.map(\.title))
+            return
         }
-        do {
-            let collection: HALCollection<Project> = try await client.fetch(from: projectsLink)
-            guard let importLink = collection.links[.importProject] else {
-                return "This account can't take new screenplays."
+        var kept: [Int] = []
+        var failed: [String] = []
+        for (index, item) in work.enumerated() {
+            let (status, bundle) = await backend.demoProjectsBundle(ids: [item.id])
+            guard status == 200, !bundle.isEmpty else {
+                // One screenplay this device cannot read back says nothing about
+                // the next, so the rest are still tried.
+                failed.append(item.title)
+                continue
             }
-            var kept: [Int] = []
-            var failure: String?
-            for id in ids {
-                let (status, bundle) = await offer.backend.demoProjectsBundle(ids: [id])
-                guard status == 200, !bundle.isEmpty else {
-                    failure = "That work could not be read back."
-                    break
-                }
-                do {
-                    let created: Project = try await client.upload(
-                        to: importLink,
-                        fileName: "Scripty.scripty.json",
-                        fileData: bundle,
-                        mimeType: "application/json")
-                    projectLinks.record(ProjectLink(localId: id, scope: workspaceScope,
-                                                    remoteId: created.id,
-                                                    syncedRemoteEdited: created.lastEdited))
-                    kept.append(id)
-                } catch {
-                    guard !error.isCancelledRequest else { break }
-                    handle(error)
-                    failure = error.localizedDescription
-                    break
-                }
+            do {
+                let created: Project = try await client.upload(
+                    to: importLink,
+                    fileName: "Scripty.scripty.json",
+                    fileData: bundle,
+                    mimeType: "application/json")
+                projectLinks.record(ProjectLink(localId: item.id, scope: workspaceScope,
+                                                remoteId: created.id,
+                                                syncedRemoteEdited: created.lastEdited))
+                kept.append(item.id)
+            } catch {
+                // A cancelled upload is the writer leaving, not a failure — see
+                // `isCancelledRequest` — and nothing is said about it.
+                guard !error.isCancelledRequest else { return }
+                handle(error)
+                // A refusal *does* end the run: whatever is wrong with the
+                // network or the account is wrong for the next screenplay too.
+                // The rest are named as unsent without being tried.
+                failed.append(contentsOf: work[index...].map(\.title))
+                break
             }
-            // Only what was taken, and only now. The local copies stay where
-            // they are — signing out later must not take the writer's
-            // screenplay away with the session — so all this records is that
-            // the account has them, which is what keeps the next sign-in from
-            // offering the same work twice.
-            if !kept.isEmpty {
-                await offer.backend.markHandedOff(projectIds: kept)
-                // The screenplay they were in when they reached for Sign In is
-                // now one of the account's. Point the record at it, so the list
-                // reloading behind this sheet puts them back in it rather than
-                // beside it — `ContentView.openKeptProject` acts on this.
-                carryOpenProject(from: Self.localWorkspaceScope, to: workspaceScope) {
-                    kept.contains($0) ? projectLinks.remoteId(forLocal: $0, in: workspaceScope) : nil
-                }
-                guestWorkImports += 1
-            }
-            return failure
-        } catch {
-            // A cancelled upload is the writer leaving, not a failure — see
-            // `isCancelledRequest`.
-            guard !error.isCancelledRequest else { return nil }
-            handle(error)
-            return error.localizedDescription
         }
+        // Only what was taken, and only now. The local copies stay where they
+        // are — signing out later must not take the writer's screenplay away
+        // with the session — so all this records is that the account has them,
+        // which is what keeps the next sign-in from sending the same work twice.
+        if !kept.isEmpty {
+            await backend.markHandedOff(projectIds: kept)
+            // The screenplay they were in when they reached for Sign In is now
+            // one of the account's. Point the record at it, so the list
+            // reloading puts them back in it rather than beside it —
+            // `ContentView.openKeptProject` acts on this.
+            carryOpenProject(from: Self.localWorkspaceScope, to: workspaceScope) {
+                kept.contains($0) ? projectLinks.remoteId(forLocal: $0, in: workspaceScope) : nil
+            }
+            guestWorkImports += 1
+        }
+        report(unkept: failed)
     }
 
     // MARK: - One screenplay, on the device and in the account
@@ -709,12 +700,29 @@ final class AppModel {
         return backend
     }
 
-    /// Catches an account up with a linked screenplay written on this device
-    /// while signed out. Runs by itself on the way in, and says nothing when
-    /// there is nothing to carry.
-    private func catchUpLinkedProjects() {
-        guard !isDemo, !projectLinks.links(in: workspaceScope).isEmpty else { return }
-        linkSyncTask = Task { await syncLinkedProjects() }
+    /// The whole crossing into an account, in the order it has to happen: work
+    /// no account has ever seen goes up as screenplays of its own, then the
+    /// screenplays this one already holds are caught up with whatever was
+    /// written here while signed out.
+    ///
+    /// Runs by itself on the way in, and says nothing when there is nothing to
+    /// carry. One task for both halves, so the crossing on the way *out* can
+    /// wait for all of it rather than for the second half — a sign-out that
+    /// overtook an upload would bring the account's copy down over words still
+    /// on their way up to it.
+    ///
+    /// The defaults are the cold-launch case: a session restored from the
+    /// keychain has no guest session behind it, so all it can owe is the second
+    /// half.
+    private func crossIntoAccount(keeping work: [GuestWork] = [],
+                                  from backend: DemoBackend? = nil) {
+        guard !isDemo else { return }
+        let hasLinks = !projectLinks.links(in: workspaceScope).isEmpty
+        guard !work.isEmpty || hasLinks else { return }
+        linkSyncTask = Task { [self] in
+            if let backend { await keepGuestWork(work, from: backend) }
+            await syncLinkedProjects()
+        }
     }
 
     /// The crossing on the way in, while it is still going. Held so the
@@ -989,8 +997,26 @@ final class AppModel {
         OpenEditorState.shared.carry(from: from, to: to, translating: translate)
     }
 
-    private func report(copied: [String], stranded: [String]) {
+    /// The only things worth saying about a crossing, and all of them are things
+    /// that did not go as they should. Silence otherwise: a screenplay carried
+    /// over without incident is not news, which is the whole reason there is no
+    /// screen in front of this any more.
+    ///
+    /// - `copied`: written in both places at once, so this device's version was
+    ///   kept as a screenplay of its own.
+    /// - `stranded`: a linked screenplay the account could not be caught up.
+    /// - `unkept`: work written without an account that could not be sent up.
+    private func report(copied: [String] = [], stranded: [String] = [],
+                        unkept: [String] = []) {
         var lines: [String] = []
+        if !unkept.isEmpty {
+            lines.append(
+                unkept.count == 1
+                    ? "“\(unkept[0])” could not be saved to your account just now. It is still "
+                        + "on this device, and will go up next time you sign in."
+                    : "\(unkept.count) screenplays could not be saved to your account just now. "
+                        + "They are still on this device, and will go up next time you sign in.")
+        }
         if !copied.isEmpty {
             lines.append(
                 copied.count == 1
@@ -1011,30 +1037,5 @@ final class AppModel {
         guard !lines.isEmpty else { return }
         nextNoticeId += 1
         syncNotice = SyncNotice(id: nextNoticeId, message: lines.joined(separator: "\n\n"))
-    }
-}
-
-/// The screenplays written without an account, offered to the account that has
-/// just signed in.
-///
-/// Holds the guest backend itself, not a copy of the work: the bundle is built
-/// only if the writer says yes, and until then the session it came from is
-/// still the one that could answer any question about it.
-struct GuestWorkOffer: Identifiable {
-    /// One per offer, so a second sign-in in the same run presents a new sheet
-    /// rather than reusing the last one's identity.
-    let id: Int
-    let backend: DemoBackend
-    let projects: [Item]
-
-    struct Item: Identifiable, Hashable {
-        let id: Int
-        let title: String
-        let elements: Int
-        /// True when this account — or another one — has been given a copy of
-        /// this screenplay before, and it has been written in on the device
-        /// since. Keeping it again adds a second screenplay rather than
-        /// updating the first, so it is offered unticked and labelled.
-        let alreadyKept: Bool
     }
 }

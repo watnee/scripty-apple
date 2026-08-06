@@ -1947,19 +1947,20 @@ func multipart(named name: String, json data: Data) -> Data {
     return body
 }
 
-/// What the app offers to keep when a guest signs in. The rule that matters is
-/// the negative one: a sample screenplay nobody touched is not the writer's
-/// work, and offering it would put a copy of the demo into every new account.
+/// What the app keeps when a guest signs in. The rule that matters is the
+/// negative one: a sample screenplay nobody touched is not the writer's work,
+/// and taking it would put a copy of the demo into every new account. Nobody is
+/// asked about any of this any more, so the list is the whole decision.
 func checkGuestWork() async {
     let fresh = DemoBackend()
     // Nothing has been asked of it yet, so nothing has been written.
-    check("an untouched session offers nothing", await fresh.guestWork().isEmpty)
+    check("an untouched session has nothing to keep", await fresh.guestWork().isEmpty)
 
     let projects = json(await fresh.respond(method: "GET", url: url("/api/project"), body: nil).data)
-    let seededOffer = await fresh.guestWork()
+    let seeded = await fresh.guestWork()
     check("…even once the sample screenplays are seeded",
-          !embedded(projects).isEmpty && seededOffer.isEmpty,
-          "offered \(seededOffer.map(\.title))")
+          !embedded(projects).isEmpty && seeded.isEmpty,
+          "would keep \(seeded.map(\.title))")
 
     guard let sample = embedded(projects).first?["id"] as? Int else {
         check("the demo seeds a sample project", false)
@@ -1967,7 +1968,7 @@ func checkGuestWork() async {
     }
     let created = json(await fresh.respond(method: "POST", url: url("/api/project"),
                                            body: body(["title": "Mine"])).data)
-    check("a project created here is offered",
+    check("a project created here is kept",
           await fresh.guestWork().map(\.title) == ["Mine"],
           "got \(await fresh.guestWork().map(\.title))")
 
@@ -1976,7 +1977,7 @@ func checkGuestWork() async {
     _ = await fresh.respond(method: "POST", url: url("/api/document"),
                             body: body(["projectId": sample, "title": "A thought",
                                         "documentType": "NOTES", "content": "…"]))
-    check("a sample screenplay that was written in is offered",
+    check("a sample screenplay that was written in is kept",
           await fresh.guestWork().contains { $0.id == sample })
 
     // Deleting takes it back off the list; the id is remembered, the project
@@ -1984,15 +1985,9 @@ func checkGuestWork() async {
     if let mineId = created["id"] as? Int {
         _ = await fresh.respond(method: "DELETE", url: url("/api/project/\(mineId)"), body: nil)
         let afterDelete = await fresh.guestWork()
-        check("a deleted project is not offered",
+        check("a deleted project is not kept",
               !afterDelete.contains { $0.id == mineId })
     }
-
-    let offered = await fresh.guestWork().first { $0.id == sample }?.blockCount
-    let script = embedded(json(await fresh.respond(
-        method: "GET", url: url("/api/block?projectId=\(sample)"), body: nil).data))
-    check("the element count is the one the script holds", offered == script.count,
-          "offered \(offered ?? -1) vs \(script.count)")
 
     // Who says a line is part of the line. A sample screenplay still has its
     // cast attached, unlike `pid` above, whose script an earlier check

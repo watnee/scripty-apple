@@ -362,7 +362,7 @@ struct ProjectsSidebarView: View {
             // be sent: this session *is* where a signed-out device lives, and
             // what is written here stays here between launches. What it offers
             // instead is the way to get the writing off the device — signing
-            // in, which then asks whether to bring it along.
+            // in, which brings it along.
             if app.isDemo {
                 Button {
                     app.isPresentingSignIn = true

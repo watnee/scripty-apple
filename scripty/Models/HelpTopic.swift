@@ -191,9 +191,9 @@ extension HelpTopic {
                     + "There is no backup, no second device, and nobody to share with; "
                     + "deleting the app takes the writing with it.",
                     "Sign In, in the sidebar menu or on the banner above the list, "
-                    + "attaches an account. Keep Your Work? then lists everything you "
-                    + "wrote before signing in, ticked to begin with: Keep saves those "
-                    + "screenplays to your account. They stay on this device as well — "
+                    + "attaches an account. Everything you wrote before signing in is "
+                    + "saved to that account there and then — you are not asked, and "
+                    + "there is nothing to tick. It stays on this device as well: "
                     + "keeping is not moving.",
                     "Kept screenplays say so: signed out, the ones your account "
                     + "has carry a Kept badge in the list, and the ones without "
@@ -201,9 +201,9 @@ extension HelpTopic {
                     "A screenplay you have kept stays one screenplay. Sign out and it "
                     + "is there to go on writing in, holding whatever you last wrote in "
                     + "your account; sign back in and the words you added while signed "
-                    + "out go up into that same screenplay. You are never asked to keep "
-                    + "it again, and no second copy appears — Scripty does the carrying "
-                    + "each time you cross, as long as you are online when you do.",
+                    + "out go up into that same screenplay. No second copy appears — "
+                    + "Scripty does the carrying each time you cross, as long as you "
+                    + "are online when you do.",
                     "The songs and notes inside it come across as themselves, not as "
                     + "copies. A song you started signed out is the same song in your "
                     + "account — the same lyric, the same versions behind it — and when "
@@ -218,9 +218,14 @@ extension HelpTopic {
                     + "Scripty says so, leaving you to decide which is which. The "
                     + "version that any update replaces is kept in that project's "
                     + "version history too.",
-                    "A screenplay you leave unticked is not kept, and stays on this "
-                    + "device only. Screenplays that were only ever in your account "
-                    + "stay there: signing out does not bring them onto this device."
+                    "A screenplay a different account already has a copy of is the one "
+                    + "thing signing in leaves alone: taking it would make a second "
+                    + "screenplay rather than catching the first one up, so it stays on "
+                    + "this device until you export it yourself. If anything else "
+                    + "cannot be saved — you are offline, say — Scripty says so, and it "
+                    + "goes up the next time you sign in.",
+                    "Screenplays that were only ever in your account stay there: "
+                    + "signing out does not bring them onto this device."
                 ],
                 keywords: ["sample", "try", "offline", "test", "example", "demo",
                            "guest", "sign in", "sign out", "account", "no account",
