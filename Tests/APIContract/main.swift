@@ -2728,9 +2728,10 @@ func checkSongSelection(pid: Int) async {
               (sent["titles"] as? [String])?.sorted() == ["Selection Goner", "Selection Keeper"],
               "got \(sent["titles"] ?? "nothing")")
 
-        // A note swept up in the ticks is skipped, so the count is what
-        // actually went rather than what was chosen — the client reports the
-        // server's number for exactly this reason.
+        // A note in the ticks goes with the songs. It used to be skipped here,
+        // because the service behind the real one skipped it — that stopped
+        // being true, and a demo still dropping the note reported one sent when
+        // the server would have sent two.
         if let note = json(await be.respond(
             method: "POST", url: url("/api/document"),
             body: body(["projectId": pid, "title": "Selection Note",
@@ -2738,8 +2739,11 @@ func checkSongSelection(pid: Int) async {
             let mixed = json(await be.respond(
                 method: "POST", url: shareURL,
                 body: body(["ids": [keep, note], "email": "cast@example.com"])).data)
-            check("a note in the selection is skipped", mixed["shared"] as? Int == 1,
-                  "got \(mixed["shared"] ?? "nothing")")
+            check("a note in the selection goes with the songs",
+                  mixed["shared"] as? Int == 2, "got \(mixed["shared"] ?? "nothing")")
+            check("and is named in what went",
+                  (mixed["titles"] as? [String])?.contains("Selection Note") == true,
+                  "got \(mixed["titles"] ?? "nothing")")
             _ = await be.respond(method: "DELETE", url: url("/api/document/\(note)"), body: nil)
         }
     }
@@ -2769,7 +2773,43 @@ func checkSongSelection(pid: Int) async {
     check("the deleted song is in the trash",
           embedded(trash).contains { $0["title"] as? String == "Selection Goner" })
 
+    // --- and a selection of notes, which is the same call ---
+    if let note = json(await be.respond(
+        method: "POST", url: url("/api/document"),
+        body: body(["projectId": pid, "title": "Deletable Note",
+                    "documentType": "NOTES", "content": "tick me"])).data)["id"] as? Int {
+        let after = json(await be.respond(method: "POST", url: deleteURL,
+                                          body: body(["ids": [note]])).data)
+        check("a ticked note is trashed like a ticked song",
+              !embedded(after).contains { $0["title"] as? String == "Deletable Note" })
+    }
+
     _ = await be.respond(method: "DELETE", url: url("/api/document/\(keep)"), body: nil)
+
+    // The rels themselves carry no has-a-song condition. They used to — the
+    // services behind them skipped anything that was not a song — and a project
+    // of notes was then the one place the selection bar came up without its
+    // Delete and its Email.
+    let made = json(await be.respond(
+        method: "POST", url: url("/api/project"),
+        body: body(["title": "Notes Only"])).data)
+    if let notesOnly = made["id"] as? Int {
+        _ = await be.respond(method: "POST", url: url("/api/document"),
+                             body: body(["projectId": notesOnly, "title": "The Only Note",
+                                         "documentType": "NOTES", "content": "no songs here"]))
+        let onlyNotes = links(json(await be.respond(
+            method: "GET", url: url("/api/document?projectId=\(notesOnly)"), body: nil).data))
+        check("a project of notes advertises `bulkDelete`", onlyNotes["bulkDelete"] != nil,
+              "got \(onlyNotes.keys.sorted())")
+        check("and `bulkShareEmail`", onlyNotes["bulkShareEmail"] != nil,
+              "got \(onlyNotes.keys.sorted())")
+        // The songbook is the one that still asks for a song, since there is no
+        // book to make without one.
+        check("but no songbook, having no song", onlyNotes["exportSongsTxt"] == nil)
+        _ = await be.respond(method: "DELETE", url: url("/api/project/\(notesOnly)"), body: nil)
+    } else {
+        check("a project of notes could be made", false, "got \(made.keys.sorted())")
+    }
 }
 
 /// Single-occurrence replace — the "Replace" that walks a find one hit at a

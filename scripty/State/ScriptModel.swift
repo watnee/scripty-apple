@@ -2833,10 +2833,9 @@ final class ScriptModel {
     /// the UI gates the *entry* on the count it reads back, not on this link.
     var archivedDocumentsLink: HALLink? { documentsLinks[.archived] }
 
-    /// Whether a selection can be archived in one call. Unlike
-    /// ``canBulkDeleteDocuments`` this carries no has-a-song condition: the
-    /// server archives notes just as readily, so a project of notes is offered
-    /// it too.
+    /// Whether a selection can be archived in one call. Like
+    /// ``canBulkDeleteDocuments``, and for the same reason: the server archives
+    /// notes just as readily as songs, so a project of notes is offered it too.
     var canBulkArchiveDocuments: Bool { documentsLinks.contains(.bulkArchive) }
 
     /// Archives one song or note. The server answers with the refreshed list,
