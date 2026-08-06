@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// The writer's chosen type size, as a multiplier. Read by every element row
 /// so one setting scales the whole script.
@@ -376,6 +377,58 @@ extension BlockHighlight {
         let (r, g, b) = scheme == .dark ? dark : light
         return Color(red: r, green: g, blue: b)
     }
+
+    /// A dot in the tint, for the menus that offer the colours.
+    ///
+    /// Drawn rather than named: a menu renders a `systemImage` as a template
+    /// and paints it in the menu's own label colour, so five `circle.fill`
+    /// rows come out as five identical black dots and the one thing the row
+    /// is choosing is the one thing it cannot show. An image handed over as
+    /// `.alwaysOriginal` is the way past that.
+    ///
+    /// The ring is what keeps the washes legible: they are paper tints meant
+    /// to sit behind text, and pale yellow on a white menu reads as an empty
+    /// circle without an edge drawn round it.
+    ///
+    /// Drawn once for all ten — five colours either side of light and dark —
+    /// and looked up thereafter. One caller is a `contextMenu` builder, which
+    /// takes its items as a plain (non-escaping) closure and so may well be
+    /// run with the row's body rather than when the menu is opened; that body
+    /// is re-evaluated on every keystroke in the element beside it. Ten small
+    /// bitmaps held for the life of the app is the cheaper end of that bet.
+    func swatch(for scheme: ColorScheme) -> Image {
+        Self.swatches[Swatch(colour: self, scheme: scheme)] ?? drawSwatch(for: scheme)
+    }
+
+    private func drawSwatch(for scheme: ColorScheme) -> Image {
+        let side: CGFloat = 16
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        let drawn = renderer.image { _ in
+            let circle = UIBezierPath(ovalIn: CGRect(x: 0.5, y: 0.5,
+                                                     width: side - 1, height: side - 1))
+            UIColor(color(for: scheme)).setFill()
+            circle.fill()
+            UIColor(white: scheme == .dark ? 1 : 0, alpha: 0.3).setStroke()
+            circle.lineWidth = 1
+            circle.stroke()
+        }
+        return Image(uiImage: drawn.withRenderingMode(.alwaysOriginal))
+    }
+
+    private struct Swatch: Hashable {
+        let colour: BlockHighlight
+        let scheme: ColorScheme
+    }
+
+    private static let swatches: [Swatch: Image] = {
+        var drawn: [Swatch: Image] = [:]
+        for colour in BlockHighlight.allCases {
+            for scheme in [ColorScheme.light, .dark] {
+                drawn[Swatch(colour: colour, scheme: scheme)] = colour.drawSwatch(for: scheme)
+            }
+        }
+        return drawn
+    }()
 }
 
 /// Paints a block's highlight tint behind its text, and nothing when it has

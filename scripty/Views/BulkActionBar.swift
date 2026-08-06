@@ -64,6 +64,10 @@ struct BulkActionBar: View {
     @State private var confirmDelete = false
     @State private var isWorking = false
 
+    /// Read for the highlight swatches, which are drawn rather than tinted and
+    /// so have to be told which side of light and dark they are on.
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         // A phone cannot hold the count, six actions and Done on one line —
         // squeezed that far, every label wraps to letter fragments — so
@@ -287,11 +291,13 @@ struct BulkActionBar: View {
                         Button {
                             run { await model.bulkSetHighlight(ids, highlight: colour) }
                         } label: {
-                            Label(colour.label, systemImage: "circle.fill")
+                            Label { Text(colour.label) } icon: { colour.swatch(for: colorScheme) }
                         }
                     }
-                    Button("None") {
+                    Button {
                         run { await model.bulkSetHighlight(ids, highlight: nil) }
+                    } label: {
+                        Label("None", systemImage: "circle.dashed")
                     }
                 }
             } label: {

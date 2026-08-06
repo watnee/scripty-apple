@@ -30,6 +30,9 @@ struct EditableBlockRow: View {
     /// does not change as the text grows.
     @Environment(\.scriptTextScale) private var textScale
     @Environment(\.scriptRowChrome) private var chrome
+    /// Read for the highlight swatches, which are drawn rather than tinted and
+    /// so have to be told which side of light and dark they are on.
+    @Environment(\.colorScheme) private var colorScheme
 
     /// Drives the per-block "Edit Tags" prompt. The draft is seeded from the
     /// block's current tags when the field opens.
@@ -220,11 +223,13 @@ struct EditableBlockRow: View {
                     Button {
                         Task { await model.bulkSetHighlight([block.id], highlight: colour) }
                     } label: {
-                        Label(colour.label, systemImage: "circle.fill")
+                        Label { Text(colour.label) } icon: { colour.swatch(for: colorScheme) }
                     }
                 }
-                Button("None") {
+                Button {
                     Task { await model.bulkSetHighlight([block.id], highlight: nil) }
+                } label: {
+                    Label("None", systemImage: "circle.dashed")
                 }
             } label: {
                 Label("Highlight", systemImage: "highlighter")
