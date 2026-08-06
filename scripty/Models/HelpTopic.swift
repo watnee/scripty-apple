@@ -442,6 +442,12 @@ extension HelpTopic {
                 title: "Editor Preferences",
                 systemImage: "textformat",
                 paragraphs: [
+                    "Open in Edit View, at the top of Editor Preferences, decides "
+                    + "how a document comes up: off, which it is to begin with, a "
+                    + "screenplay, song or note opens to be read, and on, it opens "
+                    + "ready to write in. It answers for documents you have never "
+                    + "made a choice about — see Documents Open for Reading. Like "
+                    + "the font below it, the choice is this device's.",
                     "Default Font in Editor Preferences, on the sidebar menu, sets the "
                     + "typeface everything is written in — Courier Prime, Arial or "
                     + "Times New Roman. It is what an element is drawn in unless you "
@@ -458,7 +464,8 @@ extension HelpTopic {
                 ],
                 keywords: ["capitalisation", "capitalization", "caps", "uppercase",
                            "settings", "automatic", "font", "typeface", "default font",
-                           "courier", "arial", "times"])
+                           "courier", "arial", "times", "preferences",
+                           "open in edit view", "edit view", "reading view"])
         ]),
         HelpSection(id: "reading", title: "Reading and Layout", topics: [
             HelpTopic(
@@ -503,8 +510,8 @@ extension HelpTopic {
                     + "whichever surface you are on, one tap in that spot is the "
                     + "other one. Read Script is in the View menu as well, and Read "
                     + "Song and Read Note stay in a song or note's “…” menu.",
-                    "Open in Edit View, in the account menu on the project list, "
-                    + "turns the default round for every document you have never "
+                    "Open in Edit View, in Editor Preferences on the sidebar "
+                    + "menu, turns the default round for every document you have never "
                     + "made a choice about; documents you have chosen for keep the "
                     + "choice you made. A script with nothing in it, or one holding "
                     + "words this device has not managed to send yet, always opens "
@@ -515,7 +522,8 @@ extension HelpTopic {
                            "edit button", "pencil", "accidental", "accident",
                            "locked", "cannot type", "can't type", "won't let me type",
                            "keyboard", "open", "opens", "default", "pages", "word",
-                           "double tap", "double-tap", "two taps", "tap twice"]),
+                           "double tap", "double-tap", "two taps", "tap twice",
+                           "settings", "preferences", "open in edit view"]),
             HelpTopic(
                 id: "page-view",
                 title: "Page View",
