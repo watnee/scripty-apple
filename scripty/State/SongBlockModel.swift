@@ -79,6 +79,13 @@ final class SongBlockModel {
         }
     }
 
+    /// Lines whose removal is already on its way to the server — the
+    /// screenplay's `removingBlockIds`, for the same reason. Backspace repeats
+    /// while the key is held, and each repeat used to fold the same line into
+    /// the one above again and send a second DELETE for a line already gone,
+    /// which the server answers as a refusal.
+    private var removingBlockIds: Set<Int> = []
+
     private var commitTasks: [Int: Task<Void, Never>] = [:]
     private static let commitDebounce: Duration = .milliseconds(600)
 
@@ -741,6 +748,12 @@ final class SongBlockModel {
               let index = index(of: block), index > 0,
               let previous = blocks[..<index].last(where: { $0.hasLink(.update) })
         else { return nil }
+        // A repeat of the held key, aimed at a line already on its way out.
+        // The caret has not moved yet, so this press is about a line that no
+        // longer exists — see `removingBlockIds`.
+        guard !removingBlockIds.contains(block.id) else { return nil }
+        removingBlockIds.insert(block.id)
+        defer { removingBlockIds.remove(block.id) }
 
         let previousText = currentText(previous)
         let seam = previousText.count
@@ -758,7 +771,7 @@ final class SongBlockModel {
         commitTasks[block.id]?.cancel()
         commitTasks[block.id] = nil
         liveText[block.id] = nil
-        guard await delete(block) else {
+        guard await sendDelete(block) else {
             // The folded-away line is still there, so the merged words now
             // appear twice. Put the line above back the way it was and leave
             // the lyric as it stood before the Backspace.
@@ -801,6 +814,16 @@ final class SongBlockModel {
 
     @discardableResult
     func delete(_ block: SongBlock) async -> Bool {
+        // Only one removal of a line at a time, however fast it is asked for.
+        // The fold above claims the line first and then calls `sendDelete`
+        // directly, since the claim it holds is the same one.
+        guard !removingBlockIds.contains(block.id) else { return false }
+        removingBlockIds.insert(block.id)
+        defer { removingBlockIds.remove(block.id) }
+        return await sendDelete(block)
+    }
+
+    private func sendDelete(_ block: SongBlock) async -> Bool {
         guard let link = block.link(.delete) else { return false }
         commitTasks[block.id]?.cancel()
         liveText[block.id] = nil

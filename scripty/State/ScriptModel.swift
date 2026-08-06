@@ -84,6 +84,20 @@ final class ScriptModel {
     /// patience.
     var hasFailedSaves: Bool { !failedBlockIds.isEmpty }
 
+    /// Elements whose removal is already on its way to the server.
+    ///
+    /// Backspace at the head of a line repeats for as long as the key is held,
+    /// and a repeat comes round far faster than a round trip: every one of them
+    /// used to start a whole fresh removal of the same element. Two merges of
+    /// one line into the line above wrote the words there twice, and the second
+    /// DELETE asked the server to remove something the first had already taken
+    /// away — which it cannot tell from an element this writer may not touch,
+    /// so it answers 403 and the writer is told they haven't permission to do
+    /// the thing they just did. A press that lands on an element already on its
+    /// way out is dropped: the caret has not moved yet, so the key is aimed at
+    /// a line that is already gone.
+    private var removingBlockIds: Set<Int> = []
+
     private var commitTasks: [Int: Task<Void, Never>] = [:]
     private static let commitDebounce: Duration = .milliseconds(600)
 
@@ -449,6 +463,12 @@ final class ScriptModel {
             return
         }
         guard let link = block.link(.delete) else { return }
+        // Only once, however fast the writer asks — see `removingBlockIds`.
+        guard !removingBlockIds.contains(block.id) else { return }
+        removingBlockIds.insert(block.id)
+        defer { removingBlockIds.remove(block.id) }
+        let held = liveText[block.id]
+        stopWrites(to: block.id)
         do {
             try await app.client.data(for: link, method: "DELETE")
             blocks.removeAll { $0.id == block.id }
@@ -458,6 +478,9 @@ final class ScriptModel {
             await refreshUndoRedo()
             errorMessage = nil
         } catch {
+            // The element is still there, and so are any words it was holding:
+            // put the write called off above back on its timer.
+            if held != nil { scheduleCommit(block.id) }
             report(error)
         }
     }
@@ -558,6 +581,27 @@ final class ScriptModel {
         if focusedBlockId == block.id { focusedBlockId = nil }
         if !unsavedBlockIds.contains(block.id) { liveText[block.id] = nil }
         hasActiveEdit = focusedBlockId != nil
+    }
+
+    /// Call off everything still trying to *write* to an element, ahead of
+    /// asking the server to remove it.
+    ///
+    /// A debounce armed by the last keystroke before a delete used to fire into
+    /// the gap the DELETE was already in, and the PUT reached a server that had
+    /// just removed the element. That comes back as the same refusal a delete
+    /// of something already gone does — and it lands after the delete has
+    /// tidied up, so the element that is no longer on screen is flagged as
+    /// holding unsaved words for the rest of the session and the badge says the
+    /// script has work in hand that nothing can ever save.
+    ///
+    /// The callers put it back if the delete fails: the element is still there
+    /// in that case, and so are the words.
+    private func stopWrites(to id: Int) {
+        commitTasks[id]?.cancel()
+        commitTasks[id] = nil
+        retryTasks[id]?.cancel()
+        retryTasks[id] = nil
+        retryAttempts[id] = nil
     }
 
     private func scheduleCommit(_ id: Int) {
@@ -1423,6 +1467,13 @@ final class ScriptModel {
         // wrong element.
         guard let index = blocks.firstIndex(where: { $0.id == block.id }), index > 0,
               let previous = blocks[..<index].last(where: { $0.isEditable }) else { return }
+        // The key repeats faster than the round trip it starts. Held down, this
+        // used to fold the same line into the one above once per repeat — the
+        // words written there twice over, and a DELETE sent for an element
+        // already deleted. See `removingBlockIds`.
+        guard !removingBlockIds.contains(block.id) else { return }
+        removingBlockIds.insert(block.id)
+        defer { removingBlockIds.remove(block.id) }
         let previousText = currentText(previous)
         let seam = previousText.count
         let merged = previousText + currentText(block)
@@ -1475,14 +1526,22 @@ final class ScriptModel {
             report(APIError.forbidden)
             return
         }
+        // The absorbed element's own words are in the line above now, so a
+        // debounce still counting down for it has nothing left to say — and
+        // saying it into the gap this DELETE is about to open gets the whole
+        // merge refused. See `stopWrites(to:)`.
+        let held = liveText[block.id]
+        stopWrites(to: block.id)
         do {
             try await app.client.data(for: deleteLink, method: "DELETE")
         } catch {
             // The absorbed element is still there, so the merged text now
             // appears twice. Put the previous block back and leave the
-            // script as it was before the Backspace.
+            // script as it was before the Backspace — including the write
+            // called off just above, since those words are unsaved again.
             liveText[previous.id] = previousText
             await commit(previous.id)
+            if held != nil { scheduleCommit(block.id) }
             report(error)
             return
         }
