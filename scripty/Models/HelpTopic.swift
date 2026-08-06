@@ -780,6 +780,24 @@ extension HelpTopic {
                     + "with no connection the sheet is drawn here instead, from the "
                     + "words on screen — including the ones typed since the last save, "
                     + "and from a note that has never reached the server at all.",
+                    "A song can keep the recording as well as the words. "
+                    + "Recordings sits at the foot of the lyric — under the last "
+                    + "line while you write, under the page while you read — and "
+                    + "holds what this song sounds like: the voice memo you sang "
+                    + "the tune into, the demo the band sent back, a reference "
+                    + "track you are chasing. "
+                    + "Add Recording takes an MP3, M4A, WAV, AIFF, FLAC or "
+                    + "OGG file of 25 MB or less from anywhere the Files app can "
+                    + "reach, up to fifty of them. Each plays in place, one at a time, "
+                    + "and keeps playing with the screen off; swipe a take to rename "
+                    + "or delete it, or press and hold to send a copy on. Anyone who "
+                    + "can open the song can listen — adding and deleting need the "
+                    + "same permission the lyrics do. Recordings are the one thing "
+                    + "that stays behind when a song travels: they are not carried in "
+                    + "an export, an email, a printed sheet or the bundle that moves "
+                    + "work into an account when you sign in, so save anything you "
+                    + "cannot replace first. Deleting one is final — there is no "
+                    + "trash for a file.",
                     "Archiving is not deleting. A song or note set aside from its "
                     + "menu leaves the list whole and readable, with nothing counting "
                     + "down against it; Archived Songs & Notes lists what is on the "
@@ -931,6 +949,9 @@ extension HelpTopic {
                     + "closing what you are reading."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
+                           "recording", "recordings", "voice memo", "demo",
+                           "mp3", "m4a", "wav", "aiff", "flac", "upload",
+                           "attach", "play", "playback", "track", "tape",
                            "workspace", "list", "bullets", "heading",
                            "read", "reading", "read song", "read note", "prose",
                            "read songs", "all songs", "one page", "set list",

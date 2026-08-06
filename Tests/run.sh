@@ -485,6 +485,22 @@ swiftc "${FLAGS[@]}" -o "$BUILD/api" \
 run_suite "$BUILD/api" || status=1
 
 echo
+echo "== A song's recordings =="
+swiftc "${FLAGS[@]}" -o "$BUILD/songaudio" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/Models/"*.swift \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/SongAudio/main.swift"
+run_suite "$BUILD/songaudio" || status=1
+
+echo
 echo "== The signed-out workspace survives a relaunch =="
 swiftc "${FLAGS[@]}" -o "$BUILD/localworkspace" \
     "$SRC/Demo/DemoBackend.swift" \

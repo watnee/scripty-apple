@@ -248,6 +248,19 @@ actor DemoBackend {
         var nextUserId: Int
         var accountPassword: String
         var passkeyStore: [DemoPasskey]
+        /// A song's recordings, described. Optional for the reason
+        /// `handedOffProjectIds` above is: a workspace written before this
+        /// existed has no such key, and a synthesised decoder reads a missing
+        /// non-optional as a failure — which would be read in turn as "no
+        /// workspace" and open the device on the sample screenplay with the
+        /// writer's own work gone.
+        ///
+        /// The bytes are not here. They go to files beside this one — see
+        /// `songAudioData` — because this document is rewritten after every
+        /// change, and re-encoding four takes to base64 on each keystroke is
+        /// not a thing to do to a phone.
+        var songAudio: [Int: [DemoSongAudio]]?
+        var nextSongAudioId: Int?
     }
 
     init(store: LocalWorkspaceStore? = nil) {
@@ -326,7 +339,9 @@ actor DemoBackend {
                  usersStore: usersStore,
                  nextUserId: nextUserId,
                  accountPassword: accountPassword,
-                 passkeyStore: passkeyStore)
+                 passkeyStore: passkeyStore,
+                 songAudio: songAudio,
+                 nextSongAudioId: nextSongAudioId)
     }
 
     private func restore(_ snapshot: Snapshot) {
@@ -378,6 +393,10 @@ actor DemoBackend {
         nextUserId = snapshot.nextUserId
         accountPassword = snapshot.accountPassword
         passkeyStore = snapshot.passkeyStore
+        // Absent in a workspace written before songs could hold a recording,
+        // which means none of them do.
+        songAudio = snapshot.songAudio ?? [:]
+        nextSongAudioId = snapshot.nextSongAudioId ?? 1
     }
 
     /// Written out synchronously, on the request that changed something.
@@ -534,6 +553,9 @@ actor DemoBackend {
             case "version":
                 return routeSongVersion(method: method, path: Array(path.dropFirst(3)),
                                         query: query, fields: fields)
+            case "audio":
+                return routeSongAudio(method: method, path: Array(path.dropFirst(3)),
+                                      query: query, fields: fields, body: body)
             default:
                 return notFound()
             }
@@ -2016,6 +2038,10 @@ actor DemoBackend {
             // to scope. A note is plain text with nothing to vary.
             links["editions"] = link("/api/song/edition?documentId=\(document.id)")
             links["songBlocks"] = link("/api/song/block?documentId=\(document.id)")
+            // The recordings kept with this song. Advertised whether or not
+            // there are any, as the server does — a song with none is where a
+            // client offers to add the first.
+            links["audioRecordings"] = link("/api/song/audio?documentId=\(document.id)")
             // A score rather than a document to read, and the format the song
             // importer reads back. The one export that is still song-only: the
             // server refuses a note a stave rather than handing back an empty
@@ -3692,6 +3718,204 @@ actor DemoBackend {
         ]
         if let label = version.label { json["label"] = label }
         return json
+    }
+
+    // MARK: - Song recordings
+
+    /// A recording kept with a song, described. What it sounds like is not in
+    /// here — see `songAudioData`.
+    private struct DemoSongAudio: Codable {
+        var id: Int
+        var documentId: Int
+        var title: String
+        var fileName: String
+        var contentType: String
+        var byteSize: Int
+        var durationMs: Int?
+        var sortOrder: Int
+        var createdAt: Date
+    }
+
+    /// Descriptions, per song. Persisted with the rest of the workspace.
+    private var songAudio: [Int: [DemoSongAudio]] = [:]
+    private var nextSongAudioId = 1
+
+    /// The bytes, by recording id.
+    ///
+    /// Deliberately *not* in the workspace snapshot. That file is one JSON
+    /// document rewritten after every change, and a signed-out writer with four
+    /// takes on a song would have the whole of them re-encoded to base64 and
+    /// written to disk on every keystroke that touched anything. They go to
+    /// files of their own instead, beside the workspace, and are read back the
+    /// first time a take is played rather than at launch.
+    private var songAudioData: [Int: Data] = [:]
+
+    private func routeSongAudio(method: String, path: [String],
+                                query: [String: String],
+                                fields: [String: Any],
+                                body: Data?) -> (Int, Data) {
+        guard let documentId = query["documentId"].flatMap(Int.init) else {
+            return badRequest("documentId")
+        }
+        switch (method, path.count) {
+        case ("GET", 0):
+            return ok(songAudioCollection(documentId))
+        case ("POST", 0):
+            return storeSongAudio(documentId, body: body)
+        default:
+            break
+        }
+
+        guard let audioId = path.first.flatMap(Int.init),
+              let index = songAudio[documentId]?.firstIndex(where: { $0.id == audioId })
+        else { return notFound() }
+
+        switch (method, path.dropFirst().first) {
+        case ("GET", nil):
+            return ok(songAudioJSON(songAudio[documentId]![index]))
+        case ("GET", "file"):
+            // The one route in this backend that answers with something other
+            // than JSON — the same thing the real one does, so the client's
+            // player is handed a file either way.
+            guard let data = songAudioBytes(audioId) else { return notFound() }
+            return (200, data)
+        case ("PUT", nil):
+            let title = (fields["title"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !title.isEmpty else { return badRequest("title") }
+            songAudio[documentId]![index].title = String(title.prefix(200))
+            return ok(songAudioJSON(songAudio[documentId]![index]))
+        case ("DELETE", nil):
+            songAudio[documentId]?.remove(at: index)
+            songAudioData[audioId] = nil
+            store?.deleteMedia(named: Self.mediaName(audioId))
+            return ok(songAudioCollection(documentId))
+        default:
+            return notFound()
+        }
+    }
+
+    /// Adds a recording, refusing the same two things the server refuses: a
+    /// document that is not a song, and a file that is not audio.
+    private func storeSongAudio(_ documentId: Int, body: Data?) -> (Int, Data) {
+        guard documentType(documentId) == "SONG" else {
+            return (400, (try? JSONSerialization.data(
+                withJSONObject: ["file": "Only songs can hold recordings."])) ?? Data("{}".utf8))
+        }
+        guard let parsed = parseMultipart(body),
+              let fileName = parsed.fileName,
+              let data = parsed.fileData, !data.isEmpty else {
+            return badRequest("file")
+        }
+        guard let contentType = Self.audioContentType(for: fileName) else {
+            return (400, (try? JSONSerialization.data(withJSONObject: [
+                "file": "That file is not audio. Add an MP3, M4A, WAV, AIFF, FLAC or OGG recording."
+            ])) ?? Data("{}".utf8))
+        }
+
+        let title = (parsed.fields["title"]?.trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? (fileName as NSString).deletingPathExtension
+        let audio = DemoSongAudio(
+            id: nextSongAudioId,
+            documentId: documentId,
+            title: String(title.prefix(200)),
+            fileName: fileName,
+            contentType: contentType,
+            byteSize: data.count,
+            durationMs: parsed.fields["durationMs"].flatMap(Int.init),
+            sortOrder: songAudio[documentId]?.count ?? 0,
+            createdAt: .now)
+        nextSongAudioId += 1
+        songAudio[documentId, default: []].append(audio)
+        songAudioData[audio.id] = data
+        store?.saveMedia(data, named: Self.mediaName(audio.id))
+        return (201, (try? JSONSerialization.data(withJSONObject: songAudioJSON(audio)))
+                ?? Data("{}".utf8))
+    }
+
+    /// The bytes of a take, from memory or — after a relaunch — from the file
+    /// they were written to.
+    private func songAudioBytes(_ audioId: Int) -> Data? {
+        if let held = songAudioData[audioId] { return held }
+        guard let loaded = store?.loadMedia(named: Self.mediaName(audioId)) else { return nil }
+        songAudioData[audioId] = loaded
+        return loaded
+    }
+
+    private func songAudioCollection(_ documentId: Int) -> [String: Any] {
+        let recordings = (songAudio[documentId] ?? []).sorted {
+            ($0.sortOrder, $0.id) < ($1.sortOrder, $1.id)
+        }
+        return [
+            "_embedded": ["audioRecordings": recordings.map { songAudioJSON($0) }],
+            "_links": [
+                "self": link("/api/song/audio?documentId=\(documentId)"),
+                "uploadAudio": link("/api/song/audio?documentId=\(documentId)"),
+                "song": link("/api/document/\(documentId)"),
+                "songBlocks": link("/api/song/block?documentId=\(documentId)"),
+            ],
+        ]
+    }
+
+    private func songAudioJSON(_ audio: DemoSongAudio) -> [String: Any] {
+        let suffix = "?documentId=\(audio.documentId)"
+        var json: [String: Any] = [
+            "id": audio.id,
+            "documentId": audio.documentId,
+            "title": audio.title,
+            "fileName": audio.fileName,
+            "contentType": audio.contentType,
+            "byteSize": audio.byteSize,
+            "sortOrder": audio.sortOrder,
+            "createdAt": iso.string(from: audio.createdAt),
+            "_links": [
+                "self": link("/api/song/audio/\(audio.id)\(suffix)"),
+                "audioFile": link("/api/song/audio/\(audio.id)/file\(suffix)"),
+                "audioRecordings": link("/api/song/audio\(suffix)"),
+                "song": link("/api/document/\(audio.documentId)"),
+                "renameAudio": link("/api/song/audio/\(audio.id)\(suffix)"),
+                "deleteAudio": link("/api/song/audio/\(audio.id)\(suffix)"),
+            ],
+        ]
+        if let durationMs = audio.durationMs {
+            json["durationMs"] = durationMs
+        }
+        return json
+    }
+
+    private static func mediaName(_ audioId: Int) -> String {
+        "song-audio-\(audioId)"
+    }
+
+    /// What kind of document this is, wherever it is being kept — an archived
+    /// song still holds its recordings, as it holds its lyrics.
+    private func documentType(_ id: Int) -> String? {
+        switch siteOfDocument(id) {
+        case let .live(projectId, index): return documents[projectId]?[index].documentType
+        case let .archived(projectId, index):
+            return archivedDocuments[projectId]?[index].document.documentType
+        case nil: return nil
+        }
+    }
+
+    /// What to serve a file back as, read from its extension. Shorter than the
+    /// server's table on purpose: this one only has to recognise what a picker
+    /// on this device can hand over.
+    private static func audioContentType(for fileName: String) -> String? {
+        switch (fileName as NSString).pathExtension.lowercased() {
+        case "mp3": return "audio/mpeg"
+        case "m4a", "mp4": return "audio/mp4"
+        case "aac": return "audio/aac"
+        case "wav": return "audio/wav"
+        case "aif", "aiff": return "audio/aiff"
+        case "flac": return "audio/flac"
+        case "ogg", "oga": return "audio/ogg"
+        case "opus": return "audio/opus"
+        case "webm": return "audio/webm"
+        case "caf": return "audio/x-caf"
+        default: return nil
+        }
     }
 
     // MARK: - Song versions

@@ -240,6 +240,26 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let songBlocks = Rel("songBlocks")
     static let setHighlight = Rel("setHighlight")
 
+    /// The recordings kept with a song — the voice memo the tune was first sung
+    /// into, the demo, the reference track.
+    ///
+    /// `audioRecordings` hangs off the song document and off songs only: a note
+    /// has nothing to hear. It arrives whether or not there are any, and for a
+    /// reader as well as an editor — listening needs no permission to write —
+    /// so its absence means the server has never heard of recordings, which is
+    /// how this client decides whether to draw them at all.
+    ///
+    /// `uploadAudio` rides on that collection; `renameAudio` and `deleteAudio`
+    /// ride on a take, all three behind the edit gate. `audioFile` is the one
+    /// href in the vocabulary that answers with something other than JSON, and
+    /// every use of a recording — playing it, saving it, sharing it — is that
+    /// one link.
+    static let audioRecordings = Rel("audioRecordings")
+    static let uploadAudio = Rel("uploadAudio")
+    static let audioFile = Rel("audioFile")
+    static let renameAudio = Rel("renameAudio")
+    static let deleteAudio = Rel("deleteAudio")
+
     // Named variants of a script or a song.
     static let editions = Rel("editions")
     static let setDefault = Rel("setDefault")
