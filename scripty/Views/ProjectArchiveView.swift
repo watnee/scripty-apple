@@ -11,10 +11,10 @@
 //  not in it — so opening one means bringing it back first. Unarchive is
 //  therefore the primary action rather than the way to a secondary one.
 //
-//  Nothing here is destructive and nothing is on a clock, so — unlike
-//  `TrashView` — no action asks first. Deleting from the archive is the
-//  ordinary soft delete: it lands in the trash and stays restorable, which is
-//  why it needs no alert either.
+//  Nothing here is on a clock, so — unlike `TrashView` — unarchiving asks
+//  nothing. Delete does, as it does in the list: it is the ordinary soft delete
+//  and the trash catches it, but it is still a whole production leaving on one
+//  swipe, and the same action should not ask on one screen and not the other.
 //
 //  Edit mode ticks rows for the one action worth repeating, as the document
 //  archive does. There is no bulk archive one level up to mirror — screenplays
@@ -33,6 +33,9 @@ struct ProjectArchiveView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selection = Set<Int>()
     @State private var editMode: EditMode = .inactive
+    /// The screenplay a delete has been asked for but not yet confirmed — the
+    /// list's `pendingDelete`, for the same reason.
+    @State private var pendingDelete: ArchivedProject?
 
     init(app: AppModel,
          source: HALLink,
@@ -59,7 +62,7 @@ struct ProjectArchiveView: View {
                         .swipeActions(edge: .trailing) {
                             if model.canDelete(project) {
                                 Button(role: .destructive) {
-                                    delete(project)
+                                    pendingDelete = project
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -74,10 +77,12 @@ struct ProjectArchiveView: View {
                                 }
                             }
                             if model.canDelete(project) {
-                                // Not the trash's purge: this is the soft delete,
-                                // and the trash catches it — so no alert.
+                                // Not the trash's purge: this is the soft
+                                // delete, and the trash catches it — which is
+                                // what the alert says rather than warning of a
+                                // loss that is not one.
                                 Button(role: .destructive) {
-                                    delete(project)
+                                    pendingDelete = project
                                 } label: {
                                     Label("Move to Trash", systemImage: "trash")
                                 }
@@ -104,6 +109,17 @@ struct ProjectArchiveView: View {
             }
             .task { await model.load() }
             .refreshable { await model.load() }
+            // Worded and built as the list's is — see `ProjectsSidebarView`
+            // for why the name is in the message rather than the title.
+            .alert("Delete Screenplay?", isPresented: deleteBinding, presenting: pendingDelete) { project in
+                Button("Cancel", role: .cancel) { pendingDelete = nil }
+                Button("Delete", role: .destructive) {
+                    pendingDelete = nil
+                    delete(project)
+                }
+            } message: { project in
+                Text("“\(project.displayTitle)” moves to the trash with its script, songs, notes and versions. It can be restored from Recently Deleted.")
+            }
             .alert("Error", isPresented: errorBinding) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -179,6 +195,11 @@ struct ProjectArchiveView: View {
                     description: Text("Archive a screenplay to put it aside without deleting it. It keeps its script, songs, notes and versions, and nothing here is ever removed on its own."))
             }
         }
+    }
+
+    private var deleteBinding: Binding<Bool> {
+        Binding(get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } })
     }
 
     private var errorBinding: Binding<Bool> {

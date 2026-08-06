@@ -163,6 +163,9 @@ extension HelpTopic {
                 title: "Deleted a Project by Mistake?",
                 systemImage: "trash",
                 paragraphs: [
+                    "Deleting a screenplay asks first, naming the one you swiped — a "
+                    + "whole production leaves the list at once, so the swipe alone is "
+                    + "not enough to send it.",
                     "Deleting a screenplay moves it to Recently Deleted rather than "
                     + "erasing it, and it comes back with its scenes, characters, "
                     + "versions, songs and notes intact.",
@@ -172,7 +175,7 @@ extension HelpTopic {
                     + "ask an administrator."
                 ],
                 keywords: ["recover", "recovery", "undelete", "lost", "missing", "gone",
-                           "accident", "bin"]),
+                           "accident", "bin", "confirm", "are you sure", "asks first"]),
             HelpTopic(
                 id: "demo",
                 title: "Using Scripty Without an Account",
