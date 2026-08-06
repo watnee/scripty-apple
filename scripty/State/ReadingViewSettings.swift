@@ -60,6 +60,11 @@ final class ReadingViewSettings {
         /// opposite — see `chosenReadingView`, which is what lets this screen
         /// open to be written in while the documents keep their own rule.
         case songsWorkspace(project: Int)
+        /// Every note in a project on one screen, keyed the same way and for
+        /// the same reasons. Its own key rather than the songs workspace's:
+        /// they are two screens, reached by two buttons, and a writer who put
+        /// the songs up to be read has said nothing about the notes.
+        case notesWorkspace(project: Int)
     }
 
     /// Whether documents nobody has made a choice about open ready to type in.
@@ -119,6 +124,7 @@ final class ReadingViewSettings {
         case .screenplay(let project): return "scripty-reading-view-project-\(project)"
         case .document(let id): return "scripty-reading-view-document-\(id)"
         case .songsWorkspace(let project): return "scripty-reading-view-songs-workspace-\(project)"
+        case .notesWorkspace(let project): return "scripty-reading-view-notes-workspace-\(project)"
         }
     }
 

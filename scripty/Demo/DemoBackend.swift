@@ -1635,14 +1635,15 @@ actor DemoBackend {
                                       type: query["type"], ids: idList(query["ids"]))
         }
 
-        // …and so is the bulk delete, which trashes a selection of songs.
+        // …and so is the bulk delete, which trashes a selection of songs or
+        // notes, and the bulk email, which sends one.
         if method == "POST", path.first == "bulk", path.dropFirst().first == "delete" {
             return bulkDeleteDocuments(query: query, fields: fields)
         }
         if method == "POST", path.first == "bulk", path.dropFirst().first == "share-email" {
             return bulkShareDocuments(query: query, fields: fields)
         }
-        // …and the bulk archive, which unlike the bulk delete takes notes too.
+        // …and the bulk archive, which takes either kind as they all now do.
         if method == "POST", path.first == "bulk", path.dropFirst().first == "archive" {
             return bulkArchiveDocuments(query: query, fields: fields)
         }
@@ -1982,9 +1983,11 @@ actor DemoBackend {
                    "_links": documentCollectionLinks(projectId: projectId)])
     }
 
-    /// Trashes several songs at once, skipping anything that is not a song of
-    /// this project — a mixed selection takes the songs and leaves the notes,
-    /// as the server's own bulk delete does. Answers with what is left.
+    /// Trashes several documents at once — songs, notes, or a mix of the two,
+    /// as the server's own bulk delete takes. It skipped anything that was not
+    /// a song, which the service behind the real one used to do and no longer
+    /// does. Ids that are missing or belong to another project are still
+    /// skipped. Answers with what is left.
     private func bulkDeleteDocuments(query: [String: String], fields: [String: Any]) -> (Int, Data) {
         guard let projectId = query["projectId"].flatMap(Int.init),
               documents[projectId] != nil else { return badRequest("projectId") }
@@ -1992,9 +1995,8 @@ actor DemoBackend {
         guard !ids.isEmpty else { return badRequest("ids") }
         var deleted = 0
         for id in Set(ids) {
-            guard let index = documents[projectId]?.firstIndex(where: {
-                $0.id == id && $0.documentType == "SONG"
-            }) else { continue }
+            guard let index = documents[projectId]?.firstIndex(where: { $0.id == id })
+            else { continue }
             if let removed = documents[projectId]?.remove(at: index) {
                 deletedDocuments[projectId, default: []].append(
                     DeletedDemoDocument(document: removed, deletedAt: Date()))
@@ -2005,9 +2007,8 @@ actor DemoBackend {
         return documentCollection(projectId)
     }
 
-    /// Archives several documents at once. Unlike the bulk delete this takes
-    /// notes as well as songs — archiving does nothing type-specific — and ids
-    /// already archived or from another project are skipped.
+    /// Archives several documents at once — either kind, as the delete beside it
+    /// now also takes. Ids already archived or from another project are skipped.
     private func bulkArchiveDocuments(query: [String: String], fields: [String: Any]) -> (Int, Data) {
         guard let projectId = query["projectId"].flatMap(Int.init),
               documents[projectId] != nil else { return badRequest("projectId") }
@@ -2035,19 +2036,20 @@ actor DemoBackend {
                    "_links": documentCollectionLinks(projectId: projectId)])
     }
 
-    /// Emails several songs at once. Nothing leaves the device in demo mode —
-    /// there is no mail to send — but the reply is shaped like the server's so
-    /// the client can say honestly how many *would* have gone: notes caught in
-    /// the selection are skipped here exactly as they are there.
+    /// Emails several documents at once. Nothing leaves the device in demo mode
+    /// — there is no mail to send — but the reply is shaped like the server's so
+    /// the client can say honestly how many *would* have gone. Songs, notes or a
+    /// mix, which is what the real one sends: notes in the selection were
+    /// skipped here, and are not any more.
     private func bulkShareDocuments(query: [String: String], fields: [String: Any]) -> (Int, Data) {
         guard let projectId = query["projectId"].flatMap(Int.init),
-              let songs = documents[projectId] else { return badRequest("projectId") }
+              let chosen = documents[projectId] else { return badRequest("projectId") }
         let ids = (fields["ids"] as? [Any])?.compactMap { $0 as? Int } ?? []
         guard !ids.isEmpty else { return badRequest("ids") }
         let email = (fields["email"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
         guard !email.isEmpty else { return badRequest("email") }
-        let titles = songs
-            .filter { ids.contains($0.id) && $0.documentType == "SONG" }
+        let titles = chosen
+            .filter { ids.contains($0.id) }
             .map(\.title)
         guard !titles.isEmpty else { return badRequest("email") }
         return ok(["shared": titles.count, "titles": titles, "email": email])
@@ -2080,9 +2082,9 @@ actor DemoBackend {
             "importDocument": link("/api/document/import"),
             "reorder": link("/api/document/reorder?projectId=\(projectId)"),
             "trash": link("/api/document/trash?projectId=\(projectId)"),
-            // Both carry no has-a-song condition, unlike the bulk rels below:
-            // notes archive too, and the archive is advertised even when empty
-            // since a list can be empty precisely because everything is in it.
+            // No has-a-song condition on either: notes archive too, and the
+            // archive is advertised even when empty since a list can be empty
+            // precisely because everything is in it.
             "archived": link("/api/document/archive?projectId=\(projectId)"),
             "bulkArchive": link("/api/document/bulk/archive?projectId=\(projectId)"),
             // Unscoped, as the server advertises it when the list itself was
@@ -2110,9 +2112,19 @@ actor DemoBackend {
                                   ("exportSongsMusicXml", "musicxml")] {
                 links[rel] = link("/api/document/export-songs?projectId=\(projectId)&format=\(format)")
             }
-            // Deleting a selection is songs-only and an edit, so it rides with
-            // the songbook's condition but inside the edit gate — which the
-            // demo is always on the right side of.
+        }
+        // Deleting and emailing a selection. These used to ride with the
+        // songbook's condition above, because the services behind them skipped
+        // anything that was not a song. They no longer do — a ticked note is
+        // trashed and emailed exactly as a ticked song is — so the only question
+        // left is whether there is anything at all to select, which is the rule
+        // the server now goes by. Left here they made a project of notes the one
+        // place where the selection bar came up missing two of its five buttons,
+        // and only in the demo: signed in, the same list showed all five.
+        //
+        // Still inside the edit gate on the server. The demo is always on the
+        // right side of that, as the import and reorder links above assume.
+        if !(documents[projectId] ?? []).isEmpty {
             links["bulkDelete"] = link("/api/document/bulk/delete?projectId=\(projectId)")
             links["bulkShareEmail"] = link("/api/document/bulk/share-email?projectId=\(projectId)")
         }
