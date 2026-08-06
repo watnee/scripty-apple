@@ -430,6 +430,14 @@ struct ScriptView: View {
         // Hidden notes are hidden on paper too — otherwise the page count in
         // the navigator disagrees with the script on screen.
         .onChange(of: options.showsNotes) { _, _ in repaginate() }
+        // And outline mode narrows the script far harder than hidden notes do,
+        // so paper has to follow it for the same reason. Missed until now
+        // because the two modes were only ever crossed on the way *into* page
+        // view, which repaginates below — turning outlining on or off while
+        // already on paper left the old sheets standing, and turning it off
+        // over a script with no outline in it left the writer looking at
+        // "Nothing to Paginate" over a script that has plenty to print.
+        .onChange(of: settings.isOutlineMode) { _, _ in repaginate() }
         // The editing lock is per edition, so it has to follow the switch.
         .onChange(of: editions.selectedId) { _, id in options.editionId = id }
         // Pagination is skipped while the editor is up, so switching into page
@@ -1580,6 +1588,25 @@ struct ScriptView: View {
         }
     }
 
+    /// Paper with nothing on it — which is two quite different situations, and
+    /// used to be one message that was a dead end in the first and untrue in the
+    /// second.
+    ///
+    /// *No elements at all* is where the first undo of a new screenplay lands:
+    /// the element the app seeds on opening is a checkpoint like any other, so
+    /// ⌘Z on an untouched script takes it away again. The way on from there —
+    /// "Start Writing" — lives on the writing column, which page view has
+    /// swapped out, and this surface's toolbar deliberately carries no undo
+    /// pair, so paper had nothing to offer at all. Now it makes the column's own
+    /// offer; the seeding still happens in the column, because a sheet of paper
+    /// is not something a writer can type into. Same reasoning as
+    /// `leaveEmptyReader`: an empty state whose only move sits on a surface
+    /// nobody can reach is the mode at its least useful.
+    ///
+    /// *Elements, but none that print* genuinely has nothing to paginate. Notes,
+    /// sections and synopses never go to paper, and outline mode can narrow the
+    /// script down to exactly those — of which only a scene heading prints. The
+    /// old wording called that script empty, which it plainly was not.
     @ViewBuilder
     private var pageEmptyState: some View {
         if pages.isEmpty {
@@ -1588,13 +1615,50 @@ struct ScriptView: View {
             // writing column and the reader both check this first.
             if model.isLoading {
                 ProgressView()
+            } else if model.blocks.isEmpty {
+                ContentUnavailableView {
+                    Label("Empty Script", systemImage: "doc.plaintext")
+                } description: {
+                    Text("There is nothing to print yet. "
+                         + "Start writing to fill the first page.")
+                } actions: {
+                    // Gated exactly as the column's offer is, so the two empty
+                    // states appear and disappear together.
+                    if model.canSeedScript {
+                        Button("Start Writing") { startWritingFromPaper() }
+                            .buttonStyle(.glassProminent)
+                    }
+                }
             } else {
-                ContentUnavailableView(
-                    "Nothing to Paginate",
-                    systemImage: "doc.richtext",
-                    description: Text("This script has no elements yet."))
+                ContentUnavailableView {
+                    Label("Nothing to Paginate", systemImage: "doc.richtext")
+                } description: {
+                    Text(settings.isOutlineMode
+                         ? "Outline mode shows only scenes, sections and synopses, "
+                            + "and of those only scene headings are printed. "
+                            + "This script has none to print."
+                         : "Notes, sections and synopses are never printed, "
+                            + "and this script has nothing else in it.")
+                } actions: {
+                    if settings.isOutlineMode {
+                        Button("Show Whole Script") { settings.isOutlineMode = false }
+                            .buttonStyle(.glassProminent)
+                    }
+                }
             }
         }
+    }
+
+    /// Start a screenplay from the paper surface: the script comes off paper
+    /// first, then seeds its first element.
+    ///
+    /// Both halves are needed. `seedInitialBlock` focuses what it makes, and a
+    /// focused element behind a page view is a caret nobody can see — so the
+    /// order here is leave, then seed, which lands the writer in the column with
+    /// the new element already under the cursor.
+    private func startWritingFromPaper() {
+        settings.isPageView = false
+        Task { await model.seedInitialBlock() }
     }
 
     /// Scrolls to the element the writer left off at, once, the first time a

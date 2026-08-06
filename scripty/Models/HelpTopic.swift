@@ -524,10 +524,15 @@ extension HelpTopic {
                     + "(MORE) and resumes under CHARACTER (CONT'D).",
                     "Page Setup chooses the paper size, the margins and where the page "
                     + "numbers sit. The same choice is used for the PDF export and for "
-                    + "printing, so what you see is what comes out."
+                    + "printing, so what you see is what comes out.",
+                    "Paper with nothing on it says which kind of nothing it is. An empty "
+                    + "screenplay offers Start Writing, which puts the script back in the "
+                    + "writing column with a first element ready to type into. A script "
+                    + "holding only notes, sections and synopses has nothing to print, "
+                    + "because none of those go to paper."
                 ],
                 keywords: ["pages", "paper", "pagination", "letter", "a4", "margins",
-                           "print", "more", "cont'd"]),
+                           "print", "more", "cont'd", "empty", "blank", "nothing to paginate"]),
             HelpTopic(
                 id: "focus",
                 title: "Focus Mode and Full Width",
