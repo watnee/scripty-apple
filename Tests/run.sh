@@ -155,6 +155,8 @@ swiftc "${FLAGS[@]}" -o "$BUILD/narration" \
     "$SRC/Models/Block.swift" \
     "$SRC/Models/NoteFormatting.swift" \
     "$SRC/Models/NoteReading.swift" \
+    "$SRC/Models/NarrationSpeed.swift" \
+    "$SRC/Models/NarrationVoices.swift" \
     "$SRC/Models/ScriptNarration.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/Narration/main.swift"
