@@ -2593,63 +2593,39 @@ struct ScriptView: View {
             // opened offline never fetched its status, and hiding the button
             // then would hide it exactly when the local steps exist.
             //
-            // A hold offers Redo — the same hold-for-the-other-half gesture
-            // Safari's back button taught, and the one `documentButton` already
-            // uses in this bar for the last songs and notes. It puts redo one
-            // gesture from undo instead of a trip into the "…", without
-            // spending the capsule budget a second button would.
+            // A hold keeps undoing — see `HistoryStepButton`, which every
+            // editor's pair is now made of, for why a step back is almost never
+            // one step and why the repeat drops rather than queues what the
+            // server has not answered yet.
             //
-            // It follows `documentButton`'s rule to the letter: a menu only
-            // where there is something in it. With nothing to redo this is a
-            // plain button, which is what an earlier round arrived at after a
-            // menu-for-everything version proved worse — a menu control reads
-            // as "there is something else in here" wherever the platform draws
-            // its indicator, and greying on the *pair* being empty left a fresh
-            // script showing a live Undo that did nothing. A fresh script has
-            // nothing to redo, so it takes the plain branch and greys out
-            // exactly when there is nothing to undo, as before.
+            // That hold used to open a menu holding both halves, which is the
+            // one thing a repeat cannot share a gesture with. It is the better
+            // trade: reaching redo through it saved a trip into the "…" that
+            // hardly anybody was making, where the writer walking back a
+            // mistyped paragraph is doing the commonest thing there is with
+            // this button and was tapping it six times to do it. The menu's
+            // other job — saying *why* a live-looking Undo does nothing, when
+            // the stack is empty but redo's is not — goes back to the plain
+            // greying below, which is the ordinary answer and the one every
+            // other button in this bar gives.
             //
-            // Only with something to redo does the menu appear, and then it
-            // holds *both* halves, each greyed on its own stack. That is what
-            // answers the other half of the old complaint: the control has to
-            // stay live while redo is live, so undoing back to the very start
-            // leaves a button whose tap does nothing — and the hold is where it
-            // says why, with Undo greyed beside a live Redo.
-            //
-            // Redo keeps its place in the overflow below either way: a hold is
-            // a gesture nobody is told about, so it is the fast path for those
-            // who know it, not the only path.
+            // Redo keeps its place in the overflow below, as it did while the
+            // menu stood: it is one glyph this bar cannot spare up here — see
+            // the paragraph above for what a second button in this capsule
+            // costs. Undo is listed down there beside it now as well, which is
+            // not tidiness: this control is not a `Button`, and a bar with no
+            // room drops it rather than folding it into the "…" the way it
+            // folds a button. The group below is what a phone is left with, and
+            // a menu row cannot be held — so on a phone the screenplay's pair
+            // walks one step per tap, as it always did, and the hold belongs to
+            // the bars wide enough to draw this. A keyboard has ⌘Z and ⌘⇧Z, and
+            // the lyric and note editors, whose pairs sit on the leading edge
+            // where there is room for two, hold on either half.
             if model.offersUndoRedo, !settings.isPageView, !isReading {
-                if model.canRedo {
-                    Menu {
-                        Button {
-                            Task { await model.undo() }
-                        } label: {
-                            Label("Undo", systemImage: "arrow.uturn.backward")
-                        }
-                        .disabled(!model.canUndo)
-
-                        Button {
-                            Task { await model.redo() }
-                        } label: {
-                            Label("Redo", systemImage: "arrow.uturn.forward")
-                        }
-                    } label: {
-                        Label("Undo", systemImage: "arrow.uturn.backward")
-                    } primaryAction: {
-                        // Guarded rather than disabled: the control is live
-                        // because redo is, and a tap with nothing behind it
-                        // must not walk the stack the wrong way.
-                        guard model.canUndo else { return }
-                        Task { await model.undo() }
-                    }
-                } else {
-                    Button {
-                        Task { await model.undo() }
-                    } label: {
-                        Label("Undo", systemImage: "arrow.uturn.backward")
-                    }
-                    .disabled(!model.canUndo)
+                HistoryStepButton(title: "Undo",
+                                  systemImage: "arrow.uturn.backward",
+                                  isOffered: { model.canUndo }) {
+                    await model.undo()
                 }
             }
 
@@ -2784,18 +2760,37 @@ struct ScriptView: View {
             }
         }
 
-        // Redo, the half of the pair the bar had no room to draw. A hold on
-        // Undo reaches it too once there is something to redo, but a hold is
-        // not a gesture anyone is told about, so this stays as the visible
-        // path. It stays in the overflow in focus mode too, where undo is
-        // still up in the bar — the two are useless apart.
+        // The pair in the "…", which is where a bar with no room for them puts
+        // everything. Redo has always been here — it is the half the bar cannot
+        // spare a glyph for. Undo is here as well now, and has to be: the
+        // control up in the bar is not a `Button` (see `HistoryStepButton` for
+        // why a hold leaves no other choice), and an item that is not a button
+        // is *dropped* rather than collapsed when the bar runs out of room.
+        // Measured on a 390pt iPhone, where that whole capsule goes into the
+        // "…": without this, the screenplay's Undo was reachable nowhere on the
+        // one device where it collapses.
         //
-        // Which is why it carries the reader's gate as well: undo is drawn
+        // So the phone gets what it had before — one step per tap, from a menu
+        // row, which is a menu row's limit — and the bars with the room to draw
+        // the control get the hold. A duplicate where both are drawn, which is
+        // what `projectButtons` already accepts for the same reason: an
+        // affordance that exists only in a place that may not appear is an
+        // affordance that may not be reachable.
+        //
+        // Both carry the reader's gate as well: the bar's Undo is drawn
         // `!isReading`, and without the same test here the reader's overflow
         // offered a lone Redo — half a pair, on a screen with nothing to redo
-        // into, and no Undo anywhere to make sense of it.
+        // into. And both stay through focus mode, where undo is still up in the
+        // bar: the two are useless apart.
         if model.offersUndoRedo, !settings.isPageView, !isReading {
-            ToolbarItem(placement: .secondaryAction) {
+            ToolbarItemGroup(placement: .secondaryAction) {
+                Button {
+                    Task { await model.undo() }
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!model.canUndo)
+
                 Button {
                     Task { await model.redo() }
                 } label: {

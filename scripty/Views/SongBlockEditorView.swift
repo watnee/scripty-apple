@@ -998,28 +998,30 @@ struct SongBlockEditorView: View {
         // nothing on that surface for a step back to be a step back from.
         if model.offersUndoRedo && !isReading {
             ToolbarItemGroup(placement: .navigation) {
+                // Held, either one keeps walking — see `HistoryStepButton`,
+                // which the screenplay's Undo is made of too. A lyric is where
+                // that matters most: a verse is retyped a line at a time, so
+                // the change a writer wants gone is a run of small steps rather
+                // than one big one.
+                //
                 // Both rewind the lyric to a different set of lines, so the
                 // matched set has to be taken again or a search would keep
-                // hiding rows by ids that no longer mean anything.
-                Button {
-                    Task {
-                        await model.undo()
-                        runSearch()
-                    }
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
+                // hiding rows by ids that no longer mean anything. Inside the
+                // step rather than after the hold, since every step of a hold
+                // moves the lines again.
+                HistoryStepButton(title: "Undo",
+                                  systemImage: "arrow.uturn.backward",
+                                  isOffered: { model.canUndo }) {
+                    await model.undo()
+                    runSearch()
                 }
-                .disabled(!model.canUndo)
 
-                Button {
-                    Task {
-                        await model.redo()
-                        runSearch()
-                    }
-                } label: {
-                    Label("Redo", systemImage: "arrow.uturn.forward")
+                HistoryStepButton(title: "Redo",
+                                  systemImage: "arrow.uturn.forward",
+                                  isOffered: { model.canRedo }) {
+                    await model.redo()
+                    runSearch()
                 }
-                .disabled(!model.canRedo)
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {

@@ -263,10 +263,14 @@ extension HelpTopic {
                     + "look for.",
                     "Undo sits in the top bar, where it can be seen — greyed out when "
                     + "there is nothing to take back, and there whether or not the rest "
-                    + "of the chrome is. Hold it and Redo is there too, once there is "
-                    + "something to redo; Redo is also in the “…” menu, and both answer "
-                    + "to ⌘Z and ⌘⇧Z on a keyboard. Steps taken without a connection "
-                    + "come back one at a time on this device, and the screenplay's own "
+                    + "of the chrome is. Hold it and it keeps going, a step at a time, "
+                    + "until you lift your finger or there is nothing left to take "
+                    + "back — the way a held key repeats. Undo and Redo are both in the "
+                    + "“…” menu as well, one step per tap, and both answer to ⌘Z and "
+                    + "⌘⇧Z on a keyboard. On a narrow phone the menu is where they "
+                    + "are: the bar has no room to draw the pair, so that is where a "
+                    + "step comes from there. Steps taken without a connection come "
+                    + "back one at a time on this device, and the screenplay's own "
                     + "history takes over once they have been saved.",
                     "The keyboard key at the end of the element bar puts the keyboard "
                     + "away and gives the screen back to the script, without leaving "
@@ -285,7 +289,7 @@ extension HelpTopic {
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
                            "autosave", "editing", "new", "first element", "empty",
                            "undo", "redo", "mistake", "step back", "take back",
-                           "hold", "long press", "history",
+                           "hold", "long press", "repeat", "keep undoing", "history",
                            "cloud", "sync", "offline", "saved", "badge",
                            "hide keyboard", "dismiss keyboard", "close keyboard",
                            "keyboard"]),
@@ -809,9 +813,11 @@ extension HelpTopic {
                     + "and answer to ⌘Z and ⌘⇧Z. They belong to the document while it "
                     + "is open — never to the screenplay behind it — so a step back in "
                     + "a verse can never rewind the script you left. In the notes and "
-                    + "plain song editors Undo sits in the top corner and Redo in the "
-                    + "\"…\" menu beside it, and the pair is repeated in the bar above "
-                    + "the keyboard while you are typing. They walk the whole document "
+                    + "plain song editors the pair sits in the top corner beside Done, "
+                    + "where holding either one keeps walking that way a step at a time "
+                    + "until you lift your finger or run out of history, and the pair is "
+                    + "repeated in the bar above the keyboard while you are typing. "
+                    + "They walk the whole document "
                     + "— the title as well as the words, so a new song can be taken "
                     + "back from its first keystroke, which is typed into its name. A "
                     + "burst of typing, a bullet the bar added, a title being renamed, "
@@ -820,8 +826,9 @@ extension HelpTopic {
                     + "on this device and starts fresh each time the document is "
                     + "opened.",
                     "A song with lyric lines keeps a longer memory. The pair at the top "
-                    + "of its editor steps through the same history the browser shows "
-                    + "while you have a connection; without one it steps back through "
+                    + "of its editor holds the same way, and steps through the same "
+                    + "history the browser shows while you have a connection; without "
+                    + "one it steps back through "
                     + "the lyric edits still waiting on this device, newest first, so a "
                     + "line typed offline can be taken back offline. Once those edits "
                     + "reach the server they become part of its history and undo goes "
@@ -961,6 +968,7 @@ extension HelpTopic {
                            "recent", "quick", "shortcut", "rename", "swipe",
                            "offline", "unsaved", "sync", "cloud", "badge",
                            "save", "autosave", "title", "undo", "redo",
+                           "hold", "long press", "repeat", "keep undoing",
                            "archive", "archived", "unarchive", "put aside",
                            "hide", "finished", "cut", "shelve", "old",
                            "bring back", "bulk", "several", "multiple",
