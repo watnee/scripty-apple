@@ -18,6 +18,16 @@
 //  slot, the remembered open set — and keeps its own middle: one text view per
 //  note, saving itself as it is written, exactly as the note editor does.
 //
+//  It reads as well as writes, and it locks. Those are the other two things a
+//  screen of every note is for, and for a while they were the songs workspace's
+//  alone: reading the set through — a page of live text fields with a caret
+//  waiting in every one of them is exactly the accident the reading view exists
+//  to stop — and closing a finished batch to typing without opening each note
+//  to find its switch. Both work here the way they work there. Reading is one
+//  posture for the whole screen, taken in place: the panes swap for the reading
+//  column and the headers, the open set, the banners and the saving all stay
+//  where they were. The lock stays per note, because that is what a lock is.
+//
 //  The open set is shared with the songs workspace and with the browser, under
 //  the one key all three already use. Song and note ids come from the same
 //  table, so an id in that set can only ever match one of them and the two
@@ -30,11 +40,18 @@ struct NotesWorkspaceView: View {
     let app: AppModel
     let model: ScriptModel
 
-    /// Only here to seed the printer, as in the songs workspace.
+    /// Seeds the printer, as in the songs workspace, and settles which way the
+    /// screen comes up.
     init(app: AppModel, model: ScriptModel) {
         self.app = app
         self.model = model
         _printer = State(initialValue: DocumentPrintModel(model: model))
+        // The remembered choice only, with no fall back to the app-wide "open
+        // documents for reading" switch — the rule the songs workspace goes by.
+        // This screen is reached by pressing "Edit All on One Page", and coming
+        // up with no caret in it would be the button's own word contradicted.
+        _isReading = State(initialValue: ReadingViewSettings.shared
+            .chosenReadingView(.notesWorkspace(project: model.project.id)) ?? false)
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -52,12 +69,17 @@ struct NotesWorkspaceView: View {
     /// One per note, made on first expand. Notes nobody opens cost nothing —
     /// the list carries only a preview, so an unopened note is never fetched.
     @State private var drafts: [Int: NoteDraft] = [:]
-    /// Whether each opened note is closed to typing. A lock set in the note
-    /// editor has to hold here too, or the screen that shows every note at once
-    /// would be the way around every lock in the project — the songs workspace
-    /// mirrors its own locks for exactly that reason. Read only: the switch
-    /// stays in the note's own editor, where a writer is looking at one note
-    /// and means it.
+    /// Whether each note is closed to typing. A lock set in the note editor has
+    /// to hold here too, or the screen that shows every note at once would be
+    /// the way around every lock in the project — the songs workspace mirrors
+    /// its own locks for exactly that reason.
+    ///
+    /// One for every note rather than only the opened ones, which is what these
+    /// were. A collapsed note can now say it is locked and be locked from its
+    /// own menu, and Lock All Notes has to reach the ones nobody expanded —
+    /// they are exactly the notes a writer finishing a batch means. A reader is
+    /// two `UserDefaults` reads, so a project's worth of them is nothing next
+    /// to one note loading.
     @State private var locks: [Int: DocumentViewOptions] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
@@ -77,6 +99,29 @@ struct NotesWorkspaceView: View {
     /// these are bridged text views that grant themselves first responder, and
     /// SwiftUI discards a focus value no view claimed with `.focused()`.
     @State private var focusedNote: Int?
+    /// Whether the screen is showing the notes to be dragged into order rather
+    /// than to be written in. See `arrangingList`.
+    @State private var isArranging = false
+    /// Whether the notes are up to be read rather than written in. The note
+    /// editor's own mode, taken across every note on screen: the panes are
+    /// swapped for the reading column in place, and the headers, the open set
+    /// and everything in the bars stay put.
+    ///
+    /// One flag for the screen rather than one per note, because this screen is
+    /// one thing — a set read through, or a set worked on — and a page where
+    /// the second note takes a caret and the third does not is neither. A note
+    /// that wants a posture of its own has an editor where it can have one.
+    @State private var isReading: Bool
+    /// Where a double tap on a reading pane asked for the caret, by note.
+    ///
+    /// Spent by the writing pane the mode change builds in its place — the note
+    /// editor carries the same request across the same handoff, for the same
+    /// reason: the view that measured the offset is torn down before the view
+    /// that can act on it exists.
+    @State private var caretRequests: [Int: Int] = [:]
+
+    /// Which way this screen was last put, remembered per project.
+    private let readingViews = ReadingViewSettings.shared
 
     private var openStore: SongWorkspaceOpenState {
         SongWorkspaceOpenState(projectId: model.project.id)
@@ -92,16 +137,11 @@ struct NotesWorkspaceView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(notes) { note in
-                    Section {
-                        if expanded.contains(note.id) {
-                            noteBody(for: note)
-                        }
-                    } header: {
-                        header(note)
-                    }
-                    .listRowSeparator(.hidden)
+            Group {
+                if isArranging {
+                    arrangingList
+                } else {
+                    noteList
                 }
             }
             .listStyle(.plain)
@@ -116,7 +156,9 @@ struct NotesWorkspaceView: View {
             // are bridged text views that take first responder for themselves,
             // and SwiftUI discards a focus value no view claimed.
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                if let id = focusedNote, drafts[id] != nil {
+                if isArranging {
+                    arrangingBar
+                } else if let id = focusedNote, drafts[id] != nil {
                     HideKeyboardBar(releaseFocus: { focusedNote = nil })
                 }
             }
@@ -177,6 +219,136 @@ struct NotesWorkspaceView: View {
                     notices.situationChanged(DismissedNotices.documentCopyKey(documentId: id))
                 }
             }
+            // A lock reader per note, kept in step with the notes. `initial`
+            // for the case where the project's notes were already in hand when
+            // this screen opened, which is most of the time.
+            .onChange(of: model.notes.map(\.id), initial: true) { _, _ in
+                ensureLocks()
+            }
+        }
+    }
+
+    // MARK: - Reading and writing
+
+    /// The mode, as a Toggle can use it — through the two functions below rather
+    /// than straight at the state, so choosing it in the "…" is remembered, and
+    /// flushes what is half-typed, exactly as the button is.
+    private var readingBinding: Binding<Bool> {
+        Binding(get: { isReading },
+                set: { reading in
+                    if reading { enterReadingView() } else { beginEditing() }
+                })
+    }
+
+    /// Hands the notes back to the writer, and remembers that this is a screen
+    /// they write on — so Edit is a cost paid once rather than on every visit.
+    private func beginEditing() {
+        isReading = false
+        readingViews.remember(false, for: .notesWorkspace(project: model.project.id))
+    }
+
+    /// Puts the notes up to be read, and remembers that too.
+    ///
+    /// Half-typed paragraphs go first: every pane leaves the screen the moment
+    /// the flag flips, and a note still holding unsent words would have nowhere
+    /// left to send them from. Focus goes with them, or a pane would grant
+    /// itself first responder the moment the fields came back and put the
+    /// keyboard up over a note nobody asked to type into. Arranging goes too —
+    /// it is the other thing this screen can be in the middle of, and reading is
+    /// an answer to "show me the notes", not "show me the order".
+    private func enterReadingView() {
+        focusedNote = nil
+        Task {
+            await flushAll()
+            isArranging = false
+            isReading = true
+            readingViews.remember(true, for: .notesWorkspace(project: model.project.id))
+        }
+    }
+
+    // MARK: - The two lists
+
+    /// Every note, open to be written in or to be read — the screen this is most
+    /// of the time. Which of the two it is changes what is inside each section
+    /// and nothing else about it: the headers, the open set and the scroll
+    /// position all survive the mode being swapped under them.
+    private var noteList: some View {
+        List {
+            ForEach(notes) { note in
+                Section {
+                    if expanded.contains(note.id) {
+                        noteBody(for: note)
+                    }
+                } header: {
+                    header(note)
+                }
+                .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    /// The same notes as a plain list of titles, to be dragged into order.
+    ///
+    /// Arranging is a mode rather than something a writer can do to the screen
+    /// as it stands, and that is forced by what a list can be asked to do — a
+    /// note here is a `Section`, and a section cannot be dragged. The songs
+    /// workspace lays its own out the same way for the same reason, and there
+    /// as here it is what makes the gesture usable: a screen of open notes is a
+    /// long scroll to drag the fourth one past the first.
+    ///
+    /// The panes are not gone: every draft is kept, and closing the mode gives
+    /// back the same screen, still open at the same notes.
+    private var arrangingList: some View {
+        List {
+            ForEach(notes) { note in
+                HStack(spacing: 8) {
+                    Text(note.displayTitle)
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                    if isLocked(note) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .onMove { source, destination in
+                var rearranged = notes
+                rearranged.move(fromOffsets: source, toOffset: destination)
+                saveOrder(rearranged)
+            }
+        }
+        // What puts the grip on every row and lets it be dragged. Held active
+        // rather than bound to a toggle: there is nothing else to be in the
+        // middle of here, and the way out is the bar below.
+        .environment(\.editMode, .constant(.active))
+    }
+
+    /// The way out of arranging, in the bar the keyboard key uses — the only
+    /// room on this screen for a control that is only sometimes there.
+    private var arrangingBar: some View {
+        HStack {
+            Text("Drag the notes into the order you want.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button("Done") { isArranging = false }
+                .font(.body.weight(.semibold))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    /// Opens the arranging mode, after putting away whatever is half-typed: the
+    /// panes are about to leave the screen, and a paragraph must not leave with
+    /// them.
+    private func startArranging() {
+        focusedNote = nil
+        Task {
+            await flushAll()
+            isArranging = true
         }
     }
 
@@ -240,8 +412,8 @@ struct NotesWorkspaceView: View {
             .accessibilityHint(expanded.contains(note.id) ? "Hide this note" : "Show this note")
             .accessibilityAddTraits(expanded.contains(note.id) ? [.isSelected] : [])
             historyButtons(note)
-            if canReorder {
-                reorderMenu(note)
+            if canReorder || canLock(note) {
+                noteMenu(note)
             }
         }
         .textCase(nil)
@@ -258,9 +430,12 @@ struct NotesWorkspaceView: View {
     /// one — and never on one the server will not take an edit for. Same order
     /// and same symbols as the note editor's own pair, so the gesture reads the
     /// same in both. The songs workspace puts its own pair here too.
+    ///
+    /// Gone while the notes are being read, as the editor's pair is: there is
+    /// nothing on that surface for a step back to be a step back from.
     @ViewBuilder
     private func historyButtons(_ note: TextDocument) -> some View {
-        if expanded.contains(note.id), let draft = drafts[note.id], canWrite(in: note) {
+        if !isReading, expanded.contains(note.id), let draft = drafts[note.id], canWrite(in: note) {
             Button {
                 draft.history.undo()
             } label: {
@@ -307,7 +482,10 @@ struct NotesWorkspaceView: View {
         // and is claimed even when there is nothing to print, so the chord
         // cannot fall through this cover to the screenplay behind it.
         let printNotes: (() -> Void)? = notes.isEmpty ? nil : { printAll() }
-        guard let id = focusedNote, let draft = drafts[id], canWrite(id) else {
+        // Nothing to step back through on a page being read — and still
+        // published, so ⌘Z over the notes can never fall through to the script
+        // this screen is covering.
+        guard !isReading, let id = focusedNote, let draft = drafts[id], canWrite(id) else {
             return DocumentEditorActions(print: printNotes)
         }
         return DocumentEditorActions(undo: { draft.history.undo() },
@@ -376,25 +554,48 @@ struct NotesWorkspaceView: View {
         }
     }
 
-    /// The songs workspace offers the same one-slot move for the same reason:
-    /// each document is a `Section`, and sections do not take `.onMove`.
-    private func reorderMenu(_ note: TextDocument) -> some View {
+    /// What can be done to one note from the row that names it: moved a slot,
+    /// and closed to typing.
+    ///
+    /// The one-slot move is kept beside the drag, exactly as the songs
+    /// workspace keeps its own. Arrange Notes is the answer to rearranging a
+    /// screenful, but a nudge of one row is worth having in reach without
+    /// changing what the screen is — and it is the route for VoiceOver, and for
+    /// anyone who would rather not hold a drag steady down a scrolling list.
+    ///
+    /// The lock joins it rather than taking a button of its own in the header.
+    /// There is no room: an open note already carries Undo, Redo and this, and a
+    /// fourth glyph on an iPhone would push the title into an ellipsis. The
+    /// padlock in the header still says *which* notes are locked; this is where
+    /// the answer is changed — a menu on the note, for the writer looking at one
+    /// note and meaning it.
+    private func noteMenu(_ note: TextDocument) -> some View {
         let at = notes.firstIndex { $0.id == note.id }
         return Menu {
-            Button {
-                move(note, by: -1)
-            } label: {
-                Label("Move Up", systemImage: "arrow.up")
+            if canReorder {
+                Button {
+                    move(note, by: -1)
+                } label: {
+                    Label("Move Up", systemImage: "arrow.up")
+                }
+                .disabled(at == 0)
+                Button {
+                    move(note, by: 1)
+                } label: {
+                    Label("Move Down", systemImage: "arrow.down")
+                }
+                .disabled(at == notes.count - 1)
             }
-            .disabled(at == 0)
-            Button {
-                move(note, by: 1)
-            } label: {
-                Label("Move Down", systemImage: "arrow.down")
+            if canLock(note) {
+                Toggle(isOn: lockBinding(note)) {
+                    Label("Lock Editing", systemImage: "lock")
+                }
             }
-            .disabled(at == notes.count - 1)
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
+            // "…" rather than the two arrows this wore while it only reordered:
+            // a glyph that says one of the things behind it would send a writer
+            // looking elsewhere for the other.
+            Image(systemName: "ellipsis")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 32, height: 32)
@@ -403,7 +604,7 @@ struct NotesWorkspaceView: View {
         .glyphHitInset()
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .accessibilityLabel("Reorder \(note.displayTitle)")
+        .accessibilityLabel("More for \(note.displayTitle)")
     }
 
     @ViewBuilder
@@ -414,6 +615,17 @@ struct NotesWorkspaceView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
+                // Not while reading. The strip is an offer to take a lock off
+                // so the words can be typed into, and there is no typing on
+                // this surface to be stopped — the padlock in the header still
+                // says which note is closed, which is all a reader needs told.
+                // In the note editor it stands through both modes because there
+                // it is one strip at the top of one note; here it would be one
+                // inside every open pane, down a page whose whole point is an
+                // uninterrupted read.
+                if !isReading {
+                    lockBanner(note, draft)
+                }
                 // The same honesty the songs workspace gives a lyric it had to
                 // read off disk: an out-of-date note must not look current.
                 if let savedAt = draft.offlineCopySavedAt,
@@ -435,34 +647,45 @@ struct NotesWorkspaceView: View {
                                         + savedAt.formatted(.relative(presentation: .named)) + ".")
                     .accessibilityAction(named: "Dismiss") { dismissOffline(note, savedAt: savedAt) }
                 }
-                // A fixed height rather than one that grows with the prose: a
-                // list of ten notes each as tall as its content would be a page
-                // nobody can navigate, and the point of this screen is seeing
-                // several at once. Each field scrolls inside itself.
-                NoteTextView(text: contentBinding(for: note),
-                             controller: draft.history,
-                             isEditable: canWrite(in: note),
-                             spellChecks: settings.isSpellcheckEnabled,
-                             spellcheckRevision: SpellcheckDictionary.shared.revision,
-                             textScale: settings.textScale,
-                             placeholder: canWrite(in: note) ? "Write your notes here…" : "",
-                             // Two taps take this note's lock off, the way they
-                             // do on a locked lyric here and on a locked note
-                             // in its own editor.
-                             startWriting: startWriting(note),
-                             // Which note a keyboard ⌘Z means. Cleared only
-                             // when the caret leaves *this* pane for something
-                             // that is not another one, so tabbing between two
-                             // notes never leaves the chord pointing at neither.
-                             onFocusChange: { focused in
-                                 if focused {
-                                     focusedNote = note.id
-                                 } else if focusedNote == note.id {
-                                     focusedNote = nil
-                                 }
-                             })
-                    .frame(height: 240)
-                    .accessibilityLabel(note.displayTitle)
+                if isReading {
+                    readingPane(note, draft)
+                } else {
+                    // A fixed height rather than one that grows with the prose:
+                    // a list of ten notes each as tall as its content would be
+                    // a page nobody can navigate, and the point of this screen
+                    // is seeing several at once. Each field scrolls inside
+                    // itself.
+                    NoteTextView(text: contentBinding(for: note),
+                                 controller: draft.history,
+                                 isEditable: canWrite(in: note),
+                                 spellChecks: settings.isSpellcheckEnabled,
+                                 spellcheckRevision: SpellcheckDictionary.shared.revision,
+                                 textScale: settings.textScale,
+                                 placeholder: canWrite(in: note) ? "Write your notes here…" : "",
+                                 // Two taps take this note's lock off, the way
+                                 // they do on a locked lyric here and on a
+                                 // locked note in its own editor.
+                                 startWriting: startWriting(note),
+                                 // The other end of a double tap made on the
+                                 // reading pane, which is no longer on screen
+                                 // to place its own caret.
+                                 caret: caretRequests[note.id],
+                                 onCaretApplied: { caretRequests[note.id] = nil },
+                                 // Which note a keyboard ⌘Z means. Cleared only
+                                 // when the caret leaves *this* pane for
+                                 // something that is not another one, so
+                                 // tabbing between two notes never leaves the
+                                 // chord pointing at neither.
+                                 onFocusChange: { focused in
+                                     if focused {
+                                         focusedNote = note.id
+                                     } else if focusedNote == note.id {
+                                         focusedNote = nil
+                                     }
+                                 })
+                        .frame(height: 240)
+                        .accessibilityLabel(note.displayTitle)
+                }
                 if case .failed(let message) = draft.status {
                     HStack(spacing: 6) {
                         Text(message)
@@ -488,6 +711,59 @@ struct NotesWorkspaceView: View {
                 draft.content = newValue
                 scheduleSave(note)
             })
+    }
+
+    /// One note, set to be read: the writing pane's own text view with the caret
+    /// taken out of it — `ProseText`, which is what the note editor's reader is
+    /// built from too.
+    ///
+    /// The same width, the same face and the same scale as the field it stands
+    /// in for, and it is a list row either way, so the words break where they
+    /// broke a moment ago. That is the whole rule of this mode: the words do not
+    /// move on the way into reading.
+    ///
+    /// The one thing that does change is the height. The writing pane is clamped
+    /// to 240 points and scrolls inside itself, which is right for a screen of
+    /// fields to work in and wrong for the job reading is here for — a note read
+    /// through a porthole is a note nobody reads. `ProseText` does not scroll, so
+    /// a clamp would simply cut the end off; it reports its full height and the
+    /// list scrolls the page, note after note, which is what reading a set is.
+    private func readingPane(_ note: TextDocument, _ draft: NoteDraft) -> some View {
+        // Fed from what is on screen rather than from what was last saved, as
+        // the note editor's reader is: a paragraph typed a moment ago has to
+        // read as typed whether or not its save has landed. A blank note is
+        // drawn as a space so its section does not collapse to nothing.
+        ProseText(text: draft.content.isEmpty ? " " : draft.content,
+                  textScale: settings.textScale,
+                  // Two taps in the prose are the same instruction as Edit in
+                  // the corner, the way they are in Pages and Word.
+                  startWriting: startWriting(note))
+            .accessibilityLabel(note.displayTitle)
+    }
+
+    /// Says this note is closed to typing, and takes the lock off when tapped —
+    /// `EditingLockBanner`, the strip both editors already show over a locked
+    /// document.
+    ///
+    /// The padlock in the header above says *which* note is locked, but it is a
+    /// glyph rather than a way out, and the switch itself is in this note's own
+    /// menu beside it. Without this, a writer working down this page meets a
+    /// note that silently refuses every keystroke with nothing on screen to do
+    /// about it — the double tap on the words gets in too, but a gesture nobody
+    /// is told about cannot be the only door.
+    ///
+    /// Only where the words were the writer's to begin with. A note the server
+    /// handed over read-only has no lock of this device's to take off, and a
+    /// strip offering to unlock it would be a second dead end behind the first.
+    @ViewBuilder
+    private func lockBanner(_ note: TextDocument, _ draft: NoteDraft) -> some View {
+        if isLocked(note), draft.canEdit {
+            EditingLockBanner { locks[note.id]?.setEditingLocked(false) }
+                // Edge to edge, as it is over a single note: the strip is about
+                // the whole note, not about the column of prose the row's own
+                // insets belong to.
+                .listRowInsets(EdgeInsets())
+        }
     }
 
     @ViewBuilder
@@ -554,6 +830,32 @@ struct NotesWorkspaceView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            // The mode, leading the group so a phone — which draws about two
+            // controls on the trailing side before the rest go to the "…" —
+            // always draws it. Icon-only like its neighbours, and in the one
+            // capsule with them rather than as an item of its own: a third
+            // toolbar item beside Done and the badge is what tips this bar into
+            // dropping something, and not the same something twice.
+            //
+            // One button that swaps rather than a pair, so this corner is always
+            // one tap to whichever surface is not up — the arrangement the note
+            // editor and the songs workspace both arrived at.
+            if isReading {
+                Button {
+                    beginEditing()
+                } label: {
+                    Label("Edit", systemImage: "square.and.pencil")
+                }
+                .labelStyle(.iconOnly)
+            } else {
+                Button {
+                    enterReadingView()
+                } label: {
+                    Label("Read Notes", systemImage: "book")
+                }
+                .labelStyle(.iconOnly)
+                .disabled(notes.isEmpty)
+            }
             // Only the notes currently passing the filter, so "expand all"
             // means the same thing the writer can see.
             //
@@ -576,6 +878,49 @@ struct NotesWorkspaceView: View {
             }
             .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
+        }
+        // The mode itself, in the "…" this screen has instead of a View menu —
+        // the note editor's own toggle, in the plural. It says which way the
+        // screen is currently put, which a button that swaps its own label
+        // cannot, and it is the way back for anyone the button above is not
+        // enough for.
+        ToolbarItem(placement: .secondaryAction) {
+            Toggle(isOn: readingBinding) {
+                Label("Read Notes", systemImage: "book")
+            }
+            .disabled(notes.isEmpty && !isReading)
+        }
+        // In the overflow rather than the bar itself, which on an iPhone is
+        // already one item from dropping something. Arranging is a thing a
+        // writer does once in a while and then leaves alone, unlike the buttons
+        // above.
+        if canReorder {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    startArranging()
+                } label: {
+                    Label("Arrange Notes", systemImage: "arrow.up.arrow.down")
+                }
+            }
+        }
+        // The one screen that can close every note at once, which is the job the
+        // lock is most often wanted for and the one it was worst at: a finished
+        // batch meant opening each note, finding the switch behind its overflow
+        // menu, and closing it again, however many there are.
+        //
+        // In the overflow beside Arrange, not the bar: this is done at the end
+        // of a session, not while working. It changes nothing about what a lock
+        // is — it sets each note's own, one after another, so unlocking the one
+        // note being rewritten leaves the rest closed.
+        if !lockableNotes.isEmpty {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    setLock(!allLocked, on: lockableNotes)
+                } label: {
+                    Label(allLocked ? "Unlock All Notes" : "Lock All Notes",
+                          systemImage: allLocked ? "lock.open" : "lock")
+                }
+            }
         }
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
@@ -632,11 +977,20 @@ struct NotesWorkspaceView: View {
     /// with more than one on screen to rearrange.
     private var canReorder: Bool { model.canReorderDocuments && notes.count > 1 }
 
-    /// Moves a note one slot among the ones the filter is showing, then saves
-    /// the whole list — notes the filter hid keep the places they held, since
-    /// they are not on screen to have been moved past.
+    /// Moves a note one slot among the ones the filter is showing.
     private func move(_ note: TextDocument, by delta: Int) {
-        guard canReorder, let rearranged = notes.moving(note, by: delta) else { return }
+        guard let rearranged = notes.moving(note, by: delta) else { return }
+        saveOrder(rearranged)
+    }
+
+    /// Saves the notes on screen as the writer's own arrangement — notes the
+    /// filter hid keep the places they held, since they were not on screen to
+    /// have been moved past.
+    ///
+    /// Named apart from `save(_:)`, which sends one note's words: this screen
+    /// has two quite different things to save and one of them is not prose.
+    private func saveOrder(_ rearranged: [TextDocument]) {
+        guard canReorder else { return }
         let merged = model.notes.merging(shown: rearranged)
         Task { await model.reorderDocuments(merged) }
     }
@@ -656,12 +1010,14 @@ struct NotesWorkspaceView: View {
 
     private func open(_ note: TextDocument) {
         expanded.insert(note.id)
+        // Also here, and not only from the watcher on the notes: the ones left
+        // open last time are restored the instant the documents land, which is
+        // before SwiftUI has run a redraw for the change that would have made
+        // these.
+        ensureLock(note)
         guard drafts[note.id] == nil else { return }
         let draft = NoteDraft(document: note)
         drafts[note.id] = draft
-        // Under the note's own key family, so this reads the very lock the note
-        // editor writes — see `DocumentViewOptions.Kind`.
-        locks[note.id] = DocumentViewOptions(documentId: note.id, kind: .note)
         Task {
             let full = await model.fetchDocument(note)
             draft.content = full?.content ?? note.content ?? ""
@@ -685,11 +1041,73 @@ struct NotesWorkspaceView: View {
         }
     }
 
-    /// Whether this note is closed to typing. A note nobody has opened has no
-    /// stored answer here and needs none — nothing of it is on screen to type
-    /// into.
+    /// A lock reader for this note, made once. Under the note's own key family,
+    /// so it reads the very lock the note editor writes — see
+    /// `DocumentViewOptions.Kind`.
+    private func ensureLock(_ note: TextDocument) {
+        guard locks[note.id] == nil else { return }
+        locks[note.id] = DocumentViewOptions(documentId: note.id, kind: .note)
+    }
+
+    private func ensureLocks() {
+        for note in model.notes { ensureLock(note) }
+    }
+
+    /// Whether this note is closed to typing.
     private func isLocked(_ note: TextDocument) -> Bool {
         locks[note.id]?.isEditingLocked ?? false
+    }
+
+    /// Whether there is anything here to lock — the same rule the notes list
+    /// goes by, so the switch is in the same places on both screens. Asked of
+    /// the document's link rather than of its draft, which a collapsed note has
+    /// not loaded: an affordance that appeared on expanding a note would look
+    /// like it belonged to the expanding.
+    private func canLock(_ note: TextDocument) -> Bool {
+        note.hasLink(.update) && locks[note.id] != nil
+    }
+
+    private func lockBinding(_ note: TextDocument) -> Binding<Bool> {
+        Binding(get: { isLocked(note) }, set: { setLock($0, on: [note]) })
+    }
+
+    /// Closes notes to typing, or opens them again.
+    ///
+    /// Locking puts the keyboard away and sends what is held first, for the
+    /// reason the note editor's own switch does: what is half-typed when a note
+    /// is closed is part of the note, and the debounce that would have saved it
+    /// is about to have no field left to fire from. The lock itself is set
+    /// without waiting on that — the tick in the menu has to answer the tap, and
+    /// the save is on its way regardless.
+    private func setLock(_ locked: Bool, on targets: [TextDocument]) {
+        if locked {
+            for note in targets where drafts[note.id] != nil {
+                if focusedNote == note.id { focusedNote = nil }
+                Task { await save(note) }
+            }
+        }
+        for note in targets {
+            locks[note.id]?.setEditingLocked(locked)
+        }
+    }
+
+    /// The notes a lock could be put on — which is every one of them for a
+    /// writer, and none of them for a collaborator reading the project.
+    ///
+    /// Only the notes currently passing the filter, the rule Expand All goes by:
+    /// "all notes" has to mean the notes the writer can see, or a filtered
+    /// screen would quietly reach past its own edges.
+    private var lockableNotes: [TextDocument] {
+        notes.filter(canLock)
+    }
+
+    /// Whether the button says Lock or Unlock. A screen with one note still open
+    /// to typing offers to close it, so the writer finishing a batch presses
+    /// this once and is done — the flip to Unlock is the confirmation that the
+    /// press landed on all of them.
+    private var allLocked: Bool {
+        let lockable = lockableNotes
+        return !lockable.isEmpty && lockable.allSatisfy(isLocked)
     }
 
     /// Whether the words in this pane will take a keystroke: the server's own
@@ -701,20 +1119,34 @@ struct NotesWorkspaceView: View {
 
     private func canWrite(in note: TextDocument) -> Bool { canWrite(note.id) }
 
-    /// The double tap that takes a locked note's lock off, so a writer working
-    /// down this screen can start typing in the one note they meant without
-    /// going back to its editor to find the switch. Nil for a note already open
-    /// to be typed in — there is nothing to undo.
+    /// The double tap into writing, for both of the things that can stand
+    /// between a writer and a note here: the reading view the screen is in, and
+    /// this note's own lock. Whatever is in the way comes off, so a paragraph
+    /// being read is one gesture from the keyboard rather than two.
     ///
     /// Only this note's lock: the others on screen were each locked on purpose,
     /// one at a time, and a gesture that cleared them all would be the accident
-    /// the lock exists to prevent.
+    /// the lock exists to prevent. Reading, on the other hand, is the screen's
+    /// posture and comes off for the screen — there is no such thing as one note
+    /// being read here while its neighbours are typed into.
     ///
-    /// Where the finger landed is not wanted here: the lock leaves the note the
-    /// same view it was, so the text view puts its own caret in.
+    /// Where the finger landed is spent only on the way out of reading: a lock
+    /// leaves the note the same view it already was and the text view puts its
+    /// own caret in, while leaving the reading view tears that pane down and
+    /// builds the field in its place, so the offset has to be carried across.
+    /// A note is one string on both surfaces, so what the reader measured is
+    /// already what the field wants.
+    ///
+    /// Nil where nothing is in the way, or where the server never offered this
+    /// note to be written in.
     private func startWriting(_ note: TextDocument) -> ((Int) -> Void)? {
-        guard isLocked(note), drafts[note.id]?.canEdit == true else { return nil }
-        return { _ in locks[note.id]?.setEditingLocked(false) }
+        guard drafts[note.id]?.canEdit == true, isReading || isLocked(note) else { return nil }
+        return { offset in
+            if isLocked(note) { locks[note.id]?.setEditingLocked(false) }
+            guard isReading else { return }
+            caretRequests[note.id] = offset
+            beginEditing()
+        }
     }
 
     /// Reopens the notes left open last time. Runs after the documents load so

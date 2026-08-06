@@ -124,6 +124,18 @@ func runWorkspace() {
     settings.remember(true, for: .document(id: 7))
     check("nor does a song that happens to share the number",
           settings.chosenReadingView(screen) == false, true)
+
+    // The all-notes screen is the same surface for the other list, and answers
+    // the same way — but for itself. Two screens, reached by two buttons: a
+    // writer who put the songs up to be read has said nothing about the notes.
+    let notes = ReadingViewSettings.Document.notesWorkspace(project: 7)
+    check("the all-notes screen starts unchosen too",
+          settings.chosenReadingView(notes) == nil, true)
+    settings.remember(true, for: notes)
+    check("and remembers being put into reading",
+          settings.chosenReadingView(notes) == true, true)
+    check("without disturbing the songs screen of the same project",
+          settings.chosenReadingView(screen) == false, true)
 }
 
 @MainActor
@@ -140,6 +152,7 @@ func runKeys() {
     settings.remember(true, for: .screenplay(project: 42))
     settings.remember(false, for: .document(id: 42))
     settings.remember(true, for: .songsWorkspace(project: 42))
+    settings.remember(false, for: .notesWorkspace(project: 42))
     // Kept in the same family as the per-project view options next door, and —
     // the reason both halves are checked — a screenplay and a song with the
     // same id must not land on the same key.
@@ -150,6 +163,9 @@ func runKeys() {
     check("and the all-songs screen under a key of its own",
           store.object(forKey: "scripty-reading-view-songs-workspace-42") as? Bool ?? false,
           true)
+    check("with the all-notes screen beside it, not on top of it",
+          store.object(forKey: "scripty-reading-view-notes-workspace-42") as? Bool ?? true,
+          false)
 
     // "Never chosen" has to stay distinguishable from "chosen: edit view", or
     // the switch could never reach a document again once it had been opened.
