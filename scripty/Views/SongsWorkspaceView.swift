@@ -101,6 +101,16 @@ struct SongsWorkspaceView: View {
     /// that wants a posture of its own has an editor where it can have one.
     @State private var isReading: Bool
 
+    /// The line a double tap in the reading view asked for the caret in, held
+    /// until the writing rows exist to take it.
+    ///
+    /// Not handed straight to `focusedLine` at the moment of the tap, for the
+    /// reason `SongBlockEditorView.pendingWriteLine` exists: the row being
+    /// focused is the one the mode change is about to build, and focus claimed
+    /// before a view claims it is focus SwiftUI throws away — no caret, and no
+    /// keyboard.
+    @State private var pendingWriteLine: Int?
+
     /// Which way this screen was last put, remembered per project.
     private let readingViews = ReadingViewSettings.shared
 
@@ -229,6 +239,14 @@ struct SongsWorkspaceView: View {
             // this screen opened, which is most of the time.
             .onChange(of: model.songs.map(\.id), initial: true) { _, _ in
                 ensureLocks()
+            }
+            // The other half of the double tap out of reading: the writing rows
+            // are on screen by the time this runs, so the line named a moment
+            // ago is a line there is something to focus.
+            .onChange(of: pendingWriteLine) { _, id in
+                guard let id else { return }
+                pendingWriteLine = nil
+                focusedLine = id
             }
         }
     }
@@ -686,7 +704,7 @@ struct SongsWorkspaceView: View {
                 // Still one row per line, and still the lines' own ids — the
                 // rows are what the mode changes, not how many there are.
                 ForEach(lyric.blocks) { block in
-                    readingLine(lyric.currentText(block), in: song, of: lyric)
+                    readingLine(block, in: song, of: lyric)
                 }
             } else {
                 ForEach(lyric.blocks) { block in
@@ -738,14 +756,17 @@ struct SongsWorkspaceView: View {
     /// Highlights are deliberately not drawn, as `ReadSongView` does not draw
     /// them: a tint is a working mark on a line to come back to, which is not
     /// what this surface is for.
-    private func readingLine(_ text: String,
+    private func readingLine(_ block: SongBlock,
                              in song: TextDocument,
                              of lyric: SongBlockModel) -> some View {
-        ProseText(text: text.isEmpty ? " " : text,
+        let text = lyric.currentText(block)
+        return ProseText(text: text.isEmpty ? " " : text,
                   textScale: settings.textScale,
                   // Two taps in the words are the same instruction as Edit in
-                  // the corner, the way they are in Pages and Word.
-                  startWriting: startWriting(song, lyric))
+                  // the corner, the way they are in Pages and Word. The line is
+                  // named as well as the song, so the caret can land in the
+                  // words the finger actually touched.
+                  startWriting: startWriting(song, lyric, block))
             .padding(.vertical, 2)
             .padding(.horizontal, 4)
             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -1117,15 +1138,33 @@ struct SongsWorkspaceView: View {
     /// posture and comes off for the screen — there is no such thing as one
     /// song being read here while its neighbours are typed into.
     ///
+    /// Handed how far into the line the finger landed, in UTF-16, and spent
+    /// only on the way out of reading: a lock leaves each line the view it
+    /// already was and the row places its own caret, while leaving the reading
+    /// view tears the row down and builds the writing row in its place, so the
+    /// caret has to be carried across. One line to a row here, which is why
+    /// this needs none of the walking back through a whole lyric that
+    /// `SongBlockEditorView`'s single reading column does — the row the tap
+    /// landed in is the row that was asked.
+    ///
     /// Nil where nothing is in the way, or where the server never offered this
     /// song to be written in: the lines are already taking a caret, or nothing
     /// this device can undo would give them one.
     private func startWriting(_ song: TextDocument,
-                              _ lyric: SongBlockModel) -> (() -> Void)? {
+                              _ lyric: SongBlockModel,
+                              _ block: SongBlock? = nil) -> ((Int) -> Void)? {
         guard isWritable(lyric), isReading || isLocked(song) else { return nil }
-        return {
+        return { offset in
             if isLocked(song) { locks[song.id]?.setEditingLocked(false) }
-            if isReading { beginEditing() }
+            guard isReading else { return }
+            // Asked before the mode changes, while the words on screen are
+            // still the ones the offset was measured against.
+            if let block, block.isEditable {
+                lyric.caretRequests[block.id] =
+                    lyric.currentText(block).characterOffset(utf16: offset)
+                pendingWriteLine = block.id
+            }
+            beginEditing()
         }
     }
 

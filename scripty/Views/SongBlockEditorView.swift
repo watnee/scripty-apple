@@ -84,6 +84,15 @@ struct SongBlockEditorView: View {
     /// opened in was the one that did the least. Reading means the reading
     /// surface here now; the lines left inert is what the lock is for.
     @State private var isReading: Bool
+    /// The line a double tap on the reader asked to write in, waiting for the
+    /// rows to exist to be asked. Nil the rest of the time.
+    ///
+    /// Not handed straight to `model.focusRequest` at the moment of the tap,
+    /// because the list is not on screen then and is lazy when it arrives: a
+    /// row the list never builds is a row that never grants itself first
+    /// responder, and the writer would be left looking at a lyric with no
+    /// keyboard — the same trap `ScriptView.pendingWriteTarget` exists for.
+    @State private var pendingWriteLine: Int?
     /// In flight to the screenplay. Guards the button rather than showing a
     /// spinner: the send is one POST and a reload, over in a beat.
     @State private var isInserting = false
@@ -433,12 +442,51 @@ struct SongBlockEditorView: View {
     /// Nil where nothing is in the way, or where the server never offered this
     /// song to be written in: the lines are already taking a caret, or no lock
     /// of this device's would give them one.
-    private var startWriting: (() -> Void)? {
+    /// Handed how far into the lyric the finger landed — into the whole of it
+    /// where the tap was made on the reader, and into the one line where it was
+    /// made on a locked row. Only the first is spent: leaving the reading view
+    /// swaps the column for a list of rows, so the line and the caret have to be
+    /// carried across, while a lock leaves each line the view it already was and
+    /// the row places its own caret.
+    private var startWriting: ((Int) -> Void)? {
         guard isSongEditable, isReading || options.isEditingLocked else { return nil }
-        return {
+        return { offset in
             if options.isEditingLocked { options.setEditingLocked(false) }
-            if isReading { beginEditing() }
+            guard isReading else { return }
+            // Asked before the mode changes, while the lines on screen are still
+            // the ones the offset was measured against.
+            if let (block, caret) = lyricPosition(at: offset), block.isEditable {
+                model.caretRequests[block.id] = caret
+                pendingWriteLine = block.id
+            }
+            beginEditing()
         }
+    }
+
+    /// Which line a tap `offset` into the whole lyric landed in, and how far
+    /// into that line it was — the reader's one number walked back into the row
+    /// the lyric is actually kept in. See `ReadSongView.onEdit`, which counts
+    /// the lines the way this adds them up: each line's own length, and one for
+    /// the break after it.
+    ///
+    /// The caret comes back in Characters, because that is what `caretRequests`
+    /// is in, while the offset arrives in UTF-16 — the count a text view
+    /// reports its own selection in. Nil for a lyric with no lines at all,
+    /// which is a song there was nothing to tap in.
+    private func lyricPosition(at offset: Int) -> (SongBlock, Int)? {
+        var start = 0
+        for block in model.blocks {
+            let text = model.currentText(block)
+            let length = (text as NSString).length
+            // `<=`, so an offset at the very end of a line belongs to that line
+            // rather than to the start of the next one.
+            if offset <= start + length {
+                return (block, text.characterOffset(utf16: offset - start))
+            }
+            start += length + 1
+        }
+        // Past the last line: a tap in the slack under a short lyric.
+        return model.blocks.last.map { ($0, model.currentText($0).count) }
     }
 
     /// Puts it back up to be read, and remembers that too. Half-typed lines go
@@ -502,6 +550,17 @@ struct SongBlockEditorView: View {
             .onChange(of: focusedLine) { _, id in
                 guard let id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
+            // The line a double tap asked for, claimed the moment these rows
+            // are the surface — `initial`, because the tap that asked was made
+            // on the reader and this list did not exist to hear it. Scrolled to
+            // as well as focused: the list is built fresh at the top, and a row
+            // it never reaches is never built to take the caret.
+            .onChange(of: pendingWriteLine, initial: true) { _, id in
+                guard let id else { return }
+                pendingWriteLine = nil
+                model.focusRequest = id
+                proxy.scrollTo(id, anchor: .center)
             }
             // Follow the voice, as the screenplay's column does. Centred, so
             // the line being sung has the verse around it rather than sitting

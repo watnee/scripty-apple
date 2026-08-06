@@ -38,10 +38,10 @@ struct ReadNoteView: View {
     /// in the toolbar. Nil where there is nothing to write in: a note the
     /// server sent to be read only.
     ///
-    /// No line is named, as none is in the lyric reader: this surface is handed
-    /// one string, so there is no element to put a caret in, and the editor
-    /// comes back where it was left rather than where the finger landed.
-    var onEdit: (() -> Void)?
+    /// Handed how far into the note the finger landed, in UTF-16. A note is one
+    /// string on both surfaces, so the offset the reader measures is already the
+    /// offset the editor wants — nothing has to be converted on the way across.
+    var onEdit: ((Int) -> Void)?
 
     /// The OS text-size setting as a multiplier, for the title — which is a
     /// SwiftUI font sized in points, unlike the note itself, whose font carries

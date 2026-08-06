@@ -138,6 +138,12 @@ struct SongEditorView: View {
     /// ways: the writer tapping Edit, and the load finding an empty document,
     /// which is nothing to read and so belongs to the writer.
     @State private var isReading: Bool
+    /// Where the caret goes when the writing surface arrives, set by a double
+    /// tap on the reading one — see `startWriting`. Nil the rest of the time,
+    /// including the moment after it is spent: the text view clears it once the
+    /// caret is in, so tapping Edit in the toolbar later does not send the
+    /// writer back to a line they touched half an hour ago.
+    @State private var pendingCaret: Int?
     /// Whether this document is closed to typing. Per document, kept on the
     /// device — see `DocumentViewOptions`, which the lyric editor shares.
     ///
@@ -266,11 +272,19 @@ struct SongEditorView: View {
     /// document to be written in: the words are already taking a caret, or no
     /// lock of this device's would give them one. The reader and the text view
     /// both take it, so the gesture means the same thing on either surface.
-    private var startWriting: (() -> Void)? {
+    /// Handed where among the words the finger landed. Spent only on the way
+    /// out of the reading view, where the words being tapped are the reader's
+    /// and the words about to take the caret are the editor's: two views, so
+    /// the offset is the only thing that crosses. The lock needs nothing kept —
+    /// there it is one view all along, and it places its own caret.
+    private var startWriting: ((Int) -> Void)? {
         guard isDocumentEditable, isReading || isLocked else { return nil }
-        return {
+        return { offset in
             options?.setEditingLocked(false)
-            if isReading { beginEditing() }
+            if isReading {
+                pendingCaret = offset
+                beginEditing()
+            }
         }
     }
 
@@ -722,6 +736,10 @@ struct SongEditorView: View {
                      // top. Offered only where Edit itself is: a document the
                      // server sent read-only has nowhere for this to go.
                      startWriting: startWriting,
+                     // The other end of a double tap made on the reader, which
+                     // is no longer on screen to place its own caret.
+                     caret: pendingCaret,
+                     onCaretApplied: { pendingCaret = nil },
                      onFocusChange: { isWritingBody = $0 })
             // The reader's margins, and no top padding of its own: the gap
             // above the first line is the title's bottom padding on both

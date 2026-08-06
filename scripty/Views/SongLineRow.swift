@@ -49,7 +49,11 @@ struct SongLineRow: View {
     /// reading view, take the lock off, or whatever else the host has put in the
     /// way. Nil where the host has nothing to undo, and never offered on a line
     /// the server itself made read-only — see `DoubleTapToEdit`.
-    var startWriting: (() -> Void)?
+    ///
+    /// Handed how far into *this line* the finger landed. The lock, which is
+    /// what every host but the song editor puts in the way, needs nothing with
+    /// it: the line stays the same view and places its own caret.
+    var startWriting: ((Int) -> Void)?
     /// Whether the voice reading the song aloud is on this line. Off by
     /// default, for the workspace and anywhere else that has no reading of its
     /// own to follow.
@@ -263,7 +267,7 @@ struct SongLineRow: View {
 /// row that has moved on.
 @MainActor
 final class SongLineCallbacks {
-    var startWriting: (() -> Void)?
+    var startWriting: ((Int) -> Void)?
     var onTextChanged: (String) -> Void = { _ in }
     var onCaretApplied: () -> Void = {}
     var onBeginEditing: () -> Void = {}
@@ -364,8 +368,8 @@ private struct SongLineField: UIViewRepresentable, Equatable {
         // Through the callbacks rather than this struct: the closure outlives
         // it, and the host's answer to "start writing" changes with the mode
         // it is in.
-        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] in
-            coordinator?.callbacks.startWriting?()
+        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] offset in
+            coordinator?.callbacks.startWriting?(offset)
         }
         context.coordinator.doubleTap.attach(to: view)
         apply(to: view)
