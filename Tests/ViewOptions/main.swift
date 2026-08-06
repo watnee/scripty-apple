@@ -244,6 +244,37 @@ func run() {
     }
 
     print("")
+    print("Two readers of one lock")
+    do {
+        // The songs list holds a reader per row, the workspace holds one per
+        // song, and the editor over both holds its own — all three of the same
+        // document, all three alive at once. A lock is one fact, so a switch
+        // flipped through any of them has to be the answer the others give.
+        // They each read the store rather than remembering: a reader that kept
+        // its own copy left a padlock missing on the list a writer came back to
+        // after locking the song upstairs.
+        let store = scratch("twoReaders")
+        let list = DocumentViewOptions(documentId: 11, defaults: store)
+        let workspace = DocumentViewOptions(documentId: 11, defaults: store)
+        check("both start open", list.isEditingLocked || workspace.isEditingLocked, false)
+
+        workspace.setEditingLocked(true)
+        check("locking in one is locked in the other", list.isEditingLocked, true)
+
+        list.setEditingLocked(false)
+        check("and unlocking travels back the other way", workspace.isEditingLocked, false)
+
+        // A song and its own rewrite are not the same document, so a reader of
+        // one must not answer for the other.
+        let rewrite = DocumentViewOptions(documentId: 11, editionId: 4, defaults: store)
+        list.setEditingLocked(true)
+        check("the rewrite inherits with nothing of its own", rewrite.isEditingLocked, true)
+        rewrite.setEditingLocked(false)
+        check("and once it has its own, it keeps it", rewrite.isEditingLocked, false)
+        check("while the song stays shut", workspace.isEditingLocked, true)
+    }
+
+    print("")
     print("Songs workspace open set")
     do {
         let store = scratch("workspace")

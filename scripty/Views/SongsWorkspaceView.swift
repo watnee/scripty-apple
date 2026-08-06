@@ -45,12 +45,16 @@ struct SongsWorkspaceView: View {
 
     /// One per song, made on first expand. Songs nobody opens cost nothing.
     @State private var lyrics: [Int: SongBlockModel] = [:]
-    /// Whether each opened song is closed to typing. A lock set in the song
-    /// editor has to hold here too, or the screen that shows every lyric at
-    /// once would be the way around every lock in the project. Read only —
-    /// the switch itself stays in the song's own editor, where a writer is
-    /// looking at one song and means it. Made beside the lyric, so a song
-    /// nobody opened still costs nothing.
+    /// Whether each song is closed to typing. A lock set in the song editor has
+    /// to hold here too, or the screen that shows every lyric at once would be
+    /// the way around every lock in the project.
+    ///
+    /// One for every song rather than only the opened ones, which is what these
+    /// were. A collapsed song can now say it is locked and be locked from its
+    /// own menu, and Lock All Songs has to reach the ones nobody expanded —
+    /// they are exactly the songs a writer finishing a book means. A reader is
+    /// two `UserDefaults` reads, so a book's worth of them is nothing next to
+    /// one lyric loading.
     @State private var locks: [Int: DocumentViewOptions] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
@@ -186,6 +190,12 @@ struct SongsWorkspaceView: View {
                 for id in Set(old.keys).union(new.keys) where old[id] != new[id] {
                     notices.situationChanged(DismissedNotices.offlineCopyKey(songId: id))
                 }
+            }
+            // A lock reader per song, kept in step with the songs. `initial`
+            // for the case where the project's songs were already in hand when
+            // this screen opened, which is most of the time.
+            .onChange(of: model.songs.map(\.id), initial: true) { _, _ in
+                ensureLocks()
             }
         }
     }
@@ -449,8 +459,8 @@ struct SongsWorkspaceView: View {
             .accessibilityHint(expanded.contains(song.id) ? "Hide lyrics" : "Show lyrics")
             .accessibilityAddTraits(expanded.contains(song.id) ? [.isSelected] : [])
             historyButtons(song)
-            if canReorder {
-                reorderMenu(song)
+            if canReorder || canLock(song) {
+                songMenu(song)
             }
         }
         .textCase(nil)
@@ -490,30 +500,49 @@ struct SongsWorkspaceView: View {
         }
     }
 
-    /// The one-slot move, kept beside the drag.
+    /// What can be done to one song from the row that names it: moved a slot,
+    /// and closed to typing.
     ///
-    /// The web puts a drag handle on every song here, and Arrange Songs is what
-    /// answers it — but a handle's arrow keys also move a card a single slot,
-    /// and that is worth having in reach without changing what the screen is.
-    /// It is the route for a nudge, for VoiceOver, and for anyone who would
-    /// rather not hold a drag steady down a scrolling list.
-    private func reorderMenu(_ song: TextDocument) -> some View {
+    /// The one-slot move is kept beside the drag. The web puts a drag handle on
+    /// every song here, and Arrange Songs is what answers it — but a handle's
+    /// arrow keys also move a card a single slot, and that is worth having in
+    /// reach without changing what the screen is. It is the route for a nudge,
+    /// for VoiceOver, and for anyone who would rather not hold a drag steady
+    /// down a scrolling list.
+    ///
+    /// The lock joins it rather than taking a button of its own in the header.
+    /// There is no room: an open song already carries Undo, Redo and this, and
+    /// a fourth glyph on an iPhone would push the title into an ellipsis. The
+    /// padlock in the header still says *which* songs are locked; this is where
+    /// the answer is changed — a menu on the song, for the writer looking at
+    /// one song and meaning it.
+    private func songMenu(_ song: TextDocument) -> some View {
         let at = songs.firstIndex { $0.id == song.id }
         return Menu {
-            Button {
-                move(song, by: -1)
-            } label: {
-                Label("Move Up", systemImage: "arrow.up")
+            if canReorder {
+                Button {
+                    move(song, by: -1)
+                } label: {
+                    Label("Move Up", systemImage: "arrow.up")
+                }
+                .disabled(at == 0)
+                Button {
+                    move(song, by: 1)
+                } label: {
+                    Label("Move Down", systemImage: "arrow.down")
+                }
+                .disabled(at == songs.count - 1)
             }
-            .disabled(at == 0)
-            Button {
-                move(song, by: 1)
-            } label: {
-                Label("Move Down", systemImage: "arrow.down")
+            if canLock(song) {
+                Toggle(isOn: lockBinding(song)) {
+                    Label("Lock Editing", systemImage: "lock")
+                }
             }
-            .disabled(at == songs.count - 1)
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
+            // "…" rather than the two arrows this wore while it only reordered:
+            // a glyph that says one of the things behind it would send a writer
+            // looking elsewhere for the other.
+            Image(systemName: "ellipsis")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 32, height: 32)
@@ -522,7 +551,7 @@ struct SongsWorkspaceView: View {
         .glyphHitInset()
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .accessibilityLabel("Reorder \(song.displayTitle)")
+        .accessibilityLabel("More for \(song.displayTitle)")
     }
 
     @ViewBuilder
@@ -739,6 +768,25 @@ struct SongsWorkspaceView: View {
                 }
             }
         }
+        // The one screen that can close the whole book at once, which is the
+        // job the lock is most often wanted for and the one it was worst at: a
+        // finished show meant opening each song, finding the switch behind its
+        // overflow menu, and closing it again, however many numbers that is.
+        //
+        // In the overflow beside Arrange, not the bar: this is done at the end
+        // of a draft, not while working. It changes nothing about what a lock
+        // is — it sets each song's own, one after another, so unlocking the one
+        // number being rewritten leaves the rest of the book closed.
+        if !lockableSongs.isEmpty {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    setLock(!allLocked, on: lockableSongs)
+                } label: {
+                    Label(allLocked ? "Unlock All Songs" : "Lock All Songs",
+                          systemImage: allLocked ? "lock.open" : "lock")
+                }
+            }
+        }
         // Every song at once is where a field of red squiggles is hardest to
         // read past, so the switch belongs here as much as anywhere.
         ToolbarItem(placement: .secondaryAction) {
@@ -797,20 +845,86 @@ struct SongsWorkspaceView: View {
 
     private func open(_ song: TextDocument) {
         expanded.insert(song.id)
+        // Also here, and not only from the watcher above: the songs left open
+        // last time are restored the instant the documents land, which is
+        // before SwiftUI has run a redraw for the change that would have made
+        // these.
+        ensureLock(song)
         guard lyrics[song.id] == nil else { return }
         let lyric = SongBlockModel(app: app, document: song)
         lyrics[song.id] = lyric
-        // No edition named: this screen always reads the default lyric, which
-        // is the one a song-level lock covers.
-        locks[song.id] = DocumentViewOptions(documentId: song.id, kind: .song)
         Task { await lyric.load() }
     }
 
-    /// Whether this song is closed to typing. A song not yet opened has no
-    /// stored answer here and needs none — nothing of it is on screen to type
-    /// into.
+    /// No edition named: this screen always reads the default lyric, which is
+    /// the one a song-level lock covers.
+    private func ensureLock(_ song: TextDocument) {
+        guard locks[song.id] == nil else { return }
+        locks[song.id] = DocumentViewOptions(documentId: song.id, kind: .song)
+    }
+
+    private func ensureLocks() {
+        for song in model.songs { ensureLock(song) }
+    }
+
+    /// Whether this song is closed to typing.
     private func isLocked(_ song: TextDocument) -> Bool {
         locks[song.id]?.isEditingLocked ?? false
+    }
+
+    /// Whether there is anything here to lock — the same rule the songs list
+    /// goes by, so the switch is in the same places on both screens. Asked of
+    /// the document's link rather than of its lyric, which a collapsed song has
+    /// not loaded: an affordance that appeared on expanding a song would look
+    /// like it belonged to the expanding.
+    private func canLock(_ song: TextDocument) -> Bool {
+        song.hasLink(.update) && locks[song.id] != nil
+    }
+
+    private func lockBinding(_ song: TextDocument) -> Binding<Bool> {
+        Binding(get: { isLocked(song) }, set: { setLock($0, on: [song]) })
+    }
+
+    /// Closes songs to typing, or opens them again.
+    ///
+    /// Locking puts the keyboard away and flushes first, for the reason the
+    /// song editor's own switch does: what is half-typed when a lyric is closed
+    /// is part of the lyric, and the debounce that would have saved it is about
+    /// to have no field left to fire from. The lock itself is set without
+    /// waiting on that — the tick in the menu has to answer the tap, and the
+    /// commit is on its way regardless.
+    private func setLock(_ locked: Bool, on targets: [TextDocument]) {
+        if locked {
+            for song in targets {
+                guard let lyric = lyrics[song.id] else { continue }
+                if lyric.focusedBlockId != nil { focusedLine = nil }
+                lyric.focusedBlockId = nil
+                lyric.focusRequest = nil
+                Task { await lyric.commitAll() }
+            }
+        }
+        for song in targets {
+            locks[song.id]?.setEditingLocked(locked)
+        }
+    }
+
+    /// The songs a lock could be put on — which is every one of them for a
+    /// writer, and none of them for a collaborator reading the show.
+    ///
+    /// Only the songs currently passing the filter, the rule Expand All above
+    /// goes by: "all songs" has to mean the songs the writer can see, or a
+    /// filtered screen would quietly reach past its own edges.
+    private var lockableSongs: [TextDocument] {
+        songs.filter(canLock)
+    }
+
+    /// Whether the button says Lock or Unlock. A screen with one song still
+    /// open to typing offers to close it, so the writer finishing a book presses
+    /// this once and is done — the flip to Unlock is the confirmation that the
+    /// press landed on all of them.
+    private var allLocked: Bool {
+        let lockable = lockableSongs
+        return !lockable.isEmpty && lockable.allSatisfy(isLocked)
     }
 
     /// The double tap that takes a locked song's lock off, so a writer working

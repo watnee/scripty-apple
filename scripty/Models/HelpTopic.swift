@@ -830,23 +830,35 @@ extension HelpTopic {
                     + "songs, New Note over the notes. An element's own menu inserts a "
                     + "song below it. Swipe a row to rename or delete it; touch and "
                     + "hold for everything else.",
-                    "A finished song or note can be locked. Lock Editing in the "
-                    + "editor's menu closes it to typing — a lyric's lines stop "
-                    + "taking keystrokes and stop offering delete and highlight, and "
-                    + "a note stops taking them at all — so a song being read from "
-                    + "at a rehearsal, or a shot list held up on set, cannot pick up "
-                    + "a stray character. Whatever you had just typed is saved on "
-                    + "the way in. A banner across the top says it is locked and "
-                    + "unlocks it when tapped — as does a double tap on the words "
-                    + "themselves, which unlocks the document and puts the cursor "
-                    + "where your finger landed. The lock is kept on this device, "
-                    + "one document at a time, and applies to a song's own edition "
-                    + "when you are in one. Both workspace screens honour it too — "
-                    + "every song on one page, every note on the other — mark the "
-                    + "locked ones with a padlock, and take the same double tap to "
-                    + "unlock the one document you meant; neither is a way round a "
-                    + "lock. On the songs page the banner is there as well, over the "
-                    + "locked song you open, and unlocks that song alone.",
+                    "A finished song or note can be locked. Lock Editing closes it "
+                    + "to typing — a lyric's lines stop taking keystrokes and stop "
+                    + "offering delete and highlight, and a note stops taking them "
+                    + "at all — so a song being read from at a rehearsal, or a shot "
+                    + "list held up on set, cannot pick up a stray character. "
+                    + "Whatever you had just typed is saved on the way in. A banner "
+                    + "across the top says it is locked and unlocks it when tapped — "
+                    + "as does a double tap on the words themselves, which unlocks "
+                    + "the document and puts the cursor where your finger landed. "
+                    + "The lock is kept on this device, one document at a time, and "
+                    + "applies to a song's own edition when you are in one.",
+                    "The switch is wherever the document is. It is in the editor's "
+                    + "menu; it is also on the list, where touching and holding a "
+                    + "row offers Lock Editing without opening the song at all, and "
+                    + "a padlock beside the name says which rows are closed. On the "
+                    + "songs page — every song at once — each title's “…” carries "
+                    + "the same switch beside its Move Up and Move Down, and Lock "
+                    + "All Songs in the page's menu closes the lot in one press, "
+                    + "which is what finishing a book usually means; press it again "
+                    + "for Unlock All Songs. It is still one lock per song, so "
+                    + "unlocking the one number being rewritten leaves the rest of "
+                    + "the book shut. With a filter on the page it covers the songs "
+                    + "you can see.",
+                    "Both workspace screens honour a lock too — every song on one "
+                    + "page, every note on the other — mark the locked ones with a "
+                    + "padlock, and take the same double tap to unlock the one "
+                    + "document you meant; neither is a way round a lock. On the "
+                    + "songs page the banner is there as well, over the locked song "
+                    + "you open, and unlocks that song alone.",
                     "A song or a note can also be read to you. Read Aloud, in the "
                     + "editor's \u{201C}…\u{201D} menu and on \u{2318}\u{21E7}A, speaks the "
                     + "words in the same voice and at the same speed the screenplay's "
@@ -925,7 +937,8 @@ extension HelpTopic {
                            "print", "printing", "printer", "paper", "lyric sheet",
                            "musicxml", "mistake", "history", "step back",
                            "dismiss", "close",
-                           "lock", "locked", "read only", "protect",
+                           "lock", "locked", "unlock", "lock all", "unlock all",
+                           "read only", "protect",
                            "find", "search", "replace", "match case", "whole words",
                            "arrange", "rearrange", "reorder", "order", "drag",
                            "move up", "move down", "sort",
