@@ -218,6 +218,15 @@ struct NoteTextView: UIViewRepresentable {
     /// Reports whether the caret is in here, so the host can show the
     /// formatting bar only while there is something for it to format.
     var onFocusChange: ((Bool) -> Void)?
+    /// Reports finger-driven scrolling of the note, so the host can fold its
+    /// bars away while it is being scrolled through.
+    ///
+    /// This view has to report it itself. The other surfaces are SwiftUI scroll
+    /// views and are watched with `onUserScroll`, which reads a `ScrollGeometry`
+    /// SwiftUI only publishes for its own; the note is one text view scrolling
+    /// its own content, and nothing outside it can see that happen. Filtered to
+    /// the same three things the spy filters to — see `scrollViewDidScroll`.
+    var onUserScroll: ((_ delta: CGFloat, _ fromTop: CGFloat) -> Void)?
 
     /// The face the writer chose for everything with no font of its own,
     /// resolved as this view is built rather than inside `updateUIView`: an
@@ -349,6 +358,32 @@ struct NoteTextView: UIViewRepresentable {
         case heading(Int)
     }
 
+    /// What one scroll event looked like, in the terms the filter above cares
+    /// about — `UserScrollSpy.Probe` for a plain `UIScrollView`.
+    ///
+    /// The raw offset and the inset are kept apart rather than pre-added for the
+    /// reason they are there: folding a bar away changes the inset without any
+    /// scrolling at all, and a pre-added sum would hand that shift back as a
+    /// flick — which is the fold arguing with itself.
+    private struct ScrollProbe {
+        var offset: CGFloat
+        var topInset: CGFloat
+        var canScroll: Bool
+        var beyondBottom: Bool
+
+        @MainActor
+        init(_ scrollView: UIScrollView) {
+            let insets = scrollView.adjustedContentInset
+            let height = scrollView.bounds.height
+            offset = scrollView.contentOffset.y
+            topInset = insets.top
+            canScroll = scrollView.contentSize.height + insets.top + insets.bottom
+                > height + 1
+            beyondBottom = offset > scrollView.contentSize.height
+                + insets.bottom - height
+        }
+    }
+
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: NoteTextView
@@ -361,6 +396,12 @@ struct NoteTextView: UIViewRepresentable {
         /// undo is not mistaken for typing and pushed onto the stack it just
         /// came off.
         private var isWriting = false
+
+        /// What the last scroll event looked like, so the next one can be
+        /// reported as a distance travelled rather than a position. Kept for
+        /// every event, gesture or not: a jump left out of the record would come
+        /// back as one enormous delta the next time a finger moved.
+        private var lastScroll: ScrollProbe?
 
         init(_ parent: NoteTextView) {
             self.parent = parent
@@ -375,6 +416,29 @@ struct NoteTextView: UIViewRepresentable {
             // is what the note's history is built from.
             parent.controller?.capture(text: textView.text,
                                        selection: textView.selectedRange)
+        }
+
+        /// The note scrolling under a finger, on the same terms `UserScrollSpy`
+        /// reports a SwiftUI scroll view: how far this event moved, and how far
+        /// the viewport now sits below the top of the note.
+        ///
+        /// Filtered the same three ways, and for the same reasons. Only a
+        /// dragging or coasting scroll view is a finger's doing — a caret
+        /// scrolled into view as the keyboard comes up is not, and folding the
+        /// bars away for it would fold them under someone who only typed.
+        /// Content too short to scroll is dropped, so a rubber-band stretch on a
+        /// two-line note cannot read as travel. And an event past the bottom
+        /// edge is dropped at both ends, so the spring settling after an
+        /// over-scroll does not read as scrolling back up.
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            let now = ScrollProbe(scrollView)
+            let before = lastScroll
+            lastScroll = now
+            guard let report = parent.onUserScroll,
+                  scrollView.isDragging || scrollView.isDecelerating,
+                  let before, now.canScroll,
+                  !now.beyondBottom, !before.beyondBottom else { return }
+            report(now.offset - before.offset, now.offset + now.topInset)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {

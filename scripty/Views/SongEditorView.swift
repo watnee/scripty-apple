@@ -200,6 +200,20 @@ struct SongEditorView: View {
 
     private var titleScale: CGFloat { CGFloat(settings.textScale) * dynamicTypeScale }
 
+    /// Whether the bars around the words are folded away because the document
+    /// is being scrolled down through — the screenplay's fold, in a song and a
+    /// note, off the shared rule in `ChromeFold`. Both surfaces feed it: the
+    /// text view reports its own scrolling, the reader reports the column's.
+    @State private var fold = ChromeFold()
+
+    /// Which layout this is in, which is the whole of what the fold asks.
+    /// Compact only, exactly as the screenplay has it: a document opened at
+    /// full iPad width has room for its toolbar, and taking the hand of
+    /// controls off a screen with room for all of it buys nothing.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isCompact: Bool { horizontalSizeClass == .compact }
+
     init(model: ScriptModel, document: TextDocument?, type: DocumentType,
          onInserted: (() -> Void)? = nil) {
         self.model = model
@@ -426,7 +440,18 @@ struct SongEditorView: View {
                 if isReading {
                     reader
                 } else {
-                    titleField
+                    // The name folds away with the bars, and only here. On the
+                    // reading surface it is a line of the column and scrolls off
+                    // by itself; here it is a field pinned above the words, so
+                    // scrolling down through a long note left it sitting there
+                    // taking two lines of a page being read.
+                    //
+                    // Never while the caret is in it: a field that vanishes
+                    // under the writer would take the keyboard and the half-typed
+                    // name with it.
+                    if !fold.isHidden || titleFocused {
+                        titleField
+                    }
                     // No rule under the name. The reading surface draws none,
                     // and a line across the sheet that appears the moment Edit
                     // is tapped is one more thing that changes with the mode —
@@ -464,6 +489,19 @@ struct SongEditorView: View {
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            // Scrolling down through the words folds the bar away for reading
+            // room, the way the screenplay's does — `respondToScroll` is what
+            // sets the flag, and the readout at the foot folds on the same one.
+            .toolbarVisibility(fold.isHidden ? .hidden : .visible, for: .navigationBar)
+            // Changing what this screen is comes with a new set of controls to
+            // read, so it arrives dressed: tapping Edit on a note scrolled
+            // halfway down should not hand back a page with no way off it.
+            .onChange(of: isReading) { _, _ in fold.show() }
+            // Same for the caret reaching the name — which can only happen
+            // while the field is on screen, and should leave it there.
+            .onChange(of: titleFocused) { _, focused in
+                if focused { fold.show() }
+            }
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -740,7 +778,10 @@ struct SongEditorView: View {
                      // is no longer on screen to place its own caret.
                      caret: pendingCaret,
                      onCaretApplied: { pendingCaret = nil },
-                     onFocusChange: { isWritingBody = $0 })
+                     onFocusChange: { isWritingBody = $0 },
+                     // The note scrolls itself, so it is the only one who can
+                     // say it happened — see `NoteTextView.onUserScroll`.
+                     onUserScroll: respondToScroll)
             // The reader's margins, and no top padding of its own: the gap
             // above the first line is the title's bottom padding on both
             // surfaces, so the words start at the same height either way.
@@ -759,13 +800,24 @@ struct SongEditorView: View {
             ReadSongView(title: trimmedTitle,
                          lines: content.components(separatedBy: .newlines),
                          textScale: settings.textScale,
-                         onEdit: startWriting)
+                         onEdit: startWriting,
+                         onUserScroll: respondToScroll)
         } else {
             ReadNoteView(title: trimmedTitle,
                          text: content,
                          textScale: settings.textScale,
-                         onEdit: startWriting)
+                         onEdit: startWriting,
+                         onUserScroll: respondToScroll)
         }
+    }
+
+    /// Folds the bars away while the document is scrolled down through, and
+    /// brings them back the moment the direction turns. The rule is shared with
+    /// the screenplay and the lyric editor — see `ChromeFold` — and all this
+    /// adds is where it applies.
+    private func respondToScroll(delta: CGFloat, fromTop: CGFloat) {
+        guard isCompact else { return }
+        fold.respond(delta: delta, fromTop: fromTop)
     }
 
     /// Which copy the strip is reporting, or nil when the words on screen came
@@ -917,7 +969,10 @@ struct SongEditorView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
             }
-            if settings.showsWordCount {
+            // Folded away with the bar at the top while the document is being
+            // scrolled through: the count is a readout, not a control, and
+            // reading room is the whole point of the fold.
+            if settings.showsWordCount && !fold.isHidden {
                 // Memoized: `content` is bound to the text view, so this whole
                 // body reruns per character and the count was re-splitting the
                 // entire note every time.

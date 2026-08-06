@@ -575,6 +575,32 @@ extension HelpTopic {
                 keywords: ["distraction", "zen", "width", "column", "measure",
                            "concentrate"]),
             HelpTopic(
+                id: "bars-on-scroll",
+                title: "The Bars Get Out of the Way",
+                systemImage: "arrow.up.and.down",
+                paragraphs: [
+                    "On an iPhone, scrolling down through a screenplay, a song or "
+                    + "a note folds the toolbar at the top away, and the word count "
+                    + "at the foot with it, so the page you are reading gets the "
+                    + "room the bars were using. Scrolling back up brings them "
+                    + "straight back, and so does arriving at the top — it takes a "
+                    + "deliberate pull down to fold them away and barely a flick to "
+                    + "get them back. A song or note being written folds its title "
+                    + "field away too, since that sits above the words rather than "
+                    + "scrolling with them.",
+                    "It works the same whether the document is open to be read or "
+                    + "to be written in, and it is a phone thing only: an iPad has "
+                    + "the room to keep its controls. The transport that appears "
+                    + "while something is being read aloud is deliberately left "
+                    + "where it is — scrolling through a document is not a reason to "
+                    + "lose the only handle on the voice reading it. Starting a "
+                    + "search, selecting elements, or switching between reading and "
+                    + "writing brings everything back as well."
+                ],
+                keywords: ["toolbar", "bar", "bars", "hide", "hides", "fold",
+                           "scroll", "scrolling", "chrome", "room", "space",
+                           "navigation bar", "title"]),
+            HelpTopic(
                 id: "read-script",
                 title: "Read Script",
                 systemImage: "book",

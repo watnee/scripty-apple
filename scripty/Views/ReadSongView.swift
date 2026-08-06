@@ -92,6 +92,10 @@ struct ReadSongView: View {
     /// walked every line slowly out of place down the page. So the reader
     /// rounds the way whichever editor it stands in for rounds.
     var linesAreRows = false
+    /// Reports finger-driven scrolling, so the editor around this surface can
+    /// fold its bars away while the song is being read through — the same fold
+    /// the writing surface takes, since reading is the posture it exists for.
+    var onUserScroll: (_ delta: CGFloat, _ fromTop: CGFloat) -> Void = { _, _ in }
     /// Which line the voice is on, while the song is being read aloud — an
     /// index into `lines`, since that is all this surface is given to point
     /// at. Nil when nothing is being read, which is the ordinary state.
@@ -161,6 +165,10 @@ struct ReadSongView: View {
                 .padding(.horizontal, ProseColumn.horizontalPadding)
                 .padding(.bottom, ProseColumn.bottomSlack)
             }
+            // Only gestures reach this — the spy drops programmatic jumps, so
+            // the scroll that follows the voice below cannot fold the bars away
+            // under someone who never touched the screen.
+            .onUserScroll(onUserScroll)
             // Follow the voice, where there are rows to follow it by.
             .onChange(of: highlighted) { _, index in
                 guard let index else { return }

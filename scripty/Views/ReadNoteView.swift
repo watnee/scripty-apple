@@ -42,6 +42,10 @@ struct ReadNoteView: View {
     /// string on both surfaces, so the offset the reader measures is already the
     /// offset the editor wants — nothing has to be converted on the way across.
     var onEdit: ((Int) -> Void)?
+    /// Reports finger-driven scrolling, so the editor around this surface can
+    /// fold its bars away while the note is being read through — the same fold
+    /// the writing surface takes, since reading is the posture it exists for.
+    var onUserScroll: (_ delta: CGFloat, _ fromTop: CGFloat) -> Void = { _, _ in }
 
     /// The OS text-size setting as a multiplier, for the title — which is a
     /// SwiftUI font sized in points, unlike the note itself, whose font carries
@@ -81,6 +85,7 @@ struct ReadNoteView: View {
             .padding(.horizontal, ProseColumn.horizontalPadding)
             .padding(.bottom, ProseColumn.bottomSlack)
         }
+        .onUserScroll(onUserScroll)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
             availableWidth = $0
         }

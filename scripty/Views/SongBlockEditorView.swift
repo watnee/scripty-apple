@@ -127,6 +127,19 @@ struct SongBlockEditorView: View {
     /// device with one pair of headphones.
     private let narrator = ScriptNarrator.shared
 
+    /// Whether the bars around the lyric are folded away because the song is
+    /// being scrolled down through — the screenplay's fold, off the shared rule
+    /// in `ChromeFold`. Both surfaces feed it: the lines while they are being
+    /// written, the verse while it is being read.
+    @State private var fold = ChromeFold()
+
+    /// Which layout this is in, which is the whole of what the fold asks.
+    /// Compact only, exactly as the screenplay has it: a song opened at full
+    /// iPad width has room for its toolbar.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isCompact: Bool { horizontalSizeClass == .compact }
+
     init(app: AppModel, document: TextDocument, scriptModel: ScriptModel,
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
@@ -267,8 +280,21 @@ struct SongBlockEditorView: View {
             .navigationTitle(model.document.displayTitle)
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            // Scrolling down through the song folds the bar away for reading
+            // room, the way the screenplay's does — `respondToScroll` sets the
+            // flag, and the readout at the foot folds on the same one.
+            .toolbarVisibility(fold.isHidden ? .hidden : .visible, for: .navigationBar)
             #endif
             .toolbar { toolbar }
+            // Search is a toolbar errand with a bar of its own: the chrome
+            // comes back for it rather than leaving the writer to work it in a
+            // bare room. Same for changing what this screen is — tapping Edit
+            // on a song scrolled halfway down should not hand back a page with
+            // no way off it.
+            .onChange(of: isSearching) { _, searching in
+                if searching { fold.show() }
+            }
+            .onChange(of: isReading) { _, _ in fold.show() }
             // ⌘Z belongs to this lyric while it is open. Without this the menu
             // bar's Undo still reaches the screenplay behind the cover — a
             // scene's focused value is not covered up by a sheet over it — and
@@ -562,6 +588,10 @@ struct SongBlockEditorView: View {
                 model.focusRequest = id
                 proxy.scrollTo(id, anchor: .center)
             }
+            // Only gestures reach this — the spy drops programmatic jumps, so
+            // neither the scroll to a focused line nor the one that follows the
+            // voice can fold the bars away under a writer who never scrolled.
+            .onUserScroll(respondToScroll)
             // Follow the voice, as the screenplay's column does. Centred, so
             // the line being sung has the verse around it rather than sitting
             // at the very top with the next line always a jump away.
@@ -772,9 +802,19 @@ struct SongBlockEditorView: View {
                      // This editor keeps a row per line, so the reader adds its
                      // column up the same way — see `linesAreRows`.
                      linesAreRows: true,
+                     onUserScroll: respondToScroll,
                      // The line the voice is on, as a position: the reader is
                      // handed strings, not lines with ids.
                      highlighted: readingLineIndex)
+    }
+
+    /// Folds the bars away while the song is scrolled down through, and brings
+    /// them back the moment the direction turns. The rule is shared with the
+    /// screenplay and the note editor — see `ChromeFold` — and all this adds is
+    /// where it applies.
+    private func respondToScroll(delta: CGFloat, fromTop: CGFloat) {
+        guard isCompact else { return }
+        fold.respond(delta: delta, fromTop: fromTop)
     }
 
     /// Where in the lyric the voice is, counted the way the reader counts —
@@ -1299,7 +1339,10 @@ struct SongBlockEditorView: View {
     /// here: a song is measured in lines, not pages.
     @ViewBuilder
     private var wordCountBar: some View {
-        if settings.showsWordCount {
+        // Folded away with the bar at the top while the song is being scrolled
+        // through: the count is a readout, not a control, and reading room is
+        // the whole point of the fold.
+        if settings.showsWordCount && !fold.isHidden {
             WordCountBar(words: model.wordCount)
         }
     }
