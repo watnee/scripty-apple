@@ -207,7 +207,8 @@ struct ScriptView: View {
     private let onProjectChanged: (Project) async -> Void
 
     /// Whether the split view is showing one column or two, which here decides
-    /// where the songs and notes are offered — see `documentsBar`.
+    /// whether the songs and notes are offered in the toolbar or in a strip of
+    /// their own beneath it — see `documentsBar`.
     ///
     /// Passed in rather than read from the environment, for the reason
     /// `ContentView` gives where it reads it: inside a `NavigationSplitView`
@@ -286,6 +287,12 @@ struct ScriptView: View {
                 editionBanner
             }
         }
+        // Mounted after the banners, which puts it *above* them — a top inset
+        // declared later settles nearer the edge, the mirror of the bottom
+        // stack below. Songs and Notes are standing chrome and belong against
+        // the navigation bar; a banner is a thing that happened, and it reads
+        // as being about the script when it sits down against the script.
+        .safeAreaBar(edge: .top) { documentsBar }
         // A closed strip is closed about one situation. When the situation
         // moves on — the connection comes back, everything lands, a refusal
         // arrives on top of held work — the dismissal stops applying and the
@@ -300,7 +307,7 @@ struct ScriptView: View {
         .safeAreaBar(edge: .bottom, spacing: 0) { wordCountBar }
         // Mounted after the readout, so it settles below it — the buttons are
         // the thing being reached for, and the count is a thing being read.
-        .safeAreaBar(edge: .bottom) { documentsBar }
+        .safeAreaBar(edge: .bottom) { readerBar }
         // Last of the strips, so the transport sits nearest the thumb while a
         // reading runs. Deliberately not folded with the chrome: it is the
         // only handle on live audio, and someone scrolling while the script
@@ -1304,23 +1311,19 @@ struct ScriptView: View {
         }
     }
 
-    /// Songs and Notes, where a phone can actually reach them.
+    /// The way back into the script, and the way to be read to — the two things
+    /// a phone's navigation bar has no room for.
     ///
-    /// The toolbar is where these belong and where the iPad and the Mac keep
-    /// them, but a phone's bar has no room: it draws three trailing controls,
-    /// the "…" takes one of the three, and the View menu and Add Element take
-    /// the other two. Every arrangement tried put Songs and Notes back in the
-    /// overflow — which is the very thing wrong with them today, and no number
-    /// of demotions elsewhere fixes it, because the bar's budget is the title's
-    /// leftovers rather than a count of items.
+    /// Songs and Notes were here too, for want of anywhere else. They are now
+    /// at the top of the screen — `documentsBar` — which is where they were
+    /// always meant to be and where the far corner of a phone is no longer the
+    /// price of it.
     ///
-    /// So they come down here, under the thumb instead of in the corner
-    /// furthest from it. Icon-only, matching the toolbar the iPad and Mac
-    /// keep them in — the titles stay on the `Label`s, where VoiceOver still
-    /// reads them. Buttons in a `.safeAreaBar` rather than `.bottomBar`
+    /// Listening is icon-only; the title stays on the `Label`, where VoiceOver
+    /// still reads it. Buttons in a `.safeAreaBar` rather than `.bottomBar`
     /// toolbar items for the reason `ProjectsSidebarView.newProjectBar`
-    /// records: a bar item built from a `Label` shows the glyph and drops
-    /// the title, even under `.titleAndIcon`.
+    /// records: a bar item built from a `Label` shows the glyph and drops the
+    /// title, even under `.titleAndIcon`.
     ///
     /// It draws no background of its own — the `.safeAreaBar` already floats it
     /// on Liquid Glass, and a fill under that flattens the glass into a slab.
@@ -1337,12 +1340,12 @@ struct ScriptView: View {
     /// compact-only and folds with the chrome, so every width and posture it
     /// does not cover had nowhere to start a reading from at all.
     @ViewBuilder
-    private var documentsBar: some View {
+    private var readerBar: some View {
         // Not while elements are being selected: the selection bar already
-        // takes two rows of the phone's bottom edge, and songs, notes, and
-        // listening are exactly the errand the writer is not on.
+        // takes two rows of the phone's bottom edge, and reading — either
+        // kind — is exactly the errand the writer is not on.
         if isCompact && !isChromeHidden && !settings.isFocusMode
-            && (isReadyToEdit || model.canViewDocuments || model.hasScriptContent)
+            && (isReadyToEdit || model.hasScriptContent)
             && !selection.isSelecting {
             HStack(spacing: 8) {
                 // The way out of the reader, down here for the reason
@@ -1354,11 +1357,10 @@ struct ScriptView: View {
                 // Edit is only ever the overflow's, two taps deep, which is no
                 // way to offer the one thing a reader most needs.
                 //
-                // Titled and filled, alone among these: the others are
-                // errands a writer goes looking for, and this one is the door
+                // Titled and filled, unlike the icon beside it: listening is an
+                // errand a writer goes looking for, and this one is the door
                 // back into their own screenplay. It leads the row because
-                // that is where the eye starts, and because the icon-only
-                // trio beside it reads as a set it does not belong to.
+                // that is where the eye starts.
                 if isReadyToEdit {
                     Button {
                         setReading(false)
@@ -1385,10 +1387,6 @@ struct ScriptView: View {
                         Label("Read Script", systemImage: "book")
                     }
                 }
-                if model.canViewDocuments {
-                    songsButton
-                    notesButton
-                }
                 if model.hasScriptContent {
                     readAloudButton
                     // Beside listening because it is the other thing a reader
@@ -1413,6 +1411,48 @@ struct ScriptView: View {
             }
             .buttonStyle(.bordered)
             .labelStyle(.iconOnly)
+            .padding(.vertical, 4)
+        }
+    }
+
+    /// Songs and Notes, at the top of the screen, where a phone can reach them
+    /// without either of them being two taps deep.
+    ///
+    /// The toolbar is where these belong and where the iPad and the Mac keep
+    /// them, but a phone's bar has no room in either corner. The trailing side
+    /// draws two controls and the "…", and the View menu and Undo are those
+    /// two, so anything added there lands in the overflow. The leading side
+    /// looks empty and is not: measured on a 402pt iPhone, putting the pair
+    /// beside the way back fits them, and then takes *both* the View menu and
+    /// Undo down into the "…" to pay for it — the bar's budget is the title's
+    /// leftovers rather than a count of items, and a title has to come from
+    /// somewhere.
+    ///
+    /// So they take a strip of their own directly under the bar, which costs
+    /// the bar nothing and leaves the pair drawn at all times. Titled here,
+    /// unlike anywhere else they appear: a row of its own is the one place in
+    /// this layout with room for a word, and "Songs" beside "Notes" is read
+    /// where two glyphs have to be recognised.
+    ///
+    /// It folds away with the toolbar while the script is scrolled through —
+    /// see `respondToScroll` — for the reading room the fold exists to give.
+    @ViewBuilder
+    private var documentsBar: some View {
+        // A phone only. Wider layouts draw the pair in the toolbar, where it
+        // belongs, and a strip under the bar there would be a second row of
+        // chrome for controls that already have somewhere to be.
+        //
+        // Not while elements are being selected, and not in focus mode: both
+        // are the writer saying they are at work in this script, and these open
+        // documents that are not it.
+        if isCompact && !isChromeHidden && !settings.isFocusMode
+            && model.canViewDocuments && !selection.isSelecting {
+            HStack(spacing: 8) {
+                songsButton
+                notesButton
+            }
+            .buttonStyle(.bordered)
+            .labelStyle(.titleAndIcon)
             .padding(.vertical, 4)
         }
     }
@@ -1497,8 +1537,8 @@ struct ScriptView: View {
     /// for a control.
     ///
     /// Compact widths only. A full-size iPad has room to keep its toolbar —
-    /// Word keeps its ribbon there too — and the toolbar is where that layout
-    /// keeps Songs and Notes, which have no bottom bar to fall back to.
+    /// Word keeps its ribbon there too — and folding it there would take the
+    /// whole hand of controls off a screen with room for all of it.
     private func respondToScroll(delta: CGFloat, fromTop: CGFloat) {
         guard isCompact else { return }
         // The top of the script is home: the bars are always dressed there,
@@ -2521,7 +2561,7 @@ struct ScriptView: View {
             // it in. On an iPad and a Mac this draws; on a phone the bar has
             // room for the View menu and the "…" and nothing else, and this
             // was collapsed into the overflow even from in here, beside the
-            // one control that is always drawn. `documentsBar` carries the
+            // one control that is always drawn. `readerBar` carries the
             // phone's real one, under the thumb; see its note.
             //
             // In the View menu's capsule rather than the group below, which
@@ -2689,12 +2729,9 @@ struct ScriptView: View {
         // a pair, which is what says they are two doors onto one screen rather
         // than two unrelated errands.
         //
-        // Only where the bar has the room, which on a phone it has not: measured
-        // on a 402pt iPhone, the trailing side draws three controls and the "…"
-        // always claims one of them, so two buttons are all that is ever visible
-        // and the View menu and Search are already those two. Adding Songs and
-        // Notes here would put them straight back in the overflow this change
-        // exists to get them out of. `documentsBar` carries them instead.
+        // Only where the bar has the room, which on a phone it has not in
+        // either corner: `documentsBar` gives the measurements and carries the
+        // phone's pair in a strip under the bar instead.
         //
         // Gated as a unit, spacer and all: gating the buttons inside a group
         // that is always present would leave a divider with nothing after it,

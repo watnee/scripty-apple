@@ -498,10 +498,10 @@ extension HelpTopic {
                     + "nothing you were reading. See Read Script, and Songs and "
                     + "Notes for the other two.",
                     "Tap Edit to start writing. On iPhone the screenplay's Edit "
-                    + "button sits in the bar at the foot of the screen, beside "
-                    + "Songs and Notes, where there is room for it; on iPad and Mac "
-                    + "it is in the top corner. Songs and notes keep theirs in the "
-                    + "top corner everywhere.",
+                    + "button sits in the bar at the foot of the screen, where "
+                    + "there is room for it; on iPad and Mac it is in the top "
+                    + "corner. Songs and notes keep theirs in the top corner "
+                    + "everywhere.",
                     "Or double tap the words themselves, as you would in Pages or "
                     + "Word. Two taps on a line start writing in that line: the "
                     + "screenplay hands you the element you tapped with the cursor "
@@ -896,8 +896,9 @@ extension HelpTopic {
                     + "write — it puts the keyboard away and leaves the words where "
                     + "they are.",
                     "A song being worked on is rarely far away. The script has a Songs "
-                    + "button and a Notes button, each opening its own list; holding "
-                    + "one opens the last few of that kind you edited, each going "
+                    + "button and a Notes button at the top of the screen, each opening "
+                    + "its own list; holding one opens the last few of that kind you "
+                    + "edited, each going "
                     + "straight to its lyrics or its text. The lists repeat those same "
                     + "few at the top, so a long one needs no scrolling to reach them. "
                     + "Starting one is the button under the list — New Song over the "
