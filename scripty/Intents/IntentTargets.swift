@@ -57,6 +57,20 @@ enum IntentTargets {
         ranked(term, rows) { $0.title }
     }
 
+    /// The one row a name meant, or nil where nothing answers to it.
+    ///
+    /// For the places that have to act rather than offer a list — an intent
+    /// adding a lyric to a song named out loud, where a picker never appears
+    /// and there is nobody to choose between two candidates. The ranking is the
+    /// picker's, so the row this settles on is the row that would have been at
+    /// the top of it; anything less would be two ideas of what a name means.
+    static func best<Row>(matching term: String,
+                          in rows: [Row],
+                          name: (Row) -> String) -> Row? {
+        guard !normalized(term).isEmpty else { return nil }
+        return ranked(term, rows, name: name).first
+    }
+
     /// Rows whose name answers to `term`, best first, ties broken by the order
     /// they arrived in — which is recency, so the more recently edited of two
     /// equally good matches wins.
@@ -79,17 +93,35 @@ enum IntentTargets {
 
     /// How good a match this is, or nil for none.
     ///
-    /// Three tiers rather than a similarity score. Dictation gives back a whole
-    /// title when it heard one, so an exact match is the common case and has to
-    /// win outright — a screenplay called *Wake* must not lose to *Wakefield*
-    /// merely because *Wakefield* was edited more recently. Below that, a
-    /// leading match beats one buried in the middle, which is how a person
-    /// shortens a title they are about to say.
+    /// Tiers rather than a similarity score. Dictation gives back a whole title
+    /// when it heard one, so an exact match is the common case and has to win
+    /// outright — a screenplay called *Wake* must not lose to *Wakefield* merely
+    /// because *Wakefield* was edited more recently. Below that, a leading match
+    /// beats one buried in the middle, which is how a person shortens a title
+    /// they are about to say.
+    ///
+    /// The two lower tiers are what a search field needs and a spoken title did
+    /// not. Someone typing *wake* into the Shortcuts picker means the word, so
+    /// *The Long Wake Up* is a better answer than *Awakening* even though both
+    /// merely contain the letters; and someone typing *wake long*, in the order
+    /// the words came to them, still means the screenplay that has both.
     private static func rank(_ needle: String, in name: String) -> Int? {
         if name == needle { return 0 }
         if name.hasPrefix(needle) { return 1 }
-        if name.contains(needle) { return 2 }
+        if words(in: name).contains(where: { $0.hasPrefix(needle) }) { return 2 }
+        if name.contains(needle) { return 3 }
+        // Only for a search of several words: for one word this asks exactly
+        // what the tier above already answered, and would rank the same row
+        // twice over.
+        let asked = words(in: needle)
+        if asked.count > 1, asked.allSatisfy({ name.contains($0) }) { return 4 }
         return nil
+    }
+
+    /// A name broken where a reader would break it. Punctuation counts as a gap
+    /// so that *Act 2 — Reprise* is four words rather than one long one.
+    private static func words(in text: String) -> [Substring] {
+        text.split { !$0.isLetter && !$0.isNumber }
     }
 
     /// Case and accents folded, ends trimmed. Siri hands over what it heard, not
@@ -98,5 +130,97 @@ enum IntentTargets {
     private static func normalized(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: Answering a Find action
+
+    /// Whether a name satisfies one of the Find action's own text conditions.
+    ///
+    /// Shortcuts asks in its words — *contains*, *begins with*, *is* — and each
+    /// arrives here as the same folded comparison the picker uses, so a filter
+    /// typed into a shortcut and a title said out loud agree about what a name
+    /// is. In particular an accent nobody typed is not a screenplay nobody can
+    /// filter for.
+    enum TextTest: Sendable {
+        case contains(String)
+        case beginsWith(String)
+        case exactly(String)
+
+        func matches(_ name: String) -> Bool {
+            let subject = normalized(name)
+            return switch self {
+            case .contains(let term): subject.contains(normalized(term))
+            case .beginsWith(let term): subject.hasPrefix(normalized(term))
+            case .exactly(let term): subject == normalized(term)
+            }
+        }
+    }
+
+    /// The rows left after a Find action's conditions have had their say.
+    ///
+    /// `all` is Shortcuts' own "all/any of the following", passed through rather
+    /// than interpreted. No conditions is every row: that is what the action
+    /// looks like the moment it is dragged into a shortcut, and an empty result
+    /// there reads as a broken action rather than an unfinished one.
+    static func rows<Row>(_ rows: [Row],
+                          passing tests: [(Row) -> Bool],
+                          all: Bool) -> [Row] {
+        guard !tests.isEmpty else { return rows }
+        return rows.filter { row in
+            all ? tests.allSatisfy { $0(row) } : tests.contains { $0(row) }
+        }
+    }
+
+    /// What a Find action can be sorted by, in the two terms both lists share.
+    enum Order: Sendable {
+        /// Alphabetical, as a shelf is.
+        case title
+        /// When it was last written to — the order everything else in this app
+        /// already puts these lists in.
+        case edited
+    }
+
+    static func screenplays(_ rows: [WidgetProject],
+                            sortedBy order: Order,
+                            ascending: Bool) -> [WidgetProject] {
+        // A screenplay the server never dated sorts as the oldest thing there
+        // is rather than being dropped — the rule `ordered` follows, and the
+        // same one, because a Find action and the widget disagreeing about
+        // where an untouched draft belongs would be nobody's idea of an
+        // ordering.
+        sorted(rows, by: order, ascending: ascending,
+               title: \.title, edited: { $0.lastEdited ?? .distantPast })
+    }
+
+    static func documents(_ rows: [WidgetDocument],
+                          sortedBy order: Order,
+                          ascending: Bool) -> [WidgetDocument] {
+        sorted(rows, by: order, ascending: ascending,
+               title: \.title, edited: \.updatedAt)
+    }
+
+    /// Ties break on the other term, so a Find action returns the same list
+    /// twice running. Swift's sort promises nothing about equal elements, and a
+    /// shortcut that quietly reshuffles its own results is a bug nobody can
+    /// reproduce.
+    private static func sorted<Row>(_ rows: [Row],
+                                    by order: Order,
+                                    ascending: Bool,
+                                    title: KeyPath<Row, String>,
+                                    edited: (Row) -> Date) -> [Row] {
+        rows.sorted { lhs, rhs in
+            let byTitle = lhs[keyPath: title].localizedCaseInsensitiveCompare(rhs[keyPath: title])
+            switch order {
+            case .title:
+                if byTitle != .orderedSame {
+                    return ascending == (byTitle == .orderedAscending)
+                }
+                return edited(lhs) > edited(rhs)
+            case .edited:
+                let left = edited(lhs), right = edited(rhs)
+                if left != right { return ascending ? left < right : left > right }
+                return byTitle == .orderedAscending
+            }
+        }
     }
 }

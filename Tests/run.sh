@@ -460,6 +460,20 @@ swiftc "${FLAGS[@]}" -o "$BUILD/documentorder" \
 "$BUILD/documentorder" || status=1
 
 echo
+echo "== What Siri, Spotlight and Shortcuts can find =="
+# IntentTargets is deliberately free of the AppIntents framework so it can be
+# compiled here — it holds every decision the entity queries make (which rows
+# can be named, which name wins, what a Find action keeps and in what order)
+# and none of the framework they make them for. Both snapshots come with it,
+# because those are the lists it ranks.
+swiftc "${FLAGS[@]}" -o "$BUILD/appintents" \
+    "$ROOT/Shared/ProjectsWidgetData.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$SRC/Intents/IntentTargets.swift" \
+    "$ROOT/Tests/AppIntents/main.swift"
+run_suite "$BUILD/appintents" || status=1
+
+echo
 echo "== Home Screen bookmarks widget =="
 # And again for the third. This one carries rows from several screenplays at
 # once, so the merge matters as much as the ordering does.

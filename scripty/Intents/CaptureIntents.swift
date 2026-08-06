@@ -29,7 +29,7 @@ import Foundation
 private func createDocument(_ type: DocumentType,
                             title: String?,
                             content: String?,
-                            in entity: ProjectEntity?,
+                            in entity: ScreenplayEntity?,
                             using app: AppModel) async throws -> (Project, TextDocument) {
     try await IntentSession.requireSignedIn(app)
     let project = try await IntentSession.project(entity, in: app)
@@ -65,10 +65,10 @@ struct NewNoteIntent: AppIntent {
     var text: String?
 
     @Parameter(title: "Screenplay")
-    var project: ProjectEntity?
+    var screenplay: ScreenplayEntity?
 
     nonisolated static var parameterSummary: some ParameterSummary {
-        Summary("Add note \(\.$noteTitle) to \(\.$project)") {
+        Summary("Add note \(\.$noteTitle) to \(\.$screenplay)") {
             \.$text
         }
     }
@@ -76,11 +76,10 @@ struct NewNoteIntent: AppIntent {
     @Dependency private var app: AppModel
 
     @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ProjectEntity> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ScreenplayEntity> {
         let (target, _) = try await createDocument(.notes, title: noteTitle, content: text,
-                                                   in: project, using: app)
-        return .result(value: ProjectEntity(WidgetProject(id: target.id,
-                                                          title: target.displayTitle)),
+                                                   in: screenplay, using: app)
+        return .result(value: IntentSession.entity(for: target),
                        dialog: "Added a note to \(target.displayTitle).")
     }
 }
@@ -99,10 +98,10 @@ struct NewSongIntent: AppIntent {
     var lyrics: String?
 
     @Parameter(title: "Screenplay")
-    var project: ProjectEntity?
+    var screenplay: ScreenplayEntity?
 
     nonisolated static var parameterSummary: some ParameterSummary {
-        Summary("Add song \(\.$songTitle) to \(\.$project)") {
+        Summary("Add song \(\.$songTitle) to \(\.$screenplay)") {
             \.$lyrics
         }
     }
@@ -110,11 +109,10 @@ struct NewSongIntent: AppIntent {
     @Dependency private var app: AppModel
 
     @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ProjectEntity> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ScreenplayEntity> {
         let (target, _) = try await createDocument(.song, title: songTitle, content: lyrics,
-                                                   in: project, using: app)
-        return .result(value: ProjectEntity(WidgetProject(id: target.id,
-                                                          title: target.displayTitle)),
+                                                   in: screenplay, using: app)
+        return .result(value: IntentSession.entity(for: target),
                        dialog: "Added a song to \(target.displayTitle).")
     }
 }
@@ -131,36 +129,43 @@ struct AppendSongLineIntent: AppIntent {
     @Parameter(title: "Line")
     var line: String
 
-    /// The song by name rather than by a picker of its own.
+    /// The song by name rather than as a `DocumentEntity` picked from the
+    /// snapshot.
     ///
-    /// A song entity would need a snapshot of every project's documents, and
-    /// the app only ever writes the one whose screenplay has been opened — so
-    /// the picker would be empty for most screenplays with no honest way to say
-    /// so. A name is matched against the documents actually loaded here, which
-    /// is a list that is always right.
+    /// The snapshot only holds documents from screenplays this device has
+    /// opened, and holds two dozen of each kind — fine for offering rows and
+    /// for a Spotlight result, which are allowed to be about what is to hand.
+    /// This intent is not: it writes. A picker that quietly cannot see the song
+    /// being asked for would leave a dictated line with nowhere to go, so the
+    /// name is matched against the documents this project actually has, loaded
+    /// a line above.
     @Parameter(title: "Song")
     var song: String
 
     @Parameter(title: "Screenplay")
-    var project: ProjectEntity?
+    var screenplay: ScreenplayEntity?
 
     nonisolated static var parameterSummary: some ParameterSummary {
-        Summary("Add \(\.$line) to \(\.$song) in \(\.$project)")
+        Summary("Add \(\.$line) to \(\.$song) in \(\.$screenplay)")
     }
 
     @Dependency private var app: AppModel
 
     @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ProjectEntity> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ScreenplayEntity> {
         try await IntentSession.requireSignedIn(app)
-        let target = try await IntentSession.project(project, in: app)
+        let target = try await IntentSession.project(screenplay, in: app)
         let model = IntentSession.script(for: target, in: app)
         await model.loadDocuments()
 
+        // Ranked, not compared exactly. An exact title still wins outright —
+        // that is the first tier — but dictation drops a *the*, and a writer
+        // saying "add a line to Wake" while looking at *Wake Up* has named it
+        // as far as they are concerned. Refusing that leaves the line nowhere,
+        // and the same ranking is what the picker would have shown at the top.
         let wanted = song.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let match = model.songs.first(where: {
-            $0.displayTitle.localizedCaseInsensitiveCompare(wanted) == .orderedSame
-        }) else {
+        guard let match = IntentTargets.best(matching: wanted, in: model.songs,
+                                             name: \.displayTitle) else {
             throw IntentError.noSuchSong(wanted)
         }
 
@@ -178,8 +183,7 @@ struct AppendSongLineIntent: AppIntent {
         app.pendingWidgetDestination = WidgetDestination(projectId: target.id,
                                                          documentId: match.id,
                                                          isSong: true)
-        return .result(value: ProjectEntity(WidgetProject(id: target.id,
-                                                          title: target.displayTitle)),
+        return .result(value: IntentSession.entity(for: target),
                        dialog: "Added a line to \(match.displayTitle).")
     }
 }
@@ -235,18 +239,18 @@ struct NewScreenplayElementIntent: AppIntent {
     var kind: ScreenplayElementAppEnum
 
     @Parameter(title: "Screenplay")
-    var project: ProjectEntity?
+    var screenplay: ScreenplayEntity?
 
     nonisolated static var parameterSummary: some ParameterSummary {
-        Summary("Add \(\.$kind) \(\.$text) to \(\.$project)")
+        Summary("Add \(\.$kind) \(\.$text) to \(\.$screenplay)")
     }
 
     @Dependency private var app: AppModel
 
     @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ProjectEntity> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<ScreenplayEntity> {
         try await IntentSession.requireSignedIn(app)
-        let target = try await IntentSession.project(project, in: app)
+        let target = try await IntentSession.project(screenplay, in: app)
         let model = IntentSession.script(for: target, in: app)
         // No person: a dictated cue names nobody, and the server accepts a
         // dialogue element without one — it belongs to whoever spoke last.
@@ -254,8 +258,7 @@ struct NewScreenplayElementIntent: AppIntent {
             throw IntentSession.failure(model)
         }
         QuickActions.shared.pending = .project(id: target.id)
-        return .result(value: ProjectEntity(WidgetProject(id: target.id,
-                                                          title: target.displayTitle)),
+        return .result(value: IntentSession.entity(for: target),
                        dialog: "Added to \(target.displayTitle).")
     }
 }
