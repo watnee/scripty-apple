@@ -552,10 +552,15 @@ extension HelpTopic {
                     + "on an iPhone there is a button for it in the bar at the foot of "
                     + "the screen instead, next to Read Aloud, and it turns back into "
                     + "the reading you came from rather than dropping you into the "
-                    + "writing column — see Read Script."
+                    + "writing column — see Read Script.",
+                    "Paper with nothing on it says which kind of nothing it is. An empty "
+                    + "screenplay offers Start Writing, which puts the script back in the "
+                    + "writing column with a first element ready to type into. A script "
+                    + "holding only notes, sections and synopses has nothing to print, "
+                    + "because none of those go to paper."
                 ],
                 keywords: ["pages", "paper", "pagination", "letter", "a4", "margins",
-                           "print", "more", "cont'd"]),
+                           "print", "more", "cont'd", "empty", "blank", "nothing to paginate"]),
             HelpTopic(
                 id: "focus",
                 title: "Focus Mode and Full Width",
