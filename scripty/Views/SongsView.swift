@@ -146,6 +146,20 @@ struct SongsView: View {
     @State private var isLoading = false
     @State private var statusMessage: String?
     @State private var searchText = ""
+    /// Whether each row is closed to typing, by document id.
+    ///
+    /// The lock used to be reachable only from inside the document it applies
+    /// to, which is the wrong place for the job it is most often wanted for:
+    /// finishing a batch of songs and putting them beyond a stray thumb. That
+    /// meant opening each one, finding the switch behind its overflow menu and
+    /// closing it again. From here it is a touch and hold.
+    ///
+    /// One reader per document rather than one made where it is needed: the
+    /// row's padlock and the menu's tick both have to change the moment the
+    /// switch is flipped, and a reader made inside `body` is a new object every
+    /// redraw with nothing observing it. They cost two `UserDefaults` reads
+    /// each, so holding one for every row is cheaper than it looks.
+    @State private var locks: [Int: DocumentViewOptions] = [:]
     // Songs and notes sort independently, as they do on the web — they are two
     // lists that happen to share a screen.
     //
@@ -217,6 +231,58 @@ struct SongsView: View {
     /// rather than `shown`, so searching down to a single row cannot take a
     /// control away mid-search.
     private var shownListCount: Int { shownListDocuments.count }
+
+    // MARK: - The editing lock
+
+    /// Every document on either list, and which kind it is. What `ensureLocks`
+    /// is watched on: a document that arrives, leaves, or is made a note needs
+    /// a reader made, dropped, or re-made against the other key family.
+    private var documentKinds: [Int: DocumentViewOptions.Kind] {
+        var kinds: [Int: DocumentViewOptions.Kind] = [:]
+        for song in model.songs { kinds[song.id] = .song }
+        for note in model.notes { kinds[note.id] = .note }
+        return kinds
+    }
+
+    /// Makes a lock reader for every document on either list, and re-makes the
+    /// one whose document changed kind — a song made into a note keeps its id
+    /// and moves to the other family of keys, and a reader still pointed at the
+    /// old family would report the wrong answer and write to the wrong place.
+    private func ensureLocks() {
+        let kinds = documentKinds
+        locks = kinds.reduce(into: [:]) { made, entry in
+            let (id, kind) = entry
+            if let existing = locks[id], existing.kind == kind {
+                made[id] = existing
+            } else {
+                made[id] = DocumentViewOptions(documentId: id, kind: kind)
+            }
+        }
+    }
+
+    /// Whether this row is closed to typing.
+    ///
+    /// The document's own lock, never an edition's: this list opens the default
+    /// lyric, which is what a song-level lock covers, and it is the same answer
+    /// the songs workspace gives about the same song.
+    private func isLocked(_ document: TextDocument) -> Bool {
+        locks[document.id]?.isEditingLocked ?? false
+    }
+
+    /// Whether there is anything here to lock. The same rule the row's Rename
+    /// goes by, and the same rule as the editors' own switch by another route:
+    /// a view-only collaborator was never handed the keyboard, so offering to
+    /// take it away would be nonsense.
+    private func canLock(_ document: TextDocument) -> Bool {
+        document.hasLink(.update) && locks[document.id] != nil
+    }
+
+    /// No flush on the way in, unlike the editors' own switch: nothing on this
+    /// screen is half-typed into the document being locked.
+    private func lockBinding(_ document: TextDocument) -> Binding<Bool> {
+        Binding(get: { isLocked(document) },
+                set: { locks[document.id]?.setEditingLocked($0) })
+    }
 
     /// The word for what this list holds, for the sentences that need it.
     private var kindWord: String { listType == .song ? "song" : "note" }
@@ -376,6 +442,13 @@ struct SongsView: View {
                                  isEnabled: !model.app.isEphemeralDemo)
             .remembersOpenEditor(openEditor, atDepth: 1,
                                  isEnabled: !model.app.isEphemeralDemo)
+            // A reader per row, kept in step with the rows. `initial` so the
+            // list that is already loaded — this screen is opened over a
+            // project whose documents are usually in hand — has its padlocks
+            // from the first frame rather than after the refresh lands.
+            .onChange(of: documentKinds, initial: true) { _, _ in
+                ensureLocks()
+            }
             .onChange(of: editMode) { _, mode in
                 if !mode.isEditing { selection.removeAll() }
             }
@@ -508,8 +581,21 @@ struct SongsView: View {
             editingDocument = document
         } label: {
             VStack(alignment: .leading, spacing: 3) {
-                Text(document.displayTitle)
-                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(document.displayTitle)
+                        .font(.headline)
+                    // Which rows are closed to typing, at a glance — the same
+                    // padlock beside the same title on both workspace screens.
+                    // Beside the name rather than out at the trailing edge:
+                    // this is a fact about the document, not a control, and the
+                    // swipe already owns that side of the row.
+                    if isLocked(document) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Locked")
+                    }
+                }
                 if let preview = document.preview, !preview.isEmpty {
                     Text(preview)
                         .font(.subheadline)
@@ -605,6 +691,16 @@ struct SongsView: View {
                 } label: {
                     Label(other == .song ? "Make a Song" : "Make a Note",
                           systemImage: other == .song ? "music.note" : "note.text")
+                }
+            }
+            // With the actions that change what the document *is*, above the
+            // ones that send it somewhere: locking is the last thing done to a
+            // song before it stops being written and starts being read from.
+            // Offered on a locked row too — it is the way back, as it is in the
+            // editors, and the only one that does not mean opening the song.
+            if canLock(document) {
+                Toggle(isOn: lockBinding(document)) {
+                    Label("Lock Editing", systemImage: "lock")
                 }
             }
             if document.hasLink(.shareEmail) {

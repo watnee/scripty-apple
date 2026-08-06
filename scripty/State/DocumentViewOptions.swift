@@ -21,8 +21,12 @@
 //
 //  Scoped to one document rather than to the project: songs are locked as they
 //  are finished, one at a time, and locking the whole book the moment the first
-//  number is done would be the opposite of what that means. It goes one
-//  narrower still — per edition, falling back to the document — for the
+//  number is done would be the opposite of what that means. The songs workspace
+//  does offer a Lock All Songs, and it changes nothing here: it asks for one of
+//  these per song and sets each in turn, so a writer who then unlocks the one
+//  number being rewritten still has the rest of the book closed. There is no
+//  project-level flag to fall out of step with the documents under it. It goes
+//  one narrower still — per edition, falling back to the document — for the
 //  screenplay's reason: locking the performed lyric while a rewrite stays open
 //  is the point of a song having editions. A note has no editions, so it simply
 //  never passes one.
@@ -35,6 +39,33 @@
 
 import Foundation
 import Observation
+
+/// A bell rung whenever any document's lock changes, so that every reader of
+/// that lock redraws.
+///
+/// The lock lives in `UserDefaults`, and more than one reader now looks at the
+/// same document: the songs list holds one per row, the songs workspace holds
+/// one per song, and each editor holds its own. Nothing was wrong with that
+/// while the switch was in the editor only — a lock set there was read fresh
+/// the next time a screen was built. It stopped being true when the list and
+/// the workspace grew switches of their own: the list sits alive underneath the
+/// workspace, so a song locked up there left a padlock missing on the list the
+/// writer came back to.
+///
+/// A counter rather than the locks themselves. Every reader already knows how
+/// to answer from `UserDefaults` — what none of them had was a reason to look
+/// again. Observing this in the getter gives them one, and leaves the stored
+/// answer where it is rather than making a second copy of it to fall out of
+/// step in its own way.
+@Observable
+@MainActor
+final class DocumentLockChanges {
+    static let shared = DocumentLockChanges()
+
+    private(set) var generation = 0
+
+    func changed() { generation += 1 }
+}
 
 @Observable
 @MainActor
@@ -57,26 +88,35 @@ final class DocumentViewOptions {
     }
 
     private let documentId: Int
-    private let kind: Kind
+    /// Which family of keys this reader answers from. Not private: a screen
+    /// holding one of these per row has to notice when a document changes kind
+    /// under it, and re-make the reader against the other family.
+    let kind: Kind
     private let defaults: UserDefaults
 
     /// The edition currently open, when the song has more than one.
-    var editionId: Int? {
-        didSet {
-            guard editionId != oldValue else { return }
-            isEditingLocked = readLock()
-        }
-    }
+    var editionId: Int?
 
-    /// Read-only until unlocked. A private setter because the value depends on
-    /// which edition is open, and adopting the document's lock when an edition
-    /// has none of its own must not write that inherited value back.
-    private(set) var isEditingLocked: Bool
+    /// Read-only until unlocked. Asked of the store every time rather than kept
+    /// here: the same document is read by a row on the list, a section on the
+    /// workspace and the editor over both, and a lock taken off in one of them
+    /// has to reach the other two. `DocumentLockChanges` is what makes a reader
+    /// look again — without it this getter would be a value SwiftUI has no
+    /// reason to re-evaluate.
+    ///
+    /// No setter of its own: the value depends on which edition is open, and
+    /// adopting the document's lock when an edition has none must not write
+    /// that inherited value back.
+    var isEditingLocked: Bool {
+        // Observed for its own sake, so a change anywhere redraws here.
+        _ = DocumentLockChanges.shared.generation
+        return readLock()
+    }
 
     func setEditingLocked(_ locked: Bool) {
         guard locked != isEditingLocked else { return }
-        isEditingLocked = locked
         defaults.set(locked, forKey: lockKey())
+        DocumentLockChanges.shared.changed()
     }
 
     // MARK: - Storage
@@ -112,8 +152,5 @@ final class DocumentViewOptions {
         self.kind = kind
         self.editionId = editionId
         self.defaults = defaults
-
-        isEditingLocked = false
-        isEditingLocked = readLock()
     }
 }
