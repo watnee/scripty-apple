@@ -328,6 +328,70 @@ func checkArchivedDocumentsSurvive() async {
                await documents(kept.id, on: account, archived: true), ["Cut Number"])
 }
 
+/// Folders travel by name, because a name is the only thing the far end can
+/// recognise: each side numbers its own folders, so the ids mean nothing across
+/// the crossing — the same problem `uid` solves for the songs themselves.
+///
+/// Worth its own case because this is the flow a writer actually meets it in.
+/// Signing in hands the account an archive of the device's work; if folders did
+/// not travel, an arrangement built over weeks would arrive as one flat list,
+/// with nothing on screen to say what had happened.
+@MainActor
+func checkFoldersCross() async {
+    print()
+    print("== A song filed under a folder crosses still filed ==")
+
+    let device = DemoBackend(store: nil)
+    let account = DemoBackend(store: nil)
+    let client = APIClient(baseURL: DemoBackend.baseURL, demo: account)
+
+    let made = json(await device.respond(method: "POST", url: url("/api/project"),
+                                         body: body(["title": "Filed Away"])))
+    guard let localId = made["id"] as? Int else {
+        check("a screenplay to work with", false)
+        return
+    }
+    let song = json(await device.respond(
+        method: "POST", url: url("/api/document"),
+        body: body(["projectId": localId, "title": "Opening Number",
+                    "documentType": "SONG", "content": "Curtain up."])))
+    let loose = json(await device.respond(
+        method: "POST", url: url("/api/document"),
+        body: body(["projectId": localId, "title": "Stray Verse",
+                    "documentType": "SONG", "content": "Nowhere yet."])))
+    let folders = json(await device.respond(
+        method: "POST", url: url("/api/document/folder?projectId=\(localId)&type=SONG"),
+        body: body(["name": "Act One"])))
+    guard let songId = song["id"] as? Int, loose["id"] is Int,
+          let folderId = embedded(folders).first?["id"] as? Int else {
+        check("a folder and two songs to file into it", false)
+        return
+    }
+    _ = await device.respond(method: "POST", url: url("/api/document/\(songId)/folder"),
+                             body: body(["folderId": folderId]))
+
+    guard let kept = await keep(localId, from: device, into: client) else {
+        check("the account takes the screenplay", false)
+        return
+    }
+
+    let arrived = embedded(json(await account.respond(
+        method: "GET", url: url("/api/document?projectId=\(kept.id)"), body: nil)))
+    let filed = arrived.first { $0["title"] as? String == "Opening Number" }
+    checkEqual("the folder came with it", filed?["folderName"] as? String, "Act One")
+    // The other half of the promise: a document that was in no folder does not
+    // arrive in one, so a crossing cannot invent an arrangement either.
+    check("and the unfiled song is still unfiled",
+          arrived.first { $0["title"] as? String == "Stray Verse" }?["folderId"] == nil)
+
+    let overThere = embedded(json(await account.respond(
+        method: "GET", url: url("/api/document/folder?projectId=\(kept.id)&type=SONG"), body: nil)))
+    checkEqual("the account made exactly one folder for it", overThere.count, 1)
+    checkEqual("named as it was named", overThere.first?["name"] as? String, "Act One")
+    // Its own id over there, which is the whole reason the name is what travels.
+    check("with an id of its own", overThere.first?["id"] as? Int != nil)
+}
+
 // MARK: - The rule that decides what a crossing does
 
 @MainActor
@@ -583,6 +647,7 @@ await checkRoundTrip()
 await checkSongsAndNotesStayThemselves()
 await checkNothingIsLost()
 await checkArchivedDocumentsSurvive()
+await checkFoldersCross()
 checkTheRule()
 checkTheRecord()
 await checkAWorkspaceCannotBeEmptiedByAccident()

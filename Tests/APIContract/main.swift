@@ -1196,6 +1196,7 @@ func run() async {
     await checkProjectTeams(pid: pid)
     await checkBlockTags(pid: pid)
     await checkClearFont(pid: pid)
+    await checkDocumentFolders(pid: pid)
     await checkDocumentArchive(pid: pid)
     await checkProjectArchive(pid: pid)
     await checkGuestWork()
@@ -1210,6 +1211,154 @@ func run() async {
 /// purge date, an archived document is still readable by id, deleting one still
 /// goes to the trash rather than being final, and the rels are offered without
 /// the has-a-song condition its bulk neighbours carry.
+/// Folders: the headings a list's songs or notes are filed under.
+///
+/// The three promises worth pinning are the ones a writer would notice being
+/// broken: a folder belongs to one list and cannot take the other's documents;
+/// removing a folder never removes what is in it; and an unfiled document is
+/// the ordinary state rather than an error, which is what a missing `folderId`
+/// has to mean in both directions.
+func checkDocumentFolders(pid: Int) async {
+    let docs = json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data)
+    let collectionLinks = links(docs)
+    check("document collection advertises `folders`", collectionLinks["folders"] != nil)
+    check("document collection advertises `bulkMoveToFolder`",
+          collectionLinks["bulkMoveToFolder"] != nil)
+
+    let live = embedded(docs)
+    guard let song = live.first(where: { $0["documentType"] as? String == "SONG" }),
+          let songId = song["id"] as? Int,
+          let note = live.first(where: { $0["documentType"] as? String == "NOTES" }),
+          let noteId = note["id"] as? Int else {
+        check("folder fixture needs a song and a note", false)
+        return
+    }
+    check("a document advertises `moveToFolder`", links(song)["moveToFolder"] != nil)
+    check("an unfiled document carries no folderId", song["folderId"] == nil)
+
+    // --- the empty collection still offers somewhere to send the first one ---
+    let empty = json(await be.respond(
+        method: "GET", url: url("/api/document/folder?projectId=\(pid)"), body: nil).data)
+    check("the folder collection advertises `createFolder` when empty",
+          links(empty)["createFolder"] != nil)
+    check("and holds nothing yet", embedded(empty).isEmpty)
+
+    // --- making one in each list ---
+    let madeSongs = await be.respond(method: "POST",
+                                     url: url("/api/document/folder?projectId=\(pid)&type=SONG"),
+                                     body: body(["name": "Act One"]))
+    check("create a songs folder -> 200", madeSongs.status == 200, "got \(madeSongs.status)")
+    _ = await be.respond(method: "POST",
+                         url: url("/api/document/folder?projectId=\(pid)&type=NOTES"),
+                         body: body(["name": "Research"]))
+    check("a blank name -> 400",
+          await be.respond(method: "POST",
+                           url: url("/api/document/folder?projectId=\(pid)&type=SONG"),
+                           body: body(["name": "   "])).status == 400)
+    // The unique index, in the shape a writer meets it: two headings with the
+    // same word would be two headings nobody could tell apart.
+    check("the same name twice in one list -> 400",
+          await be.respond(method: "POST",
+                           url: url("/api/document/folder?projectId=\(pid)&type=SONG"),
+                           body: body(["name": "act one"])).status == 400)
+    check("but the same name in the other list is fine",
+          await be.respond(method: "POST",
+                           url: url("/api/document/folder?projectId=\(pid)&type=NOTES"),
+                           body: body(["name": "Act One"])).status == 200)
+
+    // Both lists at once is what no `type` means here — the same rule the
+    // document listing follows, and what the app fetches.
+    let all = embedded(json(await be.respond(
+        method: "GET", url: url("/api/document/folder?projectId=\(pid)"), body: nil).data))
+    check("an unscoped listing carries both lists' folders", all.count == 3, "got \(all.count)")
+    let songFolders = embedded(json(await be.respond(
+        method: "GET", url: url("/api/document/folder?projectId=\(pid)&type=SONG"), body: nil).data))
+    check("a scoped listing carries only its own list's", songFolders.count == 1,
+          "got \(songFolders.count)")
+    guard let actOne = songFolders.first, let actOneId = actOne["id"] as? Int else {
+        check("the songs folder came back", false)
+        return
+    }
+    check("a folder says which list it is in", actOne["documentType"] as? String == "SONG")
+    check("a new folder counts nothing", actOne["documentCount"] as? Int == 0)
+    check("a folder advertises `renameFolder`", links(actOne)["renameFolder"] != nil)
+    check("a folder advertises `deleteFolder`", links(actOne)["deleteFolder"] != nil)
+
+    // --- filing one document ---
+    let filed = await be.respond(method: "POST", url: url("/api/document/\(songId)/folder"),
+                                 body: body(["folderId": actOneId]))
+    check("moveToFolder -> 200", filed.status == 200, "got \(filed.status)")
+    let afterFiling = embedded(json(filed.data)).first { $0["id"] as? Int == songId }
+    check("the filed song says which folder it is in",
+          afterFiling?["folderId"] as? Int == actOneId)
+    check("and carries the folder's name", afterFiling?["folderName"] as? String == "Act One")
+    check("the folder now counts it",
+          embedded(json(await be.respond(
+            method: "GET", url: url("/api/document/folder?projectId=\(pid)&type=SONG"),
+            body: nil).data)).first?["documentCount"] as? Int == 1)
+    // A folder belongs to one list. Refused rather than quietly unfiled: the
+    // caller asked for somewhere specific.
+    check("a note cannot go in a songs folder",
+          await be.respond(method: "POST", url: url("/api/document/\(noteId)/folder"),
+                           body: body(["folderId": actOneId])).status == 400)
+    // No separate unfile call: an absent folderId is the way out, because a
+    // document in no folder is the ordinary state rather than a special one.
+    let unfiled = await be.respond(method: "POST", url: url("/api/document/\(songId)/folder"),
+                                   body: body([:]))
+    check("an absent folderId takes it out", unfiled.status == 200)
+    check("and the row stops naming a folder",
+          embedded(json(unfiled.data)).first { $0["id"] as? Int == songId }?["folderId"] == nil)
+
+    // --- a selection ---
+    let bulk = await be.respond(method: "POST",
+                                url: url("/api/document/bulk/folder?projectId=\(pid)"),
+                                body: body(["ids": [songId, noteId], "folderId": actOneId]))
+    check("bulk file -> 200", bulk.status == 200, "got \(bulk.status)")
+    let afterBulk = embedded(json(bulk.data))
+    check("the song in the selection was filed",
+          afterBulk.first { $0["id"] as? Int == songId }?["folderId"] as? Int == actOneId)
+    // Skipped, not refused: a selection that went stale still moves what it can.
+    check("the note of the wrong list was skipped",
+          afterBulk.first { $0["id"] as? Int == noteId }?["folderId"] == nil)
+
+    // --- renaming, and the promise removal makes ---
+    let renamed = await be.respond(method: "PUT", url: url("/api/document/folder/\(actOneId)?projectId=\(pid)"),
+                                   body: body(["name": "Act I"]))
+    check("rename -> 200", renamed.status == 200, "got \(renamed.status)")
+    check("the heading changed",
+          embedded(json(renamed.data)).first { $0["id"] as? Int == actOneId }?["name"] as? String == "Act I")
+    check("and the document it holds kept its place",
+          embedded(json(await be.respond(
+            method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data))
+            .first { $0["id"] as? Int == songId }?["folderId"] as? Int == actOneId)
+
+    let removed = await be.respond(method: "DELETE",
+                                   url: url("/api/document/folder/\(actOneId)?projectId=\(pid)"), body: nil)
+    check("delete -> 200", removed.status == 200, "got \(removed.status)")
+    check("the folder is gone",
+          !embedded(json(removed.data)).contains { $0["id"] as? Int == actOneId })
+    // The whole point: a folder is a name, and removing a name never removes a
+    // song. This is the check that would catch a cascade delete.
+    let survivors = embedded(json(await be.respond(
+        method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data))
+    check("everything it held is still in the list",
+          survivors.contains { $0["id"] as? Int == songId })
+    check("and comes back unfiled",
+          survivors.first { $0["id"] as? Int == songId }?["folderId"] == nil)
+    check("removing a folder that is not here -> 404",
+          await be.respond(method: "DELETE",
+                           url: url("/api/document/folder/987654?projectId=\(pid)"), body: nil).status == 404)
+
+    // Leave the project as it was found: the two notes folders are still here.
+    for folder in embedded(json(await be.respond(
+        method: "GET", url: url("/api/document/folder?projectId=\(pid)"), body: nil).data)) {
+        if let id = folder["id"] as? Int {
+            _ = await be.respond(method: "DELETE",
+                                 url: url("/api/document/folder/\(id)?projectId=\(pid)"), body: nil)
+        }
+    }
+}
+
 func checkDocumentArchive(pid: Int) async {
     let docs = json(await be.respond(method: "GET", url: url("/api/document?projectId=\(pid)"), body: nil).data)
     let collectionLinks = links(docs)

@@ -51,6 +51,14 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
     var title: String?
     var documentType: String?
     var documentTypeLabel: String?
+    /// The folder this is filed under, or nil for an unfiled one.
+    ///
+    /// Unfiled is not a lesser state — a project with no folders has every
+    /// document here, and the list reads exactly as it always has.
+    var folderId: Int?
+    /// That folder's name, so a document fetched on its own can say where it
+    /// lives without also fetching the folder list.
+    var folderName: String?
     var content: String?
     var preview: String?
     var sortOrder: Int?
@@ -67,6 +75,7 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
 
     private enum CodingKeys: String, CodingKey {
         case id, uid, projectId, projectTitle, title, documentType, documentTypeLabel
+        case folderId, folderName
         case content, preview, sortOrder, createdAt, updatedAt, archivedAt
         case links = "_links"
     }

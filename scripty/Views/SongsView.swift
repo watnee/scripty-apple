@@ -72,6 +72,25 @@ enum DocumentSort: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which folder the songs (or notes) list is showing.
+///
+/// `.all` is not "no folder chosen so show everything by accident" — it is the
+/// ordinary state of a list, and the one a project with no folders is always in.
+enum FolderFilter: Hashable {
+    case all
+    /// The documents in no folder, which only means something once one exists.
+    case unfiled
+    case folder(Int)
+
+    func accepts(_ document: TextDocument) -> Bool {
+        switch self {
+        case .all: return true
+        case .unfiled: return document.folderId == nil
+        case .folder(let id): return document.folderId == id
+        }
+    }
+}
+
 struct SongsView: View {
     let model: ScriptModel
 
@@ -160,6 +179,24 @@ struct SongsView: View {
     /// redraw with nothing observing it. They cost two `UserDefaults` reads
     /// each, so holding one for every row is cheaper than it looks.
     @State private var locks: [Int: DocumentViewOptions] = [:]
+    /// Which folder the list is narrowed to, if any.
+    ///
+    /// A filter rather than a set of sections. Sections would have to appear and
+    /// disappear as folders are made and removed, which is the shape that
+    /// proved to diff unreliably in this very List; and they would cut the one
+    /// draggable run of rows into several, so an order could only be changed
+    /// within a folder. Narrowing keeps one list and one arrangement, and it is
+    /// what the web's chips do above the same rows.
+    @State private var folderFilter: FolderFilter = .all
+    /// The name being typed for a new folder, and the row it will be made for —
+    /// nil when the folder is being made on its own rather than to file a song.
+    @State private var namingFolder = false
+    @State private var folderName = ""
+    @State private var filingDocument: TextDocument?
+    /// The folder being renamed, and the folder a confirmation is asking about
+    /// removing. Both nil the rest of the time.
+    @State private var renamingFolder: TextDocumentFolder?
+    @State private var deletingFolder: TextDocumentFolder?
     // Songs and notes sort independently, as they do on the web — they are two
     // lists that happen to share a screen.
     //
@@ -189,8 +226,25 @@ struct SongsView: View {
         let matching = query.isEmpty
             ? all
             : all.filter { $0.displayTitle.lowercased().contains(query) }
-        return sortMode.applied(to: matching)
+        // A search runs inside the folder showing, as it does on the web: the
+        // folder is where you are, the search is what you are looking for.
+        return sortMode.applied(to: matching.filter(folderFilter.accepts))
     }
+
+    /// This list's folders. Songs and notes keep their own, so the picker never
+    /// offers a heading the list on screen could not use.
+    private var listFolders: [TextDocumentFolder] { model.folders(for: listType) }
+
+    /// The folder the list is narrowed to, or nil for All and for the unfiled.
+    private var activeFolder: TextDocumentFolder? {
+        guard case .folder(let id) = folderFilter else { return nil }
+        return listFolders.first { $0.id == id }
+    }
+
+    /// Whether folders are worth showing at all: there is one, or this reader
+    /// could make one. A view-only collaborator on a project with no folders
+    /// sees nothing about them anywhere.
+    private var showsFolders: Bool { !listFolders.isEmpty || model.canCreateFolder }
 
     /// Rows can be put in a new order wherever the server advertised the link,
     /// whatever the list is currently sorted or searched down to — as on the
@@ -406,9 +460,16 @@ struct SongsView: View {
             .safeAreaBar(edge: .bottom, spacing: 0) { newDocumentBar }
     }
 
-    var body: some View {
-        NavigationStack {
-            listWithPicker
+    /// The list with its chrome, and everything that watches it.
+    ///
+    /// Split out of `body` for the same reason `listWithPicker` and
+    /// `sortPicker` were pulled out before it: the single chain was already at
+    /// the type checker's limit, and the folder filter's own watchers tipped it
+    /// over — "unable to type-check this expression in reasonable time", an
+    /// error that names the whole body and nothing in particular. The sheets,
+    /// covers and alerts stay in `body`.
+    private var listScreen: some View {
+        listWithPicker
             .navigationTitle("Songs & Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -432,7 +493,27 @@ struct SongsView: View {
             .onChange(of: listType) { _, type in
                 selection.removeAll()
                 searchText = ""
+                // Songs and notes keep separate folders, so the one that was
+                // showing does not exist over here. Back to the whole list,
+                // which is the only filter both lists always have.
+                folderFilter = .all
                 options.rememberDocumentList(type.rawValue)
+            }
+            // A row that has just left the screen must not stay ticked: the
+            // bar counts a selection the writer can no longer see, and acting
+            // on it would move songs they are not looking at. Same reasoning as
+            // the list change above.
+            .onChange(of: folderFilter) { _, _ in
+                selection.removeAll()
+            }
+            // A folder can be removed from under the filter — by the menu here,
+            // or by a collaborator between two loads. Showing a folder that is
+            // gone means showing an empty list with no way back to the full one.
+            .onChange(of: model.documentFolders) { _, _ in
+                if case .folder(let id) = folderFilter,
+                   !listFolders.contains(where: { $0.id == id }) {
+                    folderFilter = .all
+                }
             }
             // Which of the two lists is showing is the first rung of the record,
             // and the picker is the only thing that moves it once this screen is
@@ -460,6 +541,11 @@ struct SongsView: View {
                 if count <= 1 { editMode = .inactive }
             }
             .environment(\.editMode, $editMode)
+    }
+
+    var body: some View {
+        NavigationStack {
+            listScreen
             .fileImporter(isPresented: $showingImporter,
                           allowedContentTypes: importTypes,
                           allowsMultipleSelection: false) { result in
@@ -529,6 +615,34 @@ struct SongsView: View {
                 TextField("Title", text: $renameTitle)
                 Button("Cancel", role: .cancel) { renamingDocument = nil }
                 Button("Save") { commitRename() }
+            }
+            .alert(filingDocument == nil ? "New Folder" : "File in a New Folder",
+                   isPresented: $namingFolder) {
+                TextField("Folder name", text: $folderName)
+                Button("Cancel", role: .cancel) { filingDocument = nil }
+                Button("Add") { commitNewFolder() }
+            } message: {
+                Text(listType == .song
+                     ? "A name to group some of your songs under."
+                     : "A name to group some of your notes under.")
+            }
+            .alert("Rename Folder", isPresented: folderRenameBinding) {
+                TextField("Folder name", text: $folderName)
+                Button("Cancel", role: .cancel) { renamingFolder = nil }
+                Button("Save") { commitFolderRename() }
+            }
+            // A confirmation whose whole job is to say what removing a folder
+            // does *not* do — losing a night's work to a tap on a menu is the
+            // only thing anybody would fear here, and it does not happen.
+            .alert("Remove Folder", isPresented: folderDeleteBinding) {
+                Button("Cancel", role: .cancel) { deletingFolder = nil }
+                Button("Remove", role: .destructive) {
+                    if let folder = deletingFolder { deleteFolder(folder) }
+                    deletingFolder = nil
+                }
+            } message: {
+                Text("Remove “\(deletingFolder?.displayName ?? "")”. "
+                     + "Everything in it stays in the list.")
             }
             .alert("Email this \(kindWord)", isPresented: shareBinding) {
                 TextField("Recipient email", text: $shareEmail)
@@ -602,11 +716,22 @@ struct SongsView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
-                if let updated = document.updatedAt {
-                    Text("Edited \(updated.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                HStack(spacing: 6) {
+                    if let updated = document.updatedAt {
+                        Text("Edited \(updated.formatted(date: .abbreviated, time: .shortened))")
+                    }
+                    // Where this one is filed, said on the row rather than only
+                    // in the folder control — so the unnarrowed list still
+                    // shows the arrangement instead of hiding it behind a menu.
+                    // Left out while a single folder is showing, where every
+                    // row would carry the same word.
+                    if activeFolder == nil, let folder = document.folderName, !folder.isEmpty {
+                        Label(folder, systemImage: "folder")
+                            .labelStyle(.titleAndIcon)
+                    }
                 }
+                .font(.caption)
+                .foregroundStyle(.tertiary)
             }
         }
         .foregroundStyle(.primary)
@@ -682,6 +807,7 @@ struct SongsView: View {
                     Label("Duplicate", systemImage: "plus.square.on.square")
                 }
             }
+            folderMenu(for: document)
             if document.hasLink(.changeType) {
                 // Only ever a swap between the two kinds the picker shows, so
                 // it reads as one action rather than a type menu.
@@ -744,6 +870,52 @@ struct SongsView: View {
         }
     }
 
+    /// Where one row can be filed.
+    ///
+    /// Offered whenever the server said this document may be moved, even with
+    /// no folder to move it into: "New Folder…" is here, and making the first
+    /// folder from the song that needs it is the gesture the whole feature
+    /// starts with. Without that, a writer with no folders would find nothing
+    /// on the row and have to guess that the bar above the list was the way in.
+    @ViewBuilder
+    private func folderMenu(for document: TextDocument) -> some View {
+        if document.hasLink(.moveToFolder), !listFolders.isEmpty || model.canCreateFolder {
+            Menu {
+                ForEach(listFolders) { folder in
+                    Button {
+                        file(document, into: folder)
+                    } label: {
+                        // A checkmark rather than a disabled row: the one it is
+                        // already in is worth showing, and worth showing as the
+                        // answer to "where is this?".
+                        Label(folder.displayName,
+                              systemImage: document.folderId == folder.id ? "checkmark" : "folder")
+                    }
+                }
+                if document.folderId != nil {
+                    Divider()
+                    Button {
+                        file(document, into: nil)
+                    } label: {
+                        Label("Remove from Folder", systemImage: "tray")
+                    }
+                }
+                if model.canCreateFolder {
+                    Divider()
+                    Button {
+                        filingDocument = document
+                        folderName = ""
+                        namingFolder = true
+                    } label: {
+                        Label("New Folder…", systemImage: "folder.badge.plus")
+                    }
+                }
+            } label: {
+                Label("Folder", systemImage: "folder")
+            }
+        }
+    }
+
     @ViewBuilder
     private var emptyState: some View {
         if shown.isEmpty {
@@ -753,6 +925,16 @@ struct SongsView: View {
                 ContentUnavailableView.search(text: searchText)
             } else if isLoading {
                 ProgressView()
+            } else if folderFilter != .all {
+                // Not "No Songs": the project has plenty, this folder is simply
+                // empty — which for a folder made a moment ago is the ordinary
+                // first state rather than anything wrong.
+                ContentUnavailableView(
+                    activeFolder.map { "Nothing in \($0.displayName)" } ?? "Nothing Unfiled",
+                    systemImage: "folder",
+                    description: Text(activeFolder == nil
+                        ? "Every \(kindWord) here is in a folder."
+                        : "Use Folder on a \(kindWord) to file it here."))
             } else {
                 ContentUnavailableView(
                     listType == .song ? "No Songs" : "No Notes",
@@ -794,6 +976,79 @@ struct SongsView: View {
         }
     }
 
+    /// The folder the list is showing, and the way to any other.
+    ///
+    /// In the bar with the Songs/Notes picker rather than as a row in the List,
+    /// for the reason spelled out on `folderFilter`: a control whose presence
+    /// depends on how many folders there are proved to come and go unreliably
+    /// as a List section, and the bar is rebuilt whole every time.
+    ///
+    /// Hidden in edit mode: the bar's job there is the selection, and changing
+    /// which rows are on screen under a half-made selection is how ticks go
+    /// missing.
+    @ViewBuilder
+    private var folderBar: some View {
+        if showsFolders, !editMode.isEditing {
+            Menu {
+                Picker("Folder", selection: $folderFilter) {
+                    Label(listType == .song ? "All Songs" : "All Notes",
+                          systemImage: "tray.full").tag(FolderFilter.all)
+                    if !listFolders.isEmpty {
+                        Label("Unfiled", systemImage: "tray").tag(FolderFilter.unfiled)
+                        // The count is the server's, and it counts the whole
+                        // list — so it stays honest while a search narrows what
+                        // is actually on screen.
+                        ForEach(listFolders) { folder in
+                            Label("\(folder.displayName) (\(folder.documentCount ?? 0))",
+                                  systemImage: "folder").tag(FolderFilter.folder(folder.id))
+                        }
+                    }
+                }
+                if model.canCreateFolder {
+                    Divider()
+                    Button {
+                        filingDocument = nil
+                        folderName = ""
+                        namingFolder = true
+                    } label: {
+                        Label("New Folder…", systemImage: "folder.badge.plus")
+                    }
+                }
+                if let folder = activeFolder {
+                    if folder.canRename {
+                        Button {
+                            folderName = folder.displayName
+                            renamingFolder = folder
+                        } label: {
+                            Label("Rename “\(folder.displayName)”", systemImage: "pencil")
+                        }
+                    }
+                    if folder.canDelete {
+                        Button(role: .destructive) {
+                            deletingFolder = folder
+                        } label: {
+                            Label("Remove “\(folder.displayName)”", systemImage: "folder.badge.minus")
+                        }
+                    }
+                }
+            } label: {
+                Label(folderBarTitle, systemImage: "folder")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.borderless)
+            .padding(.bottom, 8)
+        }
+    }
+
+    /// What the folder control says it is showing.
+    private var folderBarTitle: String {
+        switch folderFilter {
+        case .all: return listType == .song ? "All Songs" : "All Notes"
+        case .unfiled: return "Unfiled"
+        case .folder: return activeFolder?.displayName ?? "Folder"
+        }
+    }
+
     private var picker: some View {
         VStack(spacing: 0) {
             Picker("Type", selection: $listType) {
@@ -803,6 +1058,7 @@ struct SongsView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.vertical, 8)
+            folderBar
             // The web list's "Edit all on one page" button, kept beside the
             // list's own controls as the web keeps it beside search and sort.
             // The same door exists in the toolbar's overflow, but a button
@@ -884,6 +1140,28 @@ struct SongsView: View {
                         promptingBulkShare = true
                     } label: {
                         Label("Email \(selection.count)", systemImage: "envelope")
+                    }
+                }
+                // Filing the ticked rows. No "New Folder…" here, unlike the row
+                // menu: naming a folder needs an alert, and an alert over a bar
+                // holding a live selection is where selections go to die.
+                if model.canBulkMoveDocuments, !listFolders.isEmpty {
+                    Menu {
+                        ForEach(listFolders) { folder in
+                            Button {
+                                fileSelection(into: folder)
+                            } label: {
+                                Label(folder.displayName, systemImage: "folder")
+                            }
+                        }
+                        Divider()
+                        Button {
+                            fileSelection(into: nil)
+                        } label: {
+                            Label("Remove from Folder", systemImage: "tray")
+                        }
+                    } label: {
+                        Label("Folder \(selection.count)", systemImage: "folder")
                     }
                 }
                 Spacer()
@@ -1041,7 +1319,87 @@ struct SongsView: View {
     private func reload() async {
         isLoading = true
         await model.loadDocuments()
+        // After the documents, not beside them: the folder collection is
+        // reached through a link the document collection carries, so there is
+        // nothing to follow until that has landed.
+        await model.loadDocumentFolders()
         isLoading = false
+    }
+
+    /// Files one row, or takes it out of its folder.
+    private func file(_ document: TextDocument, into folder: TextDocumentFolder?) {
+        Task {
+            if await model.moveDocument(document, to: folder) == false {
+                statusMessage = model.errorMessage
+                    ?? "Could not move \"\(document.displayTitle)\"."
+            }
+        }
+    }
+
+    /// Files the ticked rows. The selection is dropped either way, as the bulk
+    /// archive drops it: on success those rows may have left the folder being
+    /// shown, and on failure the list came back from the server.
+    private func fileSelection(into folder: TextDocumentFolder?) {
+        let ids = selectedDocuments.map(\.id)
+        let count = ids.count
+        selection.removeAll()
+        Task {
+            if await model.bulkMoveDocuments(ids, to: folder) == false {
+                statusMessage = model.errorMessage
+                    ?? "Could not move \(counted(count))."
+            }
+        }
+    }
+
+    /// Makes the folder just named, and files the row it was named for.
+    ///
+    /// The two halves are one gesture from the writer's side — "put this in a
+    /// new folder called Act One" — so a create that lands and a move that does
+    /// not still leaves the folder made, which is the half worth keeping.
+    private func commitNewFolder() {
+        let name = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let document = filingDocument
+        filingDocument = nil
+        guard !name.isEmpty else { return }
+        Task {
+            guard let folder = await model.createFolder(named: name, for: listType) else {
+                statusMessage = model.errorMessage ?? "Could not add that folder."
+                return
+            }
+            if let document {
+                if await model.moveDocument(document, to: folder) == false {
+                    statusMessage = model.errorMessage
+                        ?? "Could not move \"\(document.displayTitle)\"."
+                    return
+                }
+            }
+            // Straight to what was just made: naming a folder is a statement
+            // about where the writer wants to be looking.
+            folderFilter = .folder(folder.id)
+        }
+    }
+
+    private func commitFolderRename() {
+        guard let folder = renamingFolder else { return }
+        let name = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        renamingFolder = nil
+        guard !name.isEmpty else { return }
+        Task {
+            if await model.renameFolder(folder, to: name) == false {
+                statusMessage = model.errorMessage ?? "Could not rename that folder."
+            }
+        }
+    }
+
+    /// Removes a folder. What it held stays in the list, so the filter has to
+    /// come off it — those rows are still there, just not under this name.
+    private func deleteFolder(_ folder: TextDocumentFolder) {
+        folderFilter = .all
+        Task {
+            if await model.deleteFolder(folder) == false {
+                statusMessage = model.errorMessage ?? "Could not remove that folder."
+            }
+        }
     }
 
     /// Opens the document a widget row was tapped for, once the list holding
@@ -1310,6 +1668,14 @@ struct SongsView: View {
 
     private var shareBinding: Binding<Bool> {
         Binding(get: { sharingDocument != nil }, set: { if !$0 { sharingDocument = nil } })
+    }
+
+    private var folderRenameBinding: Binding<Bool> {
+        Binding(get: { renamingFolder != nil }, set: { if !$0 { renamingFolder = nil } })
+    }
+
+    private var folderDeleteBinding: Binding<Bool> {
+        Binding(get: { deletingFolder != nil }, set: { if !$0 { deletingFolder = nil } })
     }
 }
 

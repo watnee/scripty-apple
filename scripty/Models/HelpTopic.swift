@@ -210,7 +210,9 @@ extension HelpTopic {
                     + "you sign out again it is the same song on this device, holding "
                     + "whatever verses you added in either place. Scripty puts you back "
                     + "in the one you were writing in, too: sign in from a lyric and the "
-                    + "lyric is what you land in.",
+                    + "lyric is what you land in. Folders cross with them: a song filed "
+                    + "under a name here arrives filed under that name, and a folder "
+                    + "your account has not got is made for it.",
                     "If the same screenplay has been written in both places at once — "
                     + "here while signed out, and in your account from a browser or "
                     + "another device — neither version is thrown away. What you wrote "
@@ -815,6 +817,18 @@ extension HelpTopic {
                     + "work into an account when you sign in, so save anything you "
                     + "cannot replace first. Deleting one is final — there is no "
                     + "trash for a file.",
+                    "Folders group a long list. The folder button above the rows "
+                    + "shows one folder at a time — All and Unfiled are there "
+                    + "too — and New Folder in that same menu names a new one. "
+                    + "A row's Folder menu files that song or note, and can make "
+                    + "the folder while it does it; Edit ticks several and files "
+                    + "them together. Each row says which folder it is in, and a "
+                    + "search runs inside whichever folder is showing. Songs and "
+                    + "notes keep separate folders, since they are separate "
+                    + "lists, and a song that becomes a note leaves its folder "
+                    + "behind. Removing a folder takes away the name and nothing "
+                    + "else: everything that was in it stays in the list, "
+                    + "unfiled.",
                     "Archiving is not deleting. A song or note set aside from its "
                     + "menu leaves the list whole and readable, with nothing counting "
                     + "down against it; Archived Songs & Notes lists what is on the "
@@ -1007,6 +1021,9 @@ extension HelpTopic {
                            "find", "search", "replace", "match case", "whole words",
                            "arrange", "rearrange", "reorder", "order", "drag",
                            "move up", "move down", "sort",
+                           "folder", "folders", "group", "grouping", "file",
+                           "filed", "unfiled", "act", "organise", "organize",
+                           "tidy", "move to",
                            "add line", "new line", "another line",
                            "hide keyboard", "dismiss keyboard", "keyboard"]),
             HelpTopic(
