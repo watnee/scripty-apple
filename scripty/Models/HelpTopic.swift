@@ -97,7 +97,7 @@ extension HelpTopic {
                     "The sidebar lists every screenplay you can open. Search it by "
                     + "title, sort by last edited or by name, and swipe a row to rename "
                     + "or delete it. A screenplay already open can be renamed where you "
-                    + "are: Rename Screenplay sits under its name in the script's "
+                    + "are: Rename Screenplay heads the “…” menu in the script's "
                     + "toolbar, beside the title page and the rest of its affairs.",
                     "The script itself is headed with the name, at the top of the "
                     + "writing column as well as in reading mode, and tapping that "

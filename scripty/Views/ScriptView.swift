@@ -312,7 +312,13 @@ struct ScriptView: View {
         .navigationTitle(model.project.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
-        .toolbarTitleMenu { projectButtons }
+        // No `.toolbarTitleMenu` here. The screenplay's front matter, drafts and
+        // history used to hang off its name as well as sit behind the "…", and
+        // one list offered in two places is one list a writer has to be told
+        // about twice. The "…" is the one that keeps them now: it is drawn in
+        // every layout, where whether the bar has the room for a title at all
+        // is iOS's decision — so the copy that could vanish is the copy that
+        // went. See `projectButtons`.
         // Scrolling down through the script folds the bar away for reading
         // room; `respondToScroll` is what sets the flag. The reading bars at
         // the bottom fold on the same flag, each at its own declaration.
@@ -2702,12 +2708,15 @@ struct ScriptView: View {
             }
         }
 
-        // Front matter, history and the occasional errands. These also hang off
-        // the screenplay's name (`projectButtons` is what the title menu
-        // shows), but they are declared here as well rather than only there:
-        // whether the bar has the room to draw a title at all is iOS's
-        // decision, and an affordance that exists only inside a menu that may
-        // not appear is an affordance that may not be reachable.
+        // Front matter, history and the occasional errands, and this is the
+        // only place in the chrome that offers them. They used to hang off the
+        // screenplay's name as well, in a title menu — see the `.toolbar`
+        // declaration for why that copy went and this one stayed.
+        //
+        // First in the "…", and in a group of their own so the divider says
+        // where the screenplay's own affairs end and the errands on the script
+        // in front of you begin.
+        //
         // Focus mode clears the overflow out but for redo, which the group
         // below keeps: undo is up in the bar in every mode, and a redo with no
         // way to reach it would strand a writer mid-correction.
@@ -2804,16 +2813,16 @@ struct ScriptView: View {
     /// The project's own affairs, as against the script on screen: its front
     /// matter, its named drafts, its history, who else can see it.
     ///
-    /// Gathered so they can hang off the screenplay's name as well as sit in
-    /// the overflow — a document app has taught everyone to look under the
-    /// title for these, and the same list serves both places. See `toolbar`
-    /// for why they are in both rather than only under the title.
+    /// Gathered into one list, at the head of the "…" — the options menu is the
+    /// one place in the chrome that offers them. It hung off the screenplay's
+    /// name as well until this round; see the `.toolbar` declaration for why
+    /// that copy went.
     @ViewBuilder
     private var projectButtons: some View {
-        // First, and first for a reason: this list hangs off the screenplay's
-        // name, and renaming is what a name is most often tapped for — the web
-        // header renames on a click of the title itself. Gated on the same
-        // `update` link the list's Rename is, so a reader is offered nothing.
+        // First, and first for a reason: this list is the screenplay's own
+        // affairs, and renaming is the one most often wanted — the web header
+        // renames on a click of the title itself. Gated on the same `update`
+        // link the list's Rename is, so a reader is offered nothing.
         if model.canRenameProject {
             Button {
                 showingRename = true
