@@ -2,20 +2,22 @@
 //  CapitalizationSettingsView.swift
 //  scripty
 //
-//  Editor preferences: the face the app writes in, and which elements are
-//  typed in ALL CAPS. The web app puts the capitals on a menu; on iOS they
-//  read better as a settings sheet of toggles, and the typeface — which the
-//  web has no setting for at all — belongs with them.
+//  Editor preferences: whether a document comes up to be read or to be typed
+//  in, the face the app writes in, and which elements are typed in ALL CAPS.
+//  The web app puts the capitals on a menu; on iOS they read better as a
+//  settings sheet of toggles, and the typeface — which the web has no setting
+//  for at all — belongs with them, as does the opening question, which is a
+//  standing answer rather than something you do to the script in front of you.
 //
-//  The two halves are stored in different places on purpose. Capitalization is
+//  The sections are stored in different places on purpose. Capitalization is
 //  the server's, because exports bake the case into the file; the default font
-//  is this device's, like the type size and the appearance, because it changes
-//  how a script is drawn and nothing about what is stored on it. So the caps
-//  section appears only once the preference has somewhere to save to, and the
-//  font section always does.
+//  and the opening view are this device's, like the type size and the
+//  appearance, because they change how a script is drawn and nothing about
+//  what is stored on it. So the caps section appears only once the preference
+//  has somewhere to save to, and the other two always do.
 //
 //  Each control persists on the spot — the toggles post only the field that
-//  changed, the picker writes straight to UserDefaults.
+//  changed, the pickers and the switch write straight to UserDefaults.
 //
 
 import SwiftUI
@@ -27,10 +29,27 @@ struct CapitalizationSettingsView: View {
 
     private var settings: CapitalizationSettings { CapitalizationSettings.shared }
     private var presentation: PresentationSettings { PresentationSettings.shared }
+    private var readingViews: ReadingViewSettings { ReadingViewSettings.shared }
 
     var body: some View {
         NavigationStack {
             Form {
+                // First, because it is the question a document answers before
+                // any of the typography below it applies.
+                Section {
+                    Toggle("Open in Edit View", isOn: editViewBinding)
+                } header: {
+                    Text("Opening Documents")
+                } footer: {
+                    Text("Documents open to be read, so a screenplay you are "
+                         + "scrolling through cannot be typed into by accident. "
+                         + "Turn this on to have them open ready to write in "
+                         + "instead. It answers for documents you have never "
+                         + "made a choice about: one you have tapped Edit in "
+                         + "already opens for writing, and one you have put "
+                         + "back up to be read stays that way.")
+                }
+
                 Section {
                     Picker("Default Font", selection: fontBinding) {
                         ForEach(ScriptFont.allCases) { option in
@@ -81,6 +100,12 @@ struct CapitalizationSettingsView: View {
                 }
             }
         }
+    }
+
+    private var editViewBinding: Binding<Bool> {
+        Binding(
+            get: { readingViews.opensInEditView },
+            set: { readingViews.opensInEditView = $0 })
     }
 
     private var fontBinding: Binding<ScriptFont> {

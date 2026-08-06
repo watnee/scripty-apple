@@ -18,10 +18,10 @@
 //  * A document reopens the way you left it. Tap Edit once and that screenplay
 //    is a screenplay you write in; it stops asking. Put it back into reading
 //    view and it stays there.
-//  * There is one switch — "Open in Edit View" — that changes the answer for
-//    every document you have never made a choice about. Pages keeps exactly
-//    this setting, and lets a per-document choice outrank it, which is why the
-//    remembered value is consulted first below.
+//  * There is one switch — "Open in Edit View", in Editor Preferences — that
+//    changes the answer for every document you have never made a choice about.
+//    Pages keeps exactly this setting, and lets a per-document choice outrank
+//    it, which is why the remembered value is consulted first below.
 //
 //  A device preference, like everything else about presentation: the same
 //  account is read on a phone on a train and written on an iPad at a desk, and

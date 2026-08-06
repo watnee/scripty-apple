@@ -100,18 +100,8 @@ struct ProjectsSidebarView: View {
     /// Light or dark, for the whole app rather than this list.
     private let appearance = AppearanceSettings.shared
 
-    /// Whether documents open to be read or ready to type in — for the whole
-    /// app too, which is why the switch lives up here beside appearance rather
-    /// than inside any one screenplay's View menu.
-    private let readingViews = ReadingViewSettings.shared
-
     private var appearanceBinding: Binding<AppearanceSettings.Appearance> {
         Binding(get: { appearance.appearance }, set: { appearance.appearance = $0 })
-    }
-
-    private var editViewBinding: Binding<Bool> {
-        Binding(get: { readingViews.opensInEditView },
-                set: { readingViews.opensInEditView = $0 })
     }
 
     /// Its own property rather than inline in the toolbar: the toolbar builder
@@ -310,11 +300,12 @@ struct ProjectsSidebarView: View {
                     Label("Account", systemImage: "person.badge.key")
                 }
             }
-            // Editor preferences: the default typeface, and auto-capitalization
-            // where the account offers it. Ungated now that the sheet holds a
-            // choice about this device — the caps toggles are still advertised
-            // to a signed-in account alone and the sheet shows them only then,
-            // but a writer in a demo session still has a font to pick.
+            // Editor preferences: whether documents open to be read or ready to
+            // type in, the default typeface, and auto-capitalization where the
+            // account offers it. Ungated now that the sheet holds choices about
+            // this device — the caps toggles are still advertised to a signed-in
+            // account alone and the sheet shows them only then, but a writer in
+            // a demo session still has a font to pick and a view to open in.
             Button {
                 showingPreferences = true
             } label: {
@@ -348,18 +339,11 @@ struct ProjectsSidebarView: View {
             // its two help entries.
             appearancePicker
 
-            // Documents open to be read, the way Pages and Word open one on
-            // iOS; this is the switch for anyone who would rather they opened
-            // ready to type in. Ungated for the same reason appearance is, and
-            // filed beside it because both are choices about this device
-            // rather than about any one screenplay.
-            //
-            // It only answers for documents nobody has chosen for: a script
-            // you have tapped Edit in already opens in the editor, and one you
-            // have deliberately put back into reading view stays there.
-            Toggle(isOn: editViewBinding) {
-                Label("Open in Edit View", systemImage: "square.and.pencil")
-            }
+            // "Open in Edit View" was a switch here beside appearance, for the
+            // same reason: both are choices about this device. It reads better
+            // in Editor Preferences above, where a footer has room to say what
+            // it does and does not override, and one switch with one home
+            // beats the same switch in two places.
 
             Button {
                 HelpPresentation.shared.screen = .help
