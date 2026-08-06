@@ -793,6 +793,15 @@ extension HelpTopic {
                     + "one format that stays with songs is MusicXML, which is a score to "
                     + "open in a notation program, and a page of scene notes is not a "
                     + "thing to set to music.",
+                    "Import, in the top corner of either list, brings words in "
+                    + "from a file: plain text, Fountain, Word, Final Draft, PDF, "
+                    + "or a MusicXML score, which comes in as its lyric. Pick as "
+                    + "many files as you like in one go — each becomes a song or a "
+                    + "note of its own, named after the file, and they arrive in "
+                    + "the order you picked them, joining whichever list you were "
+                    + "on. A single file opens for writing as soon as it lands; "
+                    + "several stay in the list, and a line at the end says what "
+                    + "came in and names anything that did not.",
                     "Print sits beside Export wherever Export is, because it is an "
                     + "errand rather than another format: on a row's menu for that one "
                     + "song or note, in either editor's \u{201C}…\u{201D} menu for the "

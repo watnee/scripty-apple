@@ -166,8 +166,9 @@ echo
 echo "== Reading a picked file =="
 # Foundation only: the coordinated read itself needs a Files provider to have
 # anything to coordinate with, so what is checked here is the shape around it —
-# the bytes, the MIME types the server sorts formats by, and the failure message
-# keeping the system's reason instead of swallowing it.
+# the bytes, the MIME types the server sorts formats by, the failure message
+# keeping the system's reason instead of swallowing it, and what a batch of
+# picked files reports once they have all been through.
 swiftc "${FLAGS[@]}" -o "$BUILD/pickedfile" \
     "$SRC/Models/PickedFile.swift" \
     "$ROOT/Tests/PickedFile/main.swift"

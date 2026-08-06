@@ -17,6 +17,9 @@
 //  fetch the bytes first, and the failure message carries the system's own
 //  reason rather than swallowing it.
 //
+//  What to say about it lives here too — for one file, and for the several a
+//  songs or notes import can now be handed at once.
+//
 
 import Foundation
 import UniformTypeIdentifiers
@@ -109,5 +112,64 @@ enum PickedFileReader {
         // where it somehow did neither.
         if let read { return try read.get() }
         throw coordinationError ?? CocoaError(.fileReadUnknown)
+    }
+}
+
+/// What became of a batch of picked files, and what to say about it.
+///
+/// One file has always spoken for itself: the read failure carries the
+/// system's reason, an empty file is named as empty, and what lands opens for
+/// writing. None of that scales to a folder of lyrics picked at once — a
+/// separate alert per file would have to be dismissed one at a time, and the
+/// last one to speak would be the only one the writer sees.
+///
+/// So a batch counts what landed and names what did not. The names are the
+/// only part worth carrying: a writer who imported nine files and lost one
+/// needs to know *which* one to go back for, and the reason is nearly always
+/// the same for every file that failed.
+struct PickedFileTally {
+    private(set) var imported = 0
+    private(set) var failures: [String] = []
+
+    /// How many names to say before counting the rest. Three is where a
+    /// sentence stops being a sentence.
+    private static let named = 3
+
+    mutating func recordImport() { imported += 1 }
+
+    mutating func recordFailure(_ fileName: String) { failures.append(fileName) }
+
+    /// What to tell the writer, or nil when nothing was attempted.
+    ///
+    /// `kind` and `plural` are the caller's word for what it imported — a song
+    /// or a note — so the sentence names the thing rather than "files".
+    ///
+    /// `reason` is the server's own words, and is added only when nothing
+    /// landed at all: a list of names with no reason beside it is the one case
+    /// where the writer has nowhere to go, and when something did land the
+    /// reason for the rest is rarely the last error the model happened to hold.
+    func message(kind: String, plural: String, reason: String? = nil) -> String? {
+        let landed = "\(imported) \(imported == 1 ? kind : plural)"
+        guard !failures.isEmpty else {
+            return imported == 0 ? nil : "Imported \(landed)."
+        }
+        let names = Self.list(failures)
+        guard imported > 0 else {
+            guard let reason, !reason.isEmpty else { return "Could not import \(names)." }
+            return "Could not import \(names). \(reason)"
+        }
+        return "Imported \(landed). Could not import \(names)."
+    }
+
+    /// The file names as a sentence reads them.
+    private static func list(_ names: [String]) -> String {
+        if names.count <= named {
+            guard let last = names.last else { return "" }
+            guard names.count > 1 else { return last }
+            return names.dropLast().joined(separator: ", ") + " and " + last
+        }
+        let rest = names.count - named
+        return names.prefix(named).joined(separator: ", ")
+            + " and \(rest) more"
     }
 }
