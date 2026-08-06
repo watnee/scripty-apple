@@ -4770,21 +4770,21 @@ actor DemoBackend {
         writtenProjectIds.insert(projectId)
     }
 
-    /// The projects worth offering to keep: everything this session created or
-    /// changed, newest first, and never a sample screenplay left as it was
-    /// seeded. Deleted ones fall out on their own — the id is remembered, but
-    /// the project it named is gone from the list.
+    /// The projects worth keeping: everything this session created or changed,
+    /// newest first, and never a sample screenplay left as it was seeded.
+    /// Deleted ones fall out on their own — the id is remembered, but the
+    /// project it named is gone from the list.
     ///
     /// `alreadyKept` marks one an account has been given a copy of before, and
-    /// which has been written in since. It is still worth offering — those newer
-    /// words exist nowhere else — but keeping it makes a second screenplay
-    /// rather than catching the first one up, and the sheet has to say so.
-    func guestWork() -> [(id: Int, title: String, blockCount: Int, alreadyKept: Bool)] {
+    /// which has been written in since. Those newer words exist nowhere else,
+    /// but sending them up makes a *second* screenplay rather than catching the
+    /// first one up — so it is the one thing a sign-in leaves where it is. See
+    /// `AppModel.adopt`.
+    func guestWork() -> [(id: Int, title: String, alreadyKept: Bool)] {
         projects
             .filter { writtenProjectIds.contains($0.id) }
             .sorted { $0.lastEdited > $1.lastEdited }
-            .map { ($0.id, $0.title, (blocks[$0.id] ?? []).count,
-                    handedOffProjectIds.contains($0.id)) }
+            .map { ($0.id, $0.title, handedOffProjectIds.contains($0.id)) }
     }
 
     private func link(_ path: String) -> [String: String] {

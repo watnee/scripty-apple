@@ -126,9 +126,6 @@ struct RootView: View {
     /// that is still signed in, where there is no login screen to hand it to.
     @State private var pendingReset: PendingReset?
 
-    /// The offer of local work to keep, once there is room on screen for it.
-    @State private var guestWork: GuestWorkOffer?
-
     private struct PendingReset: Identifiable {
         let link: HALLink
         let token: String
@@ -146,18 +143,14 @@ struct RootView: View {
             // from the sidebar so the local session underneath is untouched:
             // cancelling puts the writer back in the workspace they were in,
             // with everything they had written still in it.
-            .sheet(isPresented: signInBinding, onDismiss: presentGuestWork) {
+            .sheet(isPresented: signInBinding) {
                 LoginView(app: app, isModal: true)
             }
-            // What they wrote there, offered to the account they just reached —
-            // once the screen they signed in on has actually gone.
-            .sheet(item: $guestWork) { offer in
-                GuestWorkView(app: app, offer: offer)
-            }
-            // A screenplay the device and the account both hold is caught up
-            // silently, because there is nothing to decide about it. This is for
-            // the two cases where there is: a screenplay written in both places
-            // at once, and one the account could not be given yet.
+            // What they wrote here goes up on its own — there is nothing to
+            // decide about work being kept, and no screen for it. This is for
+            // the cases where the crossing could not simply be made: a
+            // screenplay written in both places at once, and one the account
+            // could not be given.
             .alert("Your Screenplays", isPresented: syncNoticeBinding,
                    presenting: app.syncNotice) { _ in
                 Button("OK") { app.syncNotice = nil }
@@ -267,12 +260,6 @@ struct RootView: View {
     private var signInBinding: Binding<Bool> {
         Binding(get: { app.isPresentingSignIn && !isSignedOut },
                 set: { app.isPresentingSignIn = $0 })
-    }
-
-    /// Takes up whatever the sign-in left parked, now that its sheet is gone.
-    private func presentGuestWork() {
-        guestWork = app.pendingGuestWorkOffer
-        app.pendingGuestWorkOffer = nil
     }
 
     private var isSignedOut: Bool {

@@ -238,7 +238,7 @@ func runEphemeral() async {
 
 func runHandOff() async {
     print("")
-    print("Signing in copies what was ticked and takes nothing away")
+    print("Signing in copies what was written and takes nothing away")
 
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -256,12 +256,12 @@ func runHandOff() async {
                             body: body(["projectId": givenId, "title": "Its Song",
                                         "documentType": "SONG", "content": "la la"]))
 
-    // What `AppModel.uploadGuestWork` does once the upload has landed.
+    // What `AppModel.keepGuestWork` does once the upload has landed.
     await first.markHandedOff(projectIds: [givenId])
 
-    let offered = await first.guestWork().map(\.id)
-    check("the uploaded screenplay is no longer offered", !offered.contains(givenId))
-    check("the one left behind still is", offered.contains(keptId))
+    let unsent = await first.guestWork().map(\.id)
+    check("the uploaded screenplay is no longer work to send", !unsent.contains(givenId))
+    check("the one that never went up still is", unsent.contains(keptId))
 
     // The point of the whole flow: signing out is not a way to lose the
     // screenplay you just attached an account to.
@@ -281,20 +281,21 @@ func runHandOff() async {
         .compactMap { $0["title"] as? String }
     check("so are its songs", songs.contains("Its Song"), "got \(songs)")
 
-    // And it stays off the offer across the relaunch, so signing in again
+    // And it stays off that list across the relaunch, so signing in again
     // doesn't put a second copy of it in the same account.
     check("a relaunch still knows the account has a copy",
           !(await second.guestWork().map(\.id)).contains(givenId))
 
     // Until it is written in again — those newer words are on this device and
-    // nowhere else, so they are worth offering. Unticked and labelled, though:
-    // see `GuestWorkView`.
+    // nowhere else, so they are worth carrying. Flagged as one an account has
+    // already been given, though: a sign-in leaves that one where it is rather
+    // than making a second screenplay nobody asked for. See `AppModel.adopt`.
     _ = await second.respond(method: "PUT", url: url("/api/project/\(givenId)"),
                              body: body(["title": "Uploading This One", "writers": "Me"]))
-    let reoffered = await second.guestWork().first { $0.id == givenId }
-    check("writing in it again puts it back on the offer", reoffered != nil)
+    let rewritten = await second.guestWork().first { $0.id == givenId }
+    check("writing in it again puts it back on the list", rewritten != nil)
     check("and it is marked as one the account already has",
-          reoffered?.alreadyKept == true)
+          rewritten?.alreadyKept == true)
 }
 
 // MARK: - A store that cannot be read
