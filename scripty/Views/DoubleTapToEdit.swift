@@ -70,9 +70,22 @@ private struct DoubleTapToEditGestureModifier: ViewModifier {
 @MainActor
 final class DoubleTapToEditGesture: NSObject, UIGestureRecognizerDelegate {
     /// What the host does when the writer asks for the keyboard: leave the
-    /// reading view, or take the lock off. Putting the caret where the finger
-    /// landed is this object's own job, since only it knows where that was.
-    var startWriting: (() -> Void)?
+    /// reading view, or take the lock off.
+    ///
+    /// Handed where among the words the finger landed, in UTF-16, because only
+    /// this object knows that and the host may be the one that has to act on
+    /// it. Two cases, and they need different things:
+    ///
+    /// * **The lock.** The words stay in the same text view and it flips to
+    ///   editable, so the caret is placed below and the host can ignore the
+    ///   offset entirely.
+    /// * **A reading view.** The words on screen are a *different* view from
+    ///   the one about to take the caret — the reader is torn down and the
+    ///   writing surface built in its place — so the placing below has nothing
+    ///   left to place into, and the offset is the only way the tap survives
+    ///   the handoff. Hosts carry it across; see `ScriptView`'s
+    ///   `pendingWriteTarget` for the same trick a line at a time.
+    var startWriting: ((Int) -> Void)?
 
     private weak var textView: UITextView?
     private var recognizer: UITapGestureRecognizer?
@@ -105,7 +118,11 @@ final class DoubleTapToEditGesture: NSObject, UIGestureRecognizerDelegate {
         // nothing to do.
         guard let textView, !textView.isEditable, let startWriting else { return }
         let offset = utf16Offset(of: gesture.location(in: textView), in: textView)
-        startWriting()
+        startWriting(offset)
+        // Only reaches anything where this same view is the one that takes the
+        // caret — the lock. Where the host swapped the surface underneath us it
+        // gives up after its attempts and the host's own handoff is what puts
+        // the caret in the words.
         placeCaret(at: offset, attemptsLeft: 3)
     }
 

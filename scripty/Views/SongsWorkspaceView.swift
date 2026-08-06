@@ -767,9 +767,12 @@ struct SongsWorkspaceView: View {
     /// Only this song's lock: the others on screen were each locked on purpose,
     /// one at a time, and a gesture that cleared them all would be the accident
     /// the lock exists to prevent.
-    private func startWriting(_ song: TextDocument) -> (() -> Void)? {
+    ///
+    /// Where the finger landed is not wanted here: the lock leaves the line the
+    /// same view it was, so the line puts its own caret in.
+    private func startWriting(_ song: TextDocument) -> ((Int) -> Void)? {
         guard isLocked(song) else { return nil }
-        return { locks[song.id]?.setEditingLocked(false) }
+        return { _ in locks[song.id]?.setEditingLocked(false) }
     }
 
     /// Reopens the songs left open last time. Runs after the documents load so

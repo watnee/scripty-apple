@@ -658,9 +658,12 @@ struct NotesWorkspaceView: View {
     /// Only this note's lock: the others on screen were each locked on purpose,
     /// one at a time, and a gesture that cleared them all would be the accident
     /// the lock exists to prevent.
-    private func startWriting(_ note: TextDocument) -> (() -> Void)? {
+    ///
+    /// Where the finger landed is not wanted here: the lock leaves the note the
+    /// same view it was, so the text view puts its own caret in.
+    private func startWriting(_ note: TextDocument) -> ((Int) -> Void)? {
         guard isLocked(note), drafts[note.id]?.canEdit == true else { return nil }
-        return { locks[note.id]?.setEditingLocked(false) }
+        return { _ in locks[note.id]?.setEditingLocked(false) }
     }
 
     /// Reopens the notes left open last time. Runs after the documents load so

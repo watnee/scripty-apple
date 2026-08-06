@@ -73,11 +73,14 @@ struct ReadSongView: View {
     /// button in the toolbar. Nil where there is nothing to write in: a song
     /// the server sent to be read only.
     ///
-    /// No line is named, unlike the script reader's. This surface is handed
-    /// plain strings — a song with no blocks reaches it as one text — so there
-    /// is no element to put a caret in, and the editor comes back where it was
-    /// left rather than where the finger landed.
-    var onEdit: (() -> Void)?
+    /// Handed how far into the lyric *as a whole* the finger landed, in UTF-16
+    /// and counting the line breaks between the lines. One number rather than a
+    /// line and an offset into it, because the two editors behind this surface
+    /// disagree about what a line is: the plain one holds the lyric as a single
+    /// string, and only the lyric editor keeps a row apiece. Counted the way the
+    /// plain editor stores it, so that one spends it as it stands and the other
+    /// walks it back to a row — see `caretOffset(inLine:at:)`.
+    var onEdit: ((Int) -> Void)?
     /// Whether the writing surface behind this one keeps each line as a row of
     /// its own — the lyric editor does, the plain one does not.
     ///
@@ -129,7 +132,9 @@ struct ReadSongView: View {
                         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                             // A blank line is drawn as a space, so it takes the
                             // line's height the empty row it stands in for takes.
-                            lyric(line.isEmpty ? " " : line)
+                            lyric(line.isEmpty ? " " : line,
+                                  startingAt: lineStart(index),
+                                  within: line)
                                 // The wash is inset outwards, so switching it on
                                 // cannot move the line it marks — the same trick
                                 // the script reader's spotlight uses.
@@ -145,8 +150,11 @@ struct ReadSongView: View {
                     } else {
                         // The lyric in one text view, as the plain editor holds
                         // it in one. A line break is a line break to TextKit, so
-                        // every line still breaks where the writer left it.
-                        lyric(lines.joined(separator: "\n"))
+                        // every line still breaks where the writer left it — and
+                        // an offset into this view is already an offset into the
+                        // lyric, so it starts at nothing.
+                        lyric(lines.joined(separator: "\n"), startingAt: 0,
+                              within: lines.joined(separator: "\n"))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -170,10 +178,43 @@ struct ReadSongView: View {
     /// One stretch of lyric, set the way the editor sets it. Two taps in it are
     /// the same instruction as Edit in the toolbar, the way they are in Pages
     /// and Word.
-    private func lyric(_ text: String) -> some View {
-        ProseText(text: text, textScale: textScale, startWriting: onEdit)
+    ///
+    /// `start` is where this stretch begins in the lyric as a whole — nothing
+    /// where the lyric is drawn in one piece, and the sum of the lines above it
+    /// where each line is a view of its own. It is what turns the offset the
+    /// text view reports into the offset the host was promised.
+    ///
+    /// `stored` is the same words as the writer has them, which is not always
+    /// what is drawn: a blank line is set as a space so that it keeps a line's
+    /// height. The caret is held inside *those* words, so a tap past the end of
+    /// a blank line's placeholder lands at the blank line rather than a
+    /// character into the line below it.
+    private func lyric(_ text: String, startingAt start: Int,
+                       within stored: String) -> some View {
+        ProseText(text: text,
+                  textScale: textScale,
+                  startWriting: onEdit.map { edit in
+                      { offset in edit(start + min(offset, textLength(stored))) }
+                  })
             .frame(width: ProseColumn.columnWidth(in: availableWidth),
                    alignment: .leading)
+    }
+
+    /// Where `index` begins in the lyric as a whole: every line above it, plus
+    /// the line break after each. Only meaningful where the lines are rows —
+    /// drawn in one piece there is nothing above any of them.
+    ///
+    /// Counted from `lines` rather than from what was drawn, because a blank
+    /// line is *drawn* as a space and stored as nothing: adding up the drawn
+    /// text would push every line below the first blank one one place along.
+    private func lineStart(_ index: Int) -> Int {
+        lines.prefix(index).reduce(0) { $0 + textLength($1) + 1 }
+    }
+
+    /// A string's length in UTF-16 — the count a text view's own selection is
+    /// in, and so the only count that can be added to one.
+    private func textLength(_ text: String) -> Int {
+        (text as NSString).length
     }
 
     /// Whether there is a word here to read. Blank lines do not count: a lyric

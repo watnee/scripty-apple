@@ -195,9 +195,26 @@ struct NoteTextView: UIViewRepresentable {
     var placeholder = ""
     /// What a double tap on a document being read should do — leave the reading
     /// view, in the one host that has one. Nil where there is nothing to leave,
-    /// and ignored while the note is editable anyway; the caret goes where the
-    /// finger landed, which is `DoubleTapToEdit`'s half of the bargain.
-    var startWriting: (() -> Void)?
+    /// and ignored while the note is editable anyway.
+    ///
+    /// Handed where among the words the finger landed. This view places that
+    /// caret itself where it is the surface being tapped — the lock, which
+    /// flips it editable in place — so the offset is for hosts whose double tap
+    /// arrived on a *different* view: see `caret` below, which is how it comes
+    /// back.
+    var startWriting: ((Int) -> Void)?
+    /// Where the caret should go, in UTF-16, once this view is the one on
+    /// screen — or nil, which is the ordinary state and leaves the caret alone.
+    ///
+    /// The other end of the reading view's double tap. The tap lands on the
+    /// reader, and by the time the note is editable that view is gone; the host
+    /// holds the offset across the handoff and hands it here, and this view
+    /// takes the keyboard with it. Cleared through `onCaretApplied`, so the
+    /// same request cannot be spent twice.
+    var caret: Int?
+    /// That the caret above has been placed, so the host can put its request
+    /// down — the convention `SongLineField` already follows.
+    var onCaretApplied: (() -> Void)?
     /// Reports whether the caret is in here, so the host can show the
     /// formatting bar only while there is something for it to format.
     var onFocusChange: ((Bool) -> Void)?
@@ -262,8 +279,8 @@ struct NoteTextView: UIViewRepresentable {
         // Through the coordinator's copy of the parent: this struct is rebuilt
         // on every redraw, and what "start writing" means changes with the mode
         // the host is in.
-        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.startWriting?()
+        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] offset in
+            coordinator?.parent.startWriting?(offset)
         }
         context.coordinator.doubleTap.attach(to: view)
         context.coordinator.doubleTap.setOffered(!isEditable && startWriting != nil)
@@ -298,6 +315,32 @@ struct NoteTextView: UIViewRepresentable {
         if view.font != font { view.font = font }
 
         view.applySpellchecking(spellChecks, revision: spellcheckRevision)
+
+        claimCaret(in: view)
+    }
+
+    /// Takes the keyboard and puts the caret where a double tap on the reading
+    /// surface asked for it — see `caret`.
+    ///
+    /// Only once the note is editable: this same update is the one that turns
+    /// editing on, and a text view asked for first responder while it is still
+    /// read-only refuses and leaves the writer looking at words with no caret
+    /// in them. Not editable yet means the host is mid-handoff and another
+    /// update is coming, so the request is left standing for it.
+    ///
+    /// Deferred for the reason every focus grant in this app is deferred: a
+    /// view that has just been built is not in the window during its first
+    /// update, and `becomeFirstResponder()` on one that is not silently does
+    /// nothing.
+    @MainActor
+    private func claimCaret(in view: NoteUITextView) {
+        guard let caret, isEditable else { return }
+        DispatchQueue.main.async {
+            if !view.isFirstResponder { view.becomeFirstResponder() }
+            let length = (view.text as NSString?)?.length ?? 0
+            view.selectedRange = NSRange(location: min(caret, length), length: 0)
+            onCaretApplied?()
+        }
     }
 
     /// The formatting the toolbar and the keyboard shortcuts can ask for.

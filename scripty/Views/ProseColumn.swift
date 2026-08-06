@@ -83,7 +83,13 @@ struct ProseText: UIViewRepresentable {
     /// The way back to the keyboard: two taps in the words, as in Pages and
     /// Word. Nil where there is nothing to go back to — a document the server
     /// sent to be read only.
-    var startWriting: (() -> Void)?
+    ///
+    /// Handed how far into *this* stretch of words the finger landed, in
+    /// UTF-16. A reader is not the view that takes the caret — tapping here
+    /// tears this view down and builds the writing surface in its place — so
+    /// the offset is the whole of what survives the handoff, and the host is
+    /// the one that has to spend it.
+    var startWriting: ((Int) -> Void)?
 
     /// The face the writer chose for everything with no font of its own,
     /// resolved as this view is built rather than inside `updateUIView`: an
@@ -106,8 +112,8 @@ struct ProseText: UIViewRepresentable {
         view.font = ProseFont.editor(scale: textScale, face: defaultFont)
         // Through the coordinator's copy of the parent: the closure outlives
         // this struct, which SwiftUI rebuilds on every redraw.
-        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] in
-            coordinator?.parent?.startWriting?()
+        context.coordinator.doubleTap.startWriting = { [weak coordinator = context.coordinator] offset in
+            coordinator?.parent?.startWriting?(offset)
         }
         context.coordinator.parent = self
         context.coordinator.doubleTap.attach(to: view)
