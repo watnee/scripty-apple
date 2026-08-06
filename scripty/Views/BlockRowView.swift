@@ -37,7 +37,13 @@ extension EnvironmentValues {
 /// reading. Two surfaces measuring for themselves is what used to move it.
 struct ScriptRowChrome: Equatable {
     /// The printed six-inch measure in points — the column at its full size.
-    static let printedMeasure: CGFloat = 640
+    ///
+    /// Sixty characters of `ProseFont.baseSize` in the shipped face, which is
+    /// what makes this six inches rather than 711 points: the two are one
+    /// setting written twice, and the note on `baseSize` is where the pair is
+    /// reckoned. Grow the type without growing this and the writing column
+    /// breaks its lines short of where the page does.
+    static let printedMeasure: CGFloat = 711
 
     var showsPins = true
     var showsBookmarks = true

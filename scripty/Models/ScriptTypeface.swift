@@ -157,22 +157,32 @@ enum ProseFont {
     /// The base point size at 100%, shared with `EditableBlockRow` so a lyric
     /// and the scene it sits under are set at the same size.
     ///
-    /// Eighteen because that is what the measure asks for. The column is
-    /// `ScriptRowChrome.printedMeasure` — 640pt standing for the printed six
-    /// inches — and six inches of screenplay is sixty characters; Courier Prime
-    /// advances 0.6em, so sixty of them fill 640pt at 17.8pt of type. Set at 16
-    /// the same column held sixty-six: type drawn smaller than the page it was
-    /// measured against, and lines that ran on past where paper would have
-    /// broken them. Rounding up rather than down wraps a character early rather
-    /// than a character late, which is the safe direction here for the reason
+    /// Twenty, because eighteen was small to write in for an hour at a stretch
+    /// and the A+ control is a thing a writer has to find. This is what the app
+    /// is set in before anyone touches that control, so it is worth it being a
+    /// size to work in rather than the smallest one that reads.
+    ///
+    /// The number is only half of the answer, though: it travels with
+    /// `ScriptRowChrome.printedMeasure`, because a measure is a count of
+    /// characters before it is a width. Six inches of screenplay is sixty
+    /// characters and Courier Prime advances 0.6em, so sixty of them want
+    /// `0.6 × baseSize × 60` points of column — 711 at this size, as 640 was at
+    /// eighteen. Move one of the two without the other and the writing column
+    /// stops breaking its lines where paper does: set at 16 against the 640
+    /// column the script held sixty-six characters to the line and ran on past
+    /// the page, and set at 20 against that same column it would hold
+    /// fifty-three and break well short of it. They are one setting in two
+    /// numbers. Rounding the pair so the column wraps a character early rather
+    /// than a character late is the safe direction here, for the reason
     /// `naturalLeading` errs high.
     ///
     /// Every continuous surface reads this — the writing column, the reader,
     /// both song editors and the note editor — so it is the one number that
     /// says how big the app's prose is drawn. The page view is deliberately not
     /// among them: a sheet is geometry, and `ScreenplayFont.sheet` sizes type
-    /// to the line it has to fit.
-    static let baseSize: CGFloat = 18
+    /// to the line it has to fit, which is why growing this leaves the page
+    /// count, the preview and the exported PDF exactly where they were.
+    static let baseSize: CGFloat = 20
 
     /// `baseSize` at the writer's chosen scale, then scaled again by the
     /// system's Dynamic Type setting — prose has no page geometry to protect
