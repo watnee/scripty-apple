@@ -36,6 +36,14 @@ final class OfflineStore {
         case blocks(projectId: Int)
         case characters(projectId: Int)
         case documents(projectId: Int)
+        /// A project's folders, both lists in one file.
+        ///
+        /// Kept beside the document list rather than folded into it: the two
+        /// are separate collections on the server and are fetched separately,
+        /// and a list read from the cache with no folders would draw every song
+        /// as unfiled — which looks exactly like a writer's arrangement having
+        /// been thrown away.
+        case documentFolders(projectId: Int)
         /// One song's lyric lines (the default edition only, like `blocks`).
         /// Lives inside the project's directory, so pruning the project takes
         /// its songs with it.
@@ -86,6 +94,8 @@ final class OfflineStore {
             return projectDirectory(id).appendingPathComponent("characters.json")
         case .documents(let id):
             return projectDirectory(id).appendingPathComponent("documents.json")
+        case .documentFolders(let id):
+            return projectDirectory(id).appendingPathComponent("document-folders.json")
         case .songBlocks(let projectId, let documentId):
             return projectDirectory(projectId).appendingPathComponent("song-\(documentId).json")
         case .document(let projectId, let documentId):

@@ -30,6 +30,10 @@ final class ScriptModel {
     private(set) var canViewCharacters = true
     private(set) var documents: [TextDocument] = []
     private(set) var documentsLinks = HALLinks()
+    /// The project's folders, both lists in one array — each says which list it
+    /// belongs to, and the two screens filter it themselves.
+    private(set) var documentFolders: [TextDocumentFolder] = []
+    private(set) var documentFoldersLinks = HALLinks()
     /// Comments per element, keyed by block id. Empty until the server offers
     /// the rel, so a deployment that doesn't simply shows no badges.
     private(set) var commentCounts: [Int: Int] = [:]
@@ -2162,6 +2166,164 @@ final class ScriptModel {
     private func adoptDocuments(_ collection: HALCollection<TextDocument>) {
         documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
         documentsLinks = collection.links
+    }
+
+    // MARK: - Document folders
+
+    /// The folders of one list, in the order their headings should read.
+    func folders(for kind: DocumentType) -> [TextDocumentFolder] {
+        documentFolders.forList(kind)
+    }
+
+    /// Whether this reader may make a folder — advertised on the folder
+    /// collection for an editor, empty list or not, so it doubles as the "may
+    /// arrange" gate the whole folder UI hangs off.
+    var canCreateFolder: Bool { documentFoldersLinks.contains(.createFolder) }
+
+    /// Whether a ticked selection can be filed in one call.
+    var canBulkMoveDocuments: Bool { documentsLinks.contains(.bulkMoveToFolder) }
+
+    /// Loads the project's folders.
+    ///
+    /// Both lists at once, unlike the web, which asks per page: this screen
+    /// switches between Songs and Notes without another round trip, and a
+    /// folder is four small fields. That is what an unscoped fetch means to the
+    /// server — the same rule the document listing follows, where no `type` is
+    /// every type.
+    func loadDocumentFolders() async {
+        guard let link = documentFoldersLinks[.selfRel] ?? documentsLinks[.folders] else { return }
+        let cache = OfflineStore.Kind.documentFolders(projectId: project.id)
+        do {
+            let data = try await app.client.data(for: link)
+            let collection: HALCollection<TextDocumentFolder> = try app.client.decode(from: data)
+            adoptFolders(collection)
+            errorMessage = nil
+            offlineStore?.save(data, cache)
+        } catch {
+            // The same three-way fallback `loadDocuments` makes: this device's
+            // copy, else quiet degradation while offline, else say so. A list
+            // drawn without its folders is not wrong, only flatter.
+            if error.isRetryableAPIError,
+               let snapshot = offlineStore?.load(cache),
+               let collection: HALCollection<TextDocumentFolder> = try? app.client.decode(from: snapshot.data) {
+                adoptFolders(collection)
+                errorMessage = nil
+            } else if error.isRetryableAPIError, !app.connectivity.isOnline {
+                // Leave whatever was on screen.
+            } else {
+                report(error)
+            }
+        }
+    }
+
+    private func adoptFolders(_ collection: HALCollection<TextDocumentFolder>) {
+        documentFolders = collection.items
+        documentFoldersLinks = collection.links
+    }
+
+    /// Makes a folder in one of the two lists, and hands it back.
+    ///
+    /// Returned rather than acknowledged, because the one gesture worth having
+    /// is "put this song in a new folder called…" — which needs the folder that
+    /// was just made to file the song into. Found by name after the reload: the
+    /// server refuses a duplicate name in a list, so within one list a name
+    /// identifies exactly one folder.
+    ///
+    /// nil for a refusal, which the server explains in words meant to be read;
+    /// `errorMessage` carries them.
+    @discardableResult
+    func createFolder(named name: String, for kind: DocumentType) async -> TextDocumentFolder? {
+        guard let link = documentFoldersLinks[.createFolder] else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            // `type` says which list the folder lands in. The answer is then
+            // scoped to that one list — which is why it is thrown away and the
+            // folders re-read unscoped: adopting it would drop the other
+            // list's folders on the floor until the next full load.
+            _ = try await app.client.data(
+                for: link.addingQuery(["type": kind.rawValue]),
+                method: "POST", body: FolderNameCommand(name: trimmed))
+            await loadDocumentFolders()
+            errorMessage = nil
+            return folders(for: kind).first { $0.name == trimmed }
+        } catch {
+            report(error)
+            return nil
+        }
+    }
+
+    @discardableResult
+    func renameFolder(_ folder: TextDocumentFolder, to name: String) async -> Bool {
+        guard let link = folder.link(.renameFolder) else { return false }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != folder.name else { return false }
+        do {
+            let collection: HALCollection<TextDocumentFolder> = try await app.client.fetch(
+                from: link, method: "PUT", body: FolderNameCommand(name: trimmed))
+            adoptFolders(collection)
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Removes a folder. Nothing filed under it is deleted, so the documents
+    /// have to be re-read: each one that was in here comes back unfiled.
+    @discardableResult
+    func deleteFolder(_ folder: TextDocumentFolder) async -> Bool {
+        guard let link = folder.link(.deleteFolder) else { return false }
+        do {
+            let data = try await app.client.data(for: link, method: "DELETE")
+            let collection: HALCollection<TextDocumentFolder> = try app.client.decode(from: data)
+            adoptFolders(collection)
+            await loadDocuments()
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Files one document under a folder, or takes it out of the one it is in
+    /// when `folder` is nil.
+    @discardableResult
+    func moveDocument(_ document: TextDocument, to folder: TextDocumentFolder?) async -> Bool {
+        guard let link = document.link(.moveToFolder) else { return false }
+        do {
+            let collection: HALCollection<TextDocument> = try await app.client.fetch(
+                from: link, method: "POST", body: MoveToFolderCommand(folderId: folder?.id))
+            adoptDocuments(collection)
+            // The counts on the headings came from the folder collection, and
+            // one of them just changed.
+            await loadDocumentFolders()
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Files the ticked rows in one call.
+    @discardableResult
+    func bulkMoveDocuments(_ ids: [Int], to folder: TextDocumentFolder?) async -> Bool {
+        guard let link = documentsLinks[.bulkMoveToFolder], !ids.isEmpty else { return false }
+        do {
+            let collection: HALCollection<TextDocument> = try await app.client.fetch(
+                from: link, method: "POST",
+                body: BulkMoveToFolderCommand(ids: ids, folderId: folder?.id))
+            adoptDocuments(collection)
+            await loadDocumentFolders()
+            errorMessage = nil
+            return true
+        } catch {
+            report(error)
+            return false
+        }
     }
 
     /// Fetches the full document (list items carry only a preview).

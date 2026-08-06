@@ -157,6 +157,32 @@ struct Rel: RawRepresentable, Hashable, Sendable {
     static let duplicate = Rel("duplicate")
     static let changeType = Rel("changeType")
 
+    /// Folders: the headings a writer files a list's songs or notes under.
+    ///
+    /// `folders` is the collection, advertised on the document collection and
+    /// scoped by the list it belongs to — a folder is a Songs folder or a Notes
+    /// folder, never both, so the two lists never see each other's. It comes to
+    /// anyone who can read the list, not only to editors: where a song is filed
+    /// is part of how the list reads.
+    ///
+    /// `createFolder` rides on that collection (advertised even when empty —
+    /// that is when somewhere to send the first one is most needed);
+    /// `renameFolder` and `deleteFolder` ride on a folder, so the controls are
+    /// drawn only where the server would take them.
+    ///
+    /// `moveToFolder` is on the *document*: a folder holds nothing, and what a
+    /// move changes is which folder this document is in. One rel for both
+    /// directions — the same call with no folder id takes it out.
+    /// `bulkMoveToFolder` is the selection form, on the document collection
+    /// beside the other bulk rels.
+    static let folders = Rel("folders")
+    static let folder = Rel("folder")
+    static let createFolder = Rel("createFolder")
+    static let renameFolder = Rel("renameFolder")
+    static let deleteFolder = Rel("deleteFolder")
+    static let moveToFolder = Rel("moveToFolder")
+    static let bulkMoveToFolder = Rel("bulkMoveToFolder")
+
     /// Putting a song or note aside without deleting it. Deliberately not the
     /// trash: nothing in the archive expires, an archived document is still
     /// whole and openable, and it stays in a project bundle export — it is only

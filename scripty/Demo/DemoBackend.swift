@@ -99,12 +99,34 @@ actor DemoBackend {
         /// failed decode is read as no workspace at all. `uidOf` fills one in
         /// the first time it is asked for.
         var uid: String? = nil
+        /// The folder this is filed under, or nil for an unfiled one.
+        ///
+        /// Optional for the same reason `uid` is: a synthesised decoder reads a
+        /// missing key as a failed decode, and a failed decode is read as no
+        /// workspace at all — so a workspace written before folders existed
+        /// must still open, with every document unfiled, which is exactly what
+        /// was true then.
+        var folderId: Int? = nil
+    }
+
+    /// A folder, in the demo's own shape. Flat, per project, per list — the
+    /// same three rules the server's table is built on.
+    private struct DemoFolder: Codable {
+        var id: Int
+        var projectId: Int
+        /// "SONG" or "NOTES": which list this folder belongs to.
+        var documentType: String
+        var name: String
+        var createdAt: Date
+        var updatedAt: Date
     }
 
     private var projects: [DemoProject] = []
     private var blocks: [Int: [DemoBlock]] = [:]      // keyed by project id
     private var people: [Int: [DemoPerson]] = [:]     // keyed by project id
     private var documents: [Int: [DemoDocument]] = [:] // keyed by project id
+    private var folders: [DemoFolder] = []
+    private var nextFolderId = 1
     private var actors: [DemoActor] = []
     private var undoStacks: [Int: [[DemoBlock]]] = [:]
     private var versions: [Int: [DemoVersion]] = [:]
@@ -196,6 +218,12 @@ actor DemoBackend {
         var blocks: [Int: [DemoBlock]]
         var people: [Int: [DemoPerson]]
         var documents: [Int: [DemoDocument]]
+        /// Optional for the reason `handedOffProjectIds` is: added after
+        /// devices were already keeping workspaces, and a missing key would
+        /// otherwise fail the whole decode and open the device on the sample
+        /// screenplay with its own writing gone. Absent means "no folders yet".
+        var folders: [DemoFolder]?
+        var nextFolderId: Int?
         var actors: [DemoActor]
         var undoStacks: [Int: [[DemoBlock]]]
         var redoStacks: [Int: [[DemoBlock]]]
@@ -283,6 +311,8 @@ actor DemoBackend {
                  blocks: blocks,
                  people: people,
                  documents: documents,
+                 folders: folders,
+                 nextFolderId: nextFolderId,
                  actors: actors,
                  undoStacks: undoStacks,
                  redoStacks: redoStacks,
@@ -334,6 +364,10 @@ actor DemoBackend {
         blocks = snapshot.blocks
         people = snapshot.people
         documents = snapshot.documents
+        folders = snapshot.folders ?? []
+        // Past every id already in use, so a workspace stored before this
+        // existed cannot hand out an id one of its own folders answers to.
+        nextFolderId = snapshot.nextFolderId ?? ((folders.map(\.id).max() ?? 0) + 1)
         actors = snapshot.actors
         undoStacks = snapshot.undoStacks
         redoStacks = snapshot.redoStacks
@@ -1017,6 +1051,11 @@ actor DemoBackend {
             // than turning up in the list as if it had been brought back.
             let isArchived = entry["archived"] as? Bool == true
             let uid = (entry["uid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // The folder the file names, made here if this project has not got
+            // one of that name in that list. Nil where the file names none,
+            // which also clears the folder off a document being written into:
+            // the file is the whole truth about where its songs sit.
+            let folderId = folderNamed(entry["folder"] as? String, type: type, in: projectId)
 
             if let uid, var claimed = unclaimed.removeValue(forKey: uid) {
                 // The file is talking about a song this project already has, so
@@ -1027,6 +1066,7 @@ actor DemoBackend {
                 claimed.documentType = type
                 claimed.content = content
                 claimed.sortOrder = entry["sortOrder"] as? Int ?? claimed.sortOrder
+                claimed.folderId = folderId
                 claimed.updatedAt = .now
                 place(claimed, archived: isArchived, in: projectId)
                 if lyricChanged { reseedSongLines(claimed.id) }
@@ -1040,6 +1080,10 @@ actor DemoBackend {
                                        // written in one place goes on being the same song
                                        // in the other. Otherwise it starts afresh.
                                        uid: uid.flatMap { spokenFor.insert($0).inserted ? $0 : nil })
+            if let folderId,
+               let at = documents[projectId]?.firstIndex(where: { $0.id == document.id }) {
+                documents[projectId]?[at].folderId = folderId
+            }
             if isArchived,
                let position = documents[projectId]?.firstIndex(where: { $0.id == document.id }),
                let removed = documents[projectId]?.remove(at: position) {
@@ -1532,6 +1576,14 @@ actor DemoBackend {
             break
         }
 
+        // `/api/document/folder…` is a sibling too, and picked off first for
+        // the same reason: on the server it is a literal path segment that
+        // beats the `{id}` variable beside it.
+        if path.first == "folder" {
+            return routeDocumentFolder(method: method, path: Array(path.dropFirst()),
+                                       query: query, fields: fields)
+        }
+
         // `/api/document/trash…` is a sibling of the document resources, not a
         // document id, so it is picked off before the numeric lookup.
         if path.first == "trash" {
@@ -1572,6 +1624,11 @@ actor DemoBackend {
         if method == "POST", path.first == "bulk", path.dropFirst().first == "archive" {
             return bulkArchiveDocuments(query: query, fields: fields)
         }
+        // …and the bulk file, which takes notes as well as songs and reads a
+        // missing folderId as "take them out of their folders".
+        if method == "POST", path.first == "bulk", path.dropFirst().first == "folder" {
+            return bulkMoveDocumentsToFolder(query: query, fields: fields)
+        }
 
         guard let id = path.first.flatMap(Int.init) else { return notFound() }
         guard let (projectId, index) = locateDocument(id) else {
@@ -1608,6 +1665,24 @@ actor DemoBackend {
             archivedDocuments[projectId, default: []].append(
                 ArchivedDemoDocument(document: removed, archivedAt: Date()))
             return documentCollection(projectId)
+        case ("POST", "folder"):
+            // A folder of the other list is refused rather than quietly
+            // ignored, as on the server: the caller asked for somewhere
+            // specific. A missing folderId is the way out of a folder.
+            let folderId = fields["folderId"] as? Int
+            if let folderId {
+                guard let folder = folders.first(where: {
+                    $0.id == folderId && $0.projectId == projectId
+                        && $0.documentType == documents[projectId]![index].documentType
+                }) else {
+                    return badRequest("folderId")
+                }
+                documents[projectId]?[index].folderId = folder.id
+            } else {
+                documents[projectId]?[index].folderId = nil
+            }
+            touch(projectId)
+            return documentCollection(projectId)
         case ("POST", "insert"):
             return insertDocument(document: documents[projectId]![index],
                                   afterBlockId: fields["afterBlockId"] as? Int,
@@ -1616,8 +1691,15 @@ actor DemoBackend {
             // Content only, as on the server: a song's lyric blocks and
             // editions are not carried over to the copy.
             let source = documents[projectId]![index]
-            let copy = addDocument(projectId: projectId, title: copyTitle(source.title),
+            var copy = addDocument(projectId: projectId, title: copyTitle(source.title),
                                    type: source.documentType, content: source.content)
+            // The copy lands beside what it was copied from, as on the server:
+            // a duplicate that appeared outside the original's folder would
+            // have to be filed by hand every time.
+            copy.folderId = source.folderId
+            if let at = documents[projectId]?.firstIndex(where: { $0.id == copy.id }) {
+                documents[projectId]?[at] = copy
+            }
             return created(documentJSON(copy, includeContent: true))
         case ("POST", "change-type"):
             // A blank type is the only rejection; the server maps any other
@@ -1626,6 +1708,10 @@ actor DemoBackend {
                 return badRequest("type")
             }
             documents[projectId]?[index].documentType = type
+            // A folder belongs to one list, so a document crossing between
+            // them cannot take its folder along — the new list has never heard
+            // of it. Same rule the server applies.
+            documents[projectId]?[index].folderId = nil
             documents[projectId]?[index].updatedAt = .now
             return ok(documentJSON(documents[projectId]![index], includeContent: true))
         case ("POST", "share-email"):
@@ -1638,6 +1724,213 @@ actor DemoBackend {
             return demoSongExport(documents[projectId]![index], format: query["format"] ?? "txt")
         default:
             return notFound()
+        }
+    }
+
+    // MARK: - Folders
+
+    /// `/api/document/folder…`: the headings a list's songs or notes are filed
+    /// under.
+    ///
+    /// Every write answers with the refreshed folder collection, as the server
+    /// does — renaming or removing one changes what the whole list looks like,
+    /// so the one folder would not be enough.
+    private func routeDocumentFolder(method: String, path: [String],
+                                     query: [String: String],
+                                     fields: [String: Any]) -> (Int, Data) {
+        switch (method, path.first) {
+        case ("GET", nil):
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  documents[projectId] != nil else { return badRequest("projectId") }
+            return folderCollection(projectId, type: folderListType(query["type"]))
+        case ("POST", nil):
+            guard let projectId = query["projectId"].flatMap(Int.init),
+                  documents[projectId] != nil else { return badRequest("projectId") }
+            // A write lands in one list or the other; no type means songs,
+            // which is what every other type-less document route defaults to.
+            let type = folderListType(query["type"]) ?? "SONG"
+            guard let name = folderName(fields["name"]) else { return badRequest("name") }
+            guard !folderNameTaken(name, projectId: projectId, type: type, except: nil) else {
+                return badRequest("name")
+            }
+            folders.append(DemoFolder(id: nextFolderId, projectId: projectId,
+                                      documentType: type, name: name,
+                                      createdAt: .now, updatedAt: .now))
+            nextFolderId += 1
+            touch(projectId)
+            return folderCollection(projectId, type: folderListType(query["type"]))
+        default:
+            break
+        }
+
+        guard let id = path.first.flatMap(Int.init),
+              let projectId = query["projectId"].flatMap(Int.init),
+              let index = folders.firstIndex(where: { $0.id == id && $0.projectId == projectId })
+        else {
+            return notFound()
+        }
+
+        switch method {
+        case "PUT":
+            guard let name = folderName(fields["name"]) else { return badRequest("name") }
+            guard !folderNameTaken(name, projectId: projectId,
+                                   type: folders[index].documentType, except: id) else {
+                return badRequest("name")
+            }
+            folders[index].name = name
+            folders[index].updatedAt = .now
+            touch(projectId)
+            return folderCollection(projectId, type: folderListType(query["type"]))
+        case "DELETE":
+            // Unfiles what was in it rather than deleting anything: the same
+            // promise the server's ON DELETE SET NULL and its service both make.
+            for documentIndex in (documents[projectId] ?? []).indices
+            where documents[projectId]?[documentIndex].folderId == id {
+                documents[projectId]?[documentIndex].folderId = nil
+            }
+            folders.remove(at: index)
+            touch(projectId)
+            return folderCollection(projectId, type: folderListType(query["type"]))
+        default:
+            return notFound()
+        }
+    }
+
+    /// Files the ticked rows, skipping anything this folder cannot take — a
+    /// selection made before someone changed a song into a note still moves
+    /// everything it can, exactly as on the server.
+    private func bulkMoveDocumentsToFolder(query: [String: String],
+                                           fields: [String: Any]) -> (Int, Data) {
+        guard let projectId = query["projectId"].flatMap(Int.init),
+              documents[projectId] != nil else { return badRequest("projectId") }
+        let ids = (fields["ids"] as? [Any])?.compactMap { $0 as? Int } ?? []
+        guard !ids.isEmpty else { return badRequest("ids") }
+        let folderId = fields["folderId"] as? Int
+        var folder: DemoFolder?
+        if let folderId {
+            guard let match = folders.first(where: {
+                $0.id == folderId && $0.projectId == projectId
+            }) else { return badRequest("folderId") }
+            folder = match
+        }
+        var moved = 0
+        for id in Set(ids) {
+            guard let index = documents[projectId]?.firstIndex(where: { $0.id == id }) else { continue }
+            if let folder, documents[projectId]?[index].documentType != folder.documentType {
+                continue
+            }
+            documents[projectId]?[index].folderId = folder?.id
+            moved += 1
+        }
+        guard moved > 0 else { return badRequest("ids") }
+        touch(projectId)
+        return documentCollection(projectId)
+    }
+
+    /// A project's folders as the collection resource, narrowed to one list
+    /// when a type was asked for — and both lists when none was, which is how
+    /// the app fetches them.
+    private func folderCollection(_ projectId: Int, type: String?) -> (Int, Data) {
+        let shown = folders
+            .filter { $0.projectId == projectId && (type == nil || $0.documentType == type) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let counts = (documents[projectId] ?? []).reduce(into: [Int: Int]()) { counts, document in
+            if let folderId = document.folderId { counts[folderId, default: 0] += 1 }
+        }
+        var selfHref = "/api/document/folder?projectId=\(projectId)"
+        if let type { selfHref += "&type=\(type)" }
+        let items = shown.map { folder -> [String: Any] in
+            [
+                "id": folder.id,
+                "projectId": folder.projectId,
+                "documentType": folder.documentType,
+                "name": folder.name,
+                "documentCount": counts[folder.id] ?? 0,
+                "createdAt": iso.string(from: folder.createdAt),
+                "updatedAt": iso.string(from: folder.updatedAt),
+                "_links": [
+                    "folders": link(selfHref),
+                    "documents": link("/api/document?projectId=\(projectId)"),
+                    // Both carry the query the collection was fetched with, so
+                    // the answer comes back in the scope the caller is looking
+                    // at — the same rule the server's item links follow.
+                    "renameFolder": link(folderItemHref(folder.id, projectId: projectId, type: type)),
+                    "deleteFolder": link(folderItemHref(folder.id, projectId: projectId, type: type)),
+                ],
+            ]
+        }
+        return ok([
+            "_embedded": ["textDocumentFolderResourceList": items],
+            "_links": [
+                "self": link(selfHref),
+                "project": link("/api/project/\(projectId)"),
+                "documents": link("/api/document?projectId=\(projectId)"),
+                // Unconditional, matching the server: a client needs somewhere
+                // to send the first folder, and an empty list is when it needs
+                // it most. The demo user can always edit.
+                "createFolder": link(selfHref),
+            ],
+        ])
+    }
+
+    private func folderItemHref(_ id: Int, projectId: Int, type: String?) -> String {
+        var href = "/api/document/folder/\(id)?projectId=\(projectId)"
+        if let type { href += "&type=\(type)" }
+        return href
+    }
+
+    /// The folder an archive entry names, made here if this project has not got
+    /// one of that name in that list.
+    ///
+    /// A name is the only form an arrangement can cross in: the file was
+    /// written somewhere that numbers its own folders, and nothing on either
+    /// side can recognise the other's ids — the same problem `uid` solves for
+    /// the documents themselves, answered the same way.
+    ///
+    /// Nil for an entry that names none, which is also what takes a folder off
+    /// a document being written into: the file is the whole truth about where
+    /// its songs sit.
+    private func folderNamed(_ name: String?, type: String, in projectId: Int) -> Int? {
+        guard let raw = name?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let listType = type == "SONG" ? "SONG" : "NOTES"
+        let clean = String(raw.prefix(100))
+        if let existing = folders.first(where: {
+            $0.projectId == projectId && $0.documentType == listType
+                && $0.name.localizedCaseInsensitiveCompare(clean) == .orderedSame
+        }) {
+            return existing.id
+        }
+        let folder = DemoFolder(id: nextFolderId, projectId: projectId,
+                                documentType: listType, name: clean,
+                                createdAt: .now, updatedAt: .now)
+        nextFolderId += 1
+        folders.append(folder)
+        return folder.id
+    }
+
+    /// "SONG", "NOTES", or nil for both lists — the listing's own rule, where a
+    /// missing type means everything rather than a default.
+    private func folderListType(_ raw: String?) -> String? {
+        guard let raw, !raw.isBlank else { return nil }
+        return raw.uppercased() == "SONG" ? "SONG" : "NOTES"
+    }
+
+    /// A folder name the server would accept: present, trimmed, not blank.
+    private func folderName(_ raw: Any?) -> String? {
+        guard let name = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        return String(name.prefix(100))
+    }
+
+    /// Two folders of one list cannot share a name, as the unique index says.
+    private func folderNameTaken(_ name: String, projectId: Int,
+                                 type: String, except id: Int?) -> Bool {
+        folders.contains {
+            $0.projectId == projectId && $0.documentType == type
+                && $0.id != id
+                && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
         }
     }
 
@@ -1770,6 +2063,14 @@ actor DemoBackend {
             // since a list can be empty precisely because everything is in it.
             "archived": link("/api/document/archive?projectId=\(projectId)"),
             "bulkArchive": link("/api/document/bulk/archive?projectId=\(projectId)"),
+            // Unscoped, as the server advertises it when the list itself was
+            // fetched unscoped: no `type` means both lists' folders, which is
+            // what one screen showing two lists wants.
+            "folders": link("/api/document/folder?projectId=\(projectId)"),
+            // Filing a selection. Like the archive above it, this needs no
+            // song and no folder to be worth offering — the same call with no
+            // folder id is how a selection comes back out of one.
+            "bulkMoveToFolder": link("/api/document/bulk/folder?projectId=\(projectId)"),
         ]
         if (documents[projectId] ?? []).contains(where: { $0.documentType != "SONG" }) {
             // The same gathering made of notes, which the server advertises
@@ -2000,6 +2301,10 @@ actor DemoBackend {
             // always has edit rights, so they are unconditional here.
             "duplicate": link("/api/document/\(document.id)/duplicate"),
             "changeType": link("/api/document/\(document.id)/change-type"),
+            // Which folder this is in is a write to the document, so it rides
+            // here rather than on a folder. One link for both directions: the
+            // same call with no folder id takes it out.
+            "moveToFolder": link("/api/document/\(document.id)/folder"),
         ]
         // Songs and notes both archive — as, now, do all but one of the
         // exports below; the email rel is what is still song-shaped here. One
@@ -2049,6 +2354,15 @@ actor DemoBackend {
         // workspace that is not this one.
         if let uid = document.uid, !uid.isEmpty {
             json["uid"] = uid
+        }
+        // Omitted for an unfiled document rather than sent as null: absent is
+        // how the server says "there isn't one", and the client reads it that
+        // way. The name rides along so a document fetched on its own can say
+        // where it lives without also fetching the folder list.
+        if let folderId = document.folderId,
+           let folder = folders.first(where: { $0.id == folderId }) {
+            json["folderId"] = folder.id
+            json["folderName"] = folder.name
         }
         if let archivedAt {
             json["archivedAt"] = iso.string(from: archivedAt)
@@ -4658,6 +4972,15 @@ actor DemoBackend {
                 // end knows this is a song it already has rather than a new
                 // one. See `DemoDocument.uid`.
                 if let uid = document.uid, !uid.isEmpty { entry["uid"] = uid }
+                // The folder it was filed under, by name — the only form an
+                // arrangement can travel in, since the far end numbers its own
+                // folders and has never heard of these ids. Absent for an
+                // unfiled document, which is how the server reads "not in a
+                // folder" too.
+                if let folderId = document.folderId,
+                   let folder = folders.first(where: { $0.id == folderId }) {
+                    entry["folder"] = folder.name
+                }
                 return entry
             }
 
