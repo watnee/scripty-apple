@@ -163,8 +163,23 @@ struct SongBlockEditorView: View {
 
     /// The lyric, narrowed to the lines that matched. An empty query shows the
     /// whole song, which is the ordinary state of this editor.
+    ///
+    /// A line the caret is in is never filtered out from under it, whatever it
+    /// says. A row that leaves this list is torn out of the ForEach — so a line
+    /// made by Return, which is empty and matches nothing, vanished the instant
+    /// it appeared: nothing claimed first responder, the keyboard stayed on the
+    /// line above, the next verse went into the end of *that*, and a stray
+    /// blank line was saved. Now that the live text is what gets searched, a
+    /// line being typed into would otherwise disappear the moment its words
+    /// stopped matching, which is worse again.
+    ///
+    /// Asked here rather than folded into `matchedLines`, so the caret moving
+    /// needs no recompute: the answer is read fresh on every redraw anyway.
     private var shownBlocks: [SongBlock] {
-        query.isEmpty ? model.blocks : model.blocks.filter { matchedLines.contains($0.id) }
+        guard !query.isEmpty else { return model.blocks }
+        return model.blocks.filter {
+            matchedLines.contains($0.id) || $0.id == model.focusedBlockId
+        }
     }
 
     /// What the menu bar's Undo and Redo do while this editor is up. Both
@@ -215,6 +230,28 @@ struct SongBlockEditorView: View {
     }
 
     /// Recomputes the matched set from what the lines currently say.
+    ///
+    /// `currentText`, not `block.text`: every other read of a line in this file
+    /// goes through it — the rows, the print, the narration, the word count —
+    /// because a line being typed into, or held after a failed save, says one
+    /// thing on screen and another on the server. Searching the server's copy
+    /// meant a writer who worked offline for an hour got "No results" for a
+    /// word that was on the screen in front of them, would print, and was in
+    /// the word count. Same for anything typed inside the 600ms debounce.
+    ///
+    /// And the line holding the caret always matches, whatever it says. A row
+    /// that leaves `shownBlocks` is torn out of the list — so a line made by
+    /// Return, which is empty and matches nothing, vanished from under the
+    /// caret the instant it appeared: nothing claimed first responder, the
+    /// keyboard stayed on the line above, the next verse was typed into the
+    /// end of *that*, and a stray blank line was saved to the server. With the
+    /// live text now searched, a line being typed into would disappear the
+    /// moment its words stopped matching, which is worse. So the rule is
+    /// simply that a line the caret is in is never filtered out from under it.
+    ///
+    /// No screenplay precedent to follow here: `ScriptSearchBar` steps a
+    /// cursor through hits and never takes a row away, so this is a rule this
+    /// surface needs on its own.
     private func runSearch() {
         let needle = query.lowercased()
         guard !needle.isEmpty else {
@@ -222,7 +259,8 @@ struct SongBlockEditorView: View {
             return
         }
         matchedLines = Set(
-            model.blocks.filter { $0.text.lowercased().contains(needle) }.map(\.id))
+            model.blocks.filter { model.currentText($0).lowercased().contains(needle) }
+                .map(\.id))
     }
 
     var body: some View {
@@ -301,6 +339,16 @@ struct SongBlockEditorView: View {
             // `DocumentEditorActions`.
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .onChange(of: searchText) { _, _ in
+                runSearch()
+            }
+            // And whenever the lyric itself changes under an open search. The
+            // matched set used to be recomputed on the query, the load and a
+            // history step alone — so a line added, removed or landed while
+            // the search bar was up was judged against a set that predated it.
+            // A new line has an id in no match set at all, which is how Return
+            // inside a search took the row out from under the caret.
+            .onChange(of: model.blocks) { _, _ in
+                guard !query.isEmpty else { return }
                 runSearch()
             }
             // A reading in progress follows the lyric it is reading: a line
