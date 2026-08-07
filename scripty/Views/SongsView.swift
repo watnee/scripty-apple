@@ -976,7 +976,8 @@ struct SongsView: View {
         }
     }
 
-    /// The folder the list is showing, and the way to any other.
+    /// The folder controls above the rows: which folder is showing, and the way
+    /// to make another.
     ///
     /// In the bar with the Songs/Notes picker rather than as a row in the List,
     /// for the reason spelled out on `folderFilter`: a control whose presence
@@ -989,55 +990,79 @@ struct SongsView: View {
     @ViewBuilder
     private var folderBar: some View {
         if showsFolders, !editMode.isEditing {
-            Menu {
-                Picker("Folder", selection: $folderFilter) {
-                    Label(listType == .song ? "All Songs" : "All Notes",
-                          systemImage: "tray.full").tag(FolderFilter.all)
-                    if !listFolders.isEmpty {
-                        Label("Unfiled", systemImage: "tray").tag(FolderFilter.unfiled)
-                        // The count is the server's, and it counts the whole
-                        // list — so it stays honest while a search narrows what
-                        // is actually on screen.
-                        ForEach(listFolders) { folder in
-                            Label("\(folder.displayName) (\(folder.documentCount ?? 0))",
-                                  systemImage: "folder").tag(FolderFilter.folder(folder.id))
-                        }
-                    }
+            HStack(spacing: 16) {
+                // Nothing to narrow to until there is a folder, and a picker
+                // whose only entry is "All Songs" is a control that answers a
+                // question nobody asked. Before the first folder the bar is the
+                // button alone.
+                if !listFolders.isEmpty {
+                    folderFilterMenu
                 }
                 if model.canCreateFolder {
-                    Divider()
-                    Button {
-                        filingDocument = nil
-                        folderName = ""
-                        namingFolder = true
-                    } label: {
-                        Label("New Folder…", systemImage: "folder.badge.plus")
-                    }
+                    newFolderButton
                 }
-                if let folder = activeFolder {
-                    if folder.canRename {
-                        Button {
-                            folderName = folder.displayName
-                            renamingFolder = folder
-                        } label: {
-                            Label("Rename “\(folder.displayName)”", systemImage: "pencil")
-                        }
-                    }
-                    if folder.canDelete {
-                        Button(role: .destructive) {
-                            deletingFolder = folder
-                        } label: {
-                            Label("Remove “\(folder.displayName)”", systemImage: "folder.badge.minus")
-                        }
-                    }
-                }
-            } label: {
-                Label(folderBarTitle, systemImage: "folder")
-                    .font(.subheadline)
             }
-            .buttonStyle(.borderless)
             .padding(.bottom, 8)
         }
+    }
+
+    /// Making a folder, in the bar rather than inside the folder menu.
+    ///
+    /// It was a row in that menu, which put the one control a writer with no
+    /// folders needs behind a button whose label said "All Songs" — a menu you
+    /// would only open if you already had folders to choose between. Out here it
+    /// is the visible half of the pair: the menu says where you are, this makes
+    /// somewhere new.
+    private var newFolderButton: some View {
+        Button {
+            filingDocument = nil
+            folderName = ""
+            namingFolder = true
+        } label: {
+            Label("New Folder", systemImage: "folder.badge.plus")
+                .font(.subheadline)
+        }
+        .buttonStyle(.borderless)
+    }
+
+    /// The folder the list is showing, and the way to any other — plus what can
+    /// be done to the one showing. Only mounted once a folder exists.
+    private var folderFilterMenu: some View {
+        Menu {
+            Picker("Folder", selection: $folderFilter) {
+                Label(listType == .song ? "All Songs" : "All Notes",
+                      systemImage: "tray.full").tag(FolderFilter.all)
+                Label("Unfiled", systemImage: "tray").tag(FolderFilter.unfiled)
+                // The count is the server's, and it counts the whole list — so
+                // it stays honest while a search narrows what is actually on
+                // screen.
+                ForEach(listFolders) { folder in
+                    Label("\(folder.displayName) (\(folder.documentCount ?? 0))",
+                          systemImage: "folder").tag(FolderFilter.folder(folder.id))
+                }
+            }
+            if let folder = activeFolder {
+                if folder.canRename {
+                    Button {
+                        folderName = folder.displayName
+                        renamingFolder = folder
+                    } label: {
+                        Label("Rename “\(folder.displayName)”", systemImage: "pencil")
+                    }
+                }
+                if folder.canDelete {
+                    Button(role: .destructive) {
+                        deletingFolder = folder
+                    } label: {
+                        Label("Remove “\(folder.displayName)”", systemImage: "folder.badge.minus")
+                    }
+                }
+            }
+        } label: {
+            Label(folderBarTitle, systemImage: "folder")
+                .font(.subheadline)
+        }
+        .buttonStyle(.borderless)
     }
 
     /// What the folder control says it is showing.
