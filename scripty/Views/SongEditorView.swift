@@ -214,7 +214,15 @@ struct SongEditorView: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
+    /// Opens with the caret in the words whatever the reading-view rule says.
+    ///
+    /// For the one document that is not being *opened* so much as *arrived
+    /// with*: the file a writer has just imported. Everything else — a row
+    /// tapped in the list, a song reached from the script — takes the rule.
+    /// Not a stored choice, so the next visit reads the way the switch says:
+    /// see `SongsView.openingImportForWriting`.
     init(model: ScriptModel, document: TextDocument?, type: DocumentType,
+         opensForWriting: Bool = false,
          onInserted: (() -> Void)? = nil) {
         self.model = model
         self.document = document
@@ -230,10 +238,14 @@ struct SongEditorView: View {
                                                               text: content))
         // A document being written for the first time is never opened to be
         // read: there is nothing in it yet, and the writer asked for a blank
-        // one. Everything else opens the way it was last left, or the way the
+        // one. Nor is one that has just been imported, which is the same thing
+        // by another route — the writer brought the words here to work on them.
+        // Everything else opens the way it was last left, or the way the
         // "Open in Edit View" switch says if it has never been put either way.
         _isReading = State(initialValue: document.map {
-            ReadingViewSettings.shared.opensInReadingView(.document(id: $0.id))
+            opensForWriting
+                ? false
+                : ReadingViewSettings.shared.opensInReadingView(.document(id: $0.id))
         } ?? false)
         _options = State(initialValue: document.map {
             DocumentViewOptions(documentId: $0.id, kind: Self.lockKind(for: type))
@@ -1091,37 +1103,19 @@ struct SongEditorView: View {
         // is what pushed the rest into the overflow in the first place. The
         // pair below, on the leading edge, is the lyric editor's arrangement,
         // and the lyric editor is this sheet's closer sibling.
+        //
+        // One way only. This corner used to carry a Read Song / Read Note
+        // button over the writing surface, so it was one tap to whichever
+        // surface was not up; the writing posture offers no way into reading
+        // from the bar now, and the toggle in the "…" — where the mode is named
+        // beside the rest of the view controls — is the way in for the writer
+        // who wants it and for the reader this button is never drawn for.
         if isDocumentEditable && isReading {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     beginEditing()
                 } label: {
                     Label("Edit", systemImage: "square.and.pencil")
-                }
-            }
-        } else if !isReading && hasSomethingToRead {
-            // The way back, in the corner Edit leaves empty, so that corner is
-            // one tap to whichever surface is not up. The mode could only be
-            // re-entered from inside the "…" until now, which made a posture a
-            // writer swaps between while working cost one tap out and two back
-            // — and the toggle in there gives no sign from the bar that the
-            // reading surface is a tap away at all. It stays, all the same: it
-            // is the way in for a reader this button is never drawn for, and
-            // the place the mode is named beside the rest of the view controls.
-            //
-            // Ungated by `isDocumentEditable`: reading is nobody's privilege.
-            //
-            // It leads Find on the trailing side, which on an iPhone draws two
-            // controls: with both up they are exactly those two, and where a
-            // bar is too short for the pair Find is what falls into the "…" —
-            // the mode a writer swaps between is worth more of the bar than the
-            // errand they go looking for.
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    enterReadingView()
-                } label: {
-                    Label(type == .song ? "Read Song" : "Read Note",
-                          systemImage: "book")
                 }
             }
         }
@@ -1153,6 +1147,11 @@ struct SongEditorView: View {
         // lyric editor's pair and the screenplay's Undo are made of too. This
         // history is the finest-grained of the three: a burst of typing is one
         // step, so a page written and thought better of is a dozen of them.
+        //
+        // The screenplay's lone Undo spends the same hold on reaching Redo,
+        // which is the trade a bar with room for one half has to make. Both are
+        // drawn here, so there is nothing for a hold to reach and the repeat
+        // keeps the gesture.
         if canEdit {
             ToolbarItemGroup(placement: .navigation) {
                 HistoryStepButton(title: "Undo",
@@ -1242,13 +1241,18 @@ struct SongEditorView: View {
             }
         }
         // The other kind of reading, next to it: the words out loud, in the
-        // voice and at the speed the screenplay's Read Aloud is set to. Offered
-        // on both surfaces — words are as worth hearing while they are being
-        // written as after — and behind the "…" because this sheet's bar draws
-        // two controls on a phone and already has more than two things wanting
-        // them. Once a reading starts, the transport at the foot of the sheet
-        // is the control.
-        if hasWordsToSpeak {
+        // voice and at the speed the screenplay's Read Aloud is set to. Behind
+        // the "…" because this sheet's bar draws two controls on a phone and
+        // already has more than two things wanting them. Once a reading starts,
+        // the transport at the foot of the sheet is the control.
+        //
+        // The reading surface only. It used to be offered over the writing one
+        // as well, on the reasoning that words are as worth hearing while they
+        // are being written as after; a writer's menu is shorter without it,
+        // and the toggle directly above is the one tap to the surface that has
+        // it. ⌘⇧A still starts a reading from either surface, so a keyboard has
+        // lost nothing.
+        if hasWordsToSpeak && isReading {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     toggleReadAloud()

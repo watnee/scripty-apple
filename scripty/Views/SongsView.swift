@@ -137,6 +137,10 @@ struct SongsView: View {
     }
 
     @State private var editingDocument: TextDocument?
+    /// The document a single-file import has just made, which is the one case
+    /// where the editor opens with the caret in it rather than putting the
+    /// words up to be read — see `openingImportForWriting`.
+    @State private var importedDocumentId: Int?
     @State private var creatingType: DocumentType?
     @State private var renamingDocument: TextDocument?
     @State private var renameTitle = ""
@@ -635,7 +639,8 @@ struct SongsView: View {
                     NotesWorkspaceView(app: model.app, model: model)
                 }
             }
-            .fullScreenCover(item: $editingDocument) { document in
+            .fullScreenCover(item: $editingDocument,
+                             onDismiss: { importedDocumentId = nil }) { document in
                 // A song is lyric lines on the server, so it opens the line
                 // editor — where reordering, tinting and editions mean
                 // something. A note is plain text and keeps the plain editor.
@@ -645,9 +650,11 @@ struct SongsView: View {
                 if document.kind == .song, document.hasLink(.songBlocks) {
                     SongBlockEditorView(app: model.app, document: document,
                                         scriptModel: model,
+                                        opensForWriting: openingImportForWriting(document),
                                         onInserted: { dismiss() })
                 } else {
                     SongEditorView(model: model, document: document, type: document.kind,
+                                   opensForWriting: openingImportForWriting(document),
                                    onInserted: { dismiss() })
                 }
             }
@@ -1768,11 +1775,50 @@ struct SongsView: View {
         let created = await model.importDocument(
             fileName: picked.name, data: picked.data,
             type: listType, mimeType: picked.mimeType)
-        if let created {
-            editingDocument = created
-        } else {
+        guard let created else {
             statusMessage = model.errorMessage ?? "Could not import that file."
+            return
         }
+        // Named before it is presented, so the editor is built already knowing
+        // this is an import and comes up with the caret in the words.
+        importedDocumentId = created.id
+        await waitForPickerToGo()
+        editingDocument = created
+    }
+
+    /// The beat between the picker going away and the editor arriving.
+    ///
+    /// A cover asked for while the document picker is still dismissing is
+    /// dropped on the floor: UIKit has one presentation at a time per screen,
+    /// and the request made during the outgoing animation is not queued, it is
+    /// lost. The writer is then left on the list with a row they have to open
+    /// by hand — and against a fast backend, which is every import made in the
+    /// signed-out workspace, the upload lands well inside that animation, so
+    /// this is the ordinary case rather than the rare one.
+    ///
+    /// A wait rather than a retry because there is nothing to observe: SwiftUI
+    /// says nothing about a `fileImporter` having finished going. The length is
+    /// the system's sheet dismissal with room to spare, and it costs nothing on
+    /// the path where the upload was already the slower of the two.
+    private func waitForPickerToGo() async {
+        try? await Task.sleep(for: .milliseconds(600))
+    }
+
+    /// Whether this cover is the one a just-imported file asked for.
+    ///
+    /// An import is the writer arriving with words to work on, and the help
+    /// says so — a single file "opens for writing as soon as it lands". Left to
+    /// itself the editor would put a document with anything in it up to be
+    /// read, which is right for a song opened off the list and wrong for one
+    /// that only exists because the writer just brought it in: they would meet
+    /// their own lyric with no caret in it and nothing to type into.
+    ///
+    /// Deliberately not remembered in `ReadingViewSettings`. The writer has
+    /// chosen nothing, and storing a choice here would quietly opt this one
+    /// document out of the app-wide switch for good — the same reason an empty
+    /// document's fall out of reading view is not remembered either.
+    private func openingImportForWriting(_ document: TextDocument) -> Bool {
+        document.id == importedDocumentId
     }
 
     /// Imports the picked files one after another, and reports the batch once.

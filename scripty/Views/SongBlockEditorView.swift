@@ -146,14 +146,21 @@ struct SongBlockEditorView: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
+    /// `opensForWriting` opens with the caret in the lyric whatever the
+    /// reading-view rule says — for the one song that is not being *opened* so
+    /// much as *arrived with*, the file a writer has just imported. Not a
+    /// stored choice: see `SongsView.openingImportForWriting`.
     init(app: AppModel, document: TextDocument, scriptModel: ScriptModel,
+         opensForWriting: Bool = false,
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
         _printer = State(initialValue: DocumentPrintModel(model: scriptModel))
         _exporter = State(initialValue: DocumentExportModel(model: scriptModel))
-        _isReading = State(initialValue: ReadingViewSettings.shared
-            .opensInReadingView(.document(id: document.id)))
+        _isReading = State(initialValue: opensForWriting
+            ? false
+            : ReadingViewSettings.shared
+                .opensInReadingView(.document(id: document.id)))
         _options = State(initialValue: DocumentViewOptions(documentId: document.id, kind: .song))
         // The stored name, not `displayTitle`: a song the server holds
         // untitled opens on the field's placeholder rather than on the words
@@ -1188,7 +1195,10 @@ struct SongBlockEditorView: View {
                 // which the screenplay's Undo is made of too. A lyric is where
                 // that matters most: a verse is retyped a line at a time, so
                 // the change a writer wants gone is a run of small steps rather
-                // than one big one.
+                // than one big one. The screenplay's hold does the other thing
+                // that control can do — it reaches Redo, which its bar has no
+                // room to draw. Here the pair is both drawn, so the hold is
+                // free to repeat.
                 //
                 // Both rewind the lyric to a different set of lines, so the
                 // matched set has to be taken again or a search would keep
@@ -1217,29 +1227,18 @@ struct SongBlockEditorView: View {
             // needs, which is why it is out here rather than two taps deep in
             // the overflow beside the toggle that also reaches it. Gone once it
             // is used: the sheet is then the editor it has always been.
+            //
+            // One way only. The slot used to carry a Read Song button over the
+            // writing surface, so the corner was one tap to whichever surface
+            // was not up; the writing posture offers no way into reading from
+            // the bar now, and the toggle in the "…" is the way in — for the
+            // writer who wants it, and for the reader whose song the Edit
+            // button never appears on.
             if isSongEditable && isReading {
                 Button {
                     beginEditing()
                 } label: {
                     Label("Edit", systemImage: "square.and.pencil")
-                }
-            } else if !isReading && !model.blocks.isEmpty {
-                // And the way back, in the slot Edit leaves behind, so this
-                // corner is one tap to whichever surface is not up. Reading was
-                // reachable only from inside the "…" on the way back, which
-                // made a mode that is swapped in and out of while working cost
-                // one tap out and two in. Ungated by `isSongEditable`: reading
-                // is nobody's privilege, and the toggle in the "…" stays for
-                // the reader whose song this button never appears on.
-                //
-                // It leads Search here, as Edit leads it while reading: the
-                // trailing side draws about two controls on a phone, so the
-                // pair of them is what a phone shows, and where there is room
-                // for only one this is the one worth having.
-                Button {
-                    enterReadingView()
-                } label: {
-                    Label("Read Song", systemImage: "book")
                 }
             }
             // No keyboard shortcut here, but the key does reach this now: ⌘F
@@ -1334,10 +1333,12 @@ struct SongBlockEditorView: View {
             }
         }
         // The other kind of reading, next to it: the song out loud, in the
-        // voice and at the speed the screenplay's Read Aloud is set to. Both
-        // surfaces offer it — a lyric is as worth hearing while it is being
-        // written as after — so this is gated on there being a line to read
-        // rather than on the mode.
+        // voice and at the speed the screenplay's Read Aloud is set to. The
+        // reading surface only. Both surfaces used to offer it, on the
+        // reasoning that a lyric is as worth hearing while it is being written
+        // as after; a writer's menu is shorter without it, and the toggle
+        // directly above is the one tap to the surface that has it. ⌘⇧A still
+        // starts a reading from either, so a keyboard has lost nothing.
         //
         // In the "…" rather than out on the bar. The trailing side of this
         // sheet's navigation bar draws about two controls on a phone and there
@@ -1345,7 +1346,7 @@ struct SongBlockEditorView: View {
         // overflow's anyway; this way it sits with the reading toggle it is a
         // sibling of. Once a reading starts the transport at the foot of the
         // sheet is the control, and it is nobody's second tap.
-        if !model.blocks.isEmpty {
+        if !model.blocks.isEmpty && isReading {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     toggleReadAloud()
