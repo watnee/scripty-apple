@@ -2870,6 +2870,40 @@ struct ScriptView: View {
             }
         }
 
+        // The lock, out of the View menu and into the "…".
+        //
+        // It was the odd item in that menu. Everything else under View changes
+        // how the script is *presented* — paper, the reader, what the margins
+        // show — and every one of them can be turned on and off without
+        // changing a word. The lock changes what the script *is* for the rest
+        // of the session: it puts the keyboard away, and a writer hunting for
+        // why their typing does nothing was hunting in a menu of display
+        // switches. The song and note editors never had it there; both keep it
+        // in the "…" beside their spelling controls, so this is the screenplay
+        // catching up with the two surfaces that already agreed.
+        //
+        // A group of its own rather than joining the errands above it, for two
+        // reasons. It is not an errand — the items up there open something and
+        // come back, where this one stays on until it is turned off — and that
+        // group is cleared away by focus mode, which the lock must survive: it
+        // was reachable in focus mode while it lived in the View menu, and the
+        // View menu is drawn in focus mode precisely because it is the way out.
+        // Undo and redo below keep their place through focus mode on the same
+        // reasoning.
+        //
+        // Gated on `canEditScript`, as it was in the menu: a reader the server
+        // never gave editing rights to is locked already, and offering them the
+        // switch would only be noise. No keyboard shortcut here — ⌘⇧Q is
+        // claimed once, in `ScriptCommands`, which stays mounted through focus
+        // mode where this item comes and goes with the toolbar.
+        if canEditScript {
+            ToolbarItemGroup(placement: .secondaryAction) {
+                Toggle(isOn: lockBinding) {
+                    Label("Lock Editing", systemImage: "lock")
+                }
+            }
+        }
+
         // The pair in the "…", which is where a bar with no room for them puts
         // everything. Redo has always been here — it is the half the bar cannot
         // spare a glyph for. Undo is here as well now, and has to be: the
@@ -3067,10 +3101,13 @@ struct ScriptView: View {
                 }
             }
 
-            // A lock is only worth offering where there is something to lock:
-            // a reader who was never given editing rights has one already.
-            // Spellcheck keeps it company for the same reason — both are about
-            // typing, and neither means anything to someone who cannot.
+            // Spelling is only worth offering where there is something to
+            // spell: a reader who was never given editing rights types nothing
+            // for the checker to underline.
+            //
+            // Lock Editing used to close this section. It is in the "…" now,
+            // where the song and note editors have always kept it — see the
+            // toolbar's own group for why the two menus swapped it.
             if canEditScript {
                 Section {
                     Toggle(isOn: spellcheckBinding) {
@@ -3080,9 +3117,6 @@ struct ScriptView: View {
                         showingIgnoredWords = true
                     } label: {
                         Label("Ignored Words…", systemImage: "character.book.closed")
-                    }
-                    Toggle(isOn: lockBinding) {
-                        Label("Lock Editing", systemImage: "lock")
                     }
                 }
             }
