@@ -194,6 +194,7 @@ struct HistoryStepButton: View {
             // but it would be running after the screen it belongs to had gone.
             .onDisappear {
                 stepper.endHold(taking: nil)
+                stepper.forgetQueuedStep()
                 isPressed = false
                 isRevealed = false
             }
@@ -265,17 +266,49 @@ final class HistoryStepper {
     private var inFlight: Task<Void, Never>?
     private var hold: Task<Void, Never>?
 
+    /// A press that arrived while a step was still running, kept to be taken
+    /// the moment that one lands.
+    ///
+    /// Only ever one deep, and that is the whole design: the queue exists so a
+    /// press is not *lost*, not so a writer can bank a dozen of them. Pressing
+    /// four times during one slow round trip should take a step or two and
+    /// stop, the way a held key stops when the finger lifts — not keep rewinding
+    /// the song for a second after the writer has finished asking.
+    private var queued: (() async -> Void)?
+
     /// Whether the press that is ending walked the stack — which is what makes
     /// the release a release rather than a tap.
     private var walked = false
 
     /// One step, from something that is not a press: VoiceOver's activation,
     /// which arrives as an action and never as a touch.
+    ///
+    /// A press landing while a step is still in flight is *held*, not dropped.
+    /// Dropping it is invisible: the glyph does not dim, nothing is said, and
+    /// the song does not move — so a writer walking back several edits at the
+    /// pace a person actually taps gets one step out of four and reports, quite
+    /// reasonably, that undo does not work. The window is a server round trip
+    /// wide, which is why it never shows against the in-process demo backend
+    /// and shows constantly on a phone.
+    ///
+    /// Steps still run strictly one at a time. That part was never the problem
+    /// — ten `undo` round trips in flight together would leave whichever
+    /// answered last on screen rather than whichever was asked for last — so the
+    /// waiting press queues behind the running one instead of racing it.
     func take(_ step: @escaping () async -> Void) {
-        guard inFlight == nil else { return }
+        guard inFlight == nil else {
+            queued = step
+            return
+        }
         inFlight = Task {
             await step()
             inFlight = nil
+            // Whatever arrived while that was running goes now. Taken out of
+            // the slot first, so the step it starts can queue behind itself.
+            if let next = queued {
+                queued = nil
+                take(next)
+            }
         }
     }
 
@@ -329,5 +362,14 @@ final class HistoryStepper {
         hold = nil
         guard !walked, let step else { return }
         take(step)
+    }
+
+    /// The control is going away. A step already in flight is left to finish —
+    /// it is a request the server has, and abandoning it mid-round-trip would
+    /// leave the song in whichever state the answer nobody read described — but
+    /// a press still waiting its turn is one nothing is left to show the result
+    /// of, so it is let go.
+    func forgetQueuedStep() {
+        queued = nil
     }
 }
