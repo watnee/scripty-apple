@@ -3289,7 +3289,19 @@ actor DemoBackend {
             } else {
                 songUndoStacks[editionId, default: []].append(current)
             }
-            songBlocks[editionId] = state
+            // Fresh ids for every line, because that is what the step really
+            // does: the server's `replaceLines` deletes the version's lines and
+            // re-inserts the snapshot, so not one id the client was holding
+            // still exists afterwards. Handing back the old ids would make this
+            // the one place a lyric step is gentler here than in the app, and
+            // it is exactly the difference that hides a client still aiming at
+            // a line the step destroyed.
+            songBlocks[editionId] = state.map { line in
+                var fresh = line
+                fresh.id = nextSongBlockId
+                nextSongBlockId += 1
+                return fresh
+            }
             syncSongText(documentId, editionId: editionId)
         }
         return songBlockCollection(documentId, editionId: editionId)

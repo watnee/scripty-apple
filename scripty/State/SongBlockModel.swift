@@ -964,12 +964,48 @@ final class SongBlockModel {
             // are left on the other side — they describe a document that is no
             // longer on screen, so they go.
             localHistory.clear()
+            settleHeldWorkAfterStep()
             await refreshUndoRedo()
             errorMessage = nil
             presentHistoryToast(rel: rel, delta: blocks.count - before)
         } catch {
             report(error)
         }
+    }
+
+    /// Let go of held work for lines the step's answer no longer carries.
+    ///
+    /// A step does not edit the song's lines, it replaces them: the server
+    /// deletes every line of the version and re-inserts the snapshot, so the ids
+    /// on screen a moment ago have all stopped existing. `commitAll` above
+    /// clears the held flags for every line whose words got out, but a line
+    /// whose save had *failed* keeps its entry — and that entry now names
+    /// nothing. Left alone it is a cloud badge insisting on unsaved work for a
+    /// line the writer cannot see, on a song where every word on screen is the
+    /// server's, with no line left for a retry to land on and put it right.
+    ///
+    /// The words themselves are not being taken away lightly: they never
+    /// reached the server, and a step back past them is precisely the writer
+    /// asking for the song without them — the same reading that clears
+    /// `localHistory` two lines up.
+    private func settleHeldWorkAfterStep() {
+        let live = Set(blocks.map(\.id))
+        let stale = Set(liveText.keys)
+            .union(unsavedBlockIds)
+            .union(failedBlockIds)
+            .subtracting(live)
+        for id in stale {
+            liveText[id] = nil
+            unsavedBlockIds.remove(id)
+            failedBlockIds.remove(id)
+            commitTasks[id]?.cancel()
+            commitTasks[id] = nil
+            retryTasks[id]?.cancel()
+            retryTasks[id] = nil
+            retryAttempts[id] = nil
+            draftStore?.remove(blockId: id, projectId: document.id)
+        }
+        noteSyncedIfSettled()
     }
 
     /// What a step just did, in the song's own noun. The screenplay counts
