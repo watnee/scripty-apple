@@ -1292,12 +1292,14 @@ struct SongBlockEditorView: View {
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
         }
-        // Beside the spelling controls, where the screenplay's View menu keeps
-        // it and for the same reason: both are about typing, and neither means
-        // anything to someone the server never gave the keyboard to. Offered
-        // even while locked — it is the way back. No keyboard shortcut: the
-        // screenplay owns ⌘⇧Q and this editor opens over it, the same reason
-        // Search and Text Size claim no keys here.
+        // Beside the spelling controls, and the screenplay's "…" now keeps its
+        // own lock in the same place for the same reason: both are about
+        // typing, and neither means anything to someone the server never gave
+        // the keyboard to. (That one used to sit in the View menu among the
+        // display switches; it came over to this arrangement rather than the
+        // other way round.) Offered even while locked — it is the way back. No
+        // keyboard shortcut: the screenplay owns ⌘⇧Q and this editor opens over
+        // it, the same reason Search and Text Size claim no keys here.
         if canEditSong {
             ToolbarItem(placement: .secondaryAction) {
                 Toggle(isOn: lockBinding) {
@@ -1388,7 +1390,7 @@ struct SongBlockEditorView: View {
 
     /// Whether there is anything here to lock. A reader was never handed the
     /// keyboard, so offering to take it away would be nonsense — the same rule
-    /// `canEditScript` applies to the screenplay's View menu. Either half is
+    /// `canEditScript` applies to the screenplay's own lock. Either half is
     /// enough: a song with no lines yet can still be added to, and a song whose
     /// create link is gone can still have its existing lines typed into.
     private var canEditSong: Bool {

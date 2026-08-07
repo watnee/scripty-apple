@@ -632,9 +632,17 @@ struct ScriptCommands: Commands {
         Button("Ignored Words…") { actions?.ignoredWords?() }
             .disabled(actions?.ignoredWords == nil)
 
-        // Lock keeps company with spellcheck as in the toolbar: both are about
-        // typing, and both are offered only where there is something to type in
+        // Lock keeps company with spellcheck: both are about typing, and both
+        // are offered only where there is something to type in
         // (`toggleEditingLock` is nil for a reader).
+        //
+        // It stays in this menu though the toolbar's View menu has given it up
+        // for the "…". That move was about a menu of nothing but display
+        // switches being the wrong place to hunt for why the keyboard has gone,
+        // and this list is not that menu: spelling, ignored words, version
+        // history and editions are all in it already. A menu-bar item is also
+        // found by its chord as much as by its heading, and ⌘⇧Q is easiest to
+        // remember next to the ⌘⇧; above it.
         if let toggle = actions?.toggleEditingLock {
             Button((actions?.isEditingLocked ?? false) ? "Unlock Editing" : "Lock Editing") {
                 toggle()

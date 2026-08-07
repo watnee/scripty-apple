@@ -1247,13 +1247,14 @@ struct SongEditorView: View {
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
         }
-        // Beside the spelling controls, where the lyric editor and the
-        // screenplay's View menu both keep it and for the same reason: both are
-        // about typing, and neither means anything to someone the server never
-        // gave the keyboard to. Offered even while locked — it is the way back —
-        // and only once there is a document to file the lock against. No
-        // keyboard shortcut: the screenplay owns ⌘⇧Q and this sheet opens over
-        // it, the same reason nothing else here claims a key.
+        // Beside the spelling controls, where the lyric editor keeps it and for
+        // the same reason: both are about typing, and neither means anything to
+        // someone the server never gave the keyboard to. The screenplay's lock
+        // is in its "…" as well now, having left the View menu to join these
+        // two. Offered even while locked — it is the way back — and only once
+        // there is a document to file the lock against. No keyboard shortcut:
+        // the screenplay owns ⌘⇧Q and this sheet opens over it, the same reason
+        // nothing else here claims a key.
         if isDocumentEditable, let options {
             ToolbarItem(placement: .secondaryAction) {
                 Toggle(isOn: lockBinding(options)) {

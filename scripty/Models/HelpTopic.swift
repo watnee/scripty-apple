@@ -698,10 +698,15 @@ extension HelpTopic {
                     + "want. The lock comes off and the cursor lands at the end of "
                     + "that line, the way it does in Pages and Word. Display modes "
                     + "are left alone — that gesture is about the keyboard, not about "
-                    + "how the script is laid out."
+                    + "how the script is laid out.",
+                    "Lock Editing itself is in the screenplay's “…” menu, where a song "
+                    + "and a note both keep theirs. It is not in the View menu: what is "
+                    + "under View changes how the script is laid out and nothing else, "
+                    + "and the lock takes the keyboard away until you turn it off."
                 ],
                 keywords: ["edit", "write", "writing", "back", "exit", "leave", "modes",
                            "unlock", "locked", "read only",
+                           "lock", "lock editing", "protect", "menu", "where",
                            "double tap", "double-tap", "tap twice"]),
             HelpTopic(
                 id: "marks",
