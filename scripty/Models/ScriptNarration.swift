@@ -202,6 +202,14 @@ enum NarrationSubject: Equatable {
     /// A song or a note this device has never sent to the server, and so has no
     /// id to be told apart by. There is only ever one of those open at a time.
     case newDocument
+    /// Every song, or every note, on one of the workspace screens — read as one
+    /// run, which is how a set list is heard.
+    ///
+    /// A subject of its own because none of the three above can say "this
+    /// screen": `document` names one song, and reusing `script` would let the
+    /// workspace and the screenplay it covers each think the other's reading
+    /// was theirs — which is the whole thing `subject` exists to prevent.
+    case workspace(project: Int, kind: DocumentType)
 }
 
 enum ScriptNarration {

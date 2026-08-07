@@ -90,6 +90,12 @@ struct SongsWorkspaceView: View {
     /// two controls sit beside each other: one is an errand, the other is a
     /// choice of format — see `DocumentExportMenu`.
     @State private var exporter: DocumentExportModel
+
+    /// The device's one voice, shared with the screenplay behind this cover and
+    /// with both editors — see `ScriptNarrator`. Reading here ends whatever was
+    /// being read before it, which is the only sane answer on a device with one
+    /// pair of headphones.
+    private let narrator = ScriptNarrator.shared
     /// Whether the screen is showing the songs to be dragged into order rather
     /// than to be written in. See `arrangingList`.
     @State private var isArranging = false
@@ -158,6 +164,12 @@ struct SongsWorkspaceView: View {
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if isArranging {
                     arrangingBar
+                // The transport above the way down from the keyboard, as the
+                // song editor stacks the same two: the bar belongs to a
+                // reading that is running, and the way down from a line is the
+                // thing reached for while one is being typed.
+                } else if narrator.isActive && isBeingRead {
+                    narrationBar
                 // Asked of the lyrics rather than of `focusedLine`, which
                 // SwiftUI discards: no row claims it with `.focused()`.
                 } else if lyrics.values.contains(where: { $0.focusedBlockId != nil }) {
@@ -176,6 +188,13 @@ struct SongsWorkspaceView: View {
             #endif
             .safeAreaInset(edge: .top, spacing: 0) { conflictBanner }
             .toolbar { toolbar }
+            // A reading belongs to this screen, so it ends when the screen
+            // does — the same rule both editors keep. Left running, the voice
+            // would go on reading songs over whatever the writer went to
+            // next, with no transport anywhere to stop it.
+            .onDisappear {
+                if isBeingRead { narrator.stop() }
+            }
             // Same claim the song editor makes, and for the same reason: this
             // is a cover over the screenplay, and without it the menu's ⌘Z
             // would rewind the script behind it. Published even when it can do
@@ -438,18 +457,89 @@ struct SongsWorkspaceView: View {
         // Claimed even with the caret nowhere, so the chord cannot fall through
         // the cover and send the screenplay behind it to the printer.
         let printSongs: (() -> Void)? = songs.isEmpty ? nil : { printAll() }
+        // And ⌘⇧A means every song on this screen, read as one run. Claimed
+        // here for the reason ⌘P is: `readAloudTarget` prefers this value
+        // whenever it is present, so leaving it nil left the chord disabled
+        // over the one screen a set-list run-through is for — while the help
+        // has been calling this screen "how you hear whether the third song
+        // follows the second" the whole time.
+        let readSongs: (() -> Void)? = songs.isEmpty ? nil : { toggleReadAloud() }
         // Nothing to step back through on a page being read — and still
         // published, so ⌘Z over the songs can never fall through to the script
         // this screen is covering.
         guard !isReading, let lyric = focusedLyric else {
-            return DocumentEditorActions(print: printSongs)
+            return DocumentEditorActions(readAloud: readSongs, print: printSongs)
         }
         return DocumentEditorActions(
             undo: { Task { await lyric.undo() } },
             redo: { Task { await lyric.redo() } },
             canUndo: lyric.canUndo,
             canRedo: lyric.canRedo,
+            readAloud: readSongs,
             print: printSongs)
+    }
+
+    // MARK: - Reading the set through
+
+    /// This screen's claim on the device's one voice.
+    private var narrationSubject: NarrationSubject {
+        .workspace(project: model.project.id, kind: .song)
+    }
+
+    /// Whether the voice is reading *this* screen rather than a song editor,
+    /// the screenplay behind the cover, or a note.
+    private var isBeingRead: Bool { narrator.subject == narrationSubject }
+
+    /// Every song on screen as one run, in the order the list is showing them,
+    /// each announced by its title.
+    ///
+    /// Built from the same two places the print of this screen is built from,
+    /// and for the same reason: a song opened here holds what has been typed
+    /// this minute, which is newer than anything on disk, and a song nobody
+    /// expanded was never fetched and falls back to the copy this device kept.
+    ///
+    /// Title lines take negative ids. Real line ids are the server's and always
+    /// positive — a lyric line cannot be written offline, so nothing else in
+    /// this run competes for them — and the ids only have to be unique within
+    /// the run for "start from here" to mean anything.
+    private var narrationSource: NarrationSource {
+        var lines: [NarrationLine] = []
+        for (index, song) in songs.enumerated() {
+            lines.append(NarrationLine(id: -(index + 1), text: song.displayTitle))
+            if let lyric = lyrics[song.id], !lyric.blocks.isEmpty {
+                lines.append(contentsOf: lyric.blocks.map {
+                    NarrationLine(id: $0.id, text: lyric.currentText($0))
+                })
+            } else if let cached = model.cachedDocumentLines(song) {
+                // Positions offset well past the titles, since a song nobody
+                // opened has no line ids to borrow.
+                lines.append(contentsOf: cached.enumerated().map {
+                    NarrationLine(id: (index + 1) * 100_000 + $0.offset, text: $0.element)
+                })
+            }
+            // A blank line between songs, so the voice takes the break a verse
+            // break takes.
+            lines.append(NarrationLine(id: -(songs.count + index + 1), text: ""))
+        }
+        return .lyric(lines)
+    }
+
+    /// Reads the set through, or pauses and resumes one already running.
+    private func toggleReadAloud() {
+        if narrator.isActive && isBeingRead {
+            narrator.togglePlayPause()
+            return
+        }
+        narrator.prepare(narrationSource, subject: narrationSubject, title: printJobName)
+        narrator.play()
+    }
+
+    /// The transport, up only while this screen is the thing being read.
+    @ViewBuilder
+    private var narrationBar: some View {
+        if narrator.isActive && isBeingRead {
+            NarrationTransportBar(narrator: narrator)
+        }
     }
 
     /// The songs on screen on paper, one to a sheet — the same file the list's
@@ -1025,6 +1115,19 @@ struct SongsWorkspaceView: View {
                     Label("Print All Songs…", systemImage: "printer")
                 }
                 .disabled(printer.isPrinting)
+            }
+            // Reading the set through, beside printing it — the two errands
+            // this screen exists for once the writing is done. Pauses and
+            // resumes while it is running, so the one item is the whole thing.
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    toggleReadAloud()
+                } label: {
+                    Label(narrator.isActive && isBeingRead
+                            ? "Stop Reading Songs" : "Read Songs Aloud",
+                          systemImage: narrator.isActive && isBeingRead
+                            ? "stop" : "speaker.wave.2")
+                }
             }
             // The same gathering as a file, beside the print of it — the rule
             // `DocumentExportMenu` states, and the one the help already
