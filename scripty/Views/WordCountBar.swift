@@ -5,16 +5,18 @@
 //  The running readout under a writing surface: how long the thing is, while
 //  it is being written.
 //
-//  One view rather than one per editor because it is the same strip of chrome
-//  in every one of them — a hairline, a bar background, small monospaced
-//  secondary text — and three copies of it drift apart on the first change to
-//  any. What differs is only what there is to count: the screenplay adds a page
-//  estimate, a lyric is measured in lines and has none, and a note is prose.
+//  The screenplay's strip, and only the screenplay's: it once served the song
+//  and note sheets too, but a document that runs to a page or two answers "how
+//  long is this?" from its "…" menu now rather than by giving up a band of the
+//  writing surface. A draft measured in pages is the one where the question is
+//  standing rather than occasional, so the running band stays there — with the
+//  page estimate `detail` carries, which is the reading a screenplay is
+//  actually after.
 //
 //  Whether it shows at all stays with the caller: `showsWordCount` is a device
-//  preference each editor already reads.
+//  preference the screenplay reads.
 //
-//  It draws no background of its own. Every host mounts it with `.safeAreaBar`,
+//  It draws no background of its own. The host mounts it with `.safeAreaBar`,
 //  which gives the strip the system's Liquid Glass and separates it from the
 //  writing above — a hand-rolled `.bar` fill and hairline on top of that would
 //  flatten the glass back into a slab.

@@ -762,7 +762,10 @@ extension HelpTopic {
                     + "and by location.",
                     "Word Count in the View menu puts a running count on the script "
                     + "itself, for when the question is how long today's pages are "
-                    + "rather than how the whole draft balances."
+                    + "rather than how the whole draft balances. That band is the "
+                    + "screenplay's alone: a song or a note is short enough that its "
+                    + "own count is read from its \u{201C}…\u{201D} menu instead, "
+                    + "leaving the writing the whole sheet."
                 ],
                 keywords: ["statistics", "length", "words", "count", "pages",
                            "breakdown", "characters", "locations"])
@@ -798,6 +801,12 @@ extension HelpTopic {
                     + "there: Return at the end of a line makes the next one, which is "
                     + "how a lyric is written anyway. A song with nothing in it yet "
                     + "keeps the offer, having no line to press Return at.",
+                    "How long a song or a note runs is one line of its \u{201C}…\u{201D} "
+                    + "menu — the word count, counted over what is on screen rather "
+                    + "than what was last saved. It is read there rather than switched "
+                    + "on under the words, so nothing stands between a short document "
+                    + "and the writing of it. The closed sections of the workspace "
+                    + "screens say the same number for every song or note at once.",
                     "Both editors can be searched. In a song the magnifying glass "
                     + "narrows the lyric to the lines that match, which is what a "
                     + "lyric is — a list. In a note it opens the find bar over the "
@@ -1038,6 +1047,7 @@ extension HelpTopic {
                     + "closing what you are reading."
                 ],
                 keywords: ["lyrics", "drafts", "scratch", "documents", "insert",
+                           "word count", "words", "count", "length", "how long",
                            "recording", "recordings", "voice memo", "demo",
                            "mp3", "m4a", "wav", "aiff", "flac", "upload",
                            "attach", "play", "playback", "track", "tape",

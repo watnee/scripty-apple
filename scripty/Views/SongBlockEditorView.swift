@@ -264,10 +264,9 @@ struct SongBlockEditorView: View {
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     searchBar
-                    wordCountBar
-                    // Under the readouts and above the keyboard's own strip:
-                    // the transport is the thing being reached for while a
-                    // reading runs, and the way down from a line is the thing
+                    // Under the search field and above the keyboard's own
+                    // strip: the transport is the thing being reached for while
+                    // a reading runs, and the way down from a line is the thing
                     // being reached for while one is being typed.
                     narrationBar
                     keyboardBar
@@ -1208,10 +1207,23 @@ struct SongBlockEditorView: View {
                 .disabled(isInserting)
             }
         }
+        // How long the lyric runs, said outright rather than offered as a strip
+        // to switch on. A song is short and a writer asks the question now and
+        // then, not continuously — so the answer belongs where the other
+        // now-and-then questions are answered, and the lines get the whole
+        // sheet back. Off the model's memo, which counts what is on screen
+        // rather than what was last saved. No page estimate: a song is measured
+        // in lines, not pages.
+        //
+        // A disabled `Button` rather than the bare `Label` this wants to be: a
+        // toolbar item with no control in it is dropped from the overflow menu
+        // without a word — the row simply never appears. Disabled is also how
+        // the row should read, since there is nothing to press.
         ToolbarItem(placement: .secondaryAction) {
-            Toggle(isOn: wordCountBinding) {
-                Label("Word Count", systemImage: "number")
+            Button {} label: {
+                Label(wordCountTitle, systemImage: "number")
             }
+            .disabled(true)
         }
         // The mode itself, in the "…" this sheet has instead of a View menu —
         // the screenplay's Read Script toggle, in the song's own words. A
@@ -1334,17 +1346,12 @@ struct SongBlockEditorView: View {
         }
     }
 
-    /// How many words the lyric runs to — off the model's memo, which counts
-    /// what is on screen rather than what was last saved. No page estimate
-    /// here: a song is measured in lines, not pages.
-    @ViewBuilder
-    private var wordCountBar: some View {
-        // Folded away with the bar at the top while the song is being scrolled
-        // through: the count is a readout, not a control, and reading room is
-        // the whole point of the fold.
-        if settings.showsWordCount && !fold.isHidden {
-            WordCountBar(words: model.wordCount)
-        }
+    /// The menu's readout: "29 words", or "1 word" for the song that is one
+    /// word long. Singular where the workspaces' own counts are singular — the
+    /// same number said the same way wherever it is read.
+    private var wordCountTitle: String {
+        let words = model.wordCount
+        return "\(ScriptWordCount.formatted(words)) \(words == 1 ? "word" : "words")"
     }
 
     /// The way down from a lyric line. Only while one is being typed into —
@@ -1377,10 +1384,6 @@ struct SongBlockEditorView: View {
             // sheet's own title.
             HideKeyboardBar(releaseFocus: { titleFocused = false })
         }
-    }
-
-    private var wordCountBinding: Binding<Bool> {
-        Binding(get: { settings.showsWordCount }, set: { settings.showsWordCount = $0 })
     }
 
     /// Whether there is anything here to lock. A reader was never handed the
