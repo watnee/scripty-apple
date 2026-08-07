@@ -273,15 +273,16 @@ extension HelpTopic {
                     + "look for.",
                     "Undo sits in the top bar, where it can be seen — greyed out when "
                     + "there is nothing to take back, and there whether or not the rest "
-                    + "of the chrome is. Hold it and it keeps going, a step at a time, "
-                    + "until you lift your finger or there is nothing left to take "
-                    + "back — the way a held key repeats. Undo and Redo are both in the "
-                    + "“…” menu as well, one step per tap, and both answer to ⌘Z and "
-                    + "⌘⇧Z on a keyboard. On a narrow phone the menu is where they "
-                    + "are: the bar has no room to draw the pair, so that is where a "
-                    + "step comes from there. Steps taken without a connection come "
-                    + "back one at a time on this device, and the screenplay's own "
-                    + "history takes over once they have been saved.",
+                    + "of the chrome is. Hold it and it turns into Redo: lift your "
+                    + "finger to take that step, or slide off the button first to leave "
+                    + "everything as it was. There is only room for one of the pair up "
+                    + "there, and the hold is the short way to the other. Undo and Redo "
+                    + "are both in the “…” menu as well, one step per tap, and both "
+                    + "answer to ⌘Z and ⌘⇧Z on a keyboard. On a narrow phone the menu "
+                    + "is where they are: the bar has no room to draw either one, so "
+                    + "that is where a step comes from there. Steps taken without a "
+                    + "connection come back one at a time on this device, and the "
+                    + "screenplay's own history takes over once they have been saved.",
                     "The keyboard key at the end of the element bar puts the keyboard "
                     + "away and gives the screen back to the script, without leaving "
                     + "what you were writing. The lyric and note editors carry the "
@@ -299,7 +300,8 @@ extension HelpTopic {
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
                            "autosave", "editing", "new", "first element", "empty",
                            "undo", "redo", "mistake", "step back", "take back",
-                           "hold", "long press", "repeat", "keep undoing", "history",
+                           "hold", "long press", "hold undo", "where is redo",
+                           "history",
                            "cloud", "sync", "offline", "saved", "badge",
                            "hide keyboard", "dismiss keyboard", "close keyboard",
                            "keyboard"]),
@@ -518,27 +520,31 @@ extension HelpTopic {
                     "That choice is remembered for that document, so it opens ready "
                     + "to type in from then on — the button is a one-time cost, not "
                     + "a toll on every visit. To put a document back up to be read, "
-                    + "tap Read Script — or Read Song or Read Note — which takes the "
-                    + "place Edit had in the top corner on iPad and Mac, so one tap "
-                    + "in that spot is whichever surface is not up. On iPhone the "
-                    + "screenplay keeps Read Script in the bar at the foot of the "
-                    + "screen, beside Read Aloud. Read Script is in the View menu as "
-                    + "well, and Read Song and Read Note stay in a song or note's "
-                    + "“…” menu.",
+                    + "use the menu: Read Script is in the screenplay's View menu, "
+                    + "and Read Song and Read Note are in a song or note's “…” "
+                    + "menu. The way in is a menu item rather than a button on every "
+                    + "screen, so nothing on a writing surface is offering to take "
+                    + "the keyboard away; the top corner is the way back the other "
+                    + "way, and carries Edit alone.",
                     "Open in Edit View, in Editor Preferences on the sidebar "
                     + "menu, turns the default round for every document you have never "
                     + "made a choice about; documents you have chosen for keep the "
                     + "choice you made. A script with nothing in it, or one holding "
                     + "words this device has not managed to send yet, always opens "
                     + "for writing — there is nothing to read, or something to "
-                    + "finish."
+                    + "finish. So does a song or note you have just imported from a "
+                    + "file: you brought those words here to work on them, and the "
+                    + "editor opens with the cursor in them. That one is not a "
+                    + "choice made on the document's behalf — open it again from "
+                    + "the list and it comes up whichever way the setting says."
                 ],
                 keywords: ["read only", "read-only", "reading mode", "read mode",
                            "edit button", "pencil", "accidental", "accident",
                            "locked", "cannot type", "can't type", "won't let me type",
                            "keyboard", "open", "opens", "default", "pages", "word",
                            "double tap", "double-tap", "two taps", "tap twice",
-                           "settings", "preferences", "open in edit view"]),
+                           "settings", "preferences", "open in edit view",
+                           "import", "imported"]),
             HelpTopic(
                 id: "page-view",
                 title: "Page View",
@@ -626,7 +632,7 @@ extension HelpTopic {
                     + "— left out. It swaps in on the script screen itself, opening at "
                     + "the place you were writing; double tapping a line, the Edit "
                     + "button, or choosing it again in the View menu puts the "
-                    + "writing back — and the Read Script button brings the reading "
+                    + "writing back — and the same View menu item brings the reading "
                     + "back. Both surfaces "
                     + "measure the page the same way, so switching does not move the "
                     + "script: an element keeps its indent, its line breaks and the air "
@@ -644,9 +650,12 @@ extension HelpTopic {
                     + "line is the shortest of them, and lands you in that line, the "
                     + "way it does in Pages and Word.",
                     "Read Aloud (⌘⇧A) speaks the script from wherever you are, on "
-                    + "whichever surface is up. On a phone it is the speaker in the "
-                    + "bar along the bottom, and on every device it is also in the "
-                    + "“…” menu in the corner. The element being read is highlighted "
+                    + "whichever surface is up. Its buttons belong to reading: the "
+                    + "speaker in the bar along the bottom of an iPhone, and the "
+                    + "“…” menu in the corner on every device, are both there while "
+                    + "the reader or the pages are up. With a keyboard, ⌘⇧A starts a "
+                    + "reading from the writing column too; without one, put the "
+                    + "script up to be read first. The element being read is highlighted "
                     + "and scrolls itself into view, and the transport at the foot of "
                     + "the screen steps back and forward an element at a time; hold an "
                     + "element for “Read Aloud From Here”.",
@@ -1015,13 +1024,14 @@ extension HelpTopic {
                     + "is there as well, over the locked document you open, and "
                     + "unlocks that one alone.",
                     "A song or a note can also be read to you. Read Aloud, in the "
-                    + "editor's \u{201C}…\u{201D} menu and on \u{2318}\u{21E7}A, speaks the "
+                    + "editor's \u{201C}…\u{201D} menu while the document is up to be "
+                    + "read, and on \u{2318}\u{21E7}A whichever surface is up, speaks the "
                     + "words in the same voice and at the same speed the screenplay's "
                     + "own Read Aloud uses; the transport at the foot of the screen "
                     + "steps a line at a time, and the speaker beside it sets the "
                     + "speed and the voice. In a song the line being read is "
-                    + "highlighted and scrolls itself into view. It works while you "
-                    + "are writing as well as while you are reading, and it keeps "
+                    + "highlighted and scrolls itself into view. A reading started "
+                    + "with the keys runs while you are writing as well, and it keeps "
                     + "going with the screen off — the Lock Screen shows the "
                     + "document's name and the line being read. One voice at a time: "
                     + "reading a song stops a screenplay that was being read, and "
