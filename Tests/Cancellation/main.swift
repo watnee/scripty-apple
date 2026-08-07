@@ -521,6 +521,37 @@ func run() async {
     }
 
     print()
+    print("== A cancelled write is not a refusal ==")
+    abandoned: do {
+        server.reset()
+        let model = makeModel()
+        guard let first = await firstBlock(of: model) else { break abandoned }
+        server.reset()
+
+        // The words go in and the flush takes them straight to the server —
+        // which is holding its answer — and then the flush is abandoned, as
+        // the trip to the background that asked for it would abandon it.
+        server.answersAfter = 1.0
+        model.liveEdit(first, text: "Words that never got an answer.")
+        let flush = Task { await model.flushPendingCommits() }
+        check("the PUT went out before it was abandoned", await server.received(1))
+        flush.cancel()
+
+        check("the words are still held", await settle {
+            model.unsavedBlockIds.contains(first.id)
+        })
+        // The point of the case. `APIError.cancelled` is deliberately not
+        // retryable, so a `markUnsaved` that judged only on retryability put
+        // this id in `failedBlockIds` — the state that means "the server
+        // refused this and no retry will fix it". The badge then read
+        // "couldn't save" for a request this app threw away itself, and
+        // nothing was ever going to clear it.
+        check("but not as work the server refused", model.failedBlockIds.isEmpty)
+        check("so the badge does not say it could not be saved", !model.hasFailedSaves)
+        server.answersAfter = 0
+    }
+
+    print()
     print("== A superseded load never lands on the edition that replaced it ==")
     do {
         server.reset()

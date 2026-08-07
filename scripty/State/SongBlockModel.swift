@@ -330,6 +330,17 @@ final class SongBlockModel {
     /// is what makes this a debounce rather than a request per character.
     func edit(_ block: SongBlock, text: String) {
         liveText[block.id] = text
+        // Fresh typing earns a fresh set of retries: the backoff having run
+        // out ten minutes ago shouldn't leave this keystroke with none. A
+        // refusal is re-judged the same way — new words are a new write, and
+        // the badge should not go on saying "couldn't save" over a line the
+        // server has not been shown yet. Without this a line whose five
+        // backoffs burned through on a bad train ride kept debouncing,
+        // kept failing, and armed nothing ever again: the words were held,
+        // but the app had quietly stopped trying. The screenplay's
+        // `liveEdit` has had this from the start.
+        retryAttempts[block.id] = nil
+        failedBlockIds.remove(block.id)
         scheduleCommit(block.id)
     }
 
@@ -373,9 +384,27 @@ final class SongBlockModel {
             markSaved(block.id)
             return true
         }
-        // No link is different from no words: the words are still precious,
-        // so the flags and the draft stay — a reload may bring the link back.
-        guard let link = block.link(.update) else { return true }
+        // Changed words with nowhere to PUT them. Reaching here means the
+        // update link went away *while* the writer was typing — the song was
+        // locked, or their access to the project narrowed. Not a network
+        // condition, so nothing will clear up by itself.
+        //
+        // This used to `return true`, which is this function's "the line and
+        // the server now agree". It said so before `persistDraft` below had
+        // ever run: no unsaved flag, nothing on disk, no retry armed, and
+        // `hasUnsavedChanges` false. The words sat in `liveText` looking
+        // perfectly normal until the app was relaunched, and then they were
+        // gone. The comment here claimed the flags and the draft stayed;
+        // on a first failed commit there were none to stay.
+        //
+        // Held and flagged instead, exactly as `ScriptModel.commitOutcome`
+        // does it — and `keepMine` above reads the flags, so the conflict
+        // sheet now says "kept on this device" rather than claiming a version
+        // was sent when nothing left it.
+        guard let link = block.link(.update) else {
+            markUnsaved(block.id, after: APIError.forbidden)
+            return false
+        }
         guard pending != block.text else {
             liveText[block.id] = nil
             markSaved(block.id)

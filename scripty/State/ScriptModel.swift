@@ -802,14 +802,26 @@ final class ScriptModel {
     /// when nothing moved since the last record, so the retries that land back
     /// here every backoff never duplicate a step.
     private func markUnsaved(_ id: Int, after error: Error) {
+        unsavedBlockIds.insert(id)
+        persistDraft(id)
+        // An abandoned request is not a failed one: the debounce was
+        // superseded or the screen was left, and whatever did that will write
+        // the words again. `APIError.cancelled` is deliberately not retryable,
+        // so without this it fell through to the refusal branch below — the
+        // badge stuck on "couldn't save" for a request this app threw away
+        // itself, with nothing left to retry it, and a local history step
+        // recorded for a write that was never attempted. The guard sits here
+        // rather than at the top so the words still reach `unsavedBlockIds`
+        // and the draft file: they are held either way, and only the *verdict*
+        // on them is what a cancellation has no business giving.
+        // `SongBlockModel.markUnsaved` has had this from the start.
+        guard !error.isCancelledRequest else { return }
         if let text = liveText[id],
            let change = localHistory.textChange(
                blockId: id, to: text,
                lastSaved: blocks.first(where: { $0.id == id })?.content ?? "") {
             localHistory.record([change])
         }
-        unsavedBlockIds.insert(id)
-        persistDraft(id)
         guard error.isRetryableAPIError else {
             // Refused, not delayed. The words stay held — they are still the
             // only copy — but nothing is retrying on a timer, and the badge
