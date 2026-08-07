@@ -83,6 +83,15 @@ struct ProjectsSidebarView: View {
     /// can drop the ticks along with the bar that acts on them.
     @State private var exportSelection = Set<Int>()
     @State private var editMode: EditMode = .inactive
+    /// The screenplay a delete has been asked for but not yet confirmed.
+    ///
+    /// A song or a note goes to the trash on the swipe itself, without a
+    /// question — one document, one row, and the trash right there. A
+    /// screenplay is the whole production: its script, its songs, its notes and
+    /// its versions leave the list together, and the swipe that does it sits
+    /// under the thumb on every row. The trash still catches it, so this asks
+    /// once and says so rather than pretending the loss is permanent.
+    @State private var pendingDelete: Project?
 
     /// Where the search field sits, and with it how tall the header is.
     ///
@@ -399,10 +408,7 @@ struct ProjectsSidebarView: View {
             // Affordances are driven by the links the server returned.
             if project.hasLink(.delete) {
                 Button(role: .destructive) {
-                    Task {
-                        if selection == project.id { selection = nil }
-                        await model.delete(project)
-                    }
+                    pendingDelete = project
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
@@ -499,10 +505,7 @@ struct ProjectsSidebarView: View {
             }
             if project.hasLink(.delete) {
                 Button(role: .destructive) {
-                    Task {
-                        if selection == project.id { selection = nil }
-                        await model.delete(project)
-                    }
+                    pendingDelete = project
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
@@ -691,11 +694,34 @@ struct ProjectsSidebarView: View {
                 }
             }
         }
+        // `presenting:` rather than a name interpolated into the title: the
+        // confirm button clears `pendingDelete`, and a title built from it
+        // would redraw as “Delete “”?” on the way out. The name still gets
+        // said — the swipe that opened this was on a row, and which row it was
+        // is the one thing worth checking before answering.
+        .alert("Delete Screenplay?", isPresented: deleteBinding, presenting: pendingDelete) { project in
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+            Button("Delete", role: .destructive) {
+                pendingDelete = nil
+                // Clearing the selection before the request, as the delete
+                // always did: the detail pane resolves its selection against
+                // this list, and the row is about to leave it.
+                if selection == project.id { selection = nil }
+                Task { await model.delete(project) }
+            }
+        } message: { project in
+            Text("“\(project.displayTitle)” moves to the trash with its script, songs, notes and versions. It can be restored from Recently Deleted.")
+        }
         .alert("Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+
+    private var deleteBinding: Binding<Bool> {
+        Binding(get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } })
     }
 
     private var errorBinding: Binding<Bool> {
