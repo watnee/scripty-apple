@@ -24,7 +24,7 @@ import Foundation
 /// One element as it travels on the clipboard. Every field is a string,
 /// matching the web payload exactly — including `personId`, which is empty
 /// rather than absent when there is no speaker.
-struct ClipboardBlock: Codable, Equatable {
+nonisolated struct ClipboardBlock: Codable, Equatable {
     var type: String
     var content: String
     var personId: String
@@ -70,12 +70,15 @@ struct ClipboardBlock: Codable, Equatable {
     }
 }
 
-private struct ScriptClipboardPayload: Codable {
+private nonisolated struct ScriptClipboardPayload: Codable {
     var version: Int
     var blocks: [ClipboardBlock]
 }
 
-enum ScriptClipboard {
+/// `nonisolated`: encoding and decoding a pasteboard payload is pure work over
+/// `Data`, and the target's MainActor default made both halves unreachable from
+/// the nonisolated readers that call them.
+nonisolated enum ScriptClipboard {
     /// The web's private clipboard MIME type, reused verbatim as a pasteboard
     /// type so the two clients recognise each other's copies.
     static let pasteboardType = "application/x-scripty-blocks+json"

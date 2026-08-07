@@ -26,7 +26,7 @@ import Foundation
 
 /// One row of the widget: a screenplay, and just enough about it to draw the
 /// row and to open the right one when it is tapped.
-struct WidgetProject: Codable, Hashable, Identifiable, Sendable {
+nonisolated struct WidgetProject: Codable, Hashable, Identifiable, Sendable {
     let id: Int
     /// Already resolved through `Project.displayTitle`, so the extension never
     /// has to know that a project can be titled in two places or in neither.
@@ -58,7 +58,7 @@ struct WidgetProject: Codable, Hashable, Identifiable, Sendable {
 /// `savedAt` is not used to age the rows out — a snapshot is cleared when it
 /// stops being true (signing out) rather than expiring on a timer, because a
 /// list of your own screenplays does not become wrong by sitting still.
-struct ProjectsSnapshot: Codable, Sendable {
+nonisolated struct ProjectsSnapshot: Codable, Sendable {
     var projects: [WidgetProject]
     var savedAt: Date
 
@@ -95,7 +95,13 @@ extension ProjectsSnapshot {
 
 // MARK: - The shared container
 
-enum ProjectsWidgetStore {
+/// `nonisolated`, like everything else in this file: the app target defaults to
+/// MainActor, and none of this is the app. It is read by the widget's timeline
+/// provider and by App Intents on their own queues, in a copy of the process
+/// woken without a screen — a snapshot that had to hop to the main actor to be
+/// read would be the wrong shape for its actual readers, and every one of those
+/// call sites was warning about it.
+nonisolated enum ProjectsWidgetStore {
     /// The App Group both targets are entitled to, as iOS spells it. Changing
     /// this string means changing all four entitlement files with it: a
     /// mismatch does not fail to build, it just leaves the widget reading an
@@ -291,7 +297,7 @@ enum ProjectsWidgetStore {
 /// A URL rather than an App Intent because the widget is asking for a screen,
 /// not for work to be done: opening a screenplay needs the signed-in session
 /// and the loaded project list that only the app has.
-enum ProjectWidgetLink {
+nonisolated enum ProjectWidgetLink {
     static let scheme = "scripty"
     static let host = "project"
 

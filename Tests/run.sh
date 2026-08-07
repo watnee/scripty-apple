@@ -21,14 +21,22 @@ SHARED=(
 )
 
 # Match the app's build settings (SWIFT_VERSION = 5.0, SWIFT_DEFAULT_ACTOR_ISOLATION
-# = MainActor, SWIFT_APPROACHABLE_CONCURRENCY = YES): without these, the same
-# sources compile under a *different* actor-isolation default here than in the
-# product, so the checks could pass against semantics the app doesn't have.
+# = MainActor, SWIFT_APPROACHABLE_CONCURRENCY = YES,
+# SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES): without these, the same
+# sources compile under *different* rules here than in the product, so the checks
+# could pass against semantics the app doesn't have.
+#
+# One flag to each setting, in that order — and the list has to be checked
+# against the target whenever its build settings move. It drifted once already:
+# MEMBER_IMPORT_VISIBILITY was turned on for the app and not here, which left
+# every suite compiling under the looser member-import rules the app had stopped
+# using, silently, for as long as nobody diffed the two.
 FLAGS=(
     -swift-version 5
     -default-isolation MainActor
     -enable-upcoming-feature NonisolatedNonsendingByDefault
     -enable-upcoming-feature InferIsolatedConformances
+    -enable-upcoming-feature MemberImportVisibility
 )
 
 status=0

@@ -140,17 +140,17 @@ nonisolated struct DocumentQuery: EntityStringQuery, EntityPropertyQuery {
 
     static var properties = QueryProperties {
         Property(\DocumentEntity.$title) {
-            ContainsComparator { term in { IntentTargets.TextTest.contains(term).matches($0.title) } }
+            ContainsComparator { term in { @Sendable in IntentTargets.TextTest.contains(term).matches($0.title) } }
             HasPrefixComparator { term in
-                { IntentTargets.TextTest.beginsWith(term).matches($0.title) }
+                { @Sendable in IntentTargets.TextTest.beginsWith(term).matches($0.title) }
             }
-            EqualToComparator { term in { IntentTargets.TextTest.exactly(term).matches($0.title) } }
+            EqualToComparator { term in { @Sendable in IntentTargets.TextTest.exactly(term).matches($0.title) } }
         }
         /// The condition that makes this one action serve two lists: **Kind is
         /// Song** is how a shortcut says it meant only the songs.
         Property(\DocumentEntity.$kind) {
-            EqualToComparator { kind in { $0.isSong == kind.isSong } }
-            NotEqualToComparator { kind in { $0.isSong != kind.isSong } }
+            EqualToComparator { kind in { @Sendable in $0.isSong == kind.isSong } }
+            NotEqualToComparator { kind in { @Sendable in $0.isSong != kind.isSong } }
         }
         /// By name rather than by picking a `ScreenplayEntity`: a document and
         /// its screenplay reach this process through two different snapshots,
@@ -158,15 +158,15 @@ nonisolated struct DocumentQuery: EntityStringQuery, EntityPropertyQuery {
         /// the two had been trimmed and the other had not.
         Property(\DocumentEntity.$projectTitle) {
             ContainsComparator { term in
-                { IntentTargets.TextTest.contains(term).matches($0.projectTitle) }
+                { @Sendable in IntentTargets.TextTest.contains(term).matches($0.projectTitle) }
             }
             EqualToComparator { term in
-                { IntentTargets.TextTest.exactly(term).matches($0.projectTitle) }
+                { @Sendable in IntentTargets.TextTest.exactly(term).matches($0.projectTitle) }
             }
         }
         Property(\DocumentEntity.$updatedAt) {
-            GreaterThanComparator { date in { $0.updatedAt > date } }
-            LessThanComparator { date in { $0.updatedAt < date } }
+            GreaterThanComparator { date in { @Sendable in $0.updatedAt > date } }
+            LessThanComparator { date in { @Sendable in $0.updatedAt < date } }
         }
     }
 

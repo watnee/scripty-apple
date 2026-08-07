@@ -8,7 +8,12 @@
 
 import Foundation
 
-struct Rel: RawRepresentable, Hashable, Sendable {
+/// `nonisolated` because a rel name is a string constant, not state. The target
+/// defaults to MainActor, which made every one of the constants below
+/// MainActor-isolated — so naming one from anywhere else warned, including from
+/// a plain default argument (`TrashModel.init`, whose `restoreRel: Rel = .restore`
+/// is evaluated in the caller's isolation and could not know what that is).
+nonisolated struct Rel: RawRepresentable, Hashable, Sendable {
     let rawValue: String
 
     init(rawValue: String) {

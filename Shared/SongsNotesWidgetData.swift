@@ -27,7 +27,7 @@ import Foundation
 
 /// One row of the widget: a song or a note, and just enough about it to draw
 /// the row and to open the right screen when it is tapped.
-struct WidgetDocument: Codable, Hashable, Identifiable, Sendable {
+nonisolated struct WidgetDocument: Codable, Hashable, Identifiable, Sendable {
     let id: Int
     let projectId: Int
     let projectTitle: String
@@ -55,7 +55,7 @@ struct WidgetDocument: Codable, Hashable, Identifiable, Sendable {
 /// it draws and the `kind` string WidgetKit knows it by. Presentation — what it
 /// is called in the gallery, which symbol and tint it draws — lives in the
 /// extension, which is the only target that can say any of it.
-enum WidgetDocumentKind: String, CaseIterable, Hashable, Sendable {
+nonisolated enum WidgetDocumentKind: String, CaseIterable, Hashable, Sendable {
     case song
     case note
 
@@ -84,7 +84,7 @@ enum WidgetDocumentKind: String, CaseIterable, Hashable, Sendable {
 /// `savedAt` is the widget's answer to "is this worth showing at all" — a
 /// snapshot from an account that signed out months ago is cleared rather than
 /// aged out, so in practice it is only ever used to say how fresh the rows are.
-struct SongsNotesSnapshot: Codable, Sendable {
+nonisolated struct SongsNotesSnapshot: Codable, Sendable {
     var documents: [WidgetDocument]
     var savedAt: Date
 
@@ -101,7 +101,11 @@ struct SongsNotesSnapshot: Codable, Sendable {
 
 // MARK: - The shared container
 
-enum SongsNotesWidgetStore {
+/// `nonisolated` for the reason `ProjectsWidgetStore` records: this is read
+/// by a timeline provider and by App Intents on their own queues, in a copy
+/// of the process woken without a screen, and the app target's MainActor
+/// default is not the isolation any of those readers have.
+nonisolated enum SongsNotesWidgetStore {
     /// The App Group both targets are entitled to, as iOS spells it. Changing
     /// this string means changing all four entitlement files with it: a
     /// mismatch does not fail to build, it just leaves the widget reading an
@@ -299,7 +303,7 @@ enum SongsNotesWidgetStore {
 // MARK: - What a tap means
 
 /// Where a tapped widget row is asking the app to go.
-struct WidgetDestination: Equatable, Sendable {
+nonisolated struct WidgetDestination: Equatable, Sendable {
     let projectId: Int
     /// The document to open, or nil where the tap only named a project — the
     /// widget's empty state and its header, which open the list rather than
@@ -313,7 +317,7 @@ struct WidgetDestination: Equatable, Sendable {
 /// A URL rather than an App Intent because the widget is asking for a screen,
 /// not for work to be done: everything a tap leads to needs the signed-in
 /// session and the loaded project list that only the app has.
-enum WidgetLink {
+nonisolated enum WidgetLink {
     static let scheme = "scripty"
     static let host = "document"
 
@@ -388,7 +392,7 @@ enum WidgetLink {
 /// client — neither of which an extension can compile, let alone run. The
 /// system's own `OpenURLIntent` carries one of these instead, and the app's
 /// existing door in `scriptyApp.onOpenURL` opens it.
-enum ScriptyLink {
+nonisolated enum ScriptyLink {
     static let scheme = "scripty"
 
     /// Where a control is asking the app to go.

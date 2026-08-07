@@ -17,7 +17,10 @@
 
 import Foundation
 
-enum DemoMusicXml {
+/// `nonisolated`: string assembly and an XML read, called from the `DemoBackend`
+/// actor without a hop. As with `DocumentPDF`, this describes what already
+/// happens rather than moving the work.
+nonisolated enum DemoMusicXml {
 
     static let contentType = "application/vnd.recordare.musicxml+xml"
 

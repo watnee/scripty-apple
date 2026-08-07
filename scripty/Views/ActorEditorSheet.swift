@@ -127,14 +127,19 @@ struct ActorEditorSheet: View {
             Section("Headshot") {
                 HStack(spacing: 14) {
                     thumbnail(for: actor)
+                    // Asked once, here, rather than inside the picker's label.
+                    // That closure is not main-actor isolated, so reaching into
+                    // the casting model from within it warned — and the answer
+                    // is the same for both readers below anyway.
+                    let hasHeadshot = casting.canRemoveHeadshot(actor)
                     VStack(alignment: .leading, spacing: 8) {
                         PhotosPicker(selection: $pickedPhoto, matching: .images) {
-                            Label(casting.canRemoveHeadshot(actor) ? "Replace Photo…" : "Choose Photo…",
+                            Label(hasHeadshot ? "Replace Photo…" : "Choose Photo…",
                                   systemImage: "photo")
                         }
                         .disabled(isUploadingHeadshot)
 
-                        if casting.canRemoveHeadshot(actor) {
+                        if hasHeadshot {
                             Button(role: .destructive) {
                                 Task { await removeHeadshot(actor) }
                             } label: {

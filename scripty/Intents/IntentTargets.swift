@@ -23,7 +23,10 @@
 
 import Foundation
 
-enum IntentTargets {
+/// `nonisolated`, like the snapshots it reads: App Intents calls this from
+/// its own queues, and the app target's MainActor default is not the
+/// isolation the entity queries above it actually run under.
+nonisolated enum IntentTargets {
 
     // MARK: Everything nameable
 

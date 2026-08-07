@@ -32,7 +32,11 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-enum DocumentPDF {
+/// `nonisolated`. Core Text and a CoreGraphics PDF context, with no UIKit
+/// anywhere in the file — and the demo backend, which is an `actor`, has always
+/// called straight into it without hopping. This says so rather than changing
+/// it: the isolation now matches where the work already runs.
+nonisolated enum DocumentPDF {
     /// One song or note: its name, and the lines under it.
     struct Section {
         let title: String

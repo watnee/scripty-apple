@@ -305,7 +305,14 @@ final class ScriptNarrator {
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            Task { @MainActor in self?.refreshVoices() }
+            // Bound here rather than inside the `Task`. The notification arrives
+            // on whatever queue the system picks, so reaching through the weak
+            // reference from inside concurrently-executing code is a read of
+            // mutable storage that another thread may be clearing — which is
+            // what the compiler was warning about, and an error under Swift 6.
+            // Resolving it once on the way in leaves the hop with a value.
+            guard let self else { return }
+            Task { @MainActor in self.refreshVoices() }
         }
     }
 

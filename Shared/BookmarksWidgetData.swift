@@ -23,7 +23,7 @@ import Foundation
 
 /// One row of the widget: a flagged element, and just enough about it to draw
 /// the row and to scroll to the right line when it is tapped.
-struct WidgetBookmark: Codable, Hashable, Identifiable, Sendable {
+nonisolated struct WidgetBookmark: Codable, Hashable, Identifiable, Sendable {
     /// The block id — what the app scrolls to, and unique across projects
     /// because the server hands elements one sequence.
     let blockId: Int
@@ -72,7 +72,7 @@ struct WidgetBookmark: Codable, Hashable, Identifiable, Sendable {
 /// `savedAt` is not used to age the rows out — a snapshot is cleared when it
 /// stops being true (signing out) rather than expiring on a timer, because a
 /// line you flagged does not become unflagged by sitting still.
-struct BookmarksSnapshot: Codable, Sendable {
+nonisolated struct BookmarksSnapshot: Codable, Sendable {
     var bookmarks: [WidgetBookmark]
     var savedAt: Date
 
@@ -86,7 +86,11 @@ struct BookmarksSnapshot: Codable, Sendable {
 
 // MARK: - The shared container
 
-enum BookmarksWidgetStore {
+/// `nonisolated` for the reason `ProjectsWidgetStore` records: this is read
+/// by a timeline provider and by App Intents on their own queues, in a copy
+/// of the process woken without a screen, and the app target's MainActor
+/// default is not the isolation any of those readers have.
+nonisolated enum BookmarksWidgetStore {
     /// The App Group both targets are entitled to, as iOS spells it. Changing
     /// this string means changing all six entitlement files with it: a mismatch
     /// does not fail to build, it just leaves the widget reading an empty
@@ -281,7 +285,7 @@ enum BookmarksWidgetStore {
 // MARK: - What a tap means
 
 /// Where a tapped bookmark row is asking the app to go.
-struct BookmarkDestination: Equatable, Sendable {
+nonisolated struct BookmarkDestination: Equatable, Sendable {
     let projectId: Int
     /// The element to scroll to, or nil where the tap only named a screenplay —
     /// the widget's empty state, and a tap that landed on no row.
@@ -294,7 +298,7 @@ struct BookmarkDestination: Equatable, Sendable {
 /// not for work to be done: reaching a flagged line needs the signed-in
 /// session, the loaded project list and the loaded script that only the app
 /// has.
-enum BookmarkWidgetLink {
+nonisolated enum BookmarkWidgetLink {
     static let scheme = "scripty"
     static let host = "bookmark"
 

@@ -205,6 +205,12 @@ extension PasskeyCoordinator: ASAuthorizationControllerPresentationContextProvid
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let window = scenes.flatMap(\.windows).first { $0.isKeyWindow }
             ?? scenes.first?.windows.first
-        return window ?? ASPresentationAnchor()
+        if let window { return window }
+        // Nothing on screen to anchor to, which does not happen in practice.
+        // Built from a scene where there is one: iOS 26 deprecates every way of
+        // making a window without one, and a screenless window could not host
+        // the sheet anyway — this only keeps the return non-optional.
+        if let scene = scenes.first { return ASPresentationAnchor(windowScene: scene) }
+        return ASPresentationAnchor(frame: .zero)
     }
 }

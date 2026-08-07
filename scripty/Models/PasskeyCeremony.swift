@@ -18,7 +18,9 @@ import Foundation
 /// Base64url ("base64 with URL and filename safe alphabet", unpadded) — how
 /// WebAuthn JSON carries bytes. Foundation only speaks classic base64, so the
 /// alphabet and padding are mapped here.
-enum Base64URL {
+/// `nonisolated`: byte-shuffling, not state. Both halves are reached from the
+/// ceremony models' own computed properties, which are not on the main actor.
+nonisolated enum Base64URL {
     static func encode(_ data: Data) -> String {
         data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")

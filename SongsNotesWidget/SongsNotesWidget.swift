@@ -350,10 +350,11 @@ private struct DocumentRow: View {
                 // The relative date is drawn by the system rather than baked
                 // into the entry, so "2 hours ago" keeps counting without the
                 // timeline being rebuilt for it.
-                Text("\(document.projectTitle) · ")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                + Text(document.updatedAt, format: .relative(presentation: .numeric))
+                // One `Text` with the date interpolated into it, rather than two
+                // joined with `+` — which iOS 26 deprecates. Both halves carried
+                // the same font and colour, so there was nothing the join was
+                // buying, and the system still redraws the relative date itself.
+                Text("\(document.projectTitle) · \(document.updatedAt, format: .relative(presentation: .numeric))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

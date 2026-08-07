@@ -22,6 +22,17 @@
 //  intent handed back (Get Details of Screenplay), and the Find Screenplays
 //  action below can filter and sort on them.
 //
+//  Those two facts collide, and the compiler says so: "'nonisolated' is not
+//  supported on properties with property wrappers", once per `@Property` below.
+//  It is a language limitation rather than a mistake here, and there is no
+//  spelling that satisfies both — `nonisolated` on the type propagates to every
+//  member, including the wrapped ones, and Swift has no way to exempt them.
+//  Neither side can be dropped: without `nonisolated` the entity is MainActor
+//  and its own query cannot construct it, and without `@Property` the Get
+//  Details and Find actions stop existing. So the warnings stand deliberately.
+//  Anything that silences them by removing one of the two is removing a
+//  feature — check `properties` and `sortingOptions` still work first.
+//
 
 import AppIntents
 import CoreSpotlight
@@ -159,23 +170,23 @@ nonisolated struct ScreenplayQuery: EntityStringQuery, EntityPropertyQuery {
     /// "revolution" and a writer who typed *Révolution* mean each other.
     static var properties = QueryProperties {
         Property(\ScreenplayEntity.$title) {
-            ContainsComparator { term in { IntentTargets.TextTest.contains(term).matches($0.title) } }
+            ContainsComparator { term in { @Sendable in IntentTargets.TextTest.contains(term).matches($0.title) } }
             HasPrefixComparator { term in
-                { IntentTargets.TextTest.beginsWith(term).matches($0.title) }
+                { @Sendable in IntentTargets.TextTest.beginsWith(term).matches($0.title) }
             }
-            EqualToComparator { term in { IntentTargets.TextTest.exactly(term).matches($0.title) } }
+            EqualToComparator { term in { @Sendable in IntentTargets.TextTest.exactly(term).matches($0.title) } }
         }
         Property(\ScreenplayEntity.$writers) {
             ContainsComparator { term in
-                { IntentTargets.TextTest.contains(term).matches($0.writers ?? "") }
+                { @Sendable in IntentTargets.TextTest.contains(term).matches($0.writers ?? "") }
             }
         }
         Property(\ScreenplayEntity.$lastEdited) {
-            GreaterThanComparator { date in { ($0.lastEdited ?? .distantPast) > date } }
-            LessThanComparator { date in { ($0.lastEdited ?? .distantPast) < date } }
+            GreaterThanComparator { date in { @Sendable in ($0.lastEdited ?? .distantPast) > date } }
+            LessThanComparator { date in { @Sendable in ($0.lastEdited ?? .distantPast) < date } }
         }
         Property(\ScreenplayEntity.$isDefault) {
-            EqualToComparator { starred in { $0.isDefault == starred } }
+            EqualToComparator { starred in { @Sendable in $0.isDefault == starred } }
         }
     }
 
