@@ -701,8 +701,9 @@ struct SongsView: View {
                     // Which rows are closed to typing, at a glance — the same
                     // padlock beside the same title on both workspace screens.
                     // Beside the name rather than out at the trailing edge:
-                    // this is a fact about the document, not a control, and the
-                    // swipe already owns that side of the row.
+                    // this is a fact about the document, not a control, and
+                    // both edges of the row are already spoken for — the lock
+                    // is changed by the swipe below, not by this.
                     if isLocked(document) {
                         Image(systemName: "lock.fill")
                             .font(.caption2)
@@ -735,6 +736,28 @@ struct SongsView: View {
             }
         }
         .foregroundStyle(.primary)
+        // The lock, on the edge the destructive swipe does not own. It is the
+        // one thing done to a finished song often enough to deserve a gesture
+        // rather than a menu, and the leading edge was free: a full swipe here
+        // closes a row to typing, and a full swipe back opens it again.
+        //
+        // One button that flips rather than a pair — a row is either open or
+        // closed, and the swipe answers whichever it is now — kept a single
+        // grey both ways, so this side of the row means the lock rather than
+        // meaning a colour. Offered on a locked row as readily as an unlocked
+        // one: like the menu's toggle, it is the way back that does not mean
+        // opening the document first.
+        .swipeActions(edge: .leading) {
+            if canLock(document) {
+                Button {
+                    lockBinding(document).wrappedValue.toggle()
+                } label: {
+                    Label(isLocked(document) ? "Unlock" : "Lock",
+                          systemImage: isLocked(document) ? "lock.open" : "lock")
+                }
+                .tint(.gray)
+            }
+        }
         .swipeActions(edge: .trailing) {
             // Delete stays first so a full swipe keeps meaning delete.
             if document.hasLink(.delete) {
