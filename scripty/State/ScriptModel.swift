@@ -383,6 +383,11 @@ final class ScriptModel {
         // block already being edited, is left alone.
         adoptPersistedDrafts()
         adoptPendingCreates()
+        // Last, and it has to be last: the two calls above are what put the
+        // offline-written elements back on screen, and without them every one
+        // would read as an element the server no longer carries. See the
+        // ordering note on `forgetWritesToMissingBlocks`.
+        forgetWritesToMissingBlocks()
     }
 
     func loadCharacters() async {
@@ -677,8 +682,16 @@ final class ScriptModel {
         guard !removingBlockIds.contains(id) else { return .failed }
         commitTasks[id]?.cancel()
         commitTasks[id] = nil
-        guard let text = liveText[id],
-              let block = blocks.first(where: { $0.id == id }) else { return .failed }
+        guard let text = liveText[id] else { return .failed }
+        guard let block = blocks.first(where: { $0.id == id }) else {
+            // Words aimed at an element the script no longer carries. Nothing
+            // can send them, so leaving the flag standing only gives
+            // `drainHeldWork` an id it will fail on for the rest of the
+            // session. `adopt` sweeps these up, but a removal that never went
+            // through it can still land here.
+            forgetWritesToMissingBlocks()
+            return .failed
+        }
         // An element written offline has nothing to PUT to. Its words go into
         // the queue entry instead, so the create that eventually goes out
         // carries the newest version — and it stays flagged unsaved, because
@@ -1967,22 +1980,51 @@ final class ScriptModel {
     /// a block still flagged unsaved keeps its live copy, exactly as it does
     /// across an ordinary reload.
     private func settleWritesAfterStep() {
+        forgetWritesToMissingBlocks()
+        // The second half, and the half that belongs to a step alone: an
+        // element that survived now says what the snapshot says, so the live
+        // copy has to go or the words undo was pressed to be rid of sit there
+        // unchanged and come back on the next keystroke. Never do this from
+        // `adopt` — an ordinary reload happens while somebody is typing, and
+        // this would take the half-second of writing since the last debounce.
+        for id in Set(liveText.keys) where !unsavedBlockIds.contains(id) {
+            liveText[id] = nil
+        }
+        noteSyncedIfSettled()
+    }
+
+    /// Drop every trace of a write aimed at an element that is no longer in the
+    /// script: the live copy, both flags, the draft on disk, and any debounce
+    /// or backoff still counting down for it.
+    ///
+    /// Called after *any* wholesale replacement, not only an undo. A backoff
+    /// still counting down for a vanished id raises the refusal `stopWrites`
+    /// exists to avoid, a moment later and with nothing on screen to explain
+    /// it — and its unsaved flag leaves the badge claiming held work for an
+    /// element that is not there, which no retry can ever put right because
+    /// there is nothing left to retry against. That is reachable without any
+    /// undo at all: hold an edit offline, have a collaborator delete the
+    /// element, come back online. The PUT 404s, the flag is set, the next
+    /// load takes the row away, and the badge reads "couldn't save" for the
+    /// rest of the session over an element with no row.
+    ///
+    /// Safe from `adopt` only because it runs *after* `adoptPendingCreates()`
+    /// has put the offline-written elements back into `blocks`. Before that
+    /// they are absent from the collection the server just sent — which is the
+    /// whole point of them — and every one would be forgotten as missing.
+    private func forgetWritesToMissingBlocks() {
         let present = Set(blocks.map(\.id))
         let aimedAt = Set(liveText.keys)
             .union(unsavedBlockIds)
             .union(failedBlockIds)
             .union(commitTasks.keys)
             .union(retryTasks.keys)
-        for id in aimedAt {
-            guard present.contains(id) else {
-                stopWrites(to: id)
-                liveText[id] = nil
-                unsavedBlockIds.remove(id)
-                failedBlockIds.remove(id)
-                draftStore?.remove(blockId: id, projectId: project.id)
-                continue
-            }
-            if !unsavedBlockIds.contains(id) { liveText[id] = nil }
+        for id in aimedAt where !present.contains(id) {
+            stopWrites(to: id)
+            liveText[id] = nil
+            unsavedBlockIds.remove(id)
+            failedBlockIds.remove(id)
+            draftStore?.remove(blockId: id, projectId: project.id)
         }
         noteSyncedIfSettled()
     }

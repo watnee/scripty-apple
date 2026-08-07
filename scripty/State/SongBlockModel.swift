@@ -305,6 +305,11 @@ final class SongBlockModel {
     func adopt(_ collection: HALCollection<SongBlock>) {
         blocks = collection.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
         links = collection.links
+        // Whatever this replacement took away, it took the ability to save it
+        // with it. A lyric has no offline-created lines to protect here — the
+        // screenplay's queue is what makes its ordering delicate — so this can
+        // simply follow the assignment.
+        forgetHeldWorkForMissingLines()
     }
 
     // MARK: - Typing
@@ -715,6 +720,11 @@ final class SongBlockModel {
     private var heldWorkSync: Task<Void, Never>?
 
     private func drainHeldWork() async {
+        // Anything aimed at a line the lyric no longer carries is not going to
+        // be sent by this drain or any other. `continue` alone left such an id
+        // in `unsavedBlockIds` for good, so the badge went on reporting held
+        // work that no sweep would ever clear.
+        forgetHeldWorkForMissingLines()
         for id in unsavedBlockIds.sorted() {
             guard let line = block(id) else { continue }
             retryAttempts[id] = nil
@@ -1032,7 +1042,6 @@ final class SongBlockModel {
             // are left on the other side — they describe a document that is no
             // longer on screen, so they go.
             localHistory.clear()
-            settleHeldWorkAfterStep()
             await refreshUndoRedo()
             errorMessage = nil
             presentHistoryToast(rel: rel, delta: blocks.count - before)
@@ -1041,22 +1050,30 @@ final class SongBlockModel {
         }
     }
 
-    /// Let go of held work for lines the step's answer no longer carries.
+    /// Let go of held work for lines the lyric on screen no longer carries.
     ///
-    /// A step does not edit the song's lines, it replaces them: the server
-    /// deletes every line of the version and re-inserts the snapshot, so the ids
-    /// on screen a moment ago have all stopped existing. `commitAll` above
-    /// clears the held flags for every line whose words got out, but a line
-    /// whose save had *failed* keeps its entry — and that entry now names
-    /// nothing. Left alone it is a cloud badge insisting on unsaved work for a
-    /// line the writer cannot see, on a song where every word on screen is the
-    /// server's, with no line left for a retry to land on and put it right.
+    /// Written for undo and redo, where it is unmissable: a step does not edit
+    /// the song's lines, it replaces them — the server deletes every line of
+    /// the version and re-inserts the snapshot, so the ids on screen a moment
+    /// ago have all stopped existing. `commitAll` clears the held flags for
+    /// every line whose words got out, but a line whose save had *failed*
+    /// keeps its entry, and that entry now names nothing. Left alone it is a
+    /// cloud badge insisting on unsaved work for a line the writer cannot see,
+    /// on a song where every word on screen is the server's, with no line left
+    /// for a retry to land on and put it right.
+    ///
+    /// A step is only the loudest way to get there, though, which is why this
+    /// is now called from `adopt` — every load, every edition change, every
+    /// delete and every move — rather than from the two history paths alone.
+    /// Hold a line offline, have a collaborator delete it, come back: the PUT
+    /// 404s, the flag is set, the next load takes the row away, and the badge
+    /// accuses a line with nothing behind it for the rest of the session.
     ///
     /// The words themselves are not being taken away lightly: they never
-    /// reached the server, and a step back past them is precisely the writer
-    /// asking for the song without them — the same reading that clears
-    /// `localHistory` two lines up.
-    private func settleHeldWorkAfterStep() {
+    /// reached the server, and a lyric that no longer has the line is a lyric
+    /// with nowhere to put them — the same reading that clears `localHistory`
+    /// beside the history calls.
+    private func forgetHeldWorkForMissingLines() {
         let live = Set(blocks.map(\.id))
         let stale = Set(liveText.keys)
             .union(unsavedBlockIds)

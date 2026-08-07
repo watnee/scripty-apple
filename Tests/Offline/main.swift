@@ -646,6 +646,98 @@ func checkWritingNewElementsOffline() async {
     checkEqual("with the words intact",
                relaunched.currentText(relaunched.blocks[1]), "Survives a relaunch.")
     check("and says nothing about having synced", relaunched.historyToast == nil)
+
+    print()
+    print("== A reload lets go of held work for an element that has gone ==")
+    do {
+        let directory = scratchDirectory("vanished")
+        let drafts = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        let model = ScriptModel(app: AppModel(), project: project, draftStore: drafts)
+        model.adopt(decode(HALCollection<Block>.self, editableBlocksJSON))
+
+        // Held on this device: words on screen, a flag, a draft on disk.
+        let second = model.blocks[1]
+        model.liveEdit(second, text: "Held while somebody else deletes it.")
+        await model.blur(second)
+        check("the words are held", model.unsavedBlockIds.contains(second.id))
+        check("and on disk", drafts.drafts(projectId: project.id)[second.id] != nil)
+
+        // Meanwhile the writer is mid-sentence in the element above. These
+        // words are in `liveText` and nowhere else, and the element is not
+        // flagged, because nothing has failed — the debounce is simply still
+        // counting. The sweep below runs on every load and every five-second
+        // poll, so it must leave this alone; the half of the undo/redo settle
+        // that clears surviving elements' live copies would take it, and the
+        // writer would watch a sentence disappear as they typed it.
+        let first = model.blocks[0]
+        model.liveEdit(first, text: "Mid-sentence, nothing failed yet.")
+
+        // A collaborator removed it; the next load carries a script without it.
+        model.adopt(decode(HALCollection<Block>.self, """
+        {
+          "_embedded": {
+            "blockResourceList": [
+              {
+                "id": 10, "order": 1, "type": "ACTION", "content": "First line.",
+                "_links": {"update": {"href": "/api/blocks/10"}}
+              }
+            ]
+          },
+          "_links": {"self": {"href": "/api/projects/1/blocks"}}
+        }
+        """))
+
+        // The point of the case. This bookkeeping was only ever settled after
+        // an undo, so an ordinary reload left the flag standing for an element
+        // with no row — a badge reading "couldn't save" that Sync Now could
+        // never clear, because there was nothing left for a retry to land on.
+        check("the flag goes with the row", !model.unsavedBlockIds.contains(second.id))
+        check("so does the refusal", !model.failedBlockIds.contains(second.id))
+        check("and the draft on disk",
+              drafts.drafts(projectId: project.id)[second.id] == nil)
+        check("the badge stops claiming work in hand", !model.hasUnsavedChanges)
+        checkEqual("while the sentence still being typed is untouched",
+                   model.currentText(model.blocks[0]), "Mid-sentence, nothing failed yet.")
+    }
+
+    print()
+    print("== But a reload never forgets an element written offline ==")
+    do {
+        // The same sweep, and the reason its position inside `adopt` matters:
+        // an element that only exists on this device is absent from every
+        // collection the server sends, which is the whole point of it. Swept
+        // before the outbox is re-applied, a night's writing would be dropped
+        // by the first successful load.
+        let directory = scratchDirectory("kept")
+        let store = OfflineStore(scope: "server|alice", directory: directory)
+        store.save(Data(editableBlocksJSON.utf8), .blocks(projectId: 1))
+        let queue = OfflineBlockQueue(scope: "server|alice",
+                                      directory: directory.appendingPathComponent("queue"))
+        let monitor = ConnectivityMonitor(startMonitoring: false)
+        monitor.adopt(false)
+        let model = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                                draftStore: nil, offlineStore: store, createQueue: queue)
+        await model.loadBlocks()
+        await model.splitBlock(model.blocks[0], caret: 11)
+        model.liveEdit(model.blocks[1], text: "Written where there was no signal.")
+        await model.blur(model.blocks[1])
+        let local = model.blocks[1].id
+        // Typed on, and *not* blurred: these words have reached `liveText` and
+        // nothing else. The queue still holds the sentence before them, so
+        // this is the half-second of writing that only this dictionary knows
+        // about — and the only thing a mis-ordered sweep can actually destroy,
+        // since everything already in the outbox comes back with it.
+        model.liveEdit(model.blocks[1], text: "…and the line after it.")
+
+        // A load lands: the server's two elements, and no sign of the third.
+        model.adopt(decode(HALCollection<Block>.self, editableBlocksJSON))
+
+        checkEqual("the element written offline is still on screen", model.blocks.count, 3)
+        checkEqual("showing the newest words, not the last ones that were queued",
+                   model.currentText(model.blocks[1]), "…and the line after it.")
+        check("still flagged as work held here", model.unsavedBlockIds.contains(local))
+        checkEqual("and still queued to be sent", queue.pending(projectId: 1).count, 1)
+    }
 }
 
 /// The structural edits — Return mid-line, Backspace at the seam — keep
