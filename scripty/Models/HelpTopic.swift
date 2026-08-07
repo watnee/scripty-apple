@@ -963,8 +963,8 @@ extension HelpTopic {
                     + "few at the top, so a long one needs no scrolling to reach them. "
                     + "Starting one is the button under the list — New Song over the "
                     + "songs, New Note over the notes. An element's own menu inserts a "
-                    + "song below it. Swipe a row to rename or delete it; touch and "
-                    + "hold for everything else.",
+                    + "song below it. Swipe a row one way to rename or delete it and "
+                    + "the other way to lock it; touch and hold for everything else.",
                     "A finished song or note can be locked. Lock Editing closes it "
                     + "to typing — a lyric's lines stop taking keystrokes and stop "
                     + "offering delete and highlight, and a note stops taking them "
@@ -977,8 +977,10 @@ extension HelpTopic {
                     + "The lock is kept on this device, one document at a time, and "
                     + "applies to a song's own edition when you are in one.",
                     "The switch is wherever the document is. It is in the editor's "
-                    + "menu; it is also on the list, where touching and holding a "
-                    + "row offers Lock Editing without opening the song at all, and "
+                    + "menu; it is also on the list, where a swipe across a row — "
+                    + "rightwards, away from Delete — closes it to typing, and the "
+                    + "same swipe on a closed row says Unlock and opens it again. "
+                    + "Touching and holding offers the same switch by name, and "
                     + "a padlock beside the name says which rows are closed. On "
                     + "either workspace page — every song at once, or every note — "
                     + "each title's “…” carries the same switch beside its Move Up "
@@ -1080,7 +1082,7 @@ extension HelpTopic {
                            "musicxml", "mistake", "history", "step back",
                            "dismiss", "close",
                            "lock", "locked", "unlock", "lock all", "unlock all",
-                           "read only", "protect",
+                           "swipe to lock", "read only", "protect",
                            "find", "search", "replace", "match case", "whole words",
                            "arrange", "rearrange", "reorder", "order", "drag",
                            "move up", "move down", "sort",
