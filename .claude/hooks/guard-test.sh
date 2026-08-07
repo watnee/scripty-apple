@@ -26,12 +26,22 @@ total=0
 while IFS=$'\t' read -r want tool payload; do
   case "$want" in ''|'#'*) continue ;; esac
   total=$((total + 1))
-  if [ "$tool" = Bash ]; then
-    json=$(/usr/bin/jq -nc --arg c "$payload" '{tool_name:"Bash",tool_input:{command:$c}}')
-  else
-    json=$(/usr/bin/jq -nc --arg t "$tool" --arg p "${payload/#\~/$HOME}" \
-      '{tool_name:$t,tool_input:{file_path:$p}}')
-  fi
+  case "$tool" in
+    Bash)
+      json=$(/usr/bin/jq -nc --arg c "$payload" '{tool_name:"Bash",tool_input:{command:$c}}')
+      ;;
+    mcp__*)
+      # An MCP call carries arguments, not a path — the payload column is the
+      # tool_input object itself, so a rule can be tested against what the call
+      # would actually do and not just against its name.
+      json=$(/usr/bin/jq -nc --arg t "$tool" --argjson i "${payload:-\{\}}" \
+        '{tool_name:$t,tool_input:$i}')
+      ;;
+    *)
+      json=$(/usr/bin/jq -nc --arg t "$tool" --arg p "${payload/#\~/$HOME}" \
+        '{tool_name:$t,tool_input:{file_path:$p}}')
+      ;;
+  esac
   printf '%s' "$json" | "$guard" >/dev/null 2>&1
   rc=$?
   got=PASS

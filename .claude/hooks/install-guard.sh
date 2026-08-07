@@ -33,6 +33,54 @@ else
   diff -u "$dst" "$src" || true
 fi
 
+matcher=$(/usr/bin/jq -r '
+    .hooks.PreToolUse[]? | select(.hooks[]?.command | test("dangerous-command-guard")) | .matcher // ""
+  ' "$settings" 2>/dev/null | head -1)
+
+if [ -z "$matcher" ]; then
+  cat <<'EOF'
+
+Not registered yet. Add this to the "hooks" object in ~/.claude/settings.json:
+
+  "PreToolUse": [
+    {
+      "matcher": "Bash|Edit|Write|NotebookEdit|Read|mcp__.*",
+      "hooks": [
+        { "type": "command", "command": "\"$HOME\"/.claude/hooks/dangerous-command-guard.sh", "timeout": 10 }
+      ]
+    }
+  ]
+EOF
+  exit 0
+fi
+
+echo "registered in $settings"
+
+# A rule the matcher never routes to the guard is a rule that does not exist.
+# The guard inspects Read (credential files) and MCP calls (a connector can
+# delete a database without touching a shell), and both were added after the
+# original matcher was written — so an installed guard can be fully up to date
+# and still be deaf to half of itself.
+missing=""
+for t in Bash Edit Write NotebookEdit Read mcp__cloudflare__d1_database_delete; do
+  printf '%s' "$t" | grep -Eq "^($matcher)$" || missing="$missing $t"
+done
+
+if [ -n "$missing" ]; then
+  cat <<EOF
+
+The matcher in $settings is:
+
+  "$matcher"
+
+which does not route these to the guard:$missing
+
+Rules for them are in the guard and will simply never run. Widen it to:
+
+  "matcher": "Bash|Edit|Write|NotebookEdit|Read|mcp__.*"
+EOF
+fi
+
 if [ ! -t 1 ]; then
   cat >&2 <<'EOF'
 
@@ -51,21 +99,3 @@ mkdir -p "$(dirname "$dst")"
 cp "$src" "$dst"
 chmod +x "$dst"
 echo "installed $dst"
-
-if ! /usr/bin/jq -e '.hooks.PreToolUse[]?.hooks[]? | select(.command | test("dangerous-command-guard"))' "$settings" >/dev/null 2>&1; then
-  cat <<'EOF'
-
-Not registered yet. Add this to the "hooks" object in ~/.claude/settings.json:
-
-  "PreToolUse": [
-    {
-      "matcher": "Bash|Edit|Write|NotebookEdit",
-      "hooks": [
-        { "type": "command", "command": "\"$HOME\"/.claude/hooks/dangerous-command-guard.sh", "timeout": 10 }
-      ]
-    }
-  ]
-EOF
-else
-  echo "registered in $settings"
-fi
