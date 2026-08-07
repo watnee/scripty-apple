@@ -148,6 +148,11 @@ struct SongsView: View {
     /// printer for the three so a download in flight holds all of them.
     @State private var printer: DocumentPrintModel
     @State private var showingImporter = false
+    /// A batch of picked files still going up. The button that started it is
+    /// closed until it lands: a second batch begun over the first would import
+    /// into the same list from two loops, and the reload each one does would
+    /// keep pulling the rows out from under the other.
+    @State private var importing = false
     @State private var showingWorkspace = false
     /// The songs ticked in edit mode, by id. Edit mode is held here rather
     /// than left to the environment so leaving it can drop the selection —
@@ -546,9 +551,12 @@ struct SongsView: View {
     var body: some View {
         NavigationStack {
             listScreen
+            // Several at once: a writer arriving with a folder of lyrics had to
+            // come back to this button once per file, and each round trip cost
+            // them the picker's place in the folder as well.
             .fileImporter(isPresented: $showingImporter,
                           allowedContentTypes: importTypes,
-                          allowsMultipleSelection: false) { result in
+                          allowsMultipleSelection: true) { result in
                 handleImport(result)
             }
             .sheet(item: $trashLink) { link in
@@ -1306,6 +1314,7 @@ struct SongsView: View {
                 } label: {
                     Label("Import", systemImage: "square.and.arrow.down")
                 }
+                .disabled(importing)
             }
             if let archived = model.archivedDocumentsLink {
                 ToolbarItem(placement: .secondaryAction) {
@@ -1663,31 +1672,17 @@ struct SongsView: View {
     private func handleImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
+            guard !urls.isEmpty else { return }
+            importing = true
             Task {
-                let picked: PickedFile
-                do {
-                    picked = try await PickedFileReader.read(url)
-                } catch {
-                    if let message = PickedFileReader.readFailureMessage(error) {
-                        statusMessage = message
-                    }
-                    return
-                }
-                // The server answers an empty upload with a plain refusal, and
-                // "could not import" for a file that simply has nothing in it
-                // sends the writer looking for a fault in the format.
-                guard !picked.data.isEmpty else {
-                    statusMessage = "That file is empty."
-                    return
-                }
-                let created = await model.importDocument(
-                    fileName: picked.name, data: picked.data,
-                    type: listType, mimeType: picked.mimeType)
-                if let created {
-                    editingDocument = created
+                defer { importing = false }
+                // One file still says everything there is to say about that
+                // file, and opens for writing when it lands. Several cannot:
+                // see `PickedFileTally`.
+                if urls.count == 1 {
+                    await importOne(urls[0])
                 } else {
-                    statusMessage = model.errorMessage ?? "Could not import that file."
+                    await importSeveral(urls)
                 }
             }
         case .failure(let error):
@@ -1696,6 +1691,83 @@ struct SongsView: View {
                 statusMessage = message
             }
         }
+    }
+
+    private func importOne(_ url: URL) async {
+        let picked: PickedFile
+        do {
+            picked = try await PickedFileReader.read(url)
+        } catch {
+            if let message = PickedFileReader.readFailureMessage(error) {
+                statusMessage = message
+            }
+            return
+        }
+        // The server answers an empty upload with a plain refusal, and "could
+        // not import" for a file that simply has nothing in it sends the writer
+        // looking for a fault in the format.
+        guard !picked.data.isEmpty else {
+            statusMessage = "That file is empty."
+            return
+        }
+        let created = await model.importDocument(
+            fileName: picked.name, data: picked.data,
+            type: listType, mimeType: picked.mimeType)
+        if let created {
+            editingDocument = created
+        } else {
+            statusMessage = model.errorMessage ?? "Could not import that file."
+        }
+    }
+
+    /// Imports the picked files one after another, and reports the batch once.
+    ///
+    /// One at a time rather than all at once: the server takes a file per
+    /// request, so the only thing parallel uploads would add is a list that
+    /// lands in whatever order the network settled on. This way the rows arrive
+    /// in the order they were picked — each import reloads the list, so they
+    /// appear as they land rather than all at the end, which is the only
+    /// progress a batch of ten needs.
+    ///
+    /// Nothing opens for writing afterwards. Ten files means nine that are not
+    /// the one being opened, and dropping the writer into the last of them
+    /// hides the list they just filled.
+    private func importSeveral(_ urls: [URL]) async {
+        var tally = PickedFileTally()
+        // Kept from the first file that went wrong rather than read off the
+        // model at the end: `errorMessage` holds whatever last failed anywhere
+        // in the app, which for a batch that never reached the server at all
+        // would be somebody else's sentence.
+        var reason: String?
+        for url in urls {
+            // A cancelled batch is not a failed one, and there is nobody left
+            // to tell — the same rule every read path in the app follows.
+            if Task.isCancelled { return }
+            do {
+                let picked = try await PickedFileReader.read(url)
+                guard !picked.data.isEmpty else {
+                    tally.recordFailure(picked.name)
+                    reason = reason ?? "Some of them have nothing in them."
+                    continue
+                }
+                let created = await model.importDocument(
+                    fileName: picked.name, data: picked.data,
+                    type: listType, mimeType: picked.mimeType)
+                if created != nil {
+                    tally.recordImport()
+                } else {
+                    tally.recordFailure(picked.name)
+                    reason = reason ?? model.errorMessage
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                tally.recordFailure(url.lastPathComponent)
+                reason = reason ?? error.localizedDescription
+            }
+        }
+        statusMessage = tally.message(kind: kindWord, plural: kindWordPlural,
+                                      reason: reason)
     }
 
     private var importTypes: [UTType] {

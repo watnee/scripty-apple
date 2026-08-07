@@ -146,6 +146,66 @@ func run() async {
             print("  FAIL  an empty file should still read — \(error)")
         }
     }
+
+    print("")
+    print("Several files at once")
+    do {
+        // Nothing attempted, nothing said: the alert must not appear because a
+        // picker was opened and closed.
+        expect("an empty batch says nothing",
+               PickedFileTally().message(kind: "song", plural: "songs") == nil)
+
+        var clean = PickedFileTally()
+        for _ in 0..<3 { clean.recordImport() }
+        check("a clean batch counts what landed",
+              clean.message(kind: "song", plural: "songs") ?? "", "Imported 3 songs.")
+        var one = PickedFileTally()
+        one.recordImport()
+        check("and says it in the singular when it is one",
+              one.message(kind: "note", plural: "notes") ?? "", "Imported 1 note.")
+
+        // The names are the point: the writer has to know which file to go
+        // back for, and the count alone would not tell them.
+        var mixed = PickedFileTally()
+        mixed.recordImport()
+        mixed.recordImport()
+        mixed.recordFailure("Bridge.pdf")
+        check("a partial batch names what did not land",
+              mixed.message(kind: "song", plural: "songs") ?? "",
+              "Imported 2 songs. Could not import Bridge.pdf.")
+
+        var two = PickedFileTally()
+        two.recordImport()
+        two.recordFailure("Bridge.pdf")
+        two.recordFailure("Verse.docx")
+        check("two names read as a sentence",
+              two.message(kind: "song", plural: "songs") ?? "",
+              "Imported 1 song. Could not import Bridge.pdf and Verse.docx.")
+
+        var many = PickedFileTally()
+        many.recordImport()
+        for name in ["A.pdf", "B.pdf", "C.pdf", "D.pdf", "E.pdf"] { many.recordFailure(name) }
+        check("past three, the rest are counted",
+              many.message(kind: "song", plural: "songs") ?? "",
+              "Imported 1 song. Could not import A.pdf, B.pdf, C.pdf and 2 more.")
+
+        // Nothing landed at all is the one case where the names leave the
+        // writer nowhere to go, so the server's own reason comes with them.
+        var none = PickedFileTally()
+        none.recordFailure("Bridge.pdf")
+        none.recordFailure("Verse.docx")
+        check("a batch that landed nothing carries the reason",
+              none.message(kind: "song", plural: "songs", reason: "You are offline.") ?? "",
+              "Could not import Bridge.pdf and Verse.docx. You are offline.")
+        check("and stands alone without one",
+              none.message(kind: "song", plural: "songs") ?? "",
+              "Could not import Bridge.pdf and Verse.docx.")
+        // A stale error left on the model must not be tacked onto a batch that
+        // mostly worked — the reason for those files is rarely that one.
+        check("a reason is left off when something landed",
+              mixed.message(kind: "song", plural: "songs", reason: "You are offline.") ?? "",
+              "Imported 2 songs. Could not import Bridge.pdf.")
+    }
 }
 
 await run()
