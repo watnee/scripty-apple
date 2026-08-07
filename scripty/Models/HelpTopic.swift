@@ -805,8 +805,8 @@ extension HelpTopic {
                     + "words on screen — including the ones typed since the last save, "
                     + "and from a note that has never reached the server at all.",
                     "A song can keep the recording as well as the words. "
-                    + "Recordings sits at the foot of the lyric — under the last "
-                    + "line while you write, under the page while you read — and "
+                    + "Recordings sits at the head of the lyric — over the title "
+                    + "while you write, over the page while you read — and "
                     + "holds what this song sounds like: the voice memo you sang "
                     + "the tune into, the demo the band sent back, a reference "
                     + "track you are chasing. "

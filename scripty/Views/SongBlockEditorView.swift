@@ -219,13 +219,13 @@ struct SongBlockEditorView: View {
                 // come back exactly as they were left.
                 if isReading {
                     VStack(spacing: 0) {
-                        reader
-                        // Under the page rather than in it: the reader sets the
+                        // Over the page rather than in it: the reader sets the
                         // words exactly as they were written, and a control
                         // inside that column would be one more thing in the
                         // lyric. The writing surface keeps its own copy at the
-                        // foot of the lines — see `recordingsRow`.
+                        // head of the lines — see `recordingsRow`.
                         recordingsBar
+                        reader
                     }
                 } else {
                     lyricList
@@ -515,6 +515,8 @@ struct SongBlockEditorView: View {
     private var lyricList: some View {
         ScrollViewReader { proxy in
             List {
+                recordingsRow
+
                 titleHeading
 
                 ForEach(shownBlocks) { block in
@@ -534,8 +536,6 @@ struct SongBlockEditorView: View {
                         // backgrounds still separate highlighted lines.
                         .listRowSeparator(.hidden)
                 }
-
-                recordingsRow
             }
             .listStyle(.plain)
             // The list pads every row up to its default minimum height,
@@ -578,7 +578,7 @@ struct SongBlockEditorView: View {
         .overlay { emptyState }
     }
 
-    /// The way to what this song sounds like, under the words it is made of —
+    /// The way to what this song sounds like, over the words it is made of —
     /// the voice memo the tune was first sung into, the demo, the reference
     /// track being chased.
     ///
@@ -586,9 +586,9 @@ struct SongBlockEditorView: View {
     /// this would ordinarily go. That menu is full: this sheet defines more
     /// toolbar items than iOS will draw, and the ones past the limit are
     /// dropped without a word — Print… already is, on a phone, and a
-    /// Recordings item put up there was never seen once. A row at the foot of
-    /// the verse is also where the browser keeps its own recordings panel, so
-    /// the two clients now say the same thing in the same place.
+    /// Recordings item put up there was never seen once. At the head of the
+    /// verse it is also seen without scrolling, which the foot of a long lyric
+    /// never was.
     ///
     /// Drawn only where the server advertised the collection — an older
     /// deployment has never heard of recordings and this client then says
@@ -599,21 +599,21 @@ struct SongBlockEditorView: View {
         if model.document.hasLink(.audioRecordings) {
             recordingsButton
                 .listRowSeparator(.hidden)
-                .padding(.top, 24)
+                .padding(.top, 8)
         }
     }
 
-    /// The same row under the reading surface, which is not a list and has no
+    /// The same row over the reading surface, which is not a list and has no
     /// row to put it in. A song opens here whenever the writer left it here,
     /// and someone reading a lyric is exactly the person who wants to hear it.
     @ViewBuilder
     private var recordingsBar: some View {
         if model.document.hasLink(.audioRecordings) {
             VStack(spacing: 0) {
-                Divider()
                 recordingsButton
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
+                Divider()
             }
         }
     }
