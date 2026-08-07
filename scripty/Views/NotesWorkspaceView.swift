@@ -789,6 +789,13 @@ struct NotesWorkspaceView: View {
     /// badge nobody reads by the end of the first page.
     private var cloudState: CloudSyncState? {
         guard !app.isDemo else { return nil }
+        // Ahead of the rest, as every sibling has it: the others clear up on
+        // their own and this one is waiting on the writer. Without it two
+        // devices editing the same note left this badge reading "Synced" —
+        // green, over a note in disagreement — with nothing on the screen
+        // offering a way to settle it, though the sheet and the routing were
+        // both already here.
+        if !noteConflicts.isEmpty { return .conflicted }
         if !app.connectivity.isOnline { return .offline }
         if drafts.values.contains(where: { if case .failed = $0.status { return true } else { return false } }) {
             return .failed
@@ -825,7 +832,10 @@ struct NotesWorkspaceView: View {
             ToolbarItem(placement: .topBarLeading) {
                 CloudSyncBadge(state: cloud,
                                heldCount: heldNoteCount,
-                               sync: { await flushAll() })
+                               sync: { await flushAll() },
+                               conflictCount: noteConflicts.count,
+                               review: noteConflicts.isEmpty
+                                   ? nil : { showingConflicts = true })
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -962,8 +972,9 @@ struct NotesWorkspaceView: View {
     }
 
     /// Two versions of a note exist and only the writer can settle it. The
-    /// same strip the screenplay and the song editors raise — this screen has
-    /// no cloud badge of its own, so it is the only way in from here.
+    /// same strip the screenplay and the song editors raise. Both ways in are
+    /// offered, as they are everywhere else: the badge answers a writer who
+    /// went looking, and the banner tells one who did not know to.
     @ViewBuilder
     private var conflictBanner: some View {
         if !noteConflicts.isEmpty {

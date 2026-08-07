@@ -529,6 +529,27 @@ struct SongEditorView: View {
                 scheduleAutosave()
             }
             .onChange(of: content) { _, _ in scheduleAutosave() }
+            // A reading in progress follows the document it is reading. The
+            // *saved* words rather than the typed ones, which is the whole
+            // point: they move when a save lands, not per keystroke, so the
+            // run is rebuilt a handful of times rather than a hundred — the
+            // same trade `SongBlockEditorView` makes by watching `model.blocks`
+            // rather than `liveText`.
+            //
+            // Known imperfection, and better than what it replaces: the note's
+            // cues are numbered by position, so removing a paragraph above the
+            // caret shifts the run by a line. The voice reading words the
+            // writer deleted is worse, and the lyric editor has the same
+            // ordinal in the same place.
+            .onChange(of: savedContent) { _, _ in
+                guard narrator.isActive, isBeingRead, let subject = readingSubject
+                else { return }
+                narrator.prepare(narrationSource,
+                                 subject: subject,
+                                 title: trimmedTitle.isEmpty
+                                    ? (type == .song ? "Untitled Song" : "Untitled Notes")
+                                    : trimmedTitle)
+            }
             // A phone put down mid-sentence is backgrounded, and a backgrounded
             // app is one the system may end without asking. Don't wait out the
             // debounce for that. The sheet is still here, so this is the
@@ -1394,12 +1415,15 @@ struct SongEditorView: View {
     /// at the foot of it, as it does on the screenplay and in the lyric editor.
     /// Reaching for it while this document is being read pauses and resumes.
     ///
-    /// The run is built once, at the press. Everywhere else a reading follows
-    /// the words as they change, because everywhere else they change when an
-    /// element lands; here `content` is bound to the text view and changes on
-    /// every keystroke, and rebuilding the run restarts the sentence being
-    /// spoken. So a note typed into while it reads is read as it was when the
-    /// voice started — press it again to hear the new words.
+    /// The run follows the words, as it does on every other surface — see the
+    /// `savedContent` watch in the body. `content` is bound to the text view
+    /// and changes on every keystroke, which is why this used to be built once
+    /// at the press and left: rebuilding per character would restart the
+    /// sentence being spoken. But left alone entirely, deleting a paragraph
+    /// while the voice was running had it read the deleted words aloud, with
+    /// the transport pointing at a note that no longer said that. The saved
+    /// copy is the answer both song editors already use: it moves when a save
+    /// lands, not per keystroke.
     private func toggleReadAloud() {
         if narrator.isActive && isBeingRead {
             narrator.togglePlayPause()

@@ -168,6 +168,7 @@ struct SongsWorkspaceView: View {
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .safeAreaInset(edge: .top, spacing: 0) { conflictBanner }
             .toolbar { toolbar }
             // Same claim the song editor makes, and for the same reason: this
             // is a cover over the screenplay, and without it the menu's ⌘Z
@@ -837,6 +838,20 @@ struct SongsWorkspaceView: View {
     /// found one — the same limit the held-line count above lives with.
     private var openConflicts: [SyncConflict] {
         lyrics.values.flatMap(\.conflicts).sorted { $0.detectedAt < $1.detectedAt }
+    }
+
+    /// Two versions of a line exist and only the writer can settle it — the
+    /// same strip the screenplay, both song editors and the notes workspace
+    /// raise. This screen computed the conflicts, routed the answers and
+    /// presented the sheet, and then had nothing on it that ever opened one:
+    /// the only way in was the small cloud glyph in the toolbar, so the same
+    /// event that draws a banner across the top of the single-song editor was
+    /// silent here.
+    @ViewBuilder
+    private var conflictBanner: some View {
+        if !openConflicts.isEmpty {
+            ConflictBanner(count: openConflicts.count) { showingConflicts = true }
+        }
     }
 
     /// Which song's lyric a conflict belongs to. The workspace shows one list
