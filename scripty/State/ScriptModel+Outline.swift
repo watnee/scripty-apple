@@ -31,6 +31,14 @@ extension ScriptModel {
         blocks.filter { commentCount(for: $0) > 0 }
     }
 
+    /// Note elements, in document order.
+    ///
+    /// The one navigable list whose elements can be missing from the script
+    /// entirely: Show ▸ Notes takes them off the page, and a note taken off the
+    /// page was, until this list, unreachable without turning it back on and
+    /// scrolling for it.
+    var noteBlocks: [Block] { blocks.filter { $0.blockType == .note } }
+
     /// True once there is anything worth navigating or measuring.
     var hasScriptContent: Bool { !blocks.isEmpty }
 
