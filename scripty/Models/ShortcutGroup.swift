@@ -83,9 +83,27 @@ extension ShortcutGroup {
                 ShortcutEntry("New element", "⌘N"),
                 ShortcutEntry("Undo", "⌘Z"),
                 ShortcutEntry("Redo", "⌘⇧Z"),
-                ShortcutEntry("Find in script", "⌘F"),
+                ShortcutEntry("Find and replace", "⌘F"),
+                ShortcutEntry("Comment on the element", "⌘⌥M"),
+                ShortcutEntry("Title page", "⌘⇧T"),
+                ShortcutEntry("Import a script", "⌘⇧I"),
                 ShortcutEntry("Songs", "⌘⇧S"),
                 ShortcutEntry("Print", "⌘P")
+            ]),
+        ShortcutGroup(
+            id: "format",
+            title: "Format",
+            systemImage: "bold",
+            context: "Acts on the words you have selected.",
+            note: "Align Right carries no key on purpose: the two that do are the "
+                + "ones a screenplay reaches for, and a third would be a chord "
+                + "spent on something used once a script.",
+            entries: [
+                ShortcutEntry("Bold", "⌘B"),
+                ShortcutEntry("Italic", "⌘I"),
+                ShortcutEntry("Underline", "⌘U"),
+                ShortcutEntry("Align left", "⌘⇧L"),
+                ShortcutEntry("Align centre", "⌘⇧E")
             ]),
         ShortcutGroup(
             id: "typing",
@@ -153,6 +171,13 @@ extension ShortcutGroup {
                 ShortcutEntry("Read script", "⌘⇧R"),
                 ShortcutEntry("Read aloud", "⌘⇧A"),
                 ShortcutEntry("Check spelling", "⌘⇧;"),
+                ShortcutEntry("Word count", "⌘⇧Y"),
+                ShortcutEntry("Pins", "⌘⇧N"),
+                ShortcutEntry("Bookmarks", "⌘⇧B"),
+                ShortcutEntry("Element labels", "⌘⇧U"),
+                ShortcutEntry("Lock or unlock editing", "⌘⇧Q"),
+                ShortcutEntry("Version history", "⌘⇧H"),
+                ShortcutEntry("Editions", "⌘⇧J"),
                 ShortcutEntry("Bigger text", "⌘+"),
                 ShortcutEntry("Smaller text", "⌘−"),
                 ShortcutEntry("Actual size", "⌘0")
@@ -179,6 +204,11 @@ extension ShortcutGroup {
                 // song or note the chord reads *that*, never the screenplay the
                 // sheet is covering.
                 ShortcutEntry("Read the note or song aloud", "⌘⇧A"),
+                // And Find. The screenplay's own ⌘F used to be the only one
+                // bound, which meant pressing it over a note opened the search
+                // bar on the script underneath — out of sight, and waiting when
+                // the note was closed.
+                ShortcutEntry("Find in the note or song", "⌘F"),
                 // Print is aimed the same way again — and on either workspace
                 // it means every song or note on the screen, which is what that
                 // screen is.

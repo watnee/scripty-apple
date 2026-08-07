@@ -336,11 +336,18 @@ extension HelpTopic {
                     + "replaces the other; Use the Cloud's drops yours. Nothing is "
                     + "sent or deleted until you choose, and the question waits as "
                     + "long as it has to, including across a relaunch.",
-                    "The same screen holds the two other cases where words would "
+                    "When several are waiting at once \u{2014} one offline stretch, one "
+                    + "other person working through the same scene \u{2014} Resolve All at "
+                    + "the top answers them together: Keep All of Mine, or Use All "
+                    + "from the Cloud. It asks first and says how many, and it leaves "
+                    + "out the ones with nothing to keep.",
+                    "The same screen holds the other cases where words would "
                     + "otherwise have gone quietly: a note deleted elsewhere while "
                     + "your edit was waiting (there is nothing to put it back into, "
-                    + "so copy what you want to keep), and a change the server "
-                    + "refused outright."
+                    + "so copy what you want to keep), a change the server "
+                    + "refused outright, and an element written offline that the "
+                    + "server would not take \u{2014} that one never existed anywhere else, "
+                    + "so the words are held here for you to copy."
                 ],
                 keywords: ["offline", "no connection", "unsaved", "held", "sync",
                            "cloud", "banner", "dismiss", "close", "airplane mode",
@@ -431,6 +438,34 @@ extension HelpTopic {
                 ],
                 keywords: ["bulk", "multiple", "checkbox", "select all", "tags", "batch",
                            "swipe"]),
+            HelpTopic(
+                id: "find-replace",
+                title: "Find and Replace",
+                systemImage: "text.magnifyingglass",
+                paragraphs: [
+                    "The magnifying glass in the toolbar, or ⌘F, opens the find bar "
+                    + "over the script. Type and every match is highlighted where it "
+                    + "stands; the arrows step from one to the next, bringing each "
+                    + "into view without leaving the page.",
+                    "Three switches decide what counts as a match. Match Case looks "
+                    + "for the capitals you typed. Whole Words ignores a match inside "
+                    + "a longer word — \"art\" stops finding \"start\". Cues searches "
+                    + "character cues as well as the rest, which is off to begin with "
+                    + "so that looking for a word in the dialogue does not stop on "
+                    + "every name above it.",
+                    "Where you can type, Replace sits beside them. Replace changes "
+                    + "the match you are standing on and moves to the next. Replace "
+                    + "All asks first, naming how many it is about to change, and "
+                    + "counts as one step — so a replacement across two hundred "
+                    + "elements is one Undo, not two hundred.",
+                    "A song and a note have their own, and they are not quite this. A "
+                    + "song's Search narrows the lyric to the lines that match, which "
+                    + "is a filter rather than a walk; a note's find bar steps through "
+                    + "the prose with Match Case and Whole Words of its own. ⌘F opens "
+                    + "whichever belongs to what is in front of you."
+                ],
+                keywords: ["find", "replace", "search", "match case", "whole word",
+                           "replace all", "cues", "highlight", "next", "previous"]),
             HelpTopic(
                 id: "spelling",
                 title: "Spelling",
@@ -615,6 +650,22 @@ extension HelpTopic {
                 keywords: ["toolbar", "bar", "bars", "hide", "hides", "fold",
                            "scroll", "scrolling", "chrome", "room", "space",
                            "navigation bar", "title"]),
+            HelpTopic(
+                id: "scroll-thumb",
+                title: "Getting Down a Long Script",
+                systemImage: "arrow.up.and.down.text.horizontal",
+                paragraphs: [
+                    "Scrolling a feature-length screenplay flick by flick is a long "
+                    + "way. A slim handle appears down the right edge while the script "
+                    + "is moving: drag it and the whole document goes past at the "
+                    + "speed of your thumb. It fades once you stop, so it is not "
+                    + "another thing standing on the page.",
+                    "For going somewhere in particular rather than just far, the "
+                    + "outline is the better tool \u{2014} it lists the scenes and sections, "
+                    + "and tapping one lands on it."
+                ],
+                keywords: ["scrollbar", "scroll bar", "thumb", "handle", "drag",
+                           "long", "feature", "jump", "fast scroll", "scrubber"]),
             HelpTopic(
                 id: "read-script",
                 title: "Read Script",
@@ -842,6 +893,12 @@ extension HelpTopic {
                     + "arrangement is saved, and a filter narrowing the screen moves "
                     + "only the documents you can see. The lists rearrange the same "
                     + "way: Edit, then drag by the grip.",
+                    "A row\u{2019}s \u{201C}\u{2026}\u{201D} menu holds two more. Duplicate makes a "
+                    + "copy titled \u{201C}\u{2026} (copy)\u{201D} \u{2014} somewhere to try a second "
+                    + "chorus without losing the first. Make a Song and Make a Note "
+                    + "swap which list a document belongs to; the words come across "
+                    + "whole, and a song that becomes a note leaves its folder behind, "
+                    + "because the two lists keep their own.",
                     "Songs and notes are offered the same things. Both export as text, "
                     + "PDF, Word or EPUB, on their own or as one file of the whole list; "
                     + "both can be emailed to a collaborator; and Edit selects several "
@@ -875,9 +932,12 @@ extension HelpTopic {
                     + "holds what this song sounds like: the voice memo you sang "
                     + "the tune into, the demo the band sent back, a reference "
                     + "track you are chasing. "
-                    + "Add Recording takes an MP3, M4A, WAV, AIFF, FLAC or "
-                    + "OGG file of 25 MB or less from anywhere the Files app can "
-                    + "reach, up to fifty of them. Each plays in place, one at a time, "
+                    + "Add Recording takes an audio file of 25 MB or less from "
+                    + "anywhere the Files app can reach \u{2014} MP3, M4A, AAC, WAV, AIFF, "
+                    + "FLAC, OGG, Opus, CAF and the rest of what an iPhone records or "
+                    + "a band sends \u{2014} up to fifty of them. A file over the limit is "
+                    + "turned away before it is sent, rather than after. "
+                    + "Each plays in place, one at a time, "
                     + "and keeps playing with the screen off; swipe a take to rename "
                     + "or delete it, or press and hold to send a copy on. Anyone who "
                     + "can open the song can listen — adding and deleting need the "
@@ -1020,14 +1080,25 @@ extension HelpTopic {
                     + "own Read Aloud uses; the transport at the foot of the screen "
                     + "steps a line at a time, and the speaker beside it sets the "
                     + "speed and the voice. In a song the line being read is "
-                    + "highlighted and scrolls itself into view. It works while you "
+                    + "highlighted and scrolls itself into view, and holding a line "
+                    + "while the song is up to be read offers \u{201C}Read Aloud From "
+                    + "Here\u{201D} \u{2014} the third verse without the two before it. It works "
+                    + "while you "
                     + "are writing as well as while you are reading, and it keeps "
-                    + "going with the screen off — the Lock Screen shows the "
+                    + "going with the screen off \u{2014} the Lock Screen shows the "
                     + "document's name and the line being read. One voice at a time: "
                     + "reading a song stops a screenplay that was being read, and "
-                    + "closing the document stops the reading. A note being typed "
-                    + "into is read as it stood when you pressed the button; press it "
-                    + "again to hear the newer words.",
+                    + "closing the document stops the reading. The reading follows "
+                    + "the words: keep typing and what you have written is picked up "
+                    + "as each change saves, rather than the voice going on with the "
+                    + "version you started it on.",
+                    "Both workspace screens read the whole set through. Read Songs "
+                    + "Aloud and Read Notes Aloud, in the \u{201C}\u{2026}\u{201D} menu there, "
+                    + "speak every song or note on the page in the order it is shown, "
+                    + "each announced by its title \u{2014} which is how you hear whether "
+                    + "the third song follows the second. \u{2318}\u{21E7}A does the same from "
+                    + "the keyboard, a filter narrows what is read to what is on "
+                    + "screen, and leaving the page stops the reading.",
                     "Locking is not reading. A locked document is still the writing "
                     + "surface — the same lines, the same lists — with the keyboard "
                     + "taken away from it; Read Song and Read Note set the words for "
@@ -1154,9 +1225,18 @@ extension HelpTopic {
                     "A deleted element goes to the screenplay's own trash. Open Deleted "
                     + "Elements from the toolbar, swipe to restore it to where it was, "
                     + "or swipe the other way to destroy it for good — that one asks "
-                    + "first, because Undo cannot reach it."
+                    + "first, because Undo cannot reach it.",
+                    "Empty Trash at the top of that screen destroys all of them at "
+                    + "once. It asks first and says how many, for the same reason: "
+                    + "nothing brings them back afterwards.",
+                    "A song keeps one of its own. Deleted Lines, in a song's \"…\" "
+                    + "menu, is the same screen for the lines of that lyric — restore "
+                    + "one to where it was, or destroy it. A note has no line list, so "
+                    + "it has nothing of the kind; a deleted note goes to the project's "
+                    + "trash whole."
                 ],
-                keywords: ["restore", "recover", "undelete", "bin", "removed", "block"])
+                keywords: ["restore", "recover", "undelete", "bin", "removed", "block",
+                           "empty trash", "deleted lines", "lyric"])
         ]),
         // Its own section because none of it is about writing. Passkeys, the
         // password, Siri and the widgets are about the account behind the work
@@ -1217,12 +1297,29 @@ extension HelpTopic {
                            "email", "link", "locked out", "cannot sign in",
                            "change", "credentials"]),
             HelpTopic(
+                id: "users",
+                title: "Managing Users",
+                systemImage: "person.2.badge.gearshape",
+                paragraphs: [
+                    "Users, on the sidebar menu, appears only for an administrator \u{2014} "
+                    + "the server advertises it to nobody else, so an ordinary writer "
+                    + "never sees it. It lists everyone with an account on this server, "
+                    + "with what each of them may do.",
+                    "From there an account can be made, renamed, given or refused "
+                    + "administrator rights, and removed. It is about who may sign in "
+                    + "at all; who can see a particular screenplay is a different "
+                    + "question, answered by Teams and by sharing."
+                ],
+                keywords: ["admin", "administrator", "accounts", "people", "roles",
+                           "permissions", "server", "manage"]),
+            HelpTopic(
                 id: "siri-shortcuts",
                 title: "Siri, Shortcuts and Spotlight",
                 systemImage: "mic",
                 paragraphs: [
                     "Scripty answers Siri without any setting up. \"Open Songs in "
-                    + "Scripty\", \"Open my screenplay in Scripty\", \"New note in "
+                    + "Scripty\", \"Open Notes in Scripty\", "
+                    + "\"Open my screenplay in Scripty\", \"New note in "
                     + "Scripty\", \"New song in Scripty\", \"Add a lyric in Scripty\" and "
                     + "\"Add an action line in Scripty\" all work, and each opens the app "
                     + "where the words landed rather than leaving you to find them.",
@@ -1262,8 +1359,11 @@ extension HelpTopic {
                     + "Lock Screen or the Action button: Songs, Screenplay, New Note and "
                     + "New Song. Press and hold Control Centre, then the add button, to "
                     + "find them under Scripty.",
-                    "Press and hold the app icon for the same shortcuts plus the "
-                    + "screenplays you were working on most recently.",
+                    "Press and hold the app icon for Songs and Notes, plus the "
+                    + "screenplays you were working on most recently. It is a shorter "
+                    + "list than Control Centre\u{2019}s on purpose \u{2014} the Home Screen menu "
+                    + "holds a few entries, and the two lists are the ones worth the "
+                    + "room.",
                     "All of it works without an account, on whatever is on the device. "
                     + "Signing out empties every widget rather than leaving the last "
                     + "writer's titles on the Home Screen."
@@ -1333,10 +1433,19 @@ extension HelpTopic {
                     + "points in its past. The default edition is the one that opens "
                     + "when none is named; the published one is what view-only readers "
                     + "see, so a writer can be drafting in one while readers stay on the "
-                    + "last cut."
+                    + "last cut.",
+                    "A song keeps both of its own, in its \u{201C}\u{2026}\u{201D} menu. Editions "
+                    + "there are second and third versions of the same lyric \u{2014} the "
+                    + "radio edit beside the album cut \u{2014} and the picker at the head of "
+                    + "the song appears once there is more than one to choose between. "
+                    + "Version History there lists that song\u{2019}s snapshots, and a song "
+                    + "version reports its title and how many lines it had where a "
+                    + "screenplay reports scenes and elements. A note has neither: it "
+                    + "is plain text with nothing to vary."
                 ],
                 keywords: ["snapshot", "revision", "backup", "restore", "draft",
-                           "history", "timeline", "published"]),
+                           "history", "timeline", "published", "song editions",
+                           "alternate", "cut", "lyric version"]),
             HelpTopic(
                 id: "activity",
                 title: "Recent Activity",
