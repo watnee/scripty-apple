@@ -1107,7 +1107,10 @@ struct SongBlockEditorView: View {
                 // which the screenplay's Undo is made of too. A lyric is where
                 // that matters most: a verse is retyped a line at a time, so
                 // the change a writer wants gone is a run of small steps rather
-                // than one big one.
+                // than one big one. The screenplay's hold does the other thing
+                // that control can do — it reaches Redo, which its bar has no
+                // room to draw. Here the pair is both drawn, so the hold is
+                // free to repeat.
                 //
                 // Both rewind the lyric to a different set of lines, so the
                 // matched set has to be taken again or a search would keep
