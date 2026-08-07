@@ -48,6 +48,10 @@ struct FormatBar: View {
         // No background: `ScriptView` mounts the editing bars with
         // `.safeAreaBar`, so the strip is already floating on Liquid Glass.
         .scrollEdgeEffectHidden()
+        // Sideways only, pinned the way ElementTypeBar is and for the reason
+        // given there — this row shares its construction and its slack.
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Bold / italic / underline

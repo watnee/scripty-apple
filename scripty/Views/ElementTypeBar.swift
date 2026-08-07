@@ -62,5 +62,14 @@ struct ElementTypeBar: View {
         // No background: `ScriptView` mounts the editing bars with
         // `.safeAreaBar`, so the strip is already floating on Liquid Glass.
         .scrollEdgeEffectHidden()
+        // This row scrolls sideways and nothing else. A horizontal `ScrollView`
+        // still takes whatever height it is offered, and it is `contentSize`
+        // against `bounds` — not the axis it was declared with — that decides
+        // whether UIKit lets a finger drag it up and down. So the height is
+        // pinned to the chips' own, leaving no slack to drag into, and the
+        // vertical bounce is declined on top: between them there is nothing
+        // for a sideways swipe to shake loose.
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
