@@ -1062,36 +1062,47 @@ struct SongsView: View {
     @ViewBuilder
     private var folderBar: some View {
         if showsFolders, !editMode.isEditing {
-            ScrollViewReader { scroller in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        folderChip(listType == .song ? "All Songs" : "All Notes",
-                                   systemImage: "tray.full", filter: .all)
-                        if !listFolders.isEmpty {
-                            folderChip("Unfiled", systemImage: "tray", filter: .unfiled)
-                            // The count is the server's, and it counts the whole
-                            // list — so it stays honest while a search narrows
-                            // what is actually on screen.
-                            ForEach(listFolders) { folder in
-                                folderChip("\(folder.displayName) (\(folder.documentCount ?? 0))",
-                                           systemImage: "folder",
-                                           filter: .folder(folder.id))
-                                    .contextMenu { folderActions(for: folder) }
+            // New Folder is outside the ScrollView, pinned to the trailing edge:
+            // it used to be the last chip in the strip, which put it off the end
+            // of the screen for exactly the list that needs another folder most.
+            // The chips scroll under it and it stays put.
+            HStack(spacing: 8) {
+                ScrollViewReader { scroller in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            folderChip(listType == .song ? "All Songs" : "All Notes",
+                                       systemImage: "tray.full", filter: .all)
+                            if !listFolders.isEmpty {
+                                folderChip("Unfiled", systemImage: "tray", filter: .unfiled)
+                                // The count is the server's, and it counts the
+                                // whole list — so it stays honest while a
+                                // search narrows what is actually on screen.
+                                ForEach(listFolders) { folder in
+                                    folderChip("\(folder.displayName) (\(folder.documentCount ?? 0))",
+                                               systemImage: "folder",
+                                               filter: .folder(folder.id))
+                                        .contextMenu { folderActions(for: folder) }
+                                }
                             }
                         }
-                        if model.canCreateFolder { newFolderChip }
+                        .padding(.leading, 12)
+                        .padding(.trailing, 4)
+                        .padding(.vertical, 2)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 2)
+                    // Naming a folder and filing a song both move the filter on
+                    // the writer's behalf, and the chip they land on is
+                    // regularly off the end of a row this narrow. Without this
+                    // the list changes under a strip that still shows the old
+                    // chip highlighted.
+                    .onChange(of: folderFilter) { _, filter in
+                        withAnimation { scroller.scrollTo(filter, anchor: .center) }
+                    }
+                    .scrollEdgeEffectHidden()
                 }
-                // Naming a folder and filing a song both move the filter on the
-                // writer's behalf, and the chip they land on is regularly off
-                // the end of a row this narrow. Without this the list changes
-                // under a strip that still shows the old chip highlighted.
-                .onChange(of: folderFilter) { _, filter in
-                    withAnimation { scroller.scrollTo(filter, anchor: .center) }
+                if model.canCreateFolder {
+                    newFolderChip
+                        .padding(.trailing, 12)
                 }
-                .scrollEdgeEffectHidden()
             }
             .padding(.bottom, 8)
         }
@@ -1126,21 +1137,48 @@ struct SongsView: View {
     /// Making a folder from the strip itself, so the first one is a tap from
     /// where folders live rather than something to go looking for. Outlined
     /// instead of filled: it is not one of the things the list can be showing.
+    ///
+    /// Pinned beside the strip rather than in it, so it cannot scroll away —
+    /// which means it is now spending width the folder names want. It says its
+    /// name only while there are no folders yet, which is the one moment
+    /// nobody knows the button is there and also the moment the strip has room
+    /// to spare; after that the glyph stands on its own, 44pt wide whatever the
+    /// icon measures.
     private var newFolderChip: some View {
         Button {
             filingDocument = nil
             folderName = ""
             namingFolder = true
         } label: {
-            Label("New Folder", systemImage: "folder.badge.plus")
-                .font(.subheadline.weight(.medium))
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+            newFolderLabel
         }
         .buttonStyle(.plain)
         .foregroundStyle(Color.accentColor)
         .background(Capsule().strokeBorder(Color.secondary.opacity(0.35)))
+        // The icon-only form says nothing out loud on its own.
+        .accessibilityLabel("New Folder")
+        // The scrolling strip beside it is greedy; without this the button is
+        // squeezed to its icon's ideal width and then past it.
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var newFolderLabel: some View {
+        let label = Label("New Folder", systemImage: "folder.badge.plus")
+            .font(.subheadline.weight(.medium))
+            .lineLimit(1)
+        if listFolders.isEmpty {
+            label
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        } else {
+            // Same height as the chips it sits beside, and the width padded out
+            // to a thumb rather than to the glyph.
+            label
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44)
+                .padding(.vertical, 6)
+        }
     }
 
     /// Renaming and removing, on a touch and hold of the folder's own chip —

@@ -958,8 +958,9 @@ extension HelpTopic {
                     + "trash for a file.",
                     "Folders group a long list. They sit as a strip of names "
                     + "above the rows — All and Unfiled among them — and tapping "
-                    + "one shows that folder; New Folder at the end of the strip "
-                    + "names a new one, and pressing and holding a folder there "
+                    + "one shows that folder; the New Folder button at the right "
+                    + "of the strip names a new one and stays there however far "
+                    + "the names scroll, and pressing and holding a folder "
                     + "renames or removes it. "
                     + "A row's Folder menu files that song or note, and can make "
                     + "the folder while it does it; Edit ticks several and files "
