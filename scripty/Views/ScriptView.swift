@@ -1458,10 +1458,12 @@ struct ScriptView: View {
     /// and a title has to come from somewhere.
     ///
     /// So it takes a strip of its own directly under the bar, which costs the
-    /// bar nothing and leaves it drawn at all times. Titled here, unlike
-    /// anywhere else it appears: a row of its own is the one place in this
-    /// layout with room for words, and a lone glyph in the middle of a strip
-    /// says nothing about which screen it opens.
+    /// bar nothing and leaves it drawn at all times. Icon-only, like every
+    /// other place it appears and like every other control in this chrome: the
+    /// glyph is the same one the toolbar draws on wider layouts, so a writer
+    /// who has met it once meets it again here, and a strip carrying a lone
+    /// bordered glyph reads as chrome rather than as a banner. The title stays
+    /// on the `Label` for VoiceOver.
     ///
     /// It folds away with the toolbar while the script is scrolled through —
     /// see `respondToScroll` — for the reading room the fold exists to give.
@@ -1478,7 +1480,7 @@ struct ScriptView: View {
             && model.canViewDocuments && !selection.isSelecting {
             documentsButton
                 .buttonStyle(.bordered)
-                .labelStyle(.titleAndIcon)
+                .labelStyle(.iconOnly)
                 .padding(.vertical, 4)
         }
     }
