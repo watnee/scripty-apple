@@ -7,6 +7,11 @@
 //  for anyone who had asked to see it; spellcheck reads the ordinary way round
 //  but must survive an absent key as *on*, since that is what a browser does.
 //
+//  Focus mode is the exception: what is checked there is that it *doesn't*
+//  store anything. It takes the word count off the screen by reading the
+//  preference alongside its own flag, so the mode can end without having spent
+//  the writer's choice.
+//
 //  Run via Tests/run.sh.
 //
 
@@ -47,6 +52,42 @@ func runWordCount() {
     settings.showsWordCount = false
     check("putting it away stores 'hidden'",
           store.object(forKey: "scripty-word-count-hidden") as? Bool ?? false, true)
+}
+
+@MainActor
+func runFocusMode() {
+    print("")
+    print("Focus mode and the word count")
+    let store = scratch("focusmode")
+    let settings = PresentationSettings(defaults: store)
+    settings.showsWordCount = true
+    check("the readout is up before the mode is", settings.isWordCountOnScreen, true)
+
+    // The mode takes the readout down — a number that ticks up with every word
+    // typed is the sort of thing it exists to clear away.
+    settings.isFocusMode = true
+    check("the mode takes it off screen", settings.isWordCountOnScreen, false)
+
+    // And the whole point of the second property: the writer's own choice is
+    // still standing underneath, so leaving the mode gives it straight back.
+    // A mode that wrote to the preference would hand back a script with the
+    // readout gone and nothing to say where it went.
+    check("without spending the preference", settings.showsWordCount, true)
+    check("or writing 'hidden' into the web's key",
+          store.object(forKey: "scripty-word-count-hidden") as? Bool ?? true, false)
+
+    settings.isFocusMode = false
+    check("so it comes back on the way out", settings.isWordCountOnScreen, true)
+
+    // The other way round: a writer who never asked for the readout does not
+    // get one handed to them by leaving the mode.
+    settings.showsWordCount = false
+    settings.isFocusMode = true
+    settings.isFocusMode = false
+    check("a readout never asked for stays away", settings.isWordCountOnScreen, false)
+
+    check("and the mode itself survives a relaunch",
+          PresentationSettings(defaults: store).isFocusMode, false)
 }
 
 @MainActor
@@ -391,6 +432,7 @@ func runDefaultFont() {
 MainActor.assumeIsolated {
     runDefaultFont()
     runWordCount()
+    runFocusMode()
     runOutlineMode()
     runSpellcheck()
     runIgnoredWords()

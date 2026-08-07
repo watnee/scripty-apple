@@ -69,6 +69,10 @@ struct BlockMarkerBadges: View {
 
     private var showsPin: Bool { block.isPinned && chrome.showsPins }
     private var showsBookmark: Bool { block.isBookmarked && chrome.showsBookmarks }
+    /// The count as this row should draw it — zero wherever the bubble is not
+    /// being drawn at all, so the animation below has nothing to animate and
+    /// the margin has nothing in it.
+    private var shownCommentCount: Int { chrome.showsComments ? commentCount : 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -96,20 +100,24 @@ struct BlockMarkerBadges: View {
         // arrives with a little movement rather than simply being there.
         .animation(.snappy, value: showsPin)
         .animation(.snappy, value: showsBookmark)
-        .animation(.snappy, value: commentCount)
+        .animation(.snappy, value: shownCommentCount)
     }
 
     /// The comment bubble, as a button wherever there is a thread to open.
     ///
     /// This is the only *tap* route to a thread on a line the writer cannot
     /// edit — a locked script, or a reader's copy — where there is no context
-    /// menu to reach for.
+    /// menu to reach for. Which is why `showsComments` is not a preference: the
+    /// one thing that puts it down is focus mode, where the writer has asked
+    /// for their own script without other people's remarks on it and gets the
+    /// bubbles back the moment they come out.
     @ViewBuilder
     private var comments: some View {
-        if commentCount > 0 {
+        let count = shownCommentCount
+        if count > 0 {
             if let onComment {
                 Button(action: onComment) {
-                    CommentCountBadge(count: commentCount)
+                    CommentCountBadge(count: count)
                         // A caption-sized bubble is a 12pt target; the padding
                         // grows it to a thumb's worth and is then taken back
                         // out of the layout, so nothing moves.
@@ -119,9 +127,9 @@ struct BlockMarkerBadges: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Comments")
-                .accessibilityValue("\(commentCount)")
+                .accessibilityValue("\(count)")
             } else {
-                CommentCountBadge(count: commentCount)
+                CommentCountBadge(count: count)
                     .accessibilityHidden(true)
             }
         }

@@ -567,13 +567,24 @@ extension HelpTopic {
                 systemImage: "moon",
                 paragraphs: [
                     "Focus Mode strips the screen back to the script alone, leaving only "
-                    + "the View menu as the way out. Full Page Width lets the writing "
-                    + "column use the whole window instead of the printed measure; it is "
-                    + "offered only outside page view, where paper has a width of its "
-                    + "own."
+                    + "the View menu as the way out. The toolbar keeps that menu, Undo "
+                    + "and the way back from reading and loses the rest; the songs and "
+                    + "notes buttons go with it, and so does the running word count. "
+                    + "Both margins empty as well — element labels, pins, bookmarks, "
+                    + "comment bubbles and tags are all put down for the duration, and "
+                    + "the room they were holding goes back to the writing.",
+                    "Nothing you had switched on is switched off by it: the marks and "
+                    + "the word count are exactly as you left them the moment you leave "
+                    + "the mode, which is why their switches are greyed while it is on. "
+                    + "What stays is what you cannot afford to lose sight of — whether "
+                    + "your work is saved, which version you are typing into, and a "
+                    + "reading that is playing.",
+                    "Full Page Width lets the writing column use the whole window "
+                    + "instead of the printed measure; it is offered only outside page "
+                    + "view, where paper has a width of its own."
                 ],
                 keywords: ["distraction", "zen", "width", "column", "measure",
-                           "concentrate"]),
+                           "concentrate", "hide", "marks", "word count", "clutter"]),
             HelpTopic(
                 id: "read-script",
                 title: "Read Script",
