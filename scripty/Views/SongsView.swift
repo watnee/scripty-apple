@@ -354,9 +354,31 @@ struct SongsView: View {
 
     /// The selection in list order, so a songbook of it reads in the order the
     /// writer arranged rather than the order rows happened to be tapped.
+    ///
+    /// Off the whole list for the kind on screen, *before* any search narrows
+    /// it — the same answer `shownListDocuments` gives for the same reason.
+    /// This used to intersect with `shown`, while every label and every
+    /// confirmation counted `selection` instead, and the selection is cleared
+    /// on a folder change but not on a search. So ticking three songs and then
+    /// typing a query that matched none of them left a bar reading "Delete 3",
+    /// an alert saying "Move 3 songs to the trash", and an outcome of "Moved 0
+    /// songs to the trash." Everything counts this now, so the number the
+    /// writer is shown is the number that goes.
+    ///
+    /// A folder is still a place and a search is still a lens: leaving a folder
+    /// clears the selection, because the rows belong to somewhere else, while
+    /// searching only stops showing rows that are still selected — which is
+    /// what searching for a fourth song to add to three already ticked has to
+    /// mean.
     private var selectedDocuments: [TextDocument] {
-        shown.filter { selection.contains($0.id) }
+        sortMode.applied(to: shownListDocuments.filter(folderFilter.accepts))
+            .filter { selection.contains($0.id) }
     }
+
+    /// How many rows an action is about to reach. One property rather than the
+    /// expression repeated in eight `Label` initialisers, which this file's
+    /// type-checker budget would not survive.
+    private var selectedCount: Int { selectedDocuments.count }
 
     /// Its own property rather than inline in `body`: with the search and sort
     /// on it, leaving the list in the body puts the view past what the type
@@ -520,6 +542,16 @@ struct SongsView: View {
                     folderFilter = .all
                 }
             }
+            // A bulk action or a background sync can take a document out from
+            // under the selection. Dropping the id rather than posting it is
+            // what `BulkActionBar` does over the screenplay's elements, and now
+            // that the counts are taken from the selection rather than from the
+            // rows on screen, it is the only thing keeping a deleted row from
+            // being counted in the next "Delete 3".
+            .onChange(of: model.documents) { _, documents in
+                let existing = Set(documents.map(\.id))
+                selection = selection.filter(existing.contains)
+            }
             // Which of the two lists is showing is the first rung of the record,
             // and the picker is the only thing that moves it once this screen is
             // up — the script view set it on the way in and does not hear about
@@ -663,7 +695,7 @@ struct SongsView: View {
                      ? "Send the lyrics to a collaborator."
                      : "Send the note to a collaborator.")
             }
-            .alert("Email \(counted(selection.count))", isPresented: $promptingBulkShare) {
+            .alert("Email \(counted(selectedCount))", isPresented: $promptingBulkShare) {
                 TextField("Recipient email", text: $shareEmail)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
@@ -679,7 +711,7 @@ struct SongsView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) { bulkDelete() }
             } message: {
-                Text("Move \(counted(selection.count)) to the trash. "
+                Text("Move \(counted(selectedCount)) to the trash. "
                      + "They can be restored from there.")
             }
             .alert("Songs & Notes",
@@ -1200,7 +1232,7 @@ struct SongsView: View {
                     Button(role: .destructive) {
                         confirmingBulkDelete = true
                     } label: {
-                        Label("Delete \(selection.count)", systemImage: "trash")
+                        Label("Delete \(selectedCount)", systemImage: "trash")
                     }
                 }
                 if model.canBulkArchiveDocuments {
@@ -1209,7 +1241,7 @@ struct SongsView: View {
                     Button {
                         bulkArchive()
                     } label: {
-                        Label("Archive \(selection.count)", systemImage: "archivebox")
+                        Label("Archive \(selectedCount)", systemImage: "archivebox")
                     }
                 }
                 if model.canBulkShareDocuments {
@@ -1217,7 +1249,7 @@ struct SongsView: View {
                         shareEmail = ""
                         promptingBulkShare = true
                     } label: {
-                        Label("Email \(selection.count)", systemImage: "envelope")
+                        Label("Email \(selectedCount)", systemImage: "envelope")
                     }
                 }
                 // Filing the ticked rows. No "New Folder…" here, unlike the row
@@ -1239,7 +1271,7 @@ struct SongsView: View {
                             Label("Remove from Folder", systemImage: "tray")
                         }
                     } label: {
-                        Label("Folder \(selection.count)", systemImage: "folder")
+                        Label("Folder \(selectedCount)", systemImage: "folder")
                     }
                 }
                 Spacer()
@@ -1251,7 +1283,7 @@ struct SongsView: View {
                             Button(option.label) { exportCollection(option, of: selectedDocuments) }
                         }
                     } label: {
-                        Label("Export \(selection.count)…", systemImage: "square.and.arrow.up")
+                        Label("Export \(selectedCount)…", systemImage: "square.and.arrow.up")
                     }
                 }
                 // The ticked rows on paper, one document per sheet — the same
@@ -1269,7 +1301,7 @@ struct SongsView: View {
                     Button {
                         printSelection()
                     } label: {
-                        Label("Print \(selection.count)…", systemImage: "printer")
+                        Label("Print \(selectedCount)…", systemImage: "printer")
                     }
                     .disabled(printer.isPrinting)
                 }
