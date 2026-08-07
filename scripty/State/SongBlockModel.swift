@@ -356,6 +356,13 @@ final class SongBlockModel {
     /// counts as agreeing.
     @discardableResult
     func commit(_ block: SongBlock) async -> Bool {
+        // Nothing is written to a line already on its way out. A merge hands
+        // the caret to the line above before it sends its DELETE, so the blur
+        // that follows arrives here mid-merge: left to run it would PUT into
+        // the gap the DELETE is about to open, and clear the live copy the
+        // rollback still has to put back. The merge owns the line's words and
+        // its flags until it is done with them — see `removingBlockIds`.
+        guard !removingBlockIds.contains(block.id) else { return true }
         commitTasks[block.id]?.cancel()
         commitTasks[block.id] = nil
         // No live words means nothing is held, whatever the flags say — a
@@ -763,13 +770,45 @@ final class SongBlockModel {
         // they were: half of one would show the writer their own words twice.
         let restore = liveText[previous.id]
         liveText[previous.id] = merged
+
+        // The caret goes to the seam now, before the round trip, exactly as it
+        // does in the screenplay and for the same reason: the folded-away line
+        // is the one holding first responder, and taking its row off screen
+        // resigns that with nothing ready to take it, which UIKit reads as the
+        // writer being finished — the keyboard dropped and then came straight
+        // back up as the line above claimed it a turn later. Handed over while
+        // both rows are still there it is an ordinary handoff, and Backspace
+        // lands like the keystroke it is rather than like a request.
+        //
+        // The folded line's own words are in the line above now, so a debounce
+        // still counting down for it has nothing left to say. Focus leaving is
+        // itself a flush, so `commit` turns that one away too while the line
+        // is claimed — see `removingBlockIds`.
+        let held = liveText[block.id]
+        commitTasks[block.id]?.cancel()
+        commitTasks[block.id] = nil
+        caretRequests[previous.id] = seam
+        focusRequest = previous.id
+        // Every way out that leaves the folded line on screen has to put the
+        // caret back at its head, where the writer pressed Backspace, and give
+        // its unflushed words back the write called off just above.
+        func restoreFolded() {
+            liveText[block.id] = held
+            if held != nil { scheduleCommit(block.id) }
+            // Withdrawn, not just overruled: a caret request is answered by
+            // taking first responder, so one left standing for the line above
+            // would pull the keyboard back off the line being restored.
+            caretRequests[previous.id] = nil
+            caretRequests[block.id] = 0
+            focusRequest = block.id
+        }
+
         guard await commit(previous) else {
             unmerge(previous.id, restoring: restore)
+            restoreFolded()
             return nil
         }
 
-        commitTasks[block.id]?.cancel()
-        commitTasks[block.id] = nil
         liveText[block.id] = nil
         guard await sendDelete(block) else {
             // The folded-away line is still there, so the merged words now
@@ -779,10 +818,9 @@ final class SongBlockModel {
                 liveText[previous.id] = previousText
                 await commit(current)
             }
+            restoreFolded()
             return nil
         }
-        caretRequests[previous.id] = seam
-        focusRequest = previous.id
         return previous.id
     }
 
