@@ -897,9 +897,11 @@ struct SongEditorView: View {
         return type == .song ? "Write the lyrics here…" : "Write your notes here…"
     }
 
-    /// Under the note: what went wrong, how long it is, and the formatting bar
-    /// riding above the keyboard. Stacked in that order so the bar sits closest
-    /// to the writer's thumbs and the readouts stay put above it.
+    /// Under the note: what went wrong, and the formatting bar riding above the
+    /// keyboard. Stacked in that order so the bar sits closest to the writer's
+    /// thumbs and the notice stays put above it. How long the note is is not
+    /// here any more — it is one line of the "…" menu, where it costs the
+    /// writing surface nothing.
     ///
     /// Where the note stands with the server is the badge's job now, not this
     /// bar's. What is left here is the half a glyph cannot carry: *why* the
@@ -917,13 +919,7 @@ struct SongEditorView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
             }
-            if settings.showsWordCount {
-                // Memoized: `content` is bound to the text view, so this whole
-                // body reruns per character and the count was re-splitting the
-                // entire note every time.
-                WordCountBar(words: wordCounter.words(in: content))
-            }
-            // Under the readouts and above the formatting bar: the transport is
+            // Under the notice and above the formatting bar: the transport is
             // what a listener reaches for, and the formatting bar belongs to the
             // keyboard it rides over.
             narrationBar
@@ -1119,10 +1115,25 @@ struct SongEditorView: View {
                 .disabled(isInserting)
             }
         }
+        // How long the thing runs, said outright rather than offered as a strip
+        // to switch on. A song or a note is short and its writer asks the
+        // question now and then, not continuously — so the answer belongs where
+        // the other now-and-then questions are answered, and the words get the
+        // whole sheet back.
+        //
+        // Memoized: `content` is bound to the text view, so this whole body
+        // reruns per character and the count would otherwise re-split the
+        // entire note every time.
+        //
+        // A disabled `Button` rather than the bare `Label` this wants to be: a
+        // toolbar item with no control in it is dropped from the overflow menu
+        // without a word — the row simply never appears. Disabled is also how
+        // the row should read, since there is nothing to press.
         ToolbarItem(placement: .secondaryAction) {
-            Toggle(isOn: wordCountBinding) {
-                Label("Word Count", systemImage: "number")
+            Button {} label: {
+                Label(wordCountTitle, systemImage: "number")
             }
+            .disabled(true)
         }
         // The mode itself, in the "…" this sheet has instead of a View menu —
         // the screenplay's Read Script toggle, wearing this document's word for
@@ -1230,8 +1241,12 @@ struct SongEditorView: View {
         }
     }
 
-    private var wordCountBinding: Binding<Bool> {
-        Binding(get: { settings.showsWordCount }, set: { settings.showsWordCount = $0 })
+    /// The menu's readout: "30 words", or "1 word" for the note that is one
+    /// word long. Singular where the workspaces' own counts are singular — the
+    /// same number said the same way wherever it is read.
+    private var wordCountTitle: String {
+        let words = wordCounter.words(in: content)
+        return "\(ScriptWordCount.formatted(words)) \(words == 1 ? "word" : "words")"
     }
 
     // MARK: - Reading view
