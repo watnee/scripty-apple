@@ -66,6 +66,9 @@ struct NotesWorkspaceView: View {
     /// that appeared over a half-typed note because a sweep found something
     /// would interrupt the one thing this screen is for.
     @State private var showingConflicts = false
+    /// Whether the screen is showing the notes to be dragged into order rather
+    /// than to be written in. See `arrangingList`.
+    @State private var isArranging = false
     /// Set once the saved open set has been restored, so the first restore does
     /// not immediately save the empty starting state back over it.
     @State private var didRestore = false
@@ -92,16 +95,11 @@ struct NotesWorkspaceView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(notes) { note in
-                    Section {
-                        if expanded.contains(note.id) {
-                            noteBody(for: note)
-                        }
-                    } header: {
-                        header(note)
-                    }
-                    .listRowSeparator(.hidden)
+            Group {
+                if isArranging {
+                    arrangingList
+                } else {
+                    noteList
                 }
             }
             .listStyle(.plain)
@@ -116,7 +114,9 @@ struct NotesWorkspaceView: View {
             // are bridged text views that take first responder for themselves,
             // and SwiftUI discards a focus value no view claimed.
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                if let id = focusedNote, drafts[id] != nil {
+                if isArranging {
+                    arrangingBar
+                } else if let id = focusedNote, drafts[id] != nil {
                     HideKeyboardBar(releaseFocus: { focusedNote = nil })
                 }
             }
@@ -177,6 +177,91 @@ struct NotesWorkspaceView: View {
                     notices.situationChanged(DismissedNotices.documentCopyKey(documentId: id))
                 }
             }
+        }
+    }
+
+    // MARK: - The two lists
+
+    /// Every note, open to be written in — the screen this is most of the time.
+    private var noteList: some View {
+        List {
+            ForEach(notes) { note in
+                Section {
+                    if expanded.contains(note.id) {
+                        noteBody(for: note)
+                    }
+                } header: {
+                    header(note)
+                }
+                .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    /// The same notes as a plain list of titles, to be dragged into order.
+    ///
+    /// Arranging is a mode rather than something a writer can do to the screen
+    /// as it stands, for the reason the songs workspace gives: a note here is a
+    /// `Section` with its prose inside it, and a section cannot be dragged —
+    /// `.onMove` moves rows within one `ForEach`, and a note's pane and the
+    /// note it belongs to cannot both be that row. So the notes are laid out on
+    /// their own for as long as it takes to arrange them, which is also what
+    /// makes the gesture usable: a screen of open notes is a long scroll to
+    /// drag the fourth one past the first.
+    ///
+    /// The prose is not gone: every draft is kept, and closing the mode gives
+    /// back the same screen, still open at the same notes.
+    private var arrangingList: some View {
+        List {
+            ForEach(notes) { note in
+                HStack(spacing: 8) {
+                    Text(note.displayTitle)
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                    if isLocked(note) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .onMove { source, destination in
+                var rearranged = notes
+                rearranged.move(fromOffsets: source, toOffset: destination)
+                saveOrder(rearranged)
+            }
+        }
+        // What puts the grip on every row and lets it be dragged. Held active
+        // rather than bound to a toggle: there is nothing else to be in the
+        // middle of here, and the way out is the bar below.
+        .environment(\.editMode, .constant(.active))
+    }
+
+    /// The way out of arranging, in the bar the keyboard key uses — the only
+    /// room on this screen for a control that is only sometimes there.
+    private var arrangingBar: some View {
+        HStack {
+            Text("Drag the notes into the order you want.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button("Done") { isArranging = false }
+                .font(.body.weight(.semibold))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    /// Opens the arranging mode, after sending whatever is half-typed: the
+    /// panes are about to leave the screen, and a paragraph must not leave with
+    /// them.
+    private func startArranging() {
+        focusedNote = nil
+        Task {
+            await flushAll()
+            isArranging = true
         }
     }
 
@@ -577,6 +662,20 @@ struct NotesWorkspaceView: View {
             .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
         }
+        // In the overflow rather than the bar itself, which on an iPhone is
+        // already an item from dropping something. Arranging is a thing a
+        // writer does once in a while and then leaves alone, unlike the two
+        // buttons above — the songs workspace puts its own here for the same
+        // reason.
+        if canReorder {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    startArranging()
+                } label: {
+                    Label("Arrange Notes", systemImage: "arrow.up.arrow.down")
+                }
+            }
+        }
         ToolbarItem(placement: .secondaryAction) {
             SpellingMenu(showingIgnoredWords: $showingIgnoredWords)
         }
@@ -632,11 +731,21 @@ struct NotesWorkspaceView: View {
     /// with more than one on screen to rearrange.
     private var canReorder: Bool { model.canReorderDocuments && notes.count > 1 }
 
-    /// Moves a note one slot among the ones the filter is showing, then saves
-    /// the whole list — notes the filter hid keep the places they held, since
-    /// they are not on screen to have been moved past.
+    /// Moves a note one slot among the ones the filter is showing.
     private func move(_ note: TextDocument, by delta: Int) {
-        guard canReorder, let rearranged = notes.moving(note, by: delta) else { return }
+        guard let rearranged = notes.moving(note, by: delta) else { return }
+        saveOrder(rearranged)
+    }
+
+    /// Saves the notes on screen as the writer's own arrangement — notes the
+    /// filter hid keep the places they held, since they were not on screen to
+    /// have been moved past.
+    ///
+    /// Named apart from `save(_:)`, which sends one note's words: two things
+    /// spelled the same, one of them writing the whole list, is a line nobody
+    /// wants to read twice.
+    private func saveOrder(_ rearranged: [TextDocument]) {
+        guard canReorder else { return }
         let merged = model.notes.merging(shown: rearranged)
         Task { await model.reorderDocuments(merged) }
     }
