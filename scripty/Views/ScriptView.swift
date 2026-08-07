@@ -1319,8 +1319,8 @@ struct ScriptView: View {
         }
     }
 
-    /// The way back into the script, and the way to be read to — the two things
-    /// a phone's navigation bar has no room for.
+    /// The way into the reader, and the way to be read to — the things a
+    /// phone's navigation bar has no room for.
     ///
     /// Songs and Notes were here too, for want of anywhere else. They are now
     /// at the top of the screen — `documentsBar` — which is where they were
@@ -1352,43 +1352,28 @@ struct ScriptView: View {
         // Not while elements are being selected: the selection bar already
         // takes two rows of the phone's bottom edge, and reading — either
         // kind — is exactly the errand the writer is not on.
+        // Nothing in here has anything to act on until the screenplay does:
+        // every button below is gated on content, so an empty script would
+        // otherwise reserve a bar's worth of the bottom edge to draw nothing.
         if isCompact && !isChromeHidden && !settings.isFocusMode
-            && (isReadyToEdit || model.hasScriptContent)
+            && model.hasScriptContent
             && !selection.isSelecting {
             HStack(spacing: 8) {
-                // The way out of the reader, down here for the reason
-                // everything else in this bar is: measured on a 402pt iPhone,
-                // the trailing side of the navigation bar draws one control
-                // beside the "…", and the View menu is that control. Edit was
-                // put in the View menu's own capsule to try to buy the slot and
-                // the bar collapsed it anyway — so on a phone the toolbar's
-                // Edit is only ever the overflow's, two taps deep, which is no
-                // way to offer the one thing a reader most needs.
+                // The way into the reader, down here for the reason everything
+                // else in this bar is: measured on a 402pt iPhone, the trailing
+                // side of the navigation bar draws one control beside the "…",
+                // and the View menu is that control — so a mode a writer swaps
+                // in and out of while working would otherwise cost a menu each
+                // way.
                 //
-                // Titled and filled, unlike the icon beside it: listening is an
-                // errand a writer goes looking for, and this one is the door
-                // back into their own screenplay. It leads the row because
-                // that is where the eye starts.
-                if isReadyToEdit {
-                    Button {
-                        setReading(false)
-                    } label: {
-                        Label("Edit", systemImage: "square.and.pencil")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .labelStyle(.titleAndIcon)
-                } else if isReadyToRead {
-                    // The way back to the reader, in the slot Edit vacates, so
-                    // the head of this row is always the one tap to the other
-                    // surface. On a phone the toolbar's own copy is the
-                    // overflow's — the same measurement that put Edit down here
-                    // — and a mode a writer swaps in and out of while working
-                    // is the last thing that should cost a menu each way.
-                    //
-                    // Icon-only and plain, unlike Edit: this one is an errand
-                    // like the three beside it, where Edit is a reader's door
-                    // into their own screenplay. The title stays on the `Label`
-                    // for VoiceOver.
+                // Only the way in. The Edit button that used to lead this row
+                // is gone: the reader's own surface is what a reader taps to
+                // start writing, and the toolbar corner keeps its copy for
+                // every width that draws one.
+                //
+                // Icon-only and plain, like the ones beside it. The title stays
+                // on the `Label` for VoiceOver.
+                if isReadyToRead {
                     Button {
                         setReading(true)
                     } label: {
@@ -2627,10 +2612,11 @@ struct ScriptView: View {
             // The way out of the reader and into the script, in the corner
             // Pages and Word both put it in — where there is a corner to put
             // it in. On an iPad and a Mac this draws; on a phone the bar has
-            // room for the View menu and the "…" and nothing else, and this
-            // was collapsed into the overflow even from in here, beside the
-            // one control that is always drawn. `readerBar` carries the
-            // phone's real one, under the thumb; see its note.
+            // room for the View menu and the "…" and nothing else, so this
+            // collapses into the overflow even from in here, beside the one
+            // control that is always drawn. `readerBar` no longer doubles it
+            // on the bottom edge: a reader who wants to write taps the line
+            // they want to write on, which is nearer than either corner.
             //
             // In the View menu's capsule rather than the group below, which
             // is where it started: that group is the one the phone collapses
