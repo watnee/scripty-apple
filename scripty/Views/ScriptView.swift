@@ -1319,8 +1319,14 @@ struct ScriptView: View {
         }
     }
 
-    /// The way back into the script, and the way to be read to — the two things
-    /// a phone's navigation bar has no room for.
+    /// The reader's own bottom bar: the way back into the script, and the way
+    /// to be read to — the two things a phone's navigation bar has no room for.
+    ///
+    /// A reading posture only. It used to draw in the writing posture too, where
+    /// it offered a way *into* the reader and a way to be read to, and neither
+    /// is an errand someone mid-sentence is on — the bar sat under the writing
+    /// column at all times for two taps that are not typing. Both still have the
+    /// View menu, and Read Aloud still has ⌘⇧A and the "…".
     ///
     /// Songs and Notes were here too, for want of anywhere else. They are now
     /// at the top of the screen — `documentsBar` — which is where they were
@@ -1341,18 +1347,24 @@ struct ScriptView: View {
     /// overflow's — the very menu this bar exists to keep things out of — and
     /// on an iPad or a Mac was a second door onto what the View menu's ⌘⇧A
     /// already opens. Listening is also the posture this bar suits best: a
-    /// thumb on the bottom edge, not a reach for the corner.
+    /// thumb on the bottom edge, not a reach for the corner — a reader's
+    /// posture, which is now the only one that draws it.
     ///
-    /// The same button is also named in the "…" (see `toolbar`), which is not
-    /// the slot-costing toolbar button that was removed: this bar is
-    /// compact-only and folds with the chrome, so every width and posture it
-    /// does not cover had nowhere to start a reading from at all.
+    /// The same button is named in the "…" (see `toolbar`), and that copy is
+    /// what a writer reaches for: this bar is compact-only, reading-only, and
+    /// folds with the chrome, so every width and posture it does not cover —
+    /// which now includes the writing column itself — needs the menu to start a
+    /// reading from.
     @ViewBuilder
     private var readerBar: some View {
         // Not while elements are being selected: the selection bar already
         // takes two rows of the phone's bottom edge, and reading — either
         // kind — is exactly the errand the writer is not on.
+        //
+        // `paperCameFromReader` counts as reading: the paper is the surface the
+        // reader stepped onto, and the bar is how it gets back off.
         if isCompact && !isChromeHidden && !settings.isFocusMode
+            && (isReading || paperCameFromReader)
             && (isReadyToEdit || model.hasScriptContent)
             && !selection.isSelecting {
             HStack(spacing: 8) {
@@ -1380,10 +1392,11 @@ struct ScriptView: View {
                 } else if isReadyToRead {
                     // The way back to the reader, in the slot Edit vacates, so
                     // the head of this row is always the one tap to the other
-                    // surface. On a phone the toolbar's own copy is the
-                    // overflow's — the same measurement that put Edit down here
-                    // — and a mode a writer swaps in and out of while working
-                    // is the last thing that should cost a menu each way.
+                    // surface. Only the paper reaches this now — a reader who
+                    // stepped onto the pages, where `isReading` is off and the
+                    // way back is the whole point of the bar. The writing
+                    // posture draws no bar at all, and finds the reader in the
+                    // View menu.
                     //
                     // Icon-only and plain, unlike Edit: this one is an errand
                     // like the three beside it, where Edit is a reader's door
@@ -1408,13 +1421,10 @@ struct ScriptView: View {
                     // most wants it.
                     //
                     // Drawn while reading, and while the paper it opened is
-                    // up — that second half is the way back. It stays out of
-                    // the writing posture's bar entirely: a writer has the
-                    // View menu's toggle and ⌘⇧P, and the bottom bar is
-                    // already the fullest thing on the screen.
-                    if isReading || paperCameFromReader {
-                        pageViewButton
-                    }
+                    // up — that second half is the way back. Which is the whole
+                    // of this bar now: a writer has the View menu's toggle and
+                    // ⌘⇧P, and no bar under the column at all.
+                    pageViewButton
                 }
             }
             .buttonStyle(.bordered)
@@ -2832,14 +2842,14 @@ struct ScriptView: View {
                 // the screenplay was the one document you could not start a
                 // reading of from the "…".
                 //
-                // `documentsBar` still carries the phone's button, and this is
-                // deliberately the second door to it rather than a replacement:
-                // that bar is compact-only and folds away with the chrome, so
-                // on an iPad or a Mac, and on a phone mid-scroll or mid-
-                // selection, the menu was the only place left to look and it
-                // was not there. The earlier round removed a *toolbar* button
-                // for costing a slot the bar could not spare; an overflow item
-                // costs no slot.
+                // `readerBar` still carries the phone's button while the
+                // reader is up, and this is the door for everywhere else: that
+                // bar is compact-only, reading-only and folds away with the
+                // chrome, so on an iPad or a Mac, and on a phone that is being
+                // written in, scrolled or selected in, the menu was the only
+                // place left to look and it was not there. The earlier round
+                // removed a *toolbar* button for costing a slot the bar could
+                // not spare; an overflow item costs no slot.
                 if model.hasScriptContent {
                     readAloudButton
                 }
