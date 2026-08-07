@@ -581,6 +581,13 @@ final class ScriptModel {
     /// The live copy survives a failed flush: it is the writer's only copy of
     /// those words until the retry lands.
     func blur(_ block: Block) async {
+        // An element a merge or a delete has already claimed is not the caret
+        // leaving a line — it is the line going, and whoever claimed it owns
+        // its words and its flags until it has. A merge hands the caret to the
+        // seam before it sends its DELETE, so this now fires *during* one; left
+        // to run it would clear the live copy the rollback still has to put
+        // back. See `removingBlockIds`.
+        guard !removingBlockIds.contains(block.id) else { return }
         await commit(block.id)
         if focusedBlockId == block.id { focusedBlockId = nil }
         if !unsavedBlockIds.contains(block.id) { liveText[block.id] = nil }
@@ -649,6 +656,15 @@ final class ScriptModel {
     }
 
     private func commitOutcome(_ id: Int) async -> WriteOutcome {
+        // Nothing is written to an element already on its way out. A merge
+        // hands the caret to the line above before it sends the DELETE, and
+        // focus leaving is a flush (`blur`) — so without this the absorbed
+        // element's last words went out as a PUT that reached the server just
+        // after the DELETE had removed the element, which comes back as the
+        // same refusal a delete of something already gone does, and flags a
+        // row nobody can see as holding unsaved work for the rest of the
+        // session. See `removingBlockIds` and `stopWrites(to:)`.
+        guard !removingBlockIds.contains(id) else { return .failed }
         commitTasks[id]?.cancel()
         commitTasks[id] = nil
         guard let text = liveText[id],
@@ -1486,12 +1502,50 @@ final class ScriptModel {
         // they were — half a merge would show the writer their own words twice.
         let restore = liveText[previous.id]
         liveText[previous.id] = merged
-        let updatedPrevious: Block
+
+        // The caret moves to the seam now, before anything is awaited — not
+        // after the round trip, which is where it used to move.
+        //
+        // The absorbed element is the one holding first responder, and taking
+        // its row off screen resigns that with nothing standing ready to take
+        // it: UIKit reads a first responder that goes nowhere as the writer
+        // being finished and starts putting the keyboard away, so the keyboard
+        // dropped and then came straight back up as the line above claimed it
+        // a turn later. Handing the caret over while both rows are still on
+        // screen makes it an ordinary handoff — the keyboard never moves.
+        //
+        // It is also what the seam is *for*: Backspace has to land like a
+        // keystroke, not like a request, and the merged words are already on
+        // screen above (`liveText`, set just now) for the caret to sit in.
+        //
+        // The absorbed element's own words are in that line now, so a debounce
+        // still counting down for it has nothing left to say — and saying it
+        // into the gap the DELETE below opens gets the whole merge refused.
+        // Called off here rather than after the PUT, because focus leaving is
+        // itself a flush (`blur`); `commitOutcome` turns that one away while
+        // the element is claimed. See `stopWrites(to:)` and `removingBlockIds`.
+        let held = liveText[block.id]
+        stopWrites(to: block.id)
+        focus(previous.id, caret: seam)
+        // Every way out from here that leaves the absorbed element on screen
+        // has to put the caret back where the writer left it, at the head of
+        // the line they pressed Backspace in, and give its unflushed words
+        // back the write that was called off above.
+        func restoreAbsorbed() {
+            liveText[block.id] = held
+            if held != nil { scheduleCommit(block.id) }
+            // Withdrawn, not just overruled: a caret request is answered by
+            // taking first responder (`applyCaret`), so one left standing for
+            // the line above would pull the keyboard straight back off the
+            // element being restored.
+            caretRequests[previous.id] = nil
+            focus(block.id, caret: 0)
+        }
+
         switch await commitOutcome(previous.id) {
-        case .saved(let updated):
-            updatedPrevious = updated
+        case .saved:
             liveText[previous.id] = nil   // model value is now authoritative for the merged row
-        case .held(let heldBlock):
+        case .held:
             // The merged words are held on this device and retrying — footing
             // enough when the absorbed element is one the server has never
             // seen, because taking it off screen needs no DELETE. A server
@@ -1500,11 +1554,12 @@ final class ScriptModel {
             // merged text stays in `liveText`: it is the writer's only copy.
             guard block.isLocal else {
                 rollback(previous.id, to: restore)
+                restoreAbsorbed()
                 return
             }
-            updatedPrevious = heldBlock
         case .failed:
             rollback(previous.id, to: restore)
+            restoreAbsorbed()
             return
         }
 
@@ -1517,7 +1572,6 @@ final class ScriptModel {
             if let queue = createQueue { removeRecordingHistory(block.id, from: queue) }
             liveText[block.id] = nil
             refreshUndoRedoSoon()
-            focus(updatedPrevious.id, caret: seam)
             return
         }
         // No delete link is the refusal arriving early rather than late, and it
@@ -1527,15 +1581,10 @@ final class ScriptModel {
         guard let deleteLink = block.link(.delete) else {
             liveText[previous.id] = previousText
             await commit(previous.id)
+            restoreAbsorbed()
             report(APIError.forbidden)
             return
         }
-        // The absorbed element's own words are in the line above now, so a
-        // debounce still counting down for it has nothing left to say — and
-        // saying it into the gap this DELETE is about to open gets the whole
-        // merge refused. See `stopWrites(to:)`.
-        let held = liveText[block.id]
-        stopWrites(to: block.id)
         do {
             try await app.client.data(for: deleteLink, method: "DELETE")
         } catch {
@@ -1545,20 +1594,19 @@ final class ScriptModel {
             // called off just above, since those words are unsaved again.
             liveText[previous.id] = previousText
             await commit(previous.id)
-            if held != nil { scheduleCommit(block.id) }
+            restoreAbsorbed()
             report(error)
             return
         }
         // The merged row was already swapped in by the commit above, so the
         // absorbed element just comes off screen — no reload the caret would
-        // have to wait behind. Backspace at the seam has to feel like a
-        // keystroke, exactly as Return does; the server's renumbering is
+        // have to wait behind, and no caret to move either: it left for the
+        // seam before the round trip started. The server's renumbering is
         // adopted by the next full load (the sync poll, once focus leaves).
         blocks.removeAll { $0.id == block.id }
         liveText[block.id] = nil
         markSaved(block.id)
         refreshUndoRedoSoon()
-        focus(updatedPrevious.id, caret: seam)
     }
 
     /// Retype a block in place (the element-type bar and Tab cycling).
