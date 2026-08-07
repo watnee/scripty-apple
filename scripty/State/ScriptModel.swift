@@ -451,6 +451,16 @@ final class ScriptModel {
             errorMessage = nil
             return true
         } catch {
+            // Its one caller — accepting a suggestion — has already put the
+            // words on screen through `showLive`, which deliberately arms no
+            // save of its own so as not to race this request. So if this is
+            // where the write dies, this is the only place that can hold the
+            // words: without the line below they had no unsaved flag, no
+            // draft on disk, no retry and no commit task, which also meant
+            // `flushPendingCommits` could not see them. The writer accepted
+            // "MARGARET", the badge read "up to date", and the next launch
+            // showed "MAR".
+            markUnsaved(block.id, after: error)
             report(error)
             return false
         }
@@ -1216,8 +1226,16 @@ final class ScriptModel {
     /// the background, and the debounce window may outlive its execution time.
     /// Each block's text is snapshotted to disk first, so even a commit that
     /// never gets to run is covered by the restore path on next launch.
+    ///
+    /// Every block holding live words, not only those with a debounce armed.
+    /// `showLive` puts text on screen without arming one — for a caller about
+    /// to persist it itself, where `liveEdit` would race that write — so
+    /// keying off `commitTasks` meant an accepted suggestion whose own PUT
+    /// then failed was invisible here, and to `syncNow`, which is built on
+    /// this. `SongBlockModel.flushPendingCommits` reads `liveText` and always
+    /// has; its comment already claimed the two were the same shape.
     func flushPendingCommits() async {
-        let pending = Array(commitTasks.keys)
+        let pending = Array(liveText.keys)
         for id in pending { persistDraft(id) }
         for id in pending { await commit(id) }
     }

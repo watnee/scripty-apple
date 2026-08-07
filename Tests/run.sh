@@ -593,6 +593,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/State/ScriptAutocomplete.swift" \
     "$SRC/Models/"*.swift \
     "${SHARED[@]}" \
     "$ROOT/Tests/UnsavedWork/main.swift"
