@@ -111,8 +111,6 @@ raw=$(cat | "$JQ" -r '
 } <<EOF
 $raw
 EOF
-$raw
-EOF
 
 # ---------------------------------------------------------------- file writes
 
@@ -164,6 +162,9 @@ protected_path() {
 # tool name on it.
 secret_path() {
   case "${1##*/}" in
+    # .env.example and its spellings are documentation — they are committed on
+    # purpose and hold placeholder values, so they have to stay readable.
+    .env.example|.env.sample|.env.template|.env.dist|.env.defaults) return 1 ;;
     .env|.env.*|*.env) return 0 ;;
     .netrc|.deploy-secrets|.dev.vars) return 0 ;;
     id_rsa|id_dsa|id_ecdsa|id_ed25519|*.pem|*.p12|*.p8) return 0 ;;

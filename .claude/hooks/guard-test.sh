@@ -53,4 +53,30 @@ while IFS=$'\t' read -r want tool payload; do
 done < "$cases"
 
 printf '%d cases, %d failures\n' "$total" "$fails"
+
+# Verdicts are not the whole story. A stray line once left the guard running
+# `bash <first word of the command> <the rest>` before any rule was evaluated:
+# every case still reported the right verdict, and a blocked restore-mysql.sh
+# had already run by the time the block landed. Reading a command must have no
+# effect and say nothing.
+probe=$(mktemp -d)
+cat > "$probe/side-effect.sh" <<'INNER'
+#!/bin/bash
+: > "$(dirname "$0")/it-ran"
+INNER
+chmod +x "$probe/side-effect.sh"
+
+noise=$(/usr/bin/jq -nc --arg c "$probe/side-effect.sh --apply" \
+  '{tool_name:"Bash",tool_input:{command:$c}}' | "$guard" 2>&1 >/dev/null)
+
+if [ -e "$probe/it-ran" ]; then
+  echo "FAIL the guard executed the command it was inspecting" >&2
+  fails=$((fails + 1))
+fi
+if [ -n "$noise" ]; then
+  printf 'FAIL the guard wrote to stderr while allowing a command: %s\n' "$noise" >&2
+  fails=$((fails + 1))
+fi
+rm -rf "$probe"
+
 [ "$fails" -eq 0 ]

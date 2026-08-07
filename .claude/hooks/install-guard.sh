@@ -51,23 +51,21 @@ Not registered yet. Add this to the "hooks" object in ~/.claude/settings.json:
     }
   ]
 EOF
-  exit 0
-fi
+else
+  echo "registered in $settings"
 
-echo "registered in $settings"
+  # A rule the matcher never routes to the guard is a rule that does not exist.
+  # The guard inspects Read (credential files) and MCP calls (a connector can
+  # delete a database without touching a shell), and both were added after the
+  # original matcher was written — so an installed guard can be fully up to date
+  # and still be deaf to half of itself.
+  missing=""
+  for t in Bash Edit Write NotebookEdit Read mcp__cloudflare__d1_database_delete; do
+    printf '%s' "$t" | grep -Eq "^($matcher)$" || missing="$missing $t"
+  done
 
-# A rule the matcher never routes to the guard is a rule that does not exist.
-# The guard inspects Read (credential files) and MCP calls (a connector can
-# delete a database without touching a shell), and both were added after the
-# original matcher was written — so an installed guard can be fully up to date
-# and still be deaf to half of itself.
-missing=""
-for t in Bash Edit Write NotebookEdit Read mcp__cloudflare__d1_database_delete; do
-  printf '%s' "$t" | grep -Eq "^($matcher)$" || missing="$missing $t"
-done
-
-if [ -n "$missing" ]; then
-  cat <<EOF
+  if [ -n "$missing" ]; then
+    cat <<EOF
 
 The matcher in $settings is:
 
@@ -79,6 +77,7 @@ Rules for them are in the guard and will simply never run. Widen it to:
 
   "matcher": "Bash|Edit|Write|NotebookEdit|Read|mcp__.*"
 EOF
+  fi
 fi
 
 if [ ! -t 1 ]; then
