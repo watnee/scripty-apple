@@ -46,6 +46,7 @@ struct NotesWorkspaceView: View {
         self.app = app
         self.model = model
         _printer = State(initialValue: DocumentPrintModel(model: model))
+        _exporter = State(initialValue: DocumentExportModel(model: model))
         // The remembered choice only, with no fall back to the app-wide "open
         // documents for reading" switch — the rule the songs workspace goes by.
         // This screen is reached by pressing "Edit All on One Page", and coming
@@ -94,6 +95,11 @@ struct NotesWorkspaceView: View {
     /// Every note on screen on paper. One printer for the screen, as the notes
     /// list keeps one for the list.
     @State private var printer: DocumentPrintModel
+
+    /// And the same gathering as a file. Beside the printer for the reason the
+    /// two controls sit beside each other: one is an errand, the other is a
+    /// choice of format — see `DocumentExportMenu`.
+    @State private var exporter: DocumentExportModel
     /// Which note holds the caret, so a keyboard ⌘Z has an unambiguous answer.
     /// Reported by the panes themselves rather than kept in a `@FocusState`:
     /// these are bridged text views that grant themselves first responder, and
@@ -174,6 +180,7 @@ struct NotesWorkspaceView: View {
             // nothing, so a step here never falls through to the script.
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .documentPrintPresentation(printer)
+            .documentExportPresentation(exporter)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -946,6 +953,14 @@ struct NotesWorkspaceView: View {
                     Label("Print All Notes…", systemImage: "printer")
                 }
                 .disabled(printer.isPrinting)
+            }
+            // The same gathering as a file, beside the print of it — the rule
+            // `DocumentExportMenu` states, and the one the help already
+            // promised this screen kept.
+            ToolbarItem(placement: .secondaryAction) {
+                DocumentExportMenu(exporter: exporter,
+                                   options: model.collectionExportOptions(for: .notes),
+                                   name: printJobName)
             }
         }
     }

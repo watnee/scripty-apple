@@ -121,6 +121,12 @@ struct SongBlockEditorView: View {
     /// export links, exactly as the insert action does.
     @State private var printer: DocumentPrintModel
 
+    /// And this song as a file. Beside the printer for the reason the two
+    /// controls sit beside each other — see `DocumentExportMenu`. Made from
+    /// the screenplay behind the sheet, as the printer is: that is what holds
+    /// the project's export links.
+    @State private var exporter: DocumentExportModel
+
     /// The device's voice, shared with the screenplay behind this sheet and
     /// with the note editor — see `ScriptNarrator`. Reading a song ends
     /// whatever was being read before it, which is the only sane answer on a
@@ -145,6 +151,7 @@ struct SongBlockEditorView: View {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
         _printer = State(initialValue: DocumentPrintModel(model: scriptModel))
+        _exporter = State(initialValue: DocumentExportModel(model: scriptModel))
         _isReading = State(initialValue: ReadingViewSettings.shared
             .opensInReadingView(.document(id: document.id)))
         _options = State(initialValue: DocumentViewOptions(documentId: document.id, kind: .song))
@@ -464,6 +471,7 @@ struct SongBlockEditorView: View {
                 Text(model.errorMessage ?? "")
             }
             .documentPrintPresentation(printer)
+            .documentExportPresentation(exporter)
             .alert("Insert into Script", isPresented: insertMessageBinding) {
                 Button("OK", role: .cancel) { insertMessage = nil }
             } message: {
@@ -1365,6 +1373,14 @@ struct SongBlockEditorView: View {
                 }
                 .disabled(printer.isPrinting)
             }
+        }
+        // The song as a file, beside the print of it. In the overflow with
+        // Print for the reason Print is there: this toolbar is already at the
+        // ten children that fit, and an eleventh drops a sibling silently.
+        ToolbarItem(placement: .secondaryAction) {
+            DocumentExportMenu(exporter: exporter,
+                               options: scriptModel.songExportOptions(for: model.document),
+                               name: model.document.displayTitle)
         }
         // The same device-wide spelling controls the screenplay's View menu
         // carries. A lyric is where they are needed most — invented words,

@@ -239,12 +239,17 @@ struct SongEditorView: View {
             DocumentViewOptions(documentId: $0.id, kind: Self.lockKind(for: type))
         })
         _printer = State(initialValue: DocumentPrintModel(model: model))
+        _exporter = State(initialValue: DocumentExportModel(model: model))
     }
 
     /// This document on paper — the server's PDF where there is a route to it,
     /// and the words on screen drawn here where there is not. Built from the
     /// screenplay's model, which is what holds the export links.
     @State private var printer: DocumentPrintModel
+
+    /// And this document as a file, beside the printer — see
+    /// `DocumentExportMenu`.
+    @State private var exporter: DocumentExportModel
 
     /// Whether documents open to be read, and which way this one was last put.
     private let readingViews = ReadingViewSettings.shared
@@ -611,6 +616,7 @@ struct SongEditorView: View {
                 Text(insertMessage ?? "")
             }
             .documentPrintPresentation(printer)
+            .documentExportPresentation(exporter)
         }
     }
 
@@ -1265,6 +1271,17 @@ struct SongEditorView: View {
                     Label("Print…", systemImage: "printer")
                 }
                 .disabled(printer.isPrinting)
+            }
+        }
+        // And as a file, beside the print of it. Only for a document the
+        // server knows — the formats are links it advertises, and one typed on
+        // a train has none yet. In the overflow, where Print is, because this
+        // toolbar is already at its ten.
+        if let saved = target {
+            ToolbarItem(placement: .secondaryAction) {
+                DocumentExportMenu(exporter: exporter,
+                                   options: model.songExportOptions(for: saved),
+                                   name: saved.displayTitle)
             }
         }
         // Reached from here rather than from a screenplay's View menu, which is

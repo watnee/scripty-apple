@@ -168,23 +168,48 @@ struct VersionHistoryView: View {
 
     /// What changed since the snapshot before it — the server works this out,
     /// so nothing is diffed here.
+    ///
+    /// The counts first, then the lines the server already phrased. Those were
+    /// decoded and then read only to ask whether they were empty, so a summary
+    /// carrying nothing else — every count zero, both flags false — passed
+    /// `isEmpty`, reached this function, and drew an empty eight-point row: the
+    /// one part of the change summary written for a person to read was the part
+    /// that never got to the screen.
     @ViewBuilder
     private func changeSummary(_ summary: VersionChangeSummary) -> some View {
-        HStack(spacing: 8) {
-            ForEach(summary.tallies, id: \.symbol) { tally in
-                Text("\(tally.symbol)\(tally.count)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(colour(for: tally.symbol))
+        let details = summary.details ?? []
+        let hasCounts = !summary.tallies.isEmpty
+            || (summary.projectMetadataChanged ?? false)
+            || (summary.titleChanged ?? false)
+        VStack(alignment: .leading, spacing: 2) {
+            // Only where there is something to put in it, or the row itself
+            // becomes the empty space this used to leave.
+            if hasCounts {
+                HStack(spacing: 8) {
+                    ForEach(summary.tallies, id: \.symbol) { tally in
+                        Text("\(tally.symbol)\(tally.count)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(colour(for: tally.symbol))
+                    }
+                    if summary.projectMetadataChanged ?? false {
+                        Text("title page")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if summary.titleChanged ?? false {
+                        Text("title")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
-            if summary.projectMetadataChanged ?? false {
-                Text("title page")
+            // The server caps and phrases these itself — five, then "and N
+            // more changes" — so there is nothing to trim here.
+            ForEach(Array(details.enumerated()), id: \.offset) { _, line in
+                Text(line)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-            }
-            if summary.titleChanged ?? false {
-                Text("title")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

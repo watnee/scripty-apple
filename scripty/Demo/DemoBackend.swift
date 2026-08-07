@@ -2340,17 +2340,24 @@ actor DemoBackend {
             // same call with no folder id takes it out.
             "moveToFolder": link("/api/document/\(document.id)/folder"),
         ]
-        // Songs and notes both archive — as, now, do all but one of the
-        // exports below; the email rel is what is still song-shaped here. One
-        // direction or the other, never both.
+        // Songs and notes both archive. One direction or the other, never both.
         if archivedAt == nil {
             links["archive"] = link("/api/document/\(document.id)/archive")
         } else {
             links["unarchive"] = link(
                 "/api/document/archive/\(document.id)/unarchive?projectId=\(document.projectId)")
         }
+        // And both email. This was gated on being a song, which was the last
+        // song-shaped thing left here — while `bulkShareEmail` on the
+        // collection was not gated at all, so a note could be emailed by
+        // ticking it in Edit mode and not from its own "…" menu. The real
+        // server emits this for either kind unconditionally
+        // (`TextDocumentResourceAssembler`: "The share service no longer skips
+        // notes, so nothing here has to either"), and the handler on this side
+        // was never gated, so the demo was simply advertising less than it
+        // could do.
+        links["shareEmail"] = link("/api/document/\(document.id)/share-email")
         if isSong {
-            links["shareEmail"] = link("/api/document/\(document.id)/share-email")
             // Songs are lyric blocks on the server, so only they have editions
             // to scope. A note is plain text with nothing to vary.
             links["editions"] = link("/api/song/edition?documentId=\(document.id)")

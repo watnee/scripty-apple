@@ -92,10 +92,33 @@ final class SongAudioModel {
     /// Adds a file the writer picked. The duration is measured here, since
     /// nothing on the server decodes audio; a file iOS cannot open still
     /// uploads, it just arrives without one.
+    /// The server's ceiling on one take, in bytes — `app.song-audio-max-bytes`,
+    /// 25 MiB. Held here as well because a file this size has already been read
+    /// into memory by the time it reaches this method, and sending it only to
+    /// be refused costs the writer the whole upload before it says so.
+    static let maxBytes = 25 * 1024 * 1024
+
+    /// And the server's `MAX_PER_SONG`. Both limits were prose — a comment at
+    /// the top of this file and a sentence in the help — with nothing in the
+    /// client enforcing either.
+    static let maxTakes = 50
+
     @discardableResult
     func upload(_ file: PickedFile) async -> Bool {
         guard let link = links[.uploadAudio] else { return false }
         guard !isWorking else { return false }
+        // Checked after the read rather than before it: a document picker hands
+        // back a URL whose provider may not have materialised the file yet, so
+        // its size is not reliably knowable until `PickedFile` has read it.
+        // What this saves is the upload, which is the slow part.
+        guard file.data.count <= Self.maxBytes else {
+            errorMessage = "That recording is too large. The limit is 25 MB."
+            return false
+        }
+        guard recordings.count < Self.maxTakes else {
+            errorMessage = "This song already has \(Self.maxTakes) recordings."
+            return false
+        }
         isWorking = true
         uploading = file.name
         defer {

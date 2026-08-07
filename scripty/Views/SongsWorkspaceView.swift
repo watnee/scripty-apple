@@ -40,6 +40,7 @@ struct SongsWorkspaceView: View {
         self.app = app
         self.model = model
         _printer = State(initialValue: DocumentPrintModel(model: model))
+        _exporter = State(initialValue: DocumentExportModel(model: model))
         // The remembered choice only, with no fall back to the app-wide "open
         // documents for reading" switch: this screen is reached by pressing
         // "Edit All on One Page", and coming up with no caret in it would be
@@ -84,6 +85,11 @@ struct SongsWorkspaceView: View {
     /// Every song on screen on paper. One printer for the screen, as the songs
     /// list keeps one for the list.
     @State private var printer: DocumentPrintModel
+
+    /// And the same gathering as a file. Beside the printer for the reason the
+    /// two controls sit beside each other: one is an errand, the other is a
+    /// choice of format — see `DocumentExportMenu`.
+    @State private var exporter: DocumentExportModel
     /// Whether the screen is showing the songs to be dragged into order rather
     /// than to be written in. See `arrangingList`.
     @State private var isArranging = false
@@ -176,6 +182,7 @@ struct SongsWorkspaceView: View {
             // nothing, so a step here never falls through to the script.
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .documentPrintPresentation(printer)
+            .documentExportPresentation(exporter)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -1018,6 +1025,14 @@ struct SongsWorkspaceView: View {
                     Label("Print All Songs…", systemImage: "printer")
                 }
                 .disabled(printer.isPrinting)
+            }
+            // The same gathering as a file, beside the print of it — the rule
+            // `DocumentExportMenu` states, and the one the help already
+            // promised this screen kept.
+            ToolbarItem(placement: .secondaryAction) {
+                DocumentExportMenu(exporter: exporter,
+                                   options: model.collectionExportOptions(for: .song),
+                                   name: printJobName)
             }
         }
     }
