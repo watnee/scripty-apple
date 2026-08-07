@@ -1886,9 +1886,29 @@ final class ScriptModel {
         // change in block count across the step; the count on hand before and
         // after the reload is the same number, so no server field is needed.
         let before = blocks.count
+        // A step is not an edit to the elements on screen. The server rebuilds
+        // the whole edition from its snapshot — every existing element is
+        // deleted and re-inserted — so every id on this screen is about to stop
+        // existing, and anything still aimed at one of them has to be settled
+        // before the step goes out.
+        //
+        // Flushed rather than cancelled, and flushed *first*: the words typed in
+        // the last half second are a change like any other, and a writer
+        // reaching for undo means to take them back — which only works if the
+        // server has them when it takes its own checkpoint. The lyric editor's
+        // `step` opens with `commitAll()` for exactly this reason.
+        //
+        // Left running instead, a debounce fires into the gap the rebuild opens
+        // and PUTs to an element the server has just destroyed. It cannot tell
+        // that from an element this writer may not touch, so it answers 403 —
+        // and the writer is told "You don't have permission to do that" over an
+        // undo that worked. See `stopWrites(to:)`, which is the same hazard
+        // around a delete.
+        await flushPendingCommits()
         do {
             undoRedo = try await app.client.fetch(UndoRedoStatus.self, from: link, method: "POST")
             await loadBlocks()
+            settleWritesAfterStep()
             // The reload rewrote the script under any local steps (only the
             // redo side can still hold them here — undo drains local first).
             localHistory.clear()
@@ -1897,6 +1917,44 @@ final class ScriptModel {
         } catch {
             report(error)
         }
+    }
+
+    /// Put the writing state back in step with a script the server has just
+    /// rebuilt underneath it.
+    ///
+    /// Two things are stale after a step, and both are the writer's problem
+    /// rather than bookkeeping. An element the step took away is gone for good:
+    /// a backoff still counting down for its id raises the refusal this whole
+    /// path exists to avoid, a moment later and with nothing on screen to
+    /// explain it, and its unsaved flag leaves the badge claiming held work for
+    /// an element that is not there. And an element that survived now says what
+    /// the snapshot says — but the live copy taken off the screen still holds
+    /// the words the step was pressed to be rid of, so the line the writer was
+    /// typing in would sit there unchanged, as though undo had missed it, and
+    /// put those words back on the next keystroke.
+    ///
+    /// Held words are the exception on both counts: they exist nowhere else, so
+    /// a block still flagged unsaved keeps its live copy, exactly as it does
+    /// across an ordinary reload.
+    private func settleWritesAfterStep() {
+        let present = Set(blocks.map(\.id))
+        let aimedAt = Set(liveText.keys)
+            .union(unsavedBlockIds)
+            .union(failedBlockIds)
+            .union(commitTasks.keys)
+            .union(retryTasks.keys)
+        for id in aimedAt {
+            guard present.contains(id) else {
+                stopWrites(to: id)
+                liveText[id] = nil
+                unsavedBlockIds.remove(id)
+                failedBlockIds.remove(id)
+                draftStore?.remove(blockId: id, projectId: project.id)
+                continue
+            }
+            if !unsavedBlockIds.contains(id) { liveText[id] = nil }
+        }
+        noteSyncedIfSettled()
     }
 
     // MARK: - Local history (undoing what the server never saw)

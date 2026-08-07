@@ -730,6 +730,41 @@ swiftc "${FLAGS[@]}" -o "$BUILD/fastdelete" \
 run_suite "$BUILD/fastdelete" || status=1
 
 echo
+echo "== Undo while a save is still counting down =="
+# Same backend and the same reason: a debounce armed before the step really
+# does land after it here, which is the whole condition under test.
+swiftc "${FLAGS[@]}" -o "$BUILD/undorace" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/SongBlockModel.swift" \
+    "$SRC/State/LocalHistory.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/UndoRace/main.swift"
+run_suite "$BUILD/undorace" || status=1
+
+echo
 echo "== Cancelled requests are never the writer's problem =="
 # The one suite here that talks to something listening rather than to a closed
 # port: a request the client cancelled and a request it never sent look
