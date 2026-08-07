@@ -456,6 +456,28 @@ final class SongBlockModel {
 
     // MARK: - Held work
 
+    /// Call off whatever is queued to write to a line, without saying anything
+    /// about the words themselves.
+    ///
+    /// A debounce armed by the last keystroke before a delete would otherwise
+    /// fire into the gap the DELETE is already in, and the PUT reaches a server
+    /// that has just removed the line — which comes back as the same refusal a
+    /// delete of something already gone does, and flags a line nobody can see
+    /// as holding unsaved work for the rest of the session.
+    ///
+    /// Deliberately not `markSaved`: that one deletes the persisted draft, and
+    /// a delete that has not landed yet has no business doing that. The caller
+    /// puts the write back if the request fails — the line is still there in
+    /// that case, and so are its words. `ScriptModel.stopWrites(to:)` is the
+    /// same function for the same reason.
+    private func stopWrites(to id: Int) {
+        commitTasks[id]?.cancel()
+        commitTasks[id] = nil
+        retryTasks[id]?.cancel()
+        retryTasks[id] = nil
+        retryAttempts[id] = nil
+    }
+
     /// The server has this line's text; the live copy is no longer precious.
     private func markSaved(_ id: Int) {
         localHistory.noteSaved(blockId: id)
@@ -892,11 +914,21 @@ final class SongBlockModel {
 
     private func sendDelete(_ block: SongBlock) async -> Bool {
         guard let link = block.link(.delete) else { return false }
-        commitTasks[block.id]?.cancel()
-        liveText[block.id] = nil
-        // Deleting a line means dropping the words typed into it — the held
-        // copy and its retry go with them, whatever the request then does.
-        markSaved(block.id)
+        // Deleting a line means dropping the words typed into it — but only
+        // once the line is actually gone. This used to clear `liveText` and
+        // call `markSaved` here, before the request went out: `markSaved`
+        // deletes the persisted draft, so a DELETE that never landed left the
+        // line still on screen with the words it was holding erased from
+        // memory *and* from disk, and the row snapped back to whatever the
+        // server last said while the badge insisted everything was saved.
+        //
+        // Held first, dropped in the success branch, put back on its timer if
+        // the request fails. `ScriptModel.deleteBlock` is the same shape for
+        // the same reason. The fold above nils `liveText` itself before
+        // calling here — those words went into the line above — so `held` is
+        // correctly nil on that path and nothing is re-armed.
+        let held = liveText[block.id]
+        stopWrites(to: block.id)
         do {
             // The delete answers with the renumbered collection, so adopting
             // it is the reload — fetching the same list again only made the
@@ -904,10 +936,17 @@ final class SongBlockModel {
             let collection: HALCollection<SongBlock> = try await app.client.fetch(
                 from: link, method: "DELETE")
             adopt(collection)
+            // The line is gone, so there is nothing left to save its words
+            // into. Only now.
+            liveText[block.id] = nil
+            markSaved(block.id)
             errorMessage = nil
             refreshUndoRedoSoon()
             return true
         } catch {
+            // The line is still there, and so are any words it was holding:
+            // put the write called off above back on its timer.
+            if held != nil { scheduleCommit(block.id) }
             report(error)
             return false
         }

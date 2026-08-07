@@ -286,22 +286,33 @@ func run() async {
     }
 
     print()
-    print("== Deleting a line drops its held words deliberately ==")
+    print("== A delete that cannot get out keeps the words ==")
     do {
         let directory = scratchDirectory("delete")
         let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
         let model = makeModel(store: store)
         let first = model.blocks[0]
 
-        model.edit(first, text: "Words the writer then deletes.")
+        model.edit(first, text: "Words the writer then tries to delete.")
         await model.commit(first)
         check("the draft exists before the delete",
               store.drafts(projectId: song.id)[first.id] != nil)
 
-        _ = await model.delete(first)
-        check("the draft goes with the line",
-              store.drafts(projectId: song.id)[first.id] == nil)
-        check("nothing is left flagged unsaved", !model.unsavedBlockIds.contains(first.id))
+        let gone = await model.delete(first)
+
+        // Nothing reached the server, so nothing about this line has changed.
+        // This case used to assert the opposite — that the draft was gone —
+        // which is what a `markSaved` fired before the request went out did:
+        // the line stayed on screen with the only copy of those words erased
+        // from memory and from disk at once, under a badge reading "saved".
+        check("the delete reports that it did not happen", !gone)
+        checkEqual("the line is still there", model.blocks.count, 2)
+        checkEqual("still showing the words that were typed into it",
+                   model.currentText(model.blocks[0]),
+                   "Words the writer then tries to delete.")
+        check("still flagged as held", model.unsavedBlockIds.contains(first.id))
+        check("and its draft is still on disk",
+              store.drafts(projectId: song.id)[first.id] != nil)
     }
 
     print()
