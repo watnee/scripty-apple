@@ -181,6 +181,17 @@ struct DocumentEditorActions {
     /// screenplay to the printer, which is never what a writer standing over a
     /// lyric means by it. Nil where there is nothing on the document to print.
     var print: (() -> Void)?
+
+    /// Open this document's own find — ⌘F aimed at the song or note in front
+    /// of the script. The fourth instance of exactly the same problem: without
+    /// it the chord reached the screenplay behind a `fullScreenCover`, so
+    /// pressing ⌘F over a note opened the *script's* search bar, invisibly,
+    /// and the writer found it sitting open when they closed the note. Both
+    /// editors have had a find of their own the whole time; there was simply
+    /// no way for the key to reach it. Nil where there is nothing to search —
+    /// while the document is being read, or while it is empty — which leaves
+    /// the item disabled rather than falling through.
+    var find: (() -> Void)?
 }
 
 struct DocumentEditorActionsKey: FocusedValueKey {
@@ -299,9 +310,11 @@ struct ScriptCommands: Commands {
 
         CommandGroup(after: .undoRedo) {
             Divider()
-            Button("Find in Script…") { actions?.find?() }
+            // Not "Find in Script…" any more: over a lyric or a note that
+            // title is a lie about where the key is going.
+            Button("Find…") { findTarget?() }
                 .keyboardShortcut("f", modifiers: .command)
-                .disabled(actions?.find == nil)
+                .disabled(findTarget == nil)
         }
 
         CommandMenu("Format") {
@@ -341,6 +354,13 @@ struct ScriptCommands: Commands {
     private var readAloudTarget: (() -> Void)? {
         if let document = documentActions { return document.readAloud }
         return actions?.readAloud
+    }
+
+    /// What ⌘F opens, by the same rule: the song or note in front where there
+    /// is one, and the screenplay's own search bar otherwise.
+    private var findTarget: (() -> Void)? {
+        if let document = documentActions { return document.find }
+        return actions?.find
     }
 
     /// What ⌘P sends to the printer, by the same rule: the song or note in

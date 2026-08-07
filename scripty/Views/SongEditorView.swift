@@ -605,15 +605,25 @@ struct SongEditorView: View {
         let readAloud: (() -> Void)? = hasWordsToSpeak ? { toggleReadAloud() } : nil
         // ⌘P too, and for the same reason: the chord would otherwise reach the
         // screenplay behind this sheet and print a script the writer cannot see.
+        // And ⌘F, gated exactly as the toolbar's own Find button is: not over
+        // the reader, which has no find bar to open, and not over an empty
+        // note. Without it the chord reached the screenplay behind this cover
+        // and opened *its* search bar out of sight, for the writer to find
+        // sitting open when they closed the note.
+        let find: (() -> Void)? = (isReading || content.isEmpty)
+            ? nil
+            : { formatting.find(replacing: canEdit) }
         guard canEdit else {
-            return DocumentEditorActions(readAloud: readAloud, print: printAction)
+            return DocumentEditorActions(readAloud: readAloud, print: printAction,
+                                         find: find)
         }
         return DocumentEditorActions(undo: { formatting.undo() },
                                      redo: { formatting.redo() },
                                      canUndo: formatting.canUndo,
                                      canRedo: formatting.canRedo,
                                      readAloud: readAloud,
-                                     print: printAction)
+                                     print: printAction,
+                                     find: find)
     }
 
     /// Sending this document to the printer, or nil while it has no words to
@@ -1134,9 +1144,10 @@ struct SongEditorView: View {
         // Find, where the lyric editor keeps its own Search. The system's find
         // bar does the work — see `NoteEditorController.find` for why this is
         // find-and-step rather than the lyric's filter — so there is nothing to
-        // put on screen here and no chord to claim. Only over the writing
-        // surface: reading swaps the text view out, and the reader has no
-        // find bar to open.
+        // put on screen here. No chord claimed *here*, but ⌘F does reach it:
+        // the key is claimed once at the scene by `ScriptCommands` and routed
+        // to whichever document is in front. Only over the writing surface:
+        // reading swaps the text view out, and the reader has no find bar.
         if !isReading {
             ToolbarItem(placement: .primaryAction) {
                 Button {

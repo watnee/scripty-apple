@@ -202,6 +202,12 @@ struct SongBlockEditorView: View {
         let printSong: (() -> Void)? = canPrintSong
             ? { printer.print(model.document, lines: printableLines) }
             : nil
+        // ⌘F too, and nil while reading for the reason the toolbar's own
+        // Search button is absent there: the reading surface is not a list of
+        // rows to narrow. Without this the chord reached the screenplay behind
+        // the cover and opened *its* search bar, out of sight, for the writer
+        // to find open when they closed the song.
+        let find: (() -> Void)? = isReading ? nil : { toggleSearch() }
         guard !isReading else {
             return DocumentEditorActions(readAloud: readAloud, print: printSong)
         }
@@ -211,7 +217,17 @@ struct SongBlockEditorView: View {
             canUndo: model.canUndo,
             canRedo: model.canRedo,
             readAloud: readAloud,
-            print: printSong)
+            print: printSong,
+            find: find)
+    }
+
+    /// Opens the search bar, or closes it and clears what was in it — the one
+    /// errand, so the toolbar button and ⌘F cannot disagree about what the key
+    /// does. Closing empties the query because a filter left standing behind a
+    /// hidden bar is a lyric with lines missing and nothing to say why.
+    private func toggleSearch() {
+        isSearching.toggle()
+        if !isSearching { searchText = "" }
     }
 
     /// Whether there is a lyric to put on paper. Not gated on a link: with
@@ -1218,16 +1234,17 @@ struct SongBlockEditorView: View {
                     Label("Read Song", systemImage: "book")
                 }
             }
-            // No keyboard shortcut on Search: the screenplay's own button owns
-            // ⌘F, and this editor opens over it — the same reason the text-size
-            // menu in the overflow claims no keys.
+            // No keyboard shortcut here, but the key does reach this now: ⌘F
+            // is claimed once at the scene by `ScriptCommands` and routed to
+            // whichever document is in front — see `DocumentEditorActions`.
+            // Both roads go through `toggleSearch`, so the button and the key
+            // cannot come to mean different things.
             //
             // Search narrows the lines, so it is only offered where there are
             // lines to narrow; reading swaps them out.
             if !isReading {
                 Button {
-                    isSearching.toggle()
-                    if !isSearching { searchText = "" }
+                    toggleSearch()
                 } label: {
                     Label("Search", systemImage: "magnifyingglass")
                 }
