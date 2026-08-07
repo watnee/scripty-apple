@@ -549,7 +549,6 @@ struct SongBlockEditorView: View {
                                 block: block,
                                 isLocked: options.isEditingLocked,
                                 focusedLine: $focusedLine,
-                                isReadingView: isReading,
                                 startWriting: startWriting,
                                 isBeingRead: readingLineId == block.id)
                         .id(block.id)

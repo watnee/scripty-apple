@@ -1025,20 +1025,6 @@ final class ScriptModel {
         }
     }
 
-    /// Answer every open conflict the same way. Offered because the common
-    /// shape of this is a batch — one offline stretch, one other person
-    /// working through the same scene — and going one by one to say the same
-    /// thing ten times is its own small punishment.
-    func keepAllMine() async {
-        for conflict in conflicts where conflict.canKeepMine {
-            await keepMine(conflict)
-        }
-    }
-
-    func keepAllTheirs() {
-        for conflict in conflicts { keepTheirs(conflict) }
-    }
-
     // MARK: - Elements written offline
 
     /// Put a new element on screen that the server has never seen, and queue
@@ -1974,10 +1960,19 @@ final class ScriptModel {
     }
 
     /// Whether the undo/redo pair belongs in the toolbar at all: the server
-    /// advertised its history, or this device is holding steps of its own.
-    /// Without the second half, a script opened offline (its status never
-    /// fetched) would hide the pair exactly when the local steps exist.
-    var offersUndoRedo: Bool { undoRedo != nil || !localHistory.isEmpty }
+    /// advertised its history, this device fetched the status, or there are
+    /// steps of its own being held.
+    ///
+    /// All three, and the first is the one this used to omit. `refreshUndoRedo`
+    /// fails silently offline, so `undoRedo` stays nil — and `localHistory` is
+    /// empty until the writer's first offline edit. A script opened from the
+    /// cached copy therefore hid the pair for as long as there was nothing to
+    /// undo yet, with the link sitting right there in the payload that was
+    /// cached. `SongBlockModel.offersUndoRedo` has had the link term from the
+    /// start and says why.
+    var offersUndoRedo: Bool {
+        project.link(.undoRedoStatus) != nil || undoRedo != nil || !localHistory.isEmpty
+    }
 
     /// Local steps first: they are strictly newer than anything in the server's
     /// history — they exist precisely because they never reached it — so they
@@ -3372,10 +3367,6 @@ final class ScriptModel {
         }
     }
 
-    /// The songbook narrowed to the chosen songs.
-    func songbookExportOptions(for ids: [Int]) -> [ExportOption] {
-        collectionExportOptions(for: .song, ids: ids)
-    }
 
     /// What one song or note prints from, when the server can render it.
     ///

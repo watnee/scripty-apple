@@ -38,13 +38,6 @@ struct SongLineRow: View {
     /// this points at it and reports back when the writer taps it directly, so
     /// the shared value stays the single source of truth across both hosts.
     @FocusState.Binding var focusedLine: Int?
-    /// Whether the host has the song up to be read rather than written in.
-    ///
-    /// Off by default, which is what the all-songs workspace wants: that
-    /// screen is a writing surface by definition — every song in the project,
-    /// open at once, to be worked through — and has no reading posture to be
-    /// in. Only the song editor sets it, and only until Edit is tapped.
-    var isReadingView = false
     /// What a double tap on a line nobody can type into should do: leave the
     /// reading view, take the lock off, or whatever else the host has put in the
     /// way. Nil where the host has nothing to undo, and never offered on a line

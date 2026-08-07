@@ -672,16 +672,6 @@ final class SongBlockModel {
         }
     }
 
-    func keepAllMine() async {
-        for conflict in conflicts where conflict.canKeepMine {
-            await keepMine(conflict)
-        }
-    }
-
-    func keepAllTheirs() {
-        for conflict in conflicts { keepTheirs(conflict) }
-    }
-
     /// The badge's "Sync Now": push what is typed but not yet sent, drain what
     /// is held, then pull. The sweep below skips that last step unless it was
     /// showing the offline copy — reasonable for a reconnect nobody asked for,
