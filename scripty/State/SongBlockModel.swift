@@ -305,6 +305,11 @@ final class SongBlockModel {
     func adopt(_ collection: HALCollection<SongBlock>) {
         blocks = collection.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
         links = collection.links
+        // Whatever this replacement took away, it took the ability to save it
+        // with it. A lyric has no offline-created lines to protect here — the
+        // screenplay's queue is what makes its ordering delicate — so this can
+        // simply follow the assignment.
+        forgetHeldWorkForMissingLines()
     }
 
     // MARK: - Typing
@@ -330,6 +335,17 @@ final class SongBlockModel {
     /// is what makes this a debounce rather than a request per character.
     func edit(_ block: SongBlock, text: String) {
         liveText[block.id] = text
+        // Fresh typing earns a fresh set of retries: the backoff having run
+        // out ten minutes ago shouldn't leave this keystroke with none. A
+        // refusal is re-judged the same way — new words are a new write, and
+        // the badge should not go on saying "couldn't save" over a line the
+        // server has not been shown yet. Without this a line whose five
+        // backoffs burned through on a bad train ride kept debouncing,
+        // kept failing, and armed nothing ever again: the words were held,
+        // but the app had quietly stopped trying. The screenplay's
+        // `liveEdit` has had this from the start.
+        retryAttempts[block.id] = nil
+        failedBlockIds.remove(block.id)
         scheduleCommit(block.id)
     }
 
@@ -373,9 +389,27 @@ final class SongBlockModel {
             markSaved(block.id)
             return true
         }
-        // No link is different from no words: the words are still precious,
-        // so the flags and the draft stay — a reload may bring the link back.
-        guard let link = block.link(.update) else { return true }
+        // Changed words with nowhere to PUT them. Reaching here means the
+        // update link went away *while* the writer was typing — the song was
+        // locked, or their access to the project narrowed. Not a network
+        // condition, so nothing will clear up by itself.
+        //
+        // This used to `return true`, which is this function's "the line and
+        // the server now agree". It said so before `persistDraft` below had
+        // ever run: no unsaved flag, nothing on disk, no retry armed, and
+        // `hasUnsavedChanges` false. The words sat in `liveText` looking
+        // perfectly normal until the app was relaunched, and then they were
+        // gone. The comment here claimed the flags and the draft stayed;
+        // on a first failed commit there were none to stay.
+        //
+        // Held and flagged instead, exactly as `ScriptModel.commitOutcome`
+        // does it — and `keepMine` above reads the flags, so the conflict
+        // sheet now says "kept on this device" rather than claiming a version
+        // was sent when nothing left it.
+        guard let link = block.link(.update) else {
+            markUnsaved(block.id, after: APIError.forbidden)
+            return false
+        }
         guard pending != block.text else {
             liveText[block.id] = nil
             markSaved(block.id)
@@ -426,6 +460,28 @@ final class SongBlockModel {
     }
 
     // MARK: - Held work
+
+    /// Call off whatever is queued to write to a line, without saying anything
+    /// about the words themselves.
+    ///
+    /// A debounce armed by the last keystroke before a delete would otherwise
+    /// fire into the gap the DELETE is already in, and the PUT reaches a server
+    /// that has just removed the line — which comes back as the same refusal a
+    /// delete of something already gone does, and flags a line nobody can see
+    /// as holding unsaved work for the rest of the session.
+    ///
+    /// Deliberately not `markSaved`: that one deletes the persisted draft, and
+    /// a delete that has not landed yet has no business doing that. The caller
+    /// puts the write back if the request fails — the line is still there in
+    /// that case, and so are its words. `ScriptModel.stopWrites(to:)` is the
+    /// same function for the same reason.
+    private func stopWrites(to id: Int) {
+        commitTasks[id]?.cancel()
+        commitTasks[id] = nil
+        retryTasks[id]?.cancel()
+        retryTasks[id] = nil
+        retryAttempts[id] = nil
+    }
 
     /// The server has this line's text; the live copy is no longer precious.
     private func markSaved(_ id: Int) {
@@ -616,16 +672,6 @@ final class SongBlockModel {
         }
     }
 
-    func keepAllMine() async {
-        for conflict in conflicts where conflict.canKeepMine {
-            await keepMine(conflict)
-        }
-    }
-
-    func keepAllTheirs() {
-        for conflict in conflicts { keepTheirs(conflict) }
-    }
-
     /// The badge's "Sync Now": push what is typed but not yet sent, drain what
     /// is held, then pull. The sweep below skips that last step unless it was
     /// showing the offline copy — reasonable for a reconnect nobody asked for,
@@ -664,6 +710,11 @@ final class SongBlockModel {
     private var heldWorkSync: Task<Void, Never>?
 
     private func drainHeldWork() async {
+        // Anything aimed at a line the lyric no longer carries is not going to
+        // be sent by this drain or any other. `continue` alone left such an id
+        // in `unsavedBlockIds` for good, so the badge went on reporting held
+        // work that no sweep would ever clear.
+        forgetHeldWorkForMissingLines()
         for id in unsavedBlockIds.sorted() {
             guard let line = block(id) else { continue }
             retryAttempts[id] = nil
@@ -863,11 +914,21 @@ final class SongBlockModel {
 
     private func sendDelete(_ block: SongBlock) async -> Bool {
         guard let link = block.link(.delete) else { return false }
-        commitTasks[block.id]?.cancel()
-        liveText[block.id] = nil
-        // Deleting a line means dropping the words typed into it — the held
-        // copy and its retry go with them, whatever the request then does.
-        markSaved(block.id)
+        // Deleting a line means dropping the words typed into it — but only
+        // once the line is actually gone. This used to clear `liveText` and
+        // call `markSaved` here, before the request went out: `markSaved`
+        // deletes the persisted draft, so a DELETE that never landed left the
+        // line still on screen with the words it was holding erased from
+        // memory *and* from disk, and the row snapped back to whatever the
+        // server last said while the badge insisted everything was saved.
+        //
+        // Held first, dropped in the success branch, put back on its timer if
+        // the request fails. `ScriptModel.deleteBlock` is the same shape for
+        // the same reason. The fold above nils `liveText` itself before
+        // calling here — those words went into the line above — so `held` is
+        // correctly nil on that path and nothing is re-armed.
+        let held = liveText[block.id]
+        stopWrites(to: block.id)
         do {
             // The delete answers with the renumbered collection, so adopting
             // it is the reload — fetching the same list again only made the
@@ -875,10 +936,17 @@ final class SongBlockModel {
             let collection: HALCollection<SongBlock> = try await app.client.fetch(
                 from: link, method: "DELETE")
             adopt(collection)
+            // The line is gone, so there is nothing left to save its words
+            // into. Only now.
+            liveText[block.id] = nil
+            markSaved(block.id)
             errorMessage = nil
             refreshUndoRedoSoon()
             return true
         } catch {
+            // The line is still there, and so are any words it was holding:
+            // put the write called off above back on its timer.
+            if held != nil { scheduleCommit(block.id) }
             report(error)
             return false
         }
@@ -964,7 +1032,6 @@ final class SongBlockModel {
             // are left on the other side — they describe a document that is no
             // longer on screen, so they go.
             localHistory.clear()
-            settleHeldWorkAfterStep()
             await refreshUndoRedo()
             errorMessage = nil
             presentHistoryToast(rel: rel, delta: blocks.count - before)
@@ -973,22 +1040,30 @@ final class SongBlockModel {
         }
     }
 
-    /// Let go of held work for lines the step's answer no longer carries.
+    /// Let go of held work for lines the lyric on screen no longer carries.
     ///
-    /// A step does not edit the song's lines, it replaces them: the server
-    /// deletes every line of the version and re-inserts the snapshot, so the ids
-    /// on screen a moment ago have all stopped existing. `commitAll` above
-    /// clears the held flags for every line whose words got out, but a line
-    /// whose save had *failed* keeps its entry — and that entry now names
-    /// nothing. Left alone it is a cloud badge insisting on unsaved work for a
-    /// line the writer cannot see, on a song where every word on screen is the
-    /// server's, with no line left for a retry to land on and put it right.
+    /// Written for undo and redo, where it is unmissable: a step does not edit
+    /// the song's lines, it replaces them — the server deletes every line of
+    /// the version and re-inserts the snapshot, so the ids on screen a moment
+    /// ago have all stopped existing. `commitAll` clears the held flags for
+    /// every line whose words got out, but a line whose save had *failed*
+    /// keeps its entry, and that entry now names nothing. Left alone it is a
+    /// cloud badge insisting on unsaved work for a line the writer cannot see,
+    /// on a song where every word on screen is the server's, with no line left
+    /// for a retry to land on and put it right.
+    ///
+    /// A step is only the loudest way to get there, though, which is why this
+    /// is now called from `adopt` — every load, every edition change, every
+    /// delete and every move — rather than from the two history paths alone.
+    /// Hold a line offline, have a collaborator delete it, come back: the PUT
+    /// 404s, the flag is set, the next load takes the row away, and the badge
+    /// accuses a line with nothing behind it for the rest of the session.
     ///
     /// The words themselves are not being taken away lightly: they never
-    /// reached the server, and a step back past them is precisely the writer
-    /// asking for the song without them — the same reading that clears
-    /// `localHistory` two lines up.
-    private func settleHeldWorkAfterStep() {
+    /// reached the server, and a lyric that no longer has the line is a lyric
+    /// with nowhere to put them — the same reading that clears `localHistory`
+    /// beside the history calls.
+    private func forgetHeldWorkForMissingLines() {
         let live = Set(blocks.map(\.id))
         let stale = Set(liveText.keys)
             .union(unsavedBlockIds)

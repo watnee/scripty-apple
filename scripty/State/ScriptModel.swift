@@ -383,6 +383,11 @@ final class ScriptModel {
         // block already being edited, is left alone.
         adoptPersistedDrafts()
         adoptPendingCreates()
+        // Last, and it has to be last: the two calls above are what put the
+        // offline-written elements back on screen, and without them every one
+        // would read as an element the server no longer carries. See the
+        // ordering note on `forgetWritesToMissingBlocks`.
+        forgetWritesToMissingBlocks()
     }
 
     func loadCharacters() async {
@@ -451,6 +456,16 @@ final class ScriptModel {
             errorMessage = nil
             return true
         } catch {
+            // Its one caller — accepting a suggestion — has already put the
+            // words on screen through `showLive`, which deliberately arms no
+            // save of its own so as not to race this request. So if this is
+            // where the write dies, this is the only place that can hold the
+            // words: without the line below they had no unsaved flag, no
+            // draft on disk, no retry and no commit task, which also meant
+            // `flushPendingCommits` could not see them. The writer accepted
+            // "MARGARET", the badge read "up to date", and the next launch
+            // showed "MAR".
+            markUnsaved(block.id, after: error)
             report(error)
             return false
         }
@@ -667,8 +682,16 @@ final class ScriptModel {
         guard !removingBlockIds.contains(id) else { return .failed }
         commitTasks[id]?.cancel()
         commitTasks[id] = nil
-        guard let text = liveText[id],
-              let block = blocks.first(where: { $0.id == id }) else { return .failed }
+        guard let text = liveText[id] else { return .failed }
+        guard let block = blocks.first(where: { $0.id == id }) else {
+            // Words aimed at an element the script no longer carries. Nothing
+            // can send them, so leaving the flag standing only gives
+            // `drainHeldWork` an id it will fail on for the rest of the
+            // session. `adopt` sweeps these up, but a removal that never went
+            // through it can still land here.
+            forgetWritesToMissingBlocks()
+            return .failed
+        }
         // An element written offline has nothing to PUT to. Its words go into
         // the queue entry instead, so the create that eventually goes out
         // carries the newest version — and it stays flagged unsaved, because
@@ -802,14 +825,26 @@ final class ScriptModel {
     /// when nothing moved since the last record, so the retries that land back
     /// here every backoff never duplicate a step.
     private func markUnsaved(_ id: Int, after error: Error) {
+        unsavedBlockIds.insert(id)
+        persistDraft(id)
+        // An abandoned request is not a failed one: the debounce was
+        // superseded or the screen was left, and whatever did that will write
+        // the words again. `APIError.cancelled` is deliberately not retryable,
+        // so without this it fell through to the refusal branch below — the
+        // badge stuck on "couldn't save" for a request this app threw away
+        // itself, with nothing left to retry it, and a local history step
+        // recorded for a write that was never attempted. The guard sits here
+        // rather than at the top so the words still reach `unsavedBlockIds`
+        // and the draft file: they are held either way, and only the *verdict*
+        // on them is what a cancellation has no business giving.
+        // `SongBlockModel.markUnsaved` has had this from the start.
+        guard !error.isCancelledRequest else { return }
         if let text = liveText[id],
            let change = localHistory.textChange(
                blockId: id, to: text,
                lastSaved: blocks.first(where: { $0.id == id })?.content ?? "") {
             localHistory.record([change])
         }
-        unsavedBlockIds.insert(id)
-        persistDraft(id)
         guard error.isRetryableAPIError else {
             // Refused, not delayed. The words stay held — they are still the
             // only copy — but nothing is retrying on a timer, and the badge
@@ -990,20 +1025,6 @@ final class ScriptModel {
         }
     }
 
-    /// Answer every open conflict the same way. Offered because the common
-    /// shape of this is a batch — one offline stretch, one other person
-    /// working through the same scene — and going one by one to say the same
-    /// thing ten times is its own small punishment.
-    func keepAllMine() async {
-        for conflict in conflicts where conflict.canKeepMine {
-            await keepMine(conflict)
-        }
-    }
-
-    func keepAllTheirs() {
-        for conflict in conflicts { keepTheirs(conflict) }
-    }
-
     // MARK: - Elements written offline
 
     /// Put a new element on screen that the server has never seen, and queue
@@ -1084,6 +1105,14 @@ final class ScriptModel {
     /// writing with it.
     private func replayPendingCreates() async {
         guard let queue = createQueue else { return }
+        // Nothing may be judged before the script it belongs to is on screen.
+        // Every anchor below is resolved against `blocks`, so with an empty
+        // one — a load that failed with no cached copy behind it — the link
+        // lookup comes back nil for every entry and the whole queue is thrown
+        // away as refused without a single request going out.
+        // `drainDocumentDrafts` guards itself the same way, for the same
+        // reason.
+        guard !blocks.isEmpty || blocksLinks[.createInitial] != nil else { return }
         var refused: [String] = []
         var resolvedAny = false
         // Once anything here lands or is given up on, the local steps describe
@@ -1106,8 +1135,9 @@ final class ScriptModel {
             let source = anchor ?? blocks.last { !$0.isLocal }
             guard let link = source?.link(.createBelow) ?? blocksLinks[.createInitial] else {
                 // Nothing on this script can take a new element: no edit
-                // access any more, or an empty script with no seed link.
-                refused.append(dropRefusedCreate(entry, from: queue))
+                // access any more. (An unloaded script cannot reach here —
+                // the guard at the top of this function turns it away.)
+                refused.append(giveUpOnCreate(entry, from: queue))
                 continue
             }
             // The words as they stand now, not as they stood when the line was
@@ -1145,7 +1175,35 @@ final class ScriptModel {
                     // Still no usable connection. Everything stays queued.
                     return
                 }
-                refused.append(dropRefusedCreate(entry, from: queue))
+                // Not everything that fails to retry is a refusal, and this
+                // branch used to treat it as one — dropping the element from
+                // the screen, the outbox and the drafts at once. `.cancelled`
+                // and `.unauthorized` are both non-retryable, so a session
+                // that expired while somebody wrote twenty elements on a train
+                // destroyed all twenty on reconnect, one 401 at a time, and
+                // never even ended the session.
+                if error.isCancelledRequest {
+                    // This app's own doing — the screen was left, the sync was
+                    // stopped on the way to the background. Nothing has been
+                    // judged. Everything stays queued.
+                    return
+                }
+                switch error {
+                case APIError.unauthorized, APIError.redirectedOutOfAPI:
+                    // Not this element's fault, and not a verdict on it. The
+                    // session goes — which it never used to, so the writer was
+                    // shown missing work and left signed in — and the queue is
+                    // untouched: `endSession` does not clear the durable
+                    // stores, so signing back in finds the night's writing
+                    // still waiting.
+                    app.handle(error)
+                    return
+                default:
+                    // A real refusal: 403, 404, a validation error. The
+                    // element is given up on so the rest of the queue can
+                    // move.
+                    refused.append(giveUpOnCreate(entry, from: queue))
+                }
             }
         }
         if !refused.isEmpty {
@@ -1154,6 +1212,35 @@ final class ScriptModel {
             // alert both belong to things still in flight.
             presentToast(refusalToast(for: refused))
         }
+    }
+
+    /// Give up on one element the server refused, keeping its words where the
+    /// writer can still reach them.
+    ///
+    /// The element goes — off the queue, off the screen — because the queue is
+    /// drained in order and one entry nothing will ever accept would block
+    /// everything behind it. But it was written on this device and never
+    /// existed anywhere else, so the words are the only copy there has ever
+    /// been, and a toast quoting sixty characters is not somewhere to keep a
+    /// scene. They go into the conflicts list, which is durable and which the
+    /// writer can copy out of. `drainDocumentDrafts` makes the same trade for
+    /// a note whose target was deleted, and says so.
+    ///
+    /// `couldNotBeCreated` rather than `refused`: there is no element behind
+    /// these words to write them back into, so the sheet offers copying rather
+    /// than a Keep Mine that would fail on every press.
+    private func giveUpOnCreate(_ entry: PendingBlockCreate,
+                                from queue: OfflineBlockQueue) -> String {
+        let words = dropRefusedCreate(entry, from: queue)
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return words
+        }
+        recordConflict(SyncConflict(
+            subject: .block(id: entry.tempId), reason: .couldNotBeCreated,
+            mine: words, theirs: "", base: nil,
+            label: BlockType(rawValue: entry.type)?.label ?? "Element",
+            detectedAt: .now))
+        return words
     }
 
     /// Abandon one element the server refused: off the queue (its dependents
@@ -1170,9 +1257,11 @@ final class ScriptModel {
         return words
     }
 
-    /// One refused line quotes itself — those words exist nowhere else any
-    /// more, and a writer shown *which* line went missing can retype it.
-    /// Several fall back to the count; a toast can't hold a scene.
+    /// One refused line quotes itself, so a writer shown *which* line the
+    /// server would not take knows what happened without opening anything.
+    /// Several fall back to the count; a toast can't hold a scene — which is
+    /// why it no longer has to. The words are in the conflicts list either
+    /// way, and the toast says so rather than reading like an obituary.
     private func refusalToast(for refused: [String]) -> String {
         if refused.count == 1 {
             let words = refused[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1182,9 +1271,10 @@ final class ScriptModel {
             let snippet = words.count > 60
                 ? words.prefix(60).trimmingCharacters(in: .whitespaces) + "…"
                 : words
-            return "This line couldn't be added: “\(snippet)”"
+            return "Couldn't add “\(snippet)” — your words are kept here"
         }
-        return "\(refused.count) elements written offline couldn't be added"
+        return "\(refused.count) elements written offline couldn't be added — "
+            + "your words are kept here"
     }
 
     /// Abandon a queued element and anything anchored to it, on screen as well
@@ -1204,8 +1294,16 @@ final class ScriptModel {
     /// the background, and the debounce window may outlive its execution time.
     /// Each block's text is snapshotted to disk first, so even a commit that
     /// never gets to run is covered by the restore path on next launch.
+    ///
+    /// Every block holding live words, not only those with a debounce armed.
+    /// `showLive` puts text on screen without arming one — for a caller about
+    /// to persist it itself, where `liveEdit` would race that write — so
+    /// keying off `commitTasks` meant an accepted suggestion whose own PUT
+    /// then failed was invisible here, and to `syncNow`, which is built on
+    /// this. `SongBlockModel.flushPendingCommits` reads `liveText` and always
+    /// has; its comment already claimed the two were the same shape.
     func flushPendingCommits() async {
-        let pending = Array(commitTasks.keys)
+        let pending = Array(liveText.keys)
         for id in pending { persistDraft(id) }
         for id in pending { await commit(id) }
     }
@@ -1862,10 +1960,19 @@ final class ScriptModel {
     }
 
     /// Whether the undo/redo pair belongs in the toolbar at all: the server
-    /// advertised its history, or this device is holding steps of its own.
-    /// Without the second half, a script opened offline (its status never
-    /// fetched) would hide the pair exactly when the local steps exist.
-    var offersUndoRedo: Bool { undoRedo != nil || !localHistory.isEmpty }
+    /// advertised its history, this device fetched the status, or there are
+    /// steps of its own being held.
+    ///
+    /// All three, and the first is the one this used to omit. `refreshUndoRedo`
+    /// fails silently offline, so `undoRedo` stays nil — and `localHistory` is
+    /// empty until the writer's first offline edit. A script opened from the
+    /// cached copy therefore hid the pair for as long as there was nothing to
+    /// undo yet, with the link sitting right there in the payload that was
+    /// cached. `SongBlockModel.offersUndoRedo` has had the link term from the
+    /// start and says why.
+    var offersUndoRedo: Bool {
+        project.link(.undoRedoStatus) != nil || undoRedo != nil || !localHistory.isEmpty
+    }
 
     /// Local steps first: they are strictly newer than anything in the server's
     /// history — they exist precisely because they never reached it — so they
@@ -1937,22 +2044,51 @@ final class ScriptModel {
     /// a block still flagged unsaved keeps its live copy, exactly as it does
     /// across an ordinary reload.
     private func settleWritesAfterStep() {
+        forgetWritesToMissingBlocks()
+        // The second half, and the half that belongs to a step alone: an
+        // element that survived now says what the snapshot says, so the live
+        // copy has to go or the words undo was pressed to be rid of sit there
+        // unchanged and come back on the next keystroke. Never do this from
+        // `adopt` — an ordinary reload happens while somebody is typing, and
+        // this would take the half-second of writing since the last debounce.
+        for id in Set(liveText.keys) where !unsavedBlockIds.contains(id) {
+            liveText[id] = nil
+        }
+        noteSyncedIfSettled()
+    }
+
+    /// Drop every trace of a write aimed at an element that is no longer in the
+    /// script: the live copy, both flags, the draft on disk, and any debounce
+    /// or backoff still counting down for it.
+    ///
+    /// Called after *any* wholesale replacement, not only an undo. A backoff
+    /// still counting down for a vanished id raises the refusal `stopWrites`
+    /// exists to avoid, a moment later and with nothing on screen to explain
+    /// it — and its unsaved flag leaves the badge claiming held work for an
+    /// element that is not there, which no retry can ever put right because
+    /// there is nothing left to retry against. That is reachable without any
+    /// undo at all: hold an edit offline, have a collaborator delete the
+    /// element, come back online. The PUT 404s, the flag is set, the next
+    /// load takes the row away, and the badge reads "couldn't save" for the
+    /// rest of the session over an element with no row.
+    ///
+    /// Safe from `adopt` only because it runs *after* `adoptPendingCreates()`
+    /// has put the offline-written elements back into `blocks`. Before that
+    /// they are absent from the collection the server just sent — which is the
+    /// whole point of them — and every one would be forgotten as missing.
+    private func forgetWritesToMissingBlocks() {
         let present = Set(blocks.map(\.id))
         let aimedAt = Set(liveText.keys)
             .union(unsavedBlockIds)
             .union(failedBlockIds)
             .union(commitTasks.keys)
             .union(retryTasks.keys)
-        for id in aimedAt {
-            guard present.contains(id) else {
-                stopWrites(to: id)
-                liveText[id] = nil
-                unsavedBlockIds.remove(id)
-                failedBlockIds.remove(id)
-                draftStore?.remove(blockId: id, projectId: project.id)
-                continue
-            }
-            if !unsavedBlockIds.contains(id) { liveText[id] = nil }
+        for id in aimedAt where !present.contains(id) {
+            stopWrites(to: id)
+            liveText[id] = nil
+            unsavedBlockIds.remove(id)
+            failedBlockIds.remove(id)
+            draftStore?.remove(blockId: id, projectId: project.id)
         }
         noteSyncedIfSettled()
     }
@@ -3231,10 +3367,6 @@ final class ScriptModel {
         }
     }
 
-    /// The songbook narrowed to the chosen songs.
-    func songbookExportOptions(for ids: [Int]) -> [ExportOption] {
-        collectionExportOptions(for: .song, ids: ids)
-    }
 
     /// What one song or note prints from, when the server can render it.
     ///

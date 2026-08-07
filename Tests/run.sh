@@ -41,11 +41,16 @@ FLAGS=(
 
 status=0
 
-# Every suite here is arithmetic, in-process fakes, or requests to a closed
-# port: milliseconds of work. So anything still running after the limit is
-# stuck, not slow, and the only useful thing to do is say so and move on —
-# a suite that blocks forever otherwise takes the whole run with it, silently,
-# and nothing here has a timeout of its own.
+# Every suite here is arithmetic, in-process fakes, requests to a closed port,
+# or — the handful that need a real socket — a demo backend listening on
+# loopback: milliseconds of work either way. So anything still running after
+# the limit is stuck, not slow, and the only useful thing to do is say so and
+# move on — a suite that blocks forever otherwise takes the whole run with it,
+# silently, and nothing here has a timeout of its own.
+#
+# Every suite goes through this. Seven of them used to call their binary
+# directly, which is exactly backwards: the ones that reach a socket are the
+# ones that can hang, and the loudest of them was among the seven.
 #
 # Override with SCRIPTY_TEST_TIMEOUT if a machine is genuinely that slow.
 SUITE_TIMEOUT="${SCRIPTY_TEST_TIMEOUT:-60}"
@@ -245,7 +250,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/editorstate" \
     "$SRC/Models/TextDocument.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/EditorState/main.swift"
-"$BUILD/editorstate" || status=1
+run_suite "$BUILD/editorstate" || status=1
 
 echo
 echo "== Presentation / appearance settings =="
@@ -315,7 +320,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/launchproject" \
     "$SRC/Models/LaunchProject.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/LaunchProject/main.swift"
-"$BUILD/launchproject" || status=1
+run_suite "$BUILD/launchproject" || status=1
 
 echo
 echo "== The keyboard reference agrees with itself =="
@@ -370,7 +375,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/Models/"*.swift \
     "${SHARED[@]}" \
     "$ROOT/Tests/SongLines/main.swift"
-"$BUILD/songlines" || status=1
+run_suite "$BUILD/songlines" || status=1
 
 echo
 echo "== Song drafts survive a failed save =="
@@ -451,7 +456,7 @@ echo "== Songs and Notes widgets =="
 swiftc "${FLAGS[@]}" -o "$BUILD/widget" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Tests/SongsNotesWidget/main.swift"
-"$BUILD/widget" || status=1
+run_suite "$BUILD/widget" || status=1
 
 echo
 echo "== Home Screen projects widget =="
@@ -460,13 +465,15 @@ echo "== Home Screen projects widget =="
 swiftc "${FLAGS[@]}" -o "$BUILD/projectswidget" \
     "$ROOT/Shared/ProjectsWidgetData.swift" \
     "$ROOT/Tests/ProjectsWidget/main.swift"
-"$BUILD/projectswidget" || status=1
+run_suite "$BUILD/projectswidget" || status=1
+
+echo
 echo "== Songs & notes ordering =="
 swiftc "${FLAGS[@]}" -o "$BUILD/documentorder" \
     "$SRC/Models/TextDocument.swift" \
     "${SHARED[@]}" \
     "$ROOT/Tests/DocumentOrder/main.swift"
-"$BUILD/documentorder" || status=1
+run_suite "$BUILD/documentorder" || status=1
 
 echo
 echo "== What Siri, Spotlight and Shortcuts can find =="
@@ -489,7 +496,7 @@ echo "== Home Screen bookmarks widget =="
 swiftc "${FLAGS[@]}" -o "$BUILD/bookmarkswidget" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$ROOT/Tests/BookmarksWidget/main.swift"
-"$BUILD/bookmarkswidget" || status=1
+run_suite "$BUILD/bookmarkswidget" || status=1
 
 echo
 echo "== Demo backend API contract =="
@@ -594,6 +601,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/State/ScriptAutocomplete.swift" \
     "$SRC/Models/"*.swift \
     "${SHARED[@]}" \
     "$ROOT/Tests/UnsavedWork/main.swift"

@@ -22,14 +22,6 @@ enum DocumentType: String, Codable, Sendable, CaseIterable {
         case .other: return "Other"
         }
     }
-
-    /// Plural heading used in the segmented picker.
-    var listLabel: String {
-        switch self {
-        case .song: return "Songs"
-        case .notes, .other: return "Notes"
-        }
-    }
 }
 
 struct TextDocument: Decodable, Identifiable, Hashable, HALResource {

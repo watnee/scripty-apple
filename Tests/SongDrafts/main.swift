@@ -74,6 +74,29 @@ func twoLineCollection() -> HALCollection<SongBlock> {
     """)
 }
 
+/// The same two lines after the writer's access narrowed: still there, still
+/// deletable, with nothing left to PUT to. What a reload carries when a song
+/// is locked from another device or a collaborator is dropped to read-only.
+func collectionWithoutUpdateLinks() -> HALCollection<SongBlock> {
+    decode(HALCollection<SongBlock>.self, """
+    {
+      "_embedded": {
+        "songBlockResourceList": [
+          {
+            "id": 40, "order": 1, "content": "First verse.",
+            "_links": {"delete": {"href": "/api/song-blocks/40"}}
+          },
+          {
+            "id": 41, "order": 2, "content": "Second verse.",
+            "_links": {"delete": {"href": "/api/song-blocks/41"}}
+          }
+        ]
+      },
+      "_links": {"self": {"href": "/api/documents/7/song-blocks"}}
+    }
+    """)
+}
+
 /// A scratch directory a store can be pointed at, wiped per case.
 func scratchDirectory(_ name: String) -> URL {
     let url = FileManager.default.temporaryDirectory
@@ -112,6 +135,59 @@ func run() async {
         check("the model reports unsaved work", model.hasUnsavedChanges)
         check("an offline failure is not a refusal", !model.hasFailedSaves)
         check("and raises no alert", model.errorMessage == nil)
+    }
+
+    print()
+    print("== A line with nowhere to send its words holds them anyway ==")
+    do {
+        let store = UnsavedDraftStore(scope: "server|alice",
+                                      directory: scratchDirectory("no-link"))
+        let model = makeModel(store: store)
+        // The update link goes while the writer is typing: the song was locked
+        // from another device, or their access to the project narrowed. The
+        // reload that carries the narrowed links is what `adopt` is here.
+        model.adopt(collectionWithoutUpdateLinks())
+        let first = model.blocks[0]
+
+        model.edit(first, text: "Words with nowhere to go.")
+        let landed = await model.commit(first)
+
+        check("the commit does not claim the server has them", !landed)
+        checkEqual("the words are still on screen",
+                   model.currentText(model.blocks[0]), "Words with nowhere to go.")
+        check("and flagged as held", model.unsavedBlockIds.contains(first.id))
+        // The one that matters. This used to return "saved" before it ever
+        // reached `persistDraft`, so there was nothing on disk and the words
+        // lived only in this process until the next launch took them.
+        check("and written to disk, where a relaunch can find them",
+              store.drafts(projectId: song.id)[first.id] != nil)
+        // A lost link is not a network condition, so nothing will clear it up
+        // by itself and the badge has to say so rather than pulse "saving".
+        check("the badge says it could not be saved", model.hasFailedSaves)
+    }
+
+    print()
+    print("== Typing again is a new write, and is judged as one ==")
+    do {
+        let model = makeModel()
+        model.adopt(collectionWithoutUpdateLinks())
+        let first = model.blocks[0]
+
+        model.edit(first, text: "Refused once.")
+        await model.commit(first)
+        check("the refusal is on the badge", model.failedBlockIds.contains(first.id))
+
+        // `edit` clears the refusal *and* the spent retry budget alongside it —
+        // the counter is private, so what is checked here is the half a reader
+        // can see, but both go for the same reason. New words have not been
+        // shown to the server, so neither the verdict on the old ones nor the
+        // backoff they burned through has anything to say about them. Without
+        // this, a line whose five retries ran out on a bad train ride kept
+        // debouncing, kept failing, and armed nothing ever again.
+        model.edit(first, text: "Retyped, and not yet judged.")
+        check("retyping stops the badge accusing words nobody has read yet",
+              !model.failedBlockIds.contains(first.id))
+        check("though they are still held", model.unsavedBlockIds.contains(first.id))
     }
 
     print()
@@ -210,22 +286,33 @@ func run() async {
     }
 
     print()
-    print("== Deleting a line drops its held words deliberately ==")
+    print("== A delete that cannot get out keeps the words ==")
     do {
         let directory = scratchDirectory("delete")
         let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
         let model = makeModel(store: store)
         let first = model.blocks[0]
 
-        model.edit(first, text: "Words the writer then deletes.")
+        model.edit(first, text: "Words the writer then tries to delete.")
         await model.commit(first)
         check("the draft exists before the delete",
               store.drafts(projectId: song.id)[first.id] != nil)
 
-        _ = await model.delete(first)
-        check("the draft goes with the line",
-              store.drafts(projectId: song.id)[first.id] == nil)
-        check("nothing is left flagged unsaved", !model.unsavedBlockIds.contains(first.id))
+        let gone = await model.delete(first)
+
+        // Nothing reached the server, so nothing about this line has changed.
+        // This case used to assert the opposite — that the draft was gone —
+        // which is what a `markSaved` fired before the request went out did:
+        // the line stayed on screen with the only copy of those words erased
+        // from memory and from disk at once, under a badge reading "saved".
+        check("the delete reports that it did not happen", !gone)
+        checkEqual("the line is still there", model.blocks.count, 2)
+        checkEqual("still showing the words that were typed into it",
+                   model.currentText(model.blocks[0]),
+                   "Words the writer then tries to delete.")
+        check("still flagged as held", model.unsavedBlockIds.contains(first.id))
+        check("and its draft is still on disk",
+              store.drafts(projectId: song.id)[first.id] != nil)
     }
 
     print()

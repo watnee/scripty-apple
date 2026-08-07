@@ -43,6 +43,21 @@ struct ReadScriptView: View {
     /// spotlighted and kept on screen. Playing is asked for through
     /// `onReadFrom`, so preparing the run stays the owner's job.
     var narrator: ScriptNarrator
+    /// What a reading has to be *of* before this screen reacts to it.
+    ///
+    /// There is one narrator on the device, borrowed by the song and note
+    /// editors too, and they open over the screen this reader belongs to. So
+    /// "a reading is running" is not the same question as "my reading is
+    /// running", and `currentBlockId` means nothing without this: a song's
+    /// line ids and a script's element ids are different numbering entirely.
+    /// Read a song aloud with the screenplay reader behind it and a colliding
+    /// id scrolled the reader to an arbitrary element and lit it up — and the
+    /// scroll was reported back through `onTopVisibleBlock` as the writer's
+    /// remembered position, so it outlived the reading. `ScriptView`,
+    /// `SongEditorView` and `SongBlockEditorView` all ask this; this was the
+    /// one surface that did not.
+    var narrationSubject: NarrationSubject
+    private var isBeingRead: Bool { narrator.subject == narrationSubject }
     /// Whether the script is still on its way. Only ever true now that a
     /// screenplay can *open* into this mode rather than only be switched into
     /// it: entered by hand there were always elements to show, but on the way
@@ -183,7 +198,7 @@ struct ReadScriptView: View {
             // line read at the very top of the screen has no context above
             // it and the next one is always a jump.
             .onChange(of: narrator.currentBlockId) { _, id in
-                guard let id else { return }
+                guard isBeingRead, let id else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
                     proxy.scrollTo(id, anchor: .center)
                 }
@@ -255,7 +270,7 @@ struct ReadScriptView: View {
     /// is inset outwards so switching it on cannot reflow the page.
     @ViewBuilder
     private func spotlight(_ block: Block) -> some View {
-        if narrator.currentBlockId == block.id {
+        if isBeingRead, narrator.currentBlockId == block.id {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.accentColor.opacity(0.16))
                 .padding(.horizontal, -10)

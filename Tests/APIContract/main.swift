@@ -2794,9 +2794,18 @@ func checkSongSelection(pid: Int) async {
         method: "POST", url: url("/api/project"),
         body: body(["title": "Notes Only"])).data)
     if let notesOnly = made["id"] as? Int {
-        _ = await be.respond(method: "POST", url: url("/api/document"),
-                             body: body(["projectId": notesOnly, "title": "The Only Note",
-                                         "documentType": "NOTES", "content": "no songs here"]))
+        let theNote = json(await be.respond(
+            method: "POST", url: url("/api/document"),
+            body: body(["projectId": notesOnly, "title": "The Only Note",
+                        "documentType": "NOTES", "content": "no songs here"])).data)
+        // A note can be emailed on its own, not only by ticking it. This was
+        // gated on being a song here while the collection's `bulkShareEmail`
+        // was not gated at all, so the one route existed and the other did
+        // not — for the same note, in the same list. The real server emits it
+        // for either kind unconditionally.
+        check("a note advertises `shareEmail` of its own",
+              links(theNote)["shareEmail"] != nil,
+              "got \(links(theNote).keys.sorted())")
         let onlyNotes = links(json(await be.respond(
             method: "GET", url: url("/api/document?projectId=\(notesOnly)"), body: nil).data))
         check("a project of notes advertises `bulkDelete`", onlyNotes["bulkDelete"] != nil,

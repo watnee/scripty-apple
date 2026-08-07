@@ -46,6 +46,7 @@ struct NotesWorkspaceView: View {
         self.app = app
         self.model = model
         _printer = State(initialValue: DocumentPrintModel(model: model))
+        _exporter = State(initialValue: DocumentExportModel(model: model))
         // The remembered choice only, with no fall back to the app-wide "open
         // documents for reading" switch — the rule the songs workspace goes by.
         // This screen is reached by pressing "Edit All on One Page", and coming
@@ -94,6 +95,17 @@ struct NotesWorkspaceView: View {
     /// Every note on screen on paper. One printer for the screen, as the notes
     /// list keeps one for the list.
     @State private var printer: DocumentPrintModel
+
+    /// And the same gathering as a file. Beside the printer for the reason the
+    /// two controls sit beside each other: one is an errand, the other is a
+    /// choice of format — see `DocumentExportMenu`.
+    @State private var exporter: DocumentExportModel
+
+    /// The device's one voice, shared with the screenplay behind this cover and
+    /// with both editors — see `ScriptNarrator`. Reading here ends whatever was
+    /// being read before it, which is the only sane answer on a device with one
+    /// pair of headphones.
+    private let narrator = ScriptNarrator.shared
     /// Which note holds the caret, so a keyboard ⌘Z has an unambiguous answer.
     /// Reported by the panes themselves rather than kept in a `@FocusState`:
     /// these are bridged text views that grant themselves first responder, and
@@ -158,6 +170,8 @@ struct NotesWorkspaceView: View {
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if isArranging {
                     arrangingBar
+                } else if narrator.isActive && isBeingRead {
+                    narrationBar
                 } else if let id = focusedNote, drafts[id] != nil {
                     HideKeyboardBar(releaseFocus: { focusedNote = nil })
                 }
@@ -168,12 +182,20 @@ struct NotesWorkspaceView: View {
             #endif
             .safeAreaInset(edge: .top, spacing: 0) { conflictBanner }
             .toolbar { toolbar }
+            // A reading belongs to this screen, so it ends when the screen
+            // does — the same rule both editors keep. Left running, the voice
+            // would go on reading notes over whatever the writer went to
+            // next, with no transport anywhere to stop it.
+            .onDisappear {
+                if isBeingRead { narrator.stop() }
+            }
             // Same claim the note editor makes, and for the same reason: this
             // is a cover over the screenplay, and without it the menu's ⌘Z
             // would rewind the script behind it. Published even when it can do
             // nothing, so a step here never falls through to the script.
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .documentPrintPresentation(printer)
+            .documentExportPresentation(exporter)
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
             }
@@ -488,17 +510,76 @@ struct NotesWorkspaceView: View {
         // and is claimed even when there is nothing to print, so the chord
         // cannot fall through this cover to the screenplay behind it.
         let printNotes: (() -> Void)? = notes.isEmpty ? nil : { printAll() }
+        // And ⌘⇧A means every note on this screen, read as one run — claimed
+        // for the reason ⌘P is. `readAloudTarget` prefers this value whenever
+        // it is present, so leaving it nil disabled the chord here rather than
+        // letting it fall through, which meant the one screen showing every
+        // note at once was the one screen that could not be read aloud.
+        let readNotes: (() -> Void)? = notes.isEmpty ? nil : { toggleReadAloud() }
         // Nothing to step back through on a page being read — and still
         // published, so ⌘Z over the notes can never fall through to the script
         // this screen is covering.
         guard !isReading, let id = focusedNote, let draft = drafts[id], canWrite(id) else {
-            return DocumentEditorActions(print: printNotes)
+            return DocumentEditorActions(readAloud: readNotes, print: printNotes)
         }
         return DocumentEditorActions(undo: { draft.history.undo() },
                                      redo: { draft.history.redo() },
                                      canUndo: draft.history.canUndo,
                                      canRedo: draft.history.canRedo,
+                                     readAloud: readNotes,
                                      print: printNotes)
+    }
+
+    // MARK: - Reading the set through
+
+    /// This screen's claim on the device's one voice.
+    private var narrationSubject: NarrationSubject {
+        .notesWorkspace(project: model.project.id)
+    }
+
+    /// Whether the voice is reading *this* screen rather than one note, the
+    /// screenplay behind the cover, or a song.
+    private var isBeingRead: Bool { narrator.subject == narrationSubject }
+
+    /// Every note on screen as one run, in the order the list is showing them.
+    ///
+    /// Each note's title goes in as a Markdown heading, because
+    /// `cues(forNote:)` already reads one as a heading cue — so the run
+    /// announces which note it has reached without this having to invent a way
+    /// of saying so.
+    ///
+    /// Built from the same two places the print of this screen is: an open note
+    /// holds what has been typed this minute, and a note nobody expanded was
+    /// never fetched and falls back to the copy this device kept.
+    private var narrationSource: NarrationSource {
+        var parts: [String] = []
+        for note in notes {
+            parts.append("# " + note.displayTitle)
+            if let draft = drafts[note.id] {
+                parts.append(draft.content)
+            } else if let cached = model.cachedDocumentLines(note) {
+                parts.append(cached.joined(separator: "\n"))
+            }
+        }
+        return .note(parts.joined(separator: "\n\n"))
+    }
+
+    /// Reads the set through, or pauses and resumes one already running.
+    private func toggleReadAloud() {
+        if narrator.isActive && isBeingRead {
+            narrator.togglePlayPause()
+            return
+        }
+        narrator.prepare(narrationSource, subject: narrationSubject, title: printJobName)
+        narrator.play()
+    }
+
+    /// The transport, up only while this screen is the thing being read.
+    @ViewBuilder
+    private var narrationBar: some View {
+        if narrator.isActive && isBeingRead {
+            NarrationTransportBar(narrator: narrator)
+        }
     }
 
     /// The notes on screen on paper, one to a sheet — the same file the list's
@@ -795,11 +876,12 @@ struct NotesWorkspaceView: View {
     /// badge nobody reads by the end of the first page.
     private var cloudState: CloudSyncState? {
         guard !app.isDemo else { return nil }
-        // Ahead of the rest, as everywhere else: those clear up on their own
-        // and this one is waiting on the writer. The songs workspace and both
-        // editors put it first for the same reason — a badge reporting "saving"
-        // over an unanswered question asks the writer to wait for something
-        // that is waiting for them.
+        // Ahead of the rest, as every sibling has it: the others clear up on
+        // their own and this one is waiting on the writer. Without it two
+        // devices editing the same note left this badge reading "Synced" —
+        // green, over a note in disagreement — with nothing on the screen
+        // offering a way to settle it, though the sheet and the routing were
+        // both already here.
         if !noteConflicts.isEmpty { return .conflicted }
         if !app.connectivity.isOnline { return .offline }
         if drafts.values.contains(where: { if case .failed = $0.status { return true } else { return false } }) {
@@ -859,7 +941,8 @@ struct NotesWorkspaceView: View {
                                // so loudly, and this is where a writer who went
                                // to the badge instead finds the same door.
                                conflictCount: noteConflicts.count,
-                               review: noteConflicts.isEmpty ? nil : { showingConflicts = true })
+                               review: noteConflicts.isEmpty
+                                   ? nil : { showingConflicts = true })
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -971,6 +1054,27 @@ struct NotesWorkspaceView: View {
                 }
                 .disabled(printer.isPrinting)
             }
+            // Reading the set through, beside printing it — the two errands
+            // this screen exists for once the writing is done. Pauses and
+            // resumes while it is running, so the one item is the whole thing.
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    toggleReadAloud()
+                } label: {
+                    Label(narrator.isActive && isBeingRead
+                            ? "Stop Reading Notes" : "Read Notes Aloud",
+                          systemImage: narrator.isActive && isBeingRead
+                            ? "stop" : "speaker.wave.2")
+                }
+            }
+            // The same gathering as a file, beside the print of it — the rule
+            // `DocumentExportMenu` states, and the one the help already
+            // promised this screen kept.
+            ToolbarItem(placement: .secondaryAction) {
+                DocumentExportMenu(exporter: exporter,
+                                   options: model.collectionExportOptions(for: .notes),
+                                   name: printJobName)
+            }
         }
     }
 
@@ -996,12 +1100,11 @@ struct NotesWorkspaceView: View {
     }
 
     /// Two versions of a note exist and only the writer can settle it. The
-    /// same strip the screenplay and the song editors raise.
-    ///
-    /// Beside the badge rather than instead of it, which is what this was while
-    /// the screen had no badge to carry the question. Both, as `SongEditorView`
-    /// has both: the strip is the one that shouts, and it is the only one drawn
-    /// at all in the demo, where there is no badge to press.
+    /// same strip the screenplay and the song editors raise. Both ways in are
+    /// offered, as they are everywhere else: the badge answers a writer who
+    /// went looking, and the banner tells one who did not know to. The banner
+    /// is also the only one of the two drawn in the demo, where `cloudState`
+    /// returns nil and there is no badge to press.
     @ViewBuilder
     private var conflictBanner: some View {
         if !noteConflicts.isEmpty {

@@ -35,8 +35,6 @@ nonisolated struct Rel: RawRepresentable, Hashable, Sendable {
     static let update = Rel("update")
     static let delete = Rel("delete")
     static let toggleDefault = Rel("toggleDefault")
-    static let project = Rel("project")
-    static let actor = Rel("actor")
     static let undo = Rel("undo")
     static let redo = Rel("redo")
     static let undoRedoStatus = Rel("undoRedoStatus")
@@ -133,14 +131,10 @@ nonisolated struct Rel: RawRepresentable, Hashable, Sendable {
     static let setHeadshot = Rel("setHeadshot")
     static let removeHeadshot = Rel("removeHeadshot")
     static let documents = Rel("documents")
-    static let document = Rel("document")
 
-    /// The same document list narrowed to one kind, advertised beside
-    /// `documents` on a project and on the API root. Following these beats
-    /// fetching `documents` and filtering here: the server already knows which
-    /// is which, and the root's copies come out templated on `{projectId}`.
-    static let songs = Rel("songs")
-    static let notes = Rel("notes")
+    /// The document itself, as an item in a collection of something else —
+    /// the archive rows follow it to open the song or note behind one.
+    static let document = Rel("document")
 
     /// The song a lyric collection, edition or snapshot belongs to. A back-link
     /// home from the resources hung beneath it.
@@ -181,7 +175,6 @@ nonisolated struct Rel: RawRepresentable, Hashable, Sendable {
     /// `bulkMoveToFolder` is the selection form, on the document collection
     /// beside the other bulk rels.
     static let folders = Rel("folders")
-    static let folder = Rel("folder")
     static let createFolder = Rel("createFolder")
     static let renameFolder = Rel("renameFolder")
     static let deleteFolder = Rel("deleteFolder")
@@ -292,26 +285,26 @@ nonisolated struct Rel: RawRepresentable, Hashable, Sendable {
     static let deleteAudio = Rel("deleteAudio")
 
     // Named variants of a script or a song.
-    static let editions = Rel("editions")
-    static let setDefault = Rel("setDefault")
-    static let setPublished = Rel("setPublished")
-
-    /// A song's editions. Named apart from `editions` because a song hangs its
-    /// own collection off the document rather than the project, but the
-    /// resource on the other end is shaped exactly like a script edition —
-    /// `ScriptEdition` decodes both, and `CreateEditionCommand` and
-    /// `RenameEditionCommand` write to both, which is why there is no separate
-    /// song edition type. The server reuses its request records the same way.
+    /// A screenplay's editions, hung off the project — and a song's, hung off
+    /// the document. One rel for both: the resource on the other end is shaped
+    /// exactly like a script edition, `ScriptEdition` decodes both, and
+    /// `CreateEditionCommand` and `RenameEditionCommand` write to both, which
+    /// is why there is no separate song edition type. The server reuses its
+    /// request records the same way.
     ///
-    /// `setDefault` and `setPublished` above are advertised on a song edition
+    /// `setDefault` and `setPublished` below are advertised on a song edition
     /// too, and song snapshots arrive as `ProjectVersion` under the `versions`
     /// rel — a song version reports `title` and `lineCount` where a screenplay
     /// reports scenes and elements, and that model already carries both.
     ///
-    /// Only the collection rel is declared. The server does emit `songEdition`,
-    /// but as the item name inside `_embedded` — and `HALCollection` reads that
-    /// map key-agnostically, so naming it here bought nothing.
-    static let songEditions = Rel("songEditions")
+    /// There is no `songEditions` link rel, though there was a constant for
+    /// one here for a while. `songEditions` is the server's *collection* name
+    /// inside `_embedded` (`SongEditionResource`'s `@Relation`), which
+    /// `HALCollection` reads key-agnostically — the same mistake `songEdition`
+    /// was, and removed for the same reason.
+    static let editions = Rel("editions")
+    static let setDefault = Rel("setDefault")
+    static let setPublished = Rel("setPublished")
 
     // The signed-in user's own account — advertised on the API root to anyone
     // signed in, unlike the admin-only `users`. `passkeys` appears only where

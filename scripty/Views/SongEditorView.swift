@@ -251,12 +251,17 @@ struct SongEditorView: View {
             DocumentViewOptions(documentId: $0.id, kind: Self.lockKind(for: type))
         })
         _printer = State(initialValue: DocumentPrintModel(model: model))
+        _exporter = State(initialValue: DocumentExportModel(model: model))
     }
 
     /// This document on paper — the server's PDF where there is a route to it,
     /// and the words on screen drawn here where there is not. Built from the
     /// screenplay's model, which is what holds the export links.
     @State private var printer: DocumentPrintModel
+
+    /// And this document as a file, beside the printer — see
+    /// `DocumentExportMenu`.
+    @State private var exporter: DocumentExportModel
 
     /// Whether documents open to be read, and which way this one was last put.
     private let readingViews = ReadingViewSettings.shared
@@ -541,6 +546,27 @@ struct SongEditorView: View {
                 scheduleAutosave()
             }
             .onChange(of: content) { _, _ in scheduleAutosave() }
+            // A reading in progress follows the document it is reading. The
+            // *saved* words rather than the typed ones, which is the whole
+            // point: they move when a save lands, not per keystroke, so the
+            // run is rebuilt a handful of times rather than a hundred — the
+            // same trade `SongBlockEditorView` makes by watching `model.blocks`
+            // rather than `liveText`.
+            //
+            // Known imperfection, and better than what it replaces: the note's
+            // cues are numbered by position, so removing a paragraph above the
+            // caret shifts the run by a line. The voice reading words the
+            // writer deleted is worse, and the lyric editor has the same
+            // ordinal in the same place.
+            .onChange(of: savedContent) { _, _ in
+                guard narrator.isActive, isBeingRead, let subject = readingSubject
+                else { return }
+                narrator.prepare(narrationSource,
+                                 subject: subject,
+                                 title: trimmedTitle.isEmpty
+                                    ? (type == .song ? "Untitled Song" : "Untitled Notes")
+                                    : trimmedTitle)
+            }
             // A phone put down mid-sentence is backgrounded, and a backgrounded
             // app is one the system may end without asking. Don't wait out the
             // debounce for that. The sheet is still here, so this is the
@@ -602,6 +628,7 @@ struct SongEditorView: View {
                 Text(insertMessage ?? "")
             }
             .documentPrintPresentation(printer)
+            .documentExportPresentation(exporter)
         }
     }
 
@@ -617,15 +644,25 @@ struct SongEditorView: View {
         let readAloud: (() -> Void)? = hasWordsToSpeak ? { toggleReadAloud() } : nil
         // ⌘P too, and for the same reason: the chord would otherwise reach the
         // screenplay behind this sheet and print a script the writer cannot see.
+        // And ⌘F, gated exactly as the toolbar's own Find button is: not over
+        // the reader, which has no find bar to open, and not over an empty
+        // note. Without it the chord reached the screenplay behind this cover
+        // and opened *its* search bar out of sight, for the writer to find
+        // sitting open when they closed the note.
+        let find: (() -> Void)? = (isReading || content.isEmpty)
+            ? nil
+            : { formatting.find(replacing: canEdit) }
         guard canEdit else {
-            return DocumentEditorActions(readAloud: readAloud, print: printAction)
+            return DocumentEditorActions(readAloud: readAloud, print: printAction,
+                                         find: find)
         }
         return DocumentEditorActions(undo: { formatting.undo() },
                                      redo: { formatting.redo() },
                                      canUndo: formatting.canUndo,
                                      canRedo: formatting.canRedo,
                                      readAloud: readAloud,
-                                     print: printAction)
+                                     print: printAction,
+                                     find: find)
     }
 
     /// Sending this document to the printer, or nil while it has no words to
@@ -1133,9 +1170,10 @@ struct SongEditorView: View {
         // Find, where the lyric editor keeps its own Search. The system's find
         // bar does the work — see `NoteEditorController.find` for why this is
         // find-and-step rather than the lyric's filter — so there is nothing to
-        // put on screen here and no chord to claim. Only over the writing
-        // surface: reading swaps the text view out, and the reader has no
-        // find bar to open.
+        // put on screen here. No chord claimed *here*, but ⌘F does reach it:
+        // the key is claimed once at the scene by `ScriptCommands` and routed
+        // to whichever document is in front. Only over the writing surface:
+        // reading swaps the text view out, and the reader has no find bar.
         if !isReading {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -1237,6 +1275,17 @@ struct SongEditorView: View {
                     Label("Print…", systemImage: "printer")
                 }
                 .disabled(printer.isPrinting)
+            }
+        }
+        // And as a file, beside the print of it. Only for a document the
+        // server knows — the formats are links it advertises, and one typed on
+        // a train has none yet. In the overflow, where Print is, because this
+        // toolbar is already at its ten.
+        if let saved = target {
+            ToolbarItem(placement: .secondaryAction) {
+                DocumentExportMenu(exporter: exporter,
+                                   options: model.songExportOptions(for: saved),
+                                   name: saved.displayTitle)
             }
         }
         // Reached from here rather than from a screenplay's View menu, which is
@@ -1387,12 +1436,15 @@ struct SongEditorView: View {
     /// at the foot of it, as it does on the screenplay and in the lyric editor.
     /// Reaching for it while this document is being read pauses and resumes.
     ///
-    /// The run is built once, at the press. Everywhere else a reading follows
-    /// the words as they change, because everywhere else they change when an
-    /// element lands; here `content` is bound to the text view and changes on
-    /// every keystroke, and rebuilding the run restarts the sentence being
-    /// spoken. So a note typed into while it reads is read as it was when the
-    /// voice started — press it again to hear the new words.
+    /// The run follows the words, as it does on every other surface — see the
+    /// `savedContent` watch in the body. `content` is bound to the text view
+    /// and changes on every keystroke, which is why this used to be built once
+    /// at the press and left: rebuilding per character would restart the
+    /// sentence being spoken. But left alone entirely, deleting a paragraph
+    /// while the voice was running had it read the deleted words aloud, with
+    /// the transport pointing at a note that no longer said that. The saved
+    /// copy is the answer both song editors already use: it moves when a save
+    /// lands, not per keystroke.
     private func toggleReadAloud() {
         if narrator.isActive && isBeingRead {
             narrator.togglePlayPause()

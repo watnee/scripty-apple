@@ -388,6 +388,37 @@ func checkWriteWithNowhereToGo() async {
     }
 
     print()
+    print("== An accepted suggestion is held like any other writing ==")
+    do {
+        let directory = scratchDirectory("accepted")
+        let store = UnsavedDraftStore(scope: "server|alice", directory: directory)
+        let model = ScriptModel(app: AppModel(), project: project, draftStore: store)
+        model.adopt(twoBlockCollection())
+        let (first, _) = blocks(model)
+
+        // What accepting a character suggestion does: the name goes on screen
+        // at once through `showLive`, which arms no save of its own because
+        // the caller is about to write the words itself — and that write is
+        // the one that fails here.
+        let suggestion = ScriptSuggestion(text: "MARGARET", personId: nil, becomesType: nil)
+        await model.accept(suggestion, on: first)
+
+        checkEqual("the name the writer picked is still on screen",
+                   model.currentText(model.blocks[0]), "MARGARET")
+        check("and is held as unsaved work", model.unsavedBlockIds.contains(first.id))
+
+        // The point of the case. `flushPendingCommits` used to walk the
+        // debounce tasks, and `showLive` arms none — so the trip to the
+        // background skipped these words entirely and a launch after the
+        // system killed the app showed the half-typed cue again.
+        await model.flushPendingCommits()
+        checkEqual("and reaches disk when the app goes to the background",
+                   UnsavedDraftStore(scope: "server|alice", directory: directory)
+                       .drafts(projectId: project.id)[first.id]?.text,
+                   "MARGARET")
+    }
+
+    print()
     print("== A merge with no way to remove the absorbed line backs out whole ==")
     do {
         let model = ScriptModel(app: AppModel(), project: project)

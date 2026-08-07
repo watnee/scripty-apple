@@ -121,6 +121,12 @@ struct SongBlockEditorView: View {
     /// export links, exactly as the insert action does.
     @State private var printer: DocumentPrintModel
 
+    /// And this song as a file. Beside the printer for the reason the two
+    /// controls sit beside each other — see `DocumentExportMenu`. Made from
+    /// the screenplay behind the sheet, as the printer is: that is what holds
+    /// the project's export links.
+    @State private var exporter: DocumentExportModel
+
     /// The device's voice, shared with the screenplay behind this sheet and
     /// with the note editor — see `ScriptNarrator`. Reading a song ends
     /// whatever was being read before it, which is the only sane answer on a
@@ -150,6 +156,7 @@ struct SongBlockEditorView: View {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
         _printer = State(initialValue: DocumentPrintModel(model: scriptModel))
+        _exporter = State(initialValue: DocumentExportModel(model: scriptModel))
         _isReading = State(initialValue: opensForWriting
             ? false
             : ReadingViewSettings.shared
@@ -170,8 +177,23 @@ struct SongBlockEditorView: View {
 
     /// The lyric, narrowed to the lines that matched. An empty query shows the
     /// whole song, which is the ordinary state of this editor.
+    ///
+    /// A line the caret is in is never filtered out from under it, whatever it
+    /// says. A row that leaves this list is torn out of the ForEach — so a line
+    /// made by Return, which is empty and matches nothing, vanished the instant
+    /// it appeared: nothing claimed first responder, the keyboard stayed on the
+    /// line above, the next verse went into the end of *that*, and a stray
+    /// blank line was saved. Now that the live text is what gets searched, a
+    /// line being typed into would otherwise disappear the moment its words
+    /// stopped matching, which is worse again.
+    ///
+    /// Asked here rather than folded into `matchedLines`, so the caret moving
+    /// needs no recompute: the answer is read fresh on every redraw anyway.
     private var shownBlocks: [SongBlock] {
-        query.isEmpty ? model.blocks : model.blocks.filter { matchedLines.contains($0.id) }
+        guard !query.isEmpty else { return model.blocks }
+        return model.blocks.filter {
+            matchedLines.contains($0.id) || $0.id == model.focusedBlockId
+        }
     }
 
     /// What the menu bar's Undo and Redo do while this editor is up. Both
@@ -194,6 +216,12 @@ struct SongBlockEditorView: View {
         let printSong: (() -> Void)? = canPrintSong
             ? { printer.print(model.document, lines: printableLines) }
             : nil
+        // ⌘F too, and nil while reading for the reason the toolbar's own
+        // Search button is absent there: the reading surface is not a list of
+        // rows to narrow. Without this the chord reached the screenplay behind
+        // the cover and opened *its* search bar, out of sight, for the writer
+        // to find open when they closed the song.
+        let find: (() -> Void)? = isReading ? nil : { toggleSearch() }
         guard !isReading else {
             return DocumentEditorActions(readAloud: readAloud, print: printSong)
         }
@@ -203,7 +231,17 @@ struct SongBlockEditorView: View {
             canUndo: model.canUndo,
             canRedo: model.canRedo,
             readAloud: readAloud,
-            print: printSong)
+            print: printSong,
+            find: find)
+    }
+
+    /// Opens the search bar, or closes it and clears what was in it — the one
+    /// errand, so the toolbar button and ⌘F cannot disagree about what the key
+    /// does. Closing empties the query because a filter left standing behind a
+    /// hidden bar is a lyric with lines missing and nothing to say why.
+    private func toggleSearch() {
+        isSearching.toggle()
+        if !isSearching { searchText = "" }
     }
 
     /// Whether there is a lyric to put on paper. Not gated on a link: with
@@ -222,6 +260,28 @@ struct SongBlockEditorView: View {
     }
 
     /// Recomputes the matched set from what the lines currently say.
+    ///
+    /// `currentText`, not `block.text`: every other read of a line in this file
+    /// goes through it — the rows, the print, the narration, the word count —
+    /// because a line being typed into, or held after a failed save, says one
+    /// thing on screen and another on the server. Searching the server's copy
+    /// meant a writer who worked offline for an hour got "No results" for a
+    /// word that was on the screen in front of them, would print, and was in
+    /// the word count. Same for anything typed inside the 600ms debounce.
+    ///
+    /// And the line holding the caret always matches, whatever it says. A row
+    /// that leaves `shownBlocks` is torn out of the list — so a line made by
+    /// Return, which is empty and matches nothing, vanished from under the
+    /// caret the instant it appeared: nothing claimed first responder, the
+    /// keyboard stayed on the line above, the next verse was typed into the
+    /// end of *that*, and a stray blank line was saved to the server. With the
+    /// live text now searched, a line being typed into would disappear the
+    /// moment its words stopped matching, which is worse. So the rule is
+    /// simply that a line the caret is in is never filtered out from under it.
+    ///
+    /// No screenplay precedent to follow here: `ScriptSearchBar` steps a
+    /// cursor through hits and never takes a row away, so this is a rule this
+    /// surface needs on its own.
     private func runSearch() {
         let needle = query.lowercased()
         guard !needle.isEmpty else {
@@ -229,7 +289,8 @@ struct SongBlockEditorView: View {
             return
         }
         matchedLines = Set(
-            model.blocks.filter { $0.text.lowercased().contains(needle) }.map(\.id))
+            model.blocks.filter { model.currentText($0).lowercased().contains(needle) }
+                .map(\.id))
     }
 
     var body: some View {
@@ -308,6 +369,16 @@ struct SongBlockEditorView: View {
             // `DocumentEditorActions`.
             .focusedSceneValue(\.documentEditorActions, menuActions)
             .onChange(of: searchText) { _, _ in
+                runSearch()
+            }
+            // And whenever the lyric itself changes under an open search. The
+            // matched set used to be recomputed on the query, the load and a
+            // history step alone — so a line added, removed or landed while
+            // the search bar was up was judged against a set that predated it.
+            // A new line has an id in no match set at all, which is how Return
+            // inside a search took the row out from under the caret.
+            .onChange(of: model.blocks) { _, _ in
+                guard !query.isEmpty else { return }
                 runSearch()
             }
             // A reading in progress follows the lyric it is reading: a line
@@ -407,6 +478,7 @@ struct SongBlockEditorView: View {
                 Text(model.errorMessage ?? "")
             }
             .documentPrintPresentation(printer)
+            .documentExportPresentation(exporter)
             .alert("Insert into Script", isPresented: insertMessageBinding) {
                 Button("OK", role: .cancel) { insertMessage = nil }
             } message: {
@@ -556,7 +628,6 @@ struct SongBlockEditorView: View {
                                 block: block,
                                 isLocked: options.isEditingLocked,
                                 focusedLine: $focusedLine,
-                                isReadingView: isReading,
                                 startWriting: startWriting,
                                 isBeingRead: readingLineId == block.id)
                         .id(block.id)
@@ -801,10 +872,18 @@ struct SongBlockEditorView: View {
         ReadSongView(title: model.document.displayTitle,
                      lines: model.blocks.map { model.currentText($0) },
                      textScale: settings.textScale,
+                     isLoading: model.isLoading,
                      // The same closure the lines themselves take: the reading
                      // posture comes off, and with it anything else standing
                      // between the writer and the lyric underneath.
                      onEdit: startWriting,
+                     // The reader names a line by its position; the run is
+                     // started from the line's id, which is what the narrator
+                     // was prepared with.
+                     onReadFrom: { index in
+                         guard model.blocks.indices.contains(index) else { return }
+                         readAloud(from: model.blocks[index].id)
+                     },
                      // This editor keeps a row per line, so the reader adds its
                      // column up the same way — see `linesAreRows`.
                      linesAreRows: true,
@@ -858,13 +937,22 @@ struct SongBlockEditorView: View {
             narrator.togglePlayPause()
             return
         }
+        // From the line the writer is in, where there is one — the screenplay's
+        // rule, in a song's terms. Reading mode has no caret, so the line being
+        // read is the next best answer to "where am I": without it, pressing
+        // Read Aloud while looking at the third verse always started the song
+        // again from the top.
+        readAloud(from: model.focusedBlockId ?? readingLineId)
+    }
+
+    /// Prepares the run and starts it at one line — the toolbar's entry point
+    /// and the reader's context menu both come through here, so a reading
+    /// begun either way is prepared exactly the same.
+    private func readAloud(from id: Int?) {
         narrator.prepare(narrationSource,
                          subject: narrationSubject,
                          title: model.document.displayTitle)
-        // From the line the writer is in, where there is one — the screenplay's
-        // rule, in a song's terms. A line nobody is standing in starts the song
-        // at the top, which is where a song wants to start anyway.
-        if let id = model.focusedBlockId {
+        if let id {
             narrator.play(atOrAfter: id)
         } else {
             narrator.play()
@@ -1153,16 +1241,17 @@ struct SongBlockEditorView: View {
                     Label("Edit", systemImage: "square.and.pencil")
                 }
             }
-            // No keyboard shortcut on Search: the screenplay's own button owns
-            // ⌘F, and this editor opens over it — the same reason the text-size
-            // menu in the overflow claims no keys.
+            // No keyboard shortcut here, but the key does reach this now: ⌘F
+            // is claimed once at the scene by `ScriptCommands` and routed to
+            // whichever document is in front — see `DocumentEditorActions`.
+            // Both roads go through `toggleSearch`, so the button and the key
+            // cannot come to mean different things.
             //
             // Search narrows the lines, so it is only offered where there are
             // lines to narrow; reading swaps them out.
             if !isReading {
                 Button {
-                    isSearching.toggle()
-                    if !isSearching { searchText = "" }
+                    toggleSearch()
                 } label: {
                     Label("Search", systemImage: "magnifyingglass")
                 }
@@ -1285,6 +1374,14 @@ struct SongBlockEditorView: View {
                 }
                 .disabled(printer.isPrinting)
             }
+        }
+        // The song as a file, beside the print of it. In the overflow with
+        // Print for the reason Print is there: this toolbar is already at the
+        // ten children that fit, and an eleventh drops a sibling silently.
+        ToolbarItem(placement: .secondaryAction) {
+            DocumentExportMenu(exporter: exporter,
+                               options: scriptModel.songExportOptions(for: model.document),
+                               name: model.document.displayTitle)
         }
         // The same device-wide spelling controls the screenplay's View menu
         // carries. A lyric is where they are needed most — invented words,

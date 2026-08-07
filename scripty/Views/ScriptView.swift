@@ -1599,6 +1599,7 @@ struct ScriptView: View {
             title: model.project.displayTitle,
             blocks: model.blocks,
             narrator: narrator,
+            narrationSubject: narrationSubject,
             isLoading: model.isLoading,
             navigator: navigator,
             initialBlockId: options.rememberedBlockId,
