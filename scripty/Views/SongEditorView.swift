@@ -214,7 +214,15 @@ struct SongEditorView: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
+    /// Opens with the caret in the words whatever the reading-view rule says.
+    ///
+    /// For the one document that is not being *opened* so much as *arrived
+    /// with*: the file a writer has just imported. Everything else — a row
+    /// tapped in the list, a song reached from the script — takes the rule.
+    /// Not a stored choice, so the next visit reads the way the switch says:
+    /// see `SongsView.openingImportForWriting`.
     init(model: ScriptModel, document: TextDocument?, type: DocumentType,
+         opensForWriting: Bool = false,
          onInserted: (() -> Void)? = nil) {
         self.model = model
         self.document = document
@@ -230,10 +238,14 @@ struct SongEditorView: View {
                                                               text: content))
         // A document being written for the first time is never opened to be
         // read: there is nothing in it yet, and the writer asked for a blank
-        // one. Everything else opens the way it was last left, or the way the
+        // one. Nor is one that has just been imported, which is the same thing
+        // by another route — the writer brought the words here to work on them.
+        // Everything else opens the way it was last left, or the way the
         // "Open in Edit View" switch says if it has never been put either way.
         _isReading = State(initialValue: document.map {
-            ReadingViewSettings.shared.opensInReadingView(.document(id: $0.id))
+            opensForWriting
+                ? false
+                : ReadingViewSettings.shared.opensInReadingView(.document(id: $0.id))
         } ?? false)
         _options = State(initialValue: document.map {
             DocumentViewOptions(documentId: $0.id, kind: Self.lockKind(for: type))

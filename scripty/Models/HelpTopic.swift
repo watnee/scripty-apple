@@ -530,14 +530,19 @@ extension HelpTopic {
                     + "choice you made. A script with nothing in it, or one holding "
                     + "words this device has not managed to send yet, always opens "
                     + "for writing — there is nothing to read, or something to "
-                    + "finish."
+                    + "finish. So does a song or note you have just imported from a "
+                    + "file: you brought those words here to work on them, and the "
+                    + "editor opens with the cursor in them. That one is not a "
+                    + "choice made on the document's behalf — open it again from "
+                    + "the list and it comes up whichever way the setting says."
                 ],
                 keywords: ["read only", "read-only", "reading mode", "read mode",
                            "edit button", "pencil", "accidental", "accident",
                            "locked", "cannot type", "can't type", "won't let me type",
                            "keyboard", "open", "opens", "default", "pages", "word",
                            "double tap", "double-tap", "two taps", "tap twice",
-                           "settings", "preferences", "open in edit view"]),
+                           "settings", "preferences", "open in edit view",
+                           "import", "imported"]),
             HelpTopic(
                 id: "page-view",
                 title: "Page View",

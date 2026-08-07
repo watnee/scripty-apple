@@ -140,13 +140,20 @@ struct SongBlockEditorView: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
+    /// `opensForWriting` opens with the caret in the lyric whatever the
+    /// reading-view rule says — for the one song that is not being *opened* so
+    /// much as *arrived with*, the file a writer has just imported. Not a
+    /// stored choice: see `SongsView.openingImportForWriting`.
     init(app: AppModel, document: TextDocument, scriptModel: ScriptModel,
+         opensForWriting: Bool = false,
          onInserted: (() -> Void)? = nil) {
         _model = State(initialValue: SongBlockModel(app: app, document: document))
         _editions = State(initialValue: EditionsModel(app: app, document: document))
         _printer = State(initialValue: DocumentPrintModel(model: scriptModel))
-        _isReading = State(initialValue: ReadingViewSettings.shared
-            .opensInReadingView(.document(id: document.id)))
+        _isReading = State(initialValue: opensForWriting
+            ? false
+            : ReadingViewSettings.shared
+                .opensInReadingView(.document(id: document.id)))
         _options = State(initialValue: DocumentViewOptions(documentId: document.id, kind: .song))
         // The stored name, not `displayTitle`: a song the server holds
         // untitled opens on the field's placeholder rather than on the words
