@@ -2702,38 +2702,47 @@ struct ScriptView: View {
             // opened offline never fetched its status, and hiding the button
             // then would hide it exactly when the local steps exist.
             //
-            // A hold keeps undoing — see `HistoryStepButton`, which every
-            // editor's pair is now made of, for why a step back is almost never
-            // one step and why the repeat drops rather than queues what the
-            // server has not answered yet.
+            // A hold turns it into Redo — see `HistoryStepButton` for the
+            // gesture, and for the repeat it spends to do it. That trade is
+            // this bar's alone: here Redo is a trip into the "…", so a hold is
+            // the only thing standing between a writer who undid one word too
+            // many and a menu; in the lyric and note editors, whose pairs sit
+            // side by side on the leading edge, redo is already one tap away
+            // and the hold stays a repeat, which is worth more there.
             //
-            // That hold used to open a menu holding both halves, which is the
-            // one thing a repeat cannot share a gesture with. It is the better
-            // trade: reaching redo through it saved a trip into the "…" that
-            // hardly anybody was making, where the writer walking back a
-            // mistyped paragraph is doing the commonest thing there is with
-            // this button and was tapping it six times to do it. The menu's
-            // other job — saying *why* a live-looking Undo does nothing, when
-            // the stack is empty but redo's is not — goes back to the plain
-            // greying below, which is the ordinary answer and the one every
-            // other button in this bar gives.
+            // Undoing repeatedly is still six taps here, which is the cost, and
+            // the reason to keep it is that they are six taps on a control that
+            // does the same thing every time. A hold that walked the stack and a
+            // hold that changed direction cannot both live on one press, and of
+            // the two this is the one that reaches something otherwise hidden.
             //
-            // Redo keeps its place in the overflow below, as it did while the
-            // menu stood: it is one glyph this bar cannot spare up here — see
-            // the paragraph above for what a second button in this capsule
-            // costs. Undo is listed down there beside it now as well, which is
-            // not tidiness: this control is not a `Button`, and a bar with no
-            // room drops it rather than folding it into the "…" the way it
-            // folds a button. The group below is what a phone is left with, and
-            // a menu row cannot be held — so on a phone the screenplay's pair
-            // walks one step per tap, as it always did, and the hold belongs to
-            // the bars wide enough to draw this. A keyboard has ⌘Z and ⌘⇧Z, and
-            // the lyric and note editors, whose pairs sit on the leading edge
-            // where there is room for two, hold on either half.
+            // The greying stays as it was: this control is Undo, and it dims
+            // when there is nothing to undo — even where there is something to
+            // redo, which is the moment a hold cannot be started. Redo below is
+            // the answer then. Making it live for the other stack's sake is the
+            // thing an earlier round tried and took back out, because a lit
+            // Undo whose tap does nothing is a worse lie than a hold that has
+            // to wait for a step to be taken first.
+            //
+            // Redo keeps its place in the overflow below either way: a hold is a
+            // gesture nobody is told about outside the help, so it is the fast
+            // path for those who know it and not the only path. Undo is listed
+            // down there beside it as well, which is not tidiness: this control
+            // is not a `Button`, and a bar with no room drops it rather than
+            // folding it into the "…" the way it folds a button. Measured on a
+            // 390pt iPhone, where this whole capsule goes into the "…", the
+            // group below is the pair — one step per tap, since a menu row
+            // cannot be held. A keyboard has ⌘Z and ⌘⇧Z.
             if model.offersUndoRedo, !settings.isPageView, !isReading {
                 HistoryStepButton(title: "Undo",
                                   systemImage: "arrow.uturn.backward",
-                                  isOffered: { model.canUndo }) {
+                                  isOffered: { model.canUndo },
+                                  held: HistoryStepAlternative(
+                                      title: "Redo",
+                                      systemImage: "arrow.uturn.forward",
+                                      isOffered: { model.canRedo },
+                                      step: { await model.redo() },
+                                      hint: "Touch and hold to redo")) {
                     await model.undo()
                 }
             }

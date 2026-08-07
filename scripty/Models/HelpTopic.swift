@@ -273,15 +273,16 @@ extension HelpTopic {
                     + "look for.",
                     "Undo sits in the top bar, where it can be seen — greyed out when "
                     + "there is nothing to take back, and there whether or not the rest "
-                    + "of the chrome is. Hold it and it keeps going, a step at a time, "
-                    + "until you lift your finger or there is nothing left to take "
-                    + "back — the way a held key repeats. Undo and Redo are both in the "
-                    + "“…” menu as well, one step per tap, and both answer to ⌘Z and "
-                    + "⌘⇧Z on a keyboard. On a narrow phone the menu is where they "
-                    + "are: the bar has no room to draw the pair, so that is where a "
-                    + "step comes from there. Steps taken without a connection come "
-                    + "back one at a time on this device, and the screenplay's own "
-                    + "history takes over once they have been saved.",
+                    + "of the chrome is. Hold it and it turns into Redo: lift your "
+                    + "finger to take that step, or slide off the button first to leave "
+                    + "everything as it was. There is only room for one of the pair up "
+                    + "there, and the hold is the short way to the other. Undo and Redo "
+                    + "are both in the “…” menu as well, one step per tap, and both "
+                    + "answer to ⌘Z and ⌘⇧Z on a keyboard. On a narrow phone the menu "
+                    + "is where they are: the bar has no room to draw either one, so "
+                    + "that is where a step comes from there. Steps taken without a "
+                    + "connection come back one at a time on this device, and the "
+                    + "screenplay's own history takes over once they have been saved.",
                     "The keyboard key at the end of the element bar puts the keyboard "
                     + "away and gives the screen back to the script, without leaving "
                     + "what you were writing. The lyric and note editors carry the "
@@ -299,7 +300,8 @@ extension HelpTopic {
                 keywords: ["return", "enter", "backspace", "split", "merge", "auto-save",
                            "autosave", "editing", "new", "first element", "empty",
                            "undo", "redo", "mistake", "step back", "take back",
-                           "hold", "long press", "repeat", "keep undoing", "history",
+                           "hold", "long press", "hold undo", "where is redo",
+                           "history",
                            "cloud", "sync", "offline", "saved", "badge",
                            "hide keyboard", "dismiss keyboard", "close keyboard",
                            "keyboard"]),

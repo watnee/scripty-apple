@@ -1110,6 +1110,11 @@ struct SongEditorView: View {
         // lyric editor's pair and the screenplay's Undo are made of too. This
         // history is the finest-grained of the three: a burst of typing is one
         // step, so a page written and thought better of is a dozen of them.
+        //
+        // The screenplay's lone Undo spends the same hold on reaching Redo,
+        // which is the trade a bar with room for one half has to make. Both are
+        // drawn here, so there is nothing for a hold to reach and the repeat
+        // keeps the gesture.
         if canEdit {
             ToolbarItemGroup(placement: .navigation) {
                 HistoryStepButton(title: "Undo",
