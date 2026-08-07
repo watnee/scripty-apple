@@ -31,6 +31,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// The type a song's name is set in wherever the song itself is on screen.
 ///
@@ -69,6 +70,19 @@ struct ReadSongView: View {
     /// cost the writer every line's position to say so.
     let lines: [String]
     let textScale: Double
+    /// Whether the lyric is still on its way.
+    ///
+    /// Only ever true now that a song can *open* into reading rather than only
+    /// be switched into it: the editor seeds the mode from the remembered
+    /// setting in `init` and only corrects it after the load has been awaited,
+    /// so on a cold launch this surface is on screen before there is a line to
+    /// put on it. Without this, a writer who left a sixty-line song in reading
+    /// mode reopened it to "Nothing to Read — This song has no lyrics yet" for
+    /// the length of the fetch, and then the lyric appeared. The spinner the
+    /// editor already has is attached to the writing column, which is not the
+    /// surface on screen at that moment. `ReadScriptView` takes the same input
+    /// for the same cold-launch path.
+    var isLoading = false
     /// Start writing the lyric — the double tap's counterpart of the Edit
     /// button in the toolbar. Nil where there is nothing to write in: a song
     /// the server sent to be read only.
@@ -81,6 +95,18 @@ struct ReadSongView: View {
     /// plain editor stores it, so that one spends it as it stands and the other
     /// walks it back to a row — see `caretOffset(inLine:at:)`.
     var onEdit: ((Int) -> Void)?
+    /// The context menu's "Read Aloud From Here", by line index — this surface
+    /// is handed strings, and `highlighted` is already an index, so an index is
+    /// the only thing it can honestly name. The host turns it into a line id.
+    ///
+    /// A closure rather than a call on the narrator, because starting a reading
+    /// means preparing the run first and the lines belong to the editor that
+    /// owns the voice. Nil where the lyric is one text view rather than a row
+    /// apiece: there is no row there to press on. `ReadScriptView` offers the
+    /// same thing the same way, and this surface simply never had it — so a
+    /// writer reading the third verse who wanted to hear it had to start the
+    /// song from the top.
+    var onReadFrom: ((Int) -> Void)?
     /// Whether the writing surface behind this one keeps each line as a row of
     /// its own — the lyric editor does, the plain one does not.
     ///
@@ -147,6 +173,19 @@ struct ReadSongView: View {
                                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                                             .fill(Color.accentColor.opacity(0.16))
                                             .padding(.horizontal, -10)
+                                    }
+                                }
+                                // What the script reader's rows offer, in a
+                                // song's terms. Copy takes the line as the
+                                // writer typed it, blank or not — the space
+                                // above is a drawing trick, not the words.
+                                .contextMenu {
+                                    if let onReadFrom {
+                                        Button("Read Aloud From Here",
+                                               systemImage: "play") { onReadFrom(index) }
+                                    }
+                                    Button("Copy", systemImage: "doc.on.doc") {
+                                        UIPasteboard.general.string = line
                                     }
                                 }
                                 .id(index)
@@ -234,7 +273,9 @@ struct ReadSongView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if isEmpty {
+        if isLoading {
+            ProgressView()
+        } else if isEmpty {
             ContentUnavailableView(
                 "Nothing to Read",
                 systemImage: "music.note",

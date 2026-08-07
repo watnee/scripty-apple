@@ -123,8 +123,37 @@ final class DoubleTapToEditGesture: NSObject, UIGestureRecognizerDelegate {
     /// Disabled rather than detached: the answer flips with a lock or a mode,
     /// both of which change several times in a sitting, and adding and removing
     /// a recogniser mid-touch is how a tap gets lost.
+    ///
+    /// The custom action goes on and off with it, because VoiceOver cannot
+    /// reach the gesture at all: it spends its own double tap activating
+    /// whatever is under the finger, so the recogniser never sees one. The
+    /// SwiftUI half of this file has said so for as long as it has existed and
+    /// offers `.accessibilityAction(named: "Edit")` for it — but only two
+    /// screenplay surfaces use that half. The three UIKit hosts (the lyric
+    /// row, the note editor, the prose reader) installed the bare gesture, so
+    /// on the song reader, the note reader and a locked lyric line the way in
+    /// simply did not exist for a VoiceOver user. Fixed here rather than three
+    /// times over, since all three come through this method.
     func setOffered(_ offered: Bool) {
         recognizer?.isEnabled = offered
+        guard let textView else { return }
+        guard offered else {
+            textView.accessibilityCustomActions = nil
+            return
+        }
+        textView.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Edit") { [weak self] _ in
+                guard let self, let textView = self.textView,
+                      let startWriting = self.startWriting else { return false }
+                // The end of the words. A rotor action carries no finger, so
+                // there is no point on the line to convert — and the end is
+                // where a writer coming to a line to change it would start.
+                let offset = (textView.text as NSString?)?.length ?? 0
+                startWriting(offset)
+                self.placeCaret(at: offset, attemptsLeft: 3)
+                return true
+            }
+        ]
     }
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {

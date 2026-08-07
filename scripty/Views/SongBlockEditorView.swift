@@ -793,10 +793,18 @@ struct SongBlockEditorView: View {
         ReadSongView(title: model.document.displayTitle,
                      lines: model.blocks.map { model.currentText($0) },
                      textScale: settings.textScale,
+                     isLoading: model.isLoading,
                      // The same closure the lines themselves take: the reading
                      // posture comes off, and with it anything else standing
                      // between the writer and the lyric underneath.
                      onEdit: startWriting,
+                     // The reader names a line by its position; the run is
+                     // started from the line's id, which is what the narrator
+                     // was prepared with.
+                     onReadFrom: { index in
+                         guard model.blocks.indices.contains(index) else { return }
+                         readAloud(from: model.blocks[index].id)
+                     },
                      // This editor keeps a row per line, so the reader adds its
                      // column up the same way — see `linesAreRows`.
                      linesAreRows: true,
@@ -850,13 +858,22 @@ struct SongBlockEditorView: View {
             narrator.togglePlayPause()
             return
         }
+        // From the line the writer is in, where there is one — the screenplay's
+        // rule, in a song's terms. Reading mode has no caret, so the line being
+        // read is the next best answer to "where am I": without it, pressing
+        // Read Aloud while looking at the third verse always started the song
+        // again from the top.
+        readAloud(from: model.focusedBlockId ?? readingLineId)
+    }
+
+    /// Prepares the run and starts it at one line — the toolbar's entry point
+    /// and the reader's context menu both come through here, so a reading
+    /// begun either way is prepared exactly the same.
+    private func readAloud(from id: Int?) {
         narrator.prepare(narrationSource,
                          subject: narrationSubject,
                          title: model.document.displayTitle)
-        // From the line the writer is in, where there is one — the screenplay's
-        // rule, in a song's terms. A line nobody is standing in starts the song
-        // at the top, which is where a song wants to start anyway.
-        if let id = model.focusedBlockId {
+        if let id {
             narrator.play(atOrAfter: id)
         } else {
             narrator.play()
