@@ -1000,7 +1000,12 @@ extension HelpTopic {
                     + "the lyric edits still waiting on this device, newest first, so a "
                     + "line typed offline can be taken back offline. Once those edits "
                     + "reach the server they become part of its history and undo goes "
-                    + "back to walking that. Each step says what it did, the way a "
+                    + "back to walking that. That history keeps: put the song down, "
+                    + "come back to it tomorrow or open it in a browser, and the same "
+                    + "steps are waiting. It is yours alone — someone else working on "
+                    + "the same song steps back through their edits, never yours — and "
+                    + "each version keeps its own, so a step back in one never rewrites "
+                    + "another. Each step says what it did, the way a "
                     + "screenplay's does — a line that comes back may be one you cannot "
                     + "see from where you are. On either workspace screen the pair sits "
                     + "beside each title instead, since every song and every note keeps "
@@ -1171,6 +1176,7 @@ extension HelpTopic {
                            "offline", "unsaved", "sync", "cloud", "badge",
                            "save", "autosave", "title", "undo", "redo",
                            "hold", "long press", "repeat", "keep undoing",
+                           "undo history", "still there", "undo greyed out",
                            "archive", "archived", "unarchive", "put aside",
                            "hide", "finished", "cut", "shelve", "old",
                            "bring back", "bulk", "several", "multiple",
