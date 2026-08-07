@@ -134,7 +134,11 @@ struct EditableBlockRow: View {
         var parts = [block.blockType.label]
         if block.isPinned && chrome.showsPins { parts.append("Pinned") }
         if block.isBookmarked && chrome.showsBookmarks { parts.append("Bookmarked") }
-        if let comments = CommentCountBadge.spokenLabel(model.commentCount(for: block)) {
+        // Gated like the two above, and for the reason the read-only row
+        // records: a mode that empties the margin has to empty what is spoken
+        // of it as well.
+        if chrome.showsComments,
+           let comments = CommentCountBadge.spokenLabel(model.commentCount(for: block)) {
             parts.append(comments)
         }
         return parts.joined(separator: ", ")

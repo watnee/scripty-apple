@@ -48,6 +48,12 @@ struct ScriptRowChrome: Equatable {
     var showsPins = true
     var showsBookmarks = true
     var showsElementLabels = false
+    /// Whether other people's comment counts hang beside the line. Unlike the
+    /// two above there is no preference behind this — it is here so focus mode
+    /// has somewhere to put a mark down, and every other surface leaves it on.
+    var showsComments = true
+    /// Whether an element's tags are drawn under it, on the same footing.
+    var showsTags = true
     /// The text column, in points: the printed six-inch measure by default,
     /// the window's width when the window is narrower than the measure, or
     /// the width of whatever contains the row when full width is on.
@@ -471,8 +477,10 @@ extension View {
 struct BlockTagRow: View {
     let block: Block
 
+    @Environment(\.scriptRowChrome) private var chrome
+
     var body: some View {
-        let tags = block.tagList
+        let tags = chrome.showsTags ? block.tagList : []
         if !tags.isEmpty {
             HStack(spacing: 4) {
                 ForEach(tags, id: \.self) { tag in
@@ -579,15 +587,19 @@ struct BlockRowView: View {
         let content = displayContent.trimmingCharacters(in: .whitespacesAndNewlines)
         parts.append(content.isEmpty ? "empty" : content)
 
-        let tags = block.tagList
+        // Only the marks that are actually drawn: a writer who has hidden the
+        // pins has said they are not interested in hearing about them either,
+        // and focus mode puts every one of these away at once — a mode that
+        // clears the margins for a sighted writer and then reads the same marks
+        // out to a blind one has not cleared anything.
+        let tags = chrome.showsTags ? block.tagList : []
         if !tags.isEmpty {
             parts.append("Tagged " + tags.joined(separator: ", "))
         }
-        // Only the marks that are actually drawn: a writer who has hidden the
-        // pins has said they are not interested in hearing about them either.
         if block.isPinned && chrome.showsPins { parts.append("Pinned") }
         if block.isBookmarked && chrome.showsBookmarks { parts.append("Bookmarked") }
-        if let comments = CommentCountBadge.spokenLabel(commentCount) {
+        if chrome.showsComments,
+           let comments = CommentCountBadge.spokenLabel(commentCount) {
             parts.append(comments)
         }
         return parts.joined(separator: ". ")

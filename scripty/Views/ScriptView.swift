@@ -1241,9 +1241,24 @@ struct ScriptView: View {
     /// column and by the reading surface alike — see `ScriptRowChrome`.
     private var rowChrome: ScriptRowChrome {
         var chrome = ScriptRowChrome()
-        chrome.showsPins = options.showsPins
-        chrome.showsBookmarks = options.showsBookmarks
-        chrome.showsElementLabels = options.showsElementLabels
+        // Focus mode empties both margins. Everything that hangs beside or
+        // under an element — the type label on the left, the writer's own pins
+        // and bookmarks and other people's comment bubbles on the right, the
+        // tags below — is an annotation *about* the script rather than the
+        // script, which is exactly what the mode is for getting out of the way;
+        // the browser's focus mode hides the same per-element marks. The room
+        // they were holding goes back to the column a line at a time, so the
+        // writing does not shift as the marks come and go.
+        //
+        // Not by touching `options`: those are the writer's standing choices
+        // per screenplay, and a mode that spent them would hand back a script
+        // with the pins off. They are read alongside the mode instead.
+        let annotates = !settings.isFocusMode
+        chrome.showsPins = options.showsPins && annotates
+        chrome.showsBookmarks = options.showsBookmarks && annotates
+        chrome.showsElementLabels = options.showsElementLabels && annotates
+        chrome.showsComments = annotates
+        chrome.showsTags = annotates
         chrome.scale = textScale
         // Separately from `scale`, and only the element labels read it — see
         // `ScriptRowChrome.dynamicTypeScale`.
@@ -1269,24 +1284,40 @@ struct ScriptView: View {
         let measure = min(ScriptRowChrome.printedMeasure, max(280, usable / textScale))
         chrome.columnWidth = min(measure * textScale, usable)
 
+        // What each margin actually has to hold: the element labels hang off
+        // the left of the column, the marks off the right.
+        let leading = chrome.showsElementLabels
+            ? ElementLabelTag.gutter(scale: dynamicTypeScale) : 0
+        let trailing = hasVisibleMarks(chrome) ? BlockMarkerBadges.gutter : 0
+
         // Full width is a request for the window rather than for a measure, so
         // it takes the room the window has and the type grows inside it. The
         // marks still sit in the margin beyond the column, so it leaves them
-        // theirs rather than running the text underneath them.
+        // theirs rather than running the text underneath them — and where there
+        // are none to leave room for, the writing has the lot.
         if settings.isFullWidth {
-            chrome.columnWidth = max(320, usable - BlockMarkerBadges.gutter)
+            chrome.columnWidth = max(320, usable - trailing)
         }
 
-        // Both margins now have something in them: the element labels hang off
-        // the left of the column, the marks off the right. Where the centred
-        // column already leaves margin enough, they live in it and the page
-        // stays centred. Where it doesn't — a phone, a split-view slice — the
-        // column gives up exactly the room they need, because a lopsided page
-        // is better than a label printed over a scene heading or an action line
-        // running under a bookmark.
-        let leading = options.showsElementLabels
-            ? ElementLabelTag.gutter(scale: dynamicTypeScale) : 0
-        let trailing = hasVisibleMarks ? BlockMarkerBadges.gutter : 0
+        // Neither margin is holding anything: a script with nothing marked on
+        // screen, or focus mode, which puts every mark down at once. The room
+        // goes to the page rather than being reserved for what is not drawn.
+        // Reserving it was invisible where the column is centred in a wide
+        // window — the padding fell equally on both sides — but it is real
+        // width, and focus mode narrows the page around it: 711 points of
+        // column plus two 42-point gutters does not fit the mode's measure, so
+        // the writing was being squeezed to make room for nothing.
+        guard leading > 0 || trailing > 0 else {
+            chrome.leadingGutter = 0
+            chrome.trailingGutter = 0
+            return chrome
+        }
+
+        // Where the centred column already leaves margin enough, they live in
+        // it and the page stays centred. Where it doesn't — a phone, a
+        // split-view slice — the column gives up exactly the room they need,
+        // because a lopsided page is better than a label printed over a scene
+        // heading or an action line running under a bookmark.
         let margin = (usable - chrome.columnWidth) / 2
         if margin >= max(leading, trailing) {
             // Room enough already: the marks sit in the margin the centred
@@ -1312,10 +1343,15 @@ struct ScriptView: View {
     /// scripts carry a handful of marks and plenty carry none, and an empty
     /// gutter is column width thrown away, so the room is only taken once there
     /// is something to put in it.
-    private var hasVisibleMarks: Bool {
-        if !model.commentCounts.isEmpty { return true }
+    ///
+    /// Asked of the chrome being built rather than of `options` directly: the
+    /// flags there have already had focus mode folded into them, and a script
+    /// full of pins in a mode that draws none of them has no marks to leave
+    /// room for.
+    private func hasVisibleMarks(_ chrome: ScriptRowChrome) -> Bool {
+        if chrome.showsComments && !model.commentCounts.isEmpty { return true }
         return visibleBlocks.contains {
-            ($0.isPinned && options.showsPins) || ($0.isBookmarked && options.showsBookmarks)
+            ($0.isPinned && chrome.showsPins) || ($0.isBookmarked && chrome.showsBookmarks)
         }
     }
 
@@ -1510,7 +1546,12 @@ struct ScriptView: View {
         // Folded away with the rest of the chrome while the script is being
         // scrolled through: the count is a readout, not a control, and reading
         // room is the whole point of the fold.
-        if settings.showsWordCount && !isChromeHidden {
+        //
+        // `isWordCountOnScreen` rather than the preference, so focus mode takes
+        // it down as well: a number that ticks up with every word typed is the
+        // most distracting thing a writing screen can carry, and the mode gives
+        // it back untouched on the way out.
+        if settings.isWordCountOnScreen && !isChromeHidden {
             let words = memoizedWordCount
             WordCountBar(words: words, detail: pageReadout(words: words))
         }
@@ -3074,11 +3115,23 @@ struct ScriptView: View {
             // the Outline panel's own Pins and Bookmarks tabs, beside the list
             // of the marks each switch hides. ⌘⇧N and ⌘⇧B still reach them
             // from anywhere, through the View commands.
+            // Two of these three are greyed in focus mode, on the reasoning
+            // that already gates Full Page Width: a switch is offered where it
+            // changes something. The mode puts the labels and the readout down
+            // for its duration whatever these say, so leaving them live would
+            // let a writer flip one and watch nothing happen. The menu bar's
+            // copies stay live — the word count there answers for the song and
+            // note editors as well, and this mode is the screenplay's.
+            //
+            // Notes is not gated with them: it decides which *elements* are in
+            // the script on screen rather than what is drawn beside them, and
+            // focus mode does not filter the writing.
             Section("Show") {
                 Toggle(isOn: option(\.showsElementLabels,
                                     set: { options.showsElementLabels = $0 })) {
                     Label("Element Labels", systemImage: "tag")
                 }
+                .disabled(settings.isFocusMode)
                 Toggle(isOn: option(\.showsNotes, set: { options.showsNotes = $0 })) {
                     Label("Notes", systemImage: "note.text")
                 }
@@ -3089,6 +3142,7 @@ struct ScriptView: View {
                 Toggle(isOn: wordCountBinding) {
                     Label("Word Count", systemImage: "number")
                 }
+                .disabled(settings.isFocusMode)
             }
 
             // Spelling is only worth offering where there is something to

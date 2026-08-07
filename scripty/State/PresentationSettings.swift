@@ -161,6 +161,28 @@ final class PresentationSettings {
     }
 
     /// Hides everything but the writing surface.
+    ///
+    /// What that means, gathered here because the answer is spread over the
+    /// script page: the toolbar loses everything but the View menu, the way
+    /// back out of the reader and Undo; the songs-and-notes strip, the reading
+    /// bar and the whole of the "…" go with it; the running word count stands
+    /// down (`isWordCountOnScreen`); and the margins either side of the column
+    /// empty — element labels, pins, bookmarks, comment bubbles and tags are
+    /// all annotations *about* the script rather than the script, so the room
+    /// they were holding goes back to the writing. The browser's focus mode
+    /// hides the same per-element marks; the element label is the one place the
+    /// two differ, and it goes here because a writer who wants to know what
+    /// kind of line they are on has the element bar under their thumb saying so.
+    ///
+    /// What stays is what a writer cannot afford to lose sight of: whether
+    /// their words are safe (the cloud badge and the held-work banners), which
+    /// edition they are typing into, a live reading's transport, and the way
+    /// out.
+    ///
+    /// Nothing here writes to another preference. The mode reads them alongside
+    /// its own flag rather than turning them off, so a writer who had the word
+    /// count up, or the pins showing, finds them exactly as they left them the
+    /// moment the mode comes off.
     var isFocusMode: Bool {
         didSet {
             guard isFocusMode != oldValue else { return }
@@ -210,6 +232,14 @@ final class PresentationSettings {
             defaults.set(!showsWordCount, forKey: Key.wordCountHidden)
         }
     }
+
+    /// Whether the readout is actually on screen, which is the writer's own
+    /// choice unless focus mode is on — a running count of the words is the
+    /// kind of thing that mode exists to get out from in front of somebody.
+    ///
+    /// Deliberately a second property rather than a write to the first: the
+    /// mode has to be able to end without having spent the writer's preference.
+    var isWordCountOnScreen: Bool { showsWordCount && !isFocusMode }
 
     /// Whether the keyboard marks misspellings while typing into an element.
     ///
