@@ -1119,6 +1119,14 @@ final class ScriptModel {
     /// writing with it.
     private func replayPendingCreates() async {
         guard let queue = createQueue else { return }
+        // Nothing may be judged before the script it belongs to is on screen.
+        // Every anchor below is resolved against `blocks`, so with an empty
+        // one — a load that failed with no cached copy behind it — the link
+        // lookup comes back nil for every entry and the whole queue is thrown
+        // away as refused without a single request going out.
+        // `drainDocumentDrafts` guards itself the same way, for the same
+        // reason.
+        guard !blocks.isEmpty || blocksLinks[.createInitial] != nil else { return }
         var refused: [String] = []
         var resolvedAny = false
         // Once anything here lands or is given up on, the local steps describe
@@ -1141,8 +1149,9 @@ final class ScriptModel {
             let source = anchor ?? blocks.last { !$0.isLocal }
             guard let link = source?.link(.createBelow) ?? blocksLinks[.createInitial] else {
                 // Nothing on this script can take a new element: no edit
-                // access any more, or an empty script with no seed link.
-                refused.append(dropRefusedCreate(entry, from: queue))
+                // access any more. (An unloaded script cannot reach here —
+                // the guard at the top of this function turns it away.)
+                refused.append(giveUpOnCreate(entry, from: queue))
                 continue
             }
             // The words as they stand now, not as they stood when the line was
@@ -1180,7 +1189,35 @@ final class ScriptModel {
                     // Still no usable connection. Everything stays queued.
                     return
                 }
-                refused.append(dropRefusedCreate(entry, from: queue))
+                // Not everything that fails to retry is a refusal, and this
+                // branch used to treat it as one — dropping the element from
+                // the screen, the outbox and the drafts at once. `.cancelled`
+                // and `.unauthorized` are both non-retryable, so a session
+                // that expired while somebody wrote twenty elements on a train
+                // destroyed all twenty on reconnect, one 401 at a time, and
+                // never even ended the session.
+                if error.isCancelledRequest {
+                    // This app's own doing — the screen was left, the sync was
+                    // stopped on the way to the background. Nothing has been
+                    // judged. Everything stays queued.
+                    return
+                }
+                switch error {
+                case APIError.unauthorized, APIError.redirectedOutOfAPI:
+                    // Not this element's fault, and not a verdict on it. The
+                    // session goes — which it never used to, so the writer was
+                    // shown missing work and left signed in — and the queue is
+                    // untouched: `endSession` does not clear the durable
+                    // stores, so signing back in finds the night's writing
+                    // still waiting.
+                    app.handle(error)
+                    return
+                default:
+                    // A real refusal: 403, 404, a validation error. The
+                    // element is given up on so the rest of the queue can
+                    // move.
+                    refused.append(giveUpOnCreate(entry, from: queue))
+                }
             }
         }
         if !refused.isEmpty {
@@ -1189,6 +1226,35 @@ final class ScriptModel {
             // alert both belong to things still in flight.
             presentToast(refusalToast(for: refused))
         }
+    }
+
+    /// Give up on one element the server refused, keeping its words where the
+    /// writer can still reach them.
+    ///
+    /// The element goes — off the queue, off the screen — because the queue is
+    /// drained in order and one entry nothing will ever accept would block
+    /// everything behind it. But it was written on this device and never
+    /// existed anywhere else, so the words are the only copy there has ever
+    /// been, and a toast quoting sixty characters is not somewhere to keep a
+    /// scene. They go into the conflicts list, which is durable and which the
+    /// writer can copy out of. `drainDocumentDrafts` makes the same trade for
+    /// a note whose target was deleted, and says so.
+    ///
+    /// `couldNotBeCreated` rather than `refused`: there is no element behind
+    /// these words to write them back into, so the sheet offers copying rather
+    /// than a Keep Mine that would fail on every press.
+    private func giveUpOnCreate(_ entry: PendingBlockCreate,
+                                from queue: OfflineBlockQueue) -> String {
+        let words = dropRefusedCreate(entry, from: queue)
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return words
+        }
+        recordConflict(SyncConflict(
+            subject: .block(id: entry.tempId), reason: .couldNotBeCreated,
+            mine: words, theirs: "", base: nil,
+            label: BlockType(rawValue: entry.type)?.label ?? "Element",
+            detectedAt: .now))
+        return words
     }
 
     /// Abandon one element the server refused: off the queue (its dependents
@@ -1205,9 +1271,11 @@ final class ScriptModel {
         return words
     }
 
-    /// One refused line quotes itself — those words exist nowhere else any
-    /// more, and a writer shown *which* line went missing can retype it.
-    /// Several fall back to the count; a toast can't hold a scene.
+    /// One refused line quotes itself, so a writer shown *which* line the
+    /// server would not take knows what happened without opening anything.
+    /// Several fall back to the count; a toast can't hold a scene — which is
+    /// why it no longer has to. The words are in the conflicts list either
+    /// way, and the toast says so rather than reading like an obituary.
     private func refusalToast(for refused: [String]) -> String {
         if refused.count == 1 {
             let words = refused[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1217,9 +1285,10 @@ final class ScriptModel {
             let snippet = words.count > 60
                 ? words.prefix(60).trimmingCharacters(in: .whitespaces) + "…"
                 : words
-            return "This line couldn't be added: “\(snippet)”"
+            return "Couldn't add “\(snippet)” — your words are kept here"
         }
-        return "\(refused.count) elements written offline couldn't be added"
+        return "\(refused.count) elements written offline couldn't be added — "
+            + "your words are kept here"
     }
 
     /// Abandon a queued element and anything anchored to it, on screen as well

@@ -70,6 +70,12 @@ struct SyncConflict: Codable, Equatable, Identifiable {
         case targetDeleted
         /// The server refused the write outright — a failure no retry fixes.
         case refused
+        /// The element was written on this device and the server would not take
+        /// it, so it never came to exist anywhere. Distinct from `refused`,
+        /// which is a refusal to change something that does exist: there is no
+        /// element behind these words to write them back into, which is why
+        /// `canKeepMine` is false for it.
+        case couldNotBeCreated
     }
 
     var subject: Subject
@@ -114,11 +120,12 @@ struct SyncConflict: Codable, Equatable, Identifiable {
     /// the words belong to no longer exists: there is nowhere to put them, and
     /// a button promising otherwise would fail on every press. Those conflicts
     /// offer copying the words out instead.
-    var canKeepMine: Bool { reason != .targetDeleted }
+    var canKeepMine: Bool { reason != .targetDeleted && reason != .couldNotBeCreated }
 
     /// Whether there is a server version to keep. A deleted target has none —
-    /// "Keep Theirs" there means letting the deletion stand.
-    var hasTheirs: Bool { reason != .targetDeleted }
+    /// "Keep Theirs" there means letting the deletion stand. Neither has an
+    /// element that was never created: there was never another side.
+    var hasTheirs: Bool { reason != .targetDeleted && reason != .couldNotBeCreated }
 
     /// One line naming what happened, in the writer's terms rather than the
     /// sync machinery's.
@@ -127,6 +134,7 @@ struct SyncConflict: Codable, Equatable, Identifiable {
         case .changedElsewhere: return "Changed in two places"
         case .targetDeleted: return "Deleted elsewhere"
         case .refused: return "The server wouldn't take this"
+        case .couldNotBeCreated: return "Couldn't be added"
         }
     }
 
@@ -146,6 +154,11 @@ struct SyncConflict: Codable, Equatable, Identifiable {
             return "The server refused this change and no amount of waiting will "
                 + "fix it. Your words are kept here so nothing is lost — try "
                 + "again, or discard them."
+        case .couldNotBeCreated:
+            return "You wrote this while offline, and the server would not take "
+                + "it — the project may no longer accept new writing from this "
+                + "account. It was never added, so there is nothing to put it "
+                + "back into; copy anything you still want."
         }
     }
 }

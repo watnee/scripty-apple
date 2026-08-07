@@ -142,7 +142,11 @@ struct SyncConflictsView: View {
             Text(conflict.headline)
                 .font(.subheadline)
                 .fontWeight(.medium)
-                .foregroundStyle(conflict.reason == .refused ? .red : .orange)
+                // Red for the two the server said no to; orange for a race,
+                // which is nobody's fault and resolves either way.
+                .foregroundStyle(
+                    conflict.reason == .refused || conflict.reason == .couldNotBeCreated
+                        ? .red : .orange)
             Text(conflict.explanation)
                 .font(.footnote)
                 .foregroundStyle(.secondary)

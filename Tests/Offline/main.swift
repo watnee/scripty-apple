@@ -107,6 +107,11 @@ func run() async {
     await checkStructuralEditsOffline()
     print()
     await checkUndoOffline()
+    print()
+    // Last, because it is the only one that points the client at a listening
+    // socket rather than the closed port every case above depends on. It puts
+    // the override back on its way out.
+    await checkRefusedCreates()
 
     print()
     if failures == 0 {
@@ -648,6 +653,36 @@ func checkWritingNewElementsOffline() async {
     check("and says nothing about having synced", relaunched.historyToast == nil)
 
     print()
+    print("== A drain that never even loaded the script drops nothing ==")
+    do {
+        // The load failed and there was no cached copy, so `blocks` is empty.
+        // Every anchor below resolves against it, so the link lookup would
+        // come back nil for every entry and the whole queue would be given up
+        // on as refused without one request going out.
+        let directory = scratchDirectory("unloaded")
+        let queue = OfflineBlockQueue(scope: "server|alice",
+                                      directory: directory.appendingPathComponent("queue"))
+        queue.enqueue(PendingBlockCreate(tempId: queue.nextTempId(projectId: 1),
+                                         anchorId: 10, type: "ACTION",
+                                         content: "Written where there was no signal.",
+                                         personId: nil, createdAt: .now),
+                      projectId: 1)
+        let monitor = ConnectivityMonitor(startMonitoring: false)
+        monitor.adopt(true)
+        let model = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                                draftStore: nil, offlineStore: nil, createQueue: queue)
+
+        await model.syncHeldWork()
+
+        checkEqual("the queue is untouched", queue.pending(projectId: 1).count, 1)
+        checkEqual("with the words intact",
+                   queue.pending(projectId: 1).first?.content,
+                   "Written where there was no signal.")
+        check("and the writer is told nothing about losing work",
+              model.conflicts.isEmpty)
+    }
+
+    print()
     print("== A reload lets go of held work for an element that has gone ==")
     do {
         let directory = scratchDirectory("vanished")
@@ -737,6 +772,183 @@ func checkWritingNewElementsOffline() async {
                    model.currentText(model.blocks[1]), "…and the line after it.")
         check("still flagged as work held here", model.unsavedBlockIds.contains(local))
         checkEqual("and still queued to be sent", queue.pending(projectId: 1).count, 1)
+    }
+}
+
+/// A server that answers every request with one status and nothing else.
+///
+/// The rest of this suite works against a closed port, which is all a
+/// *transport* failure needs. The cases below are about the answers a server
+/// gives — 401 against 403 — and a closed port cannot tell those apart from
+/// each other or from being offline, which is precisely the confusion the code
+/// under test used to be in.
+final class FixedStatusServer: @unchecked Sendable {
+    private let socketFD: Int32
+    let port: UInt16
+    private let status: Int
+
+    init(status: Int) {
+        self.status = status
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        withUnsafePointer(to: &address) {
+            _ = $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        listen(fd, 16)
+        var bound = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        withUnsafeMutablePointer(to: &bound) {
+            _ = $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &length)
+            }
+        }
+        socketFD = fd
+        port = UInt16(bigEndian: bound.sin_port)
+        let answered = status
+        Thread.detachNewThread {
+            while true {
+                let client = accept(fd, nil, nil)
+                if client < 0 { return }
+                Thread.detachNewThread {
+                    var yes: Int32 = 1
+                    setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes,
+                               socklen_t(MemoryLayout<Int32>.size))
+                    var buffer = [UInt8](repeating: 0, count: 8192)
+                    _ = read(client, &buffer, buffer.count)
+                    let head = """
+                    HTTP/1.1 \(answered) Refused\r
+                    Content-Type: application/hal+json\r
+                    Content-Length: 2\r
+                    Connection: close\r
+                    \r
+                    {}
+                    """
+                    _ = Data(head.utf8).withUnsafeBytes {
+                        write(client, $0.baseAddress, $0.count)
+                    }
+                    shutdown(client, SHUT_WR)
+                    var linger = timeval(tv_sec: 5, tv_usec: 0)
+                    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &linger,
+                               socklen_t(MemoryLayout<timeval>.size))
+                    _ = read(client, &buffer, buffer.count)
+                    close(client)
+                }
+            }
+        }
+    }
+
+    var baseURL: String { "http://127.0.0.1:\(port)" }
+    func stop() { close(socketFD) }
+}
+
+/// What a drain is allowed to throw away.
+///
+/// The outbox is drained in order, so an entry nothing will ever accept has to
+/// leave or everything behind it waits forever. The judgement of which is
+/// which was `isRetryableAPIError`, and that is not the same question:
+/// `.unauthorized`, `.cancelled` and `.forbidden` are all non-retryable and
+/// mean three completely different things.
+@MainActor
+func checkRefusedCreates() async {
+    let blocksJSON = """
+    {
+      "_embedded": {
+        "blockResourceList": [
+          {
+            "id": 10, "order": 1, "type": "ACTION", "content": "First line.",
+            "_links": {
+              "update": {"href": "/api/blocks/10"},
+              "createBelow": {"href": "/api/blocks/10/below"}
+            }
+          }
+        ]
+      },
+      "_links": {"self": {"href": "/api/projects/1/blocks"}}
+    }
+    """
+
+    /// A script with one element already on screen — loaded from the copy on
+    /// this device, so the drain has an anchor to hang a create off — and
+    /// `count` elements queued behind it.
+    func modelWithQueuedWriting(count: Int,
+                                _ name: String) -> (ScriptModel, OfflineBlockQueue) {
+        let directory = scratchDirectory(name)
+        let queue = OfflineBlockQueue(scope: "server|alice",
+                                      directory: directory.appendingPathComponent("queue"))
+        for i in 0..<count {
+            queue.enqueue(PendingBlockCreate(tempId: queue.nextTempId(projectId: 1),
+                                             anchorId: 10, type: "ACTION",
+                                             content: "Written on a train, take \(i + 1).",
+                                             personId: nil, createdAt: .now),
+                          projectId: 1)
+        }
+        let monitor = ConnectivityMonitor(startMonitoring: false)
+        monitor.adopt(true)
+        let model = ScriptModel(app: AppModel(connectivity: monitor), project: project,
+                                draftStore: nil, offlineStore: nil, createQueue: queue)
+        // Seeded rather than loaded. These servers answer the same refusal to
+        // every request including the GET, and a script that never loaded is
+        // turned away by the drain's own guard — which would make the cases
+        // below pass without ever reaching the classification they are about.
+        model.adopt(decode(HALCollection<Block>.self, blocksJSON))
+        return (model, queue)
+    }
+
+    print("== A session that expired mid-drain keeps every element ==")
+    do {
+        let server = FixedStatusServer(status: 401)
+        defer { server.stop() }
+        UserDefaults.standard.set(server.baseURL, forKey: AppConfig.baseURLOverrideKey)
+        let (model, queue) = modelWithQueuedWriting(count: 3, "expired")
+        checkEqual("all three are on screen before the drain",
+                   model.blocks.filter(\.isLocal).count, 3)
+        await model.syncHeldWork()
+
+        // This is the one that mattered. `.unauthorized` is not retryable, so
+        // all three used to take the "the server refused this element" branch:
+        // gone from the screen, gone from the outbox, gone from disk, one 401
+        // at a time — and `app.handle` was never called, so the writer was not
+        // even asked to sign in again.
+        checkEqual("all three are still queued", queue.pending(projectId: 1).count, 3)
+        checkEqual("with their words", queue.pending(projectId: 1).first?.content,
+                   "Written on a train, take 1.")
+        check("nothing is reported as lost", model.conflicts.isEmpty)
+        check("and the session is ended so the writer can sign back in",
+              model.app.phase != .signedIn)
+    }
+
+    print()
+    print("== An element the server refuses is given up on, but its words are not ==")
+    do {
+        let server = FixedStatusServer(status: 403)
+        defer {
+            server.stop()
+            UserDefaults.standard.set("http://127.0.0.1:1",
+                                      forKey: AppConfig.baseURLOverrideKey)
+        }
+        UserDefaults.standard.set(server.baseURL, forKey: AppConfig.baseURLOverrideKey)
+        let (model, queue) = modelWithQueuedWriting(count: 1, "refused")
+        await model.syncHeldWork()
+
+        checkEqual("the element leaves the outbox", queue.pending(projectId: 1).count, 0)
+        checkEqual("but the words are kept for the writer to copy",
+                   model.conflicts.count, 1)
+        checkEqual("as what they actually typed",
+                   model.conflicts.first?.mine, "Written on a train, take 1.")
+        // A temp id names nothing on the server, so there is no element to
+        // write these words back into — a Keep Mine here would fail on every
+        // press, which is why the reason is its own rather than `.refused`.
+        checkEqual("under a reason that offers copying rather than resending",
+                   model.conflicts.first?.reason, .couldNotBeCreated)
+        check("with no Keep Mine to fail on", model.conflicts.first?.canKeepMine == false)
+        check("and no other side to choose", model.conflicts.first?.hasTheirs == false)
     }
 }
 
