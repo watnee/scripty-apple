@@ -198,13 +198,19 @@ struct NotesWorkspaceView: View {
                 Task { await flushAll() }
             }
             // Backgrounding persists every half-typed paragraph before the
-            // system decides how much longer this process runs.
+            // system decides how much longer this process runs; the foreground
+            // is a second chance for anything still held — a phone put down on
+            // a train and picked up in the office never sees the connectivity
+            // edge above, because the change happened while nothing was
+            // watching. The songs workspace has taken both edges from the start.
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
                 case .background, .inactive:
                     Task { await flushAll() }
                 case .active:
-                    break
+                    if app.connectivity.isOnline {
+                        Task { await flushAll() }
+                    }
                 @unknown default:
                     break
                 }
@@ -789,6 +795,12 @@ struct NotesWorkspaceView: View {
     /// badge nobody reads by the end of the first page.
     private var cloudState: CloudSyncState? {
         guard !app.isDemo else { return nil }
+        // Ahead of the rest, as everywhere else: those clear up on their own
+        // and this one is waiting on the writer. The songs workspace and both
+        // editors put it first for the same reason — a badge reporting "saving"
+        // over an unanswered question asks the writer to wait for something
+        // that is waiting for them.
+        if !noteConflicts.isEmpty { return .conflicted }
         if !app.connectivity.isOnline { return .offline }
         if drafts.values.contains(where: { if case .failed = $0.status { return true } else { return false } }) {
             return .failed
@@ -805,6 +817,15 @@ struct NotesWorkspaceView: View {
             default: false
             }
         }.count
+    }
+
+    /// When this *screen* was last in step with the server — so the oldest of
+    /// the open notes, not the newest. One note saving a moment ago says
+    /// nothing about the four beneath it, and the badge's panel is answering
+    /// "is what I can see up to date?". The songs workspace takes the same
+    /// minimum over its own lyrics.
+    private var lastSyncedAt: Date? {
+        drafts.values.compactMap(\.lastSyncedAt).min()
     }
 
     @ToolbarContentBuilder
@@ -825,7 +846,20 @@ struct NotesWorkspaceView: View {
             ToolbarItem(placement: .topBarLeading) {
                 CloudSyncBadge(state: cloud,
                                heldCount: heldNoteCount,
-                               sync: { await flushAll() })
+                               lastSyncedAt: lastSyncedAt,
+                               // Pushes *and* pulls, as the songs workspace's
+                               // does. Held words went first for a long while
+                               // and nothing came back, which made the press
+                               // do literally nothing in the settled state the
+                               // panel labels "Check for Changes".
+                               sync: { await syncEverything() },
+                               // Two versions of a note waiting on an answer is
+                               // the one thing this glyph must never report and
+                               // then decline to explain — the banner above says
+                               // so loudly, and this is where a writer who went
+                               // to the badge instead finds the same door.
+                               conflictCount: noteConflicts.count,
+                               review: noteConflicts.isEmpty ? nil : { showingConflicts = true })
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -962,8 +996,12 @@ struct NotesWorkspaceView: View {
     }
 
     /// Two versions of a note exist and only the writer can settle it. The
-    /// same strip the screenplay and the song editors raise — this screen has
-    /// no cloud badge of its own, so it is the only way in from here.
+    /// same strip the screenplay and the song editors raise.
+    ///
+    /// Beside the badge rather than instead of it, which is what this was while
+    /// the screen had no badge to carry the question. Both, as `SongEditorView`
+    /// has both: the strip is the one that shouts, and it is the only one drawn
+    /// at all in the demo, where there is no badge to press.
     @ViewBuilder
     private var conflictBanner: some View {
         if !noteConflicts.isEmpty {
@@ -1037,6 +1075,11 @@ struct NotesWorkspaceView: View {
             // cached copy is no better evidence: it is what the server said
             // some time ago, not what it says now.
             draft.haveServerBaseline = full != nil && draft.offlineCopySavedAt == nil
+            // Same evidence, so the same test: only a real fetch says when this
+            // note was last in step with the server. A cached copy is what the
+            // server said some time ago, and the badge's panel would date it as
+            // though it were now.
+            if draft.haveServerBaseline { draft.lastSyncedAt = .now }
             draft.isLoading = false
         }
     }
@@ -1199,6 +1242,7 @@ struct NotesWorkspaceView: View {
         case .saved:
             draft.savedContent = sent
             draft.haveServerBaseline = true
+            draft.lastSyncedAt = .now
             draft.status = .saved
             // Typed into while that was in flight: those words have not gone.
             if draft.content != sent { scheduleSave(note) }
@@ -1215,6 +1259,57 @@ struct NotesWorkspaceView: View {
         for note in model.notes where drafts[note.id] != nil {
             await save(note)
         }
+    }
+
+    /// Push everything held and pull whatever changed, note by note — what the
+    /// badge's "Sync Now" does here, and what the songs workspace's own badge
+    /// has always done. Serial rather than parallel: each note is a round trip,
+    /// and a dozen at once is a dozen the badge would have to keep a spinner
+    /// over anyway. It refuses a second press until this returns.
+    private func syncEverything() async {
+        await flushAll()
+        for note in model.notes where drafts[note.id] != nil {
+            await pull(note)
+        }
+    }
+
+    /// Takes what the server holds for one note — the second half of the
+    /// button, and the whole of it in the settled state the badge's panel calls
+    /// "Check for Changes".
+    ///
+    /// Only where this screen has nothing of its own to lose. A pane still
+    /// holding unsent words is answered by the flush above, not by this: words
+    /// typed here are newer than anything the server can say about them, and
+    /// adopting the older copy over them is the one thing a sync button must
+    /// never do. `SongEditorView.syncNow` draws the same line for one note.
+    private func pull(_ note: TextDocument) async {
+        // The self link first, because without one `fetchDocument` hands back
+        // the row it was given rather than nil — and a list row carries the
+        // truncated preview, which adopted here would replace a page of writing
+        // with its own first line.
+        guard note.hasLink(.selfRel),
+              let draft = drafts[note.id], !draft.isSaving,
+              draft.content == draft.savedContent,
+              let full = await model.fetchDocument(note),
+              // The copy on this device is not an answer to "what does the
+              // server say?" — it is the question restated. Adopting it here
+              // would put old words on screen and call them current.
+              model.documentCopySavedAt[note.id] == nil else { return }
+        // Typed into while the fetch was in flight: those words are newer than
+        // what came back, and the debounce that will send them is already armed.
+        guard draft.content == draft.savedContent else { return }
+        let serverContent = full.content ?? ""
+        draft.savedContent = serverContent
+        draft.haveServerBaseline = true
+        // These words came off the network, so whatever this device was showing
+        // in their place is no longer what is on screen.
+        draft.offlineCopySavedAt = nil
+        draft.lastSyncedAt = .now
+        guard draft.content != serverContent else { return }
+        // The note changed somewhere else. One press of undo back to what was
+        // on this screen a moment ago — nobody watched these words arrive.
+        draft.content = serverContent
+        draft.history.record(title: "", text: serverContent)
     }
 }
 
@@ -1262,6 +1357,12 @@ final class NoteDraft {
     /// are the server's own. The songs workspace says the same thing about a
     /// lyric it had to read off disk.
     var offlineCopySavedAt: Date?
+    /// When this note was last known to be in step with the server — the fetch
+    /// that opened it, a save it took, or a pull that brought its words back.
+    /// Read by the screen's badge, which reports the oldest of them; nil while
+    /// nothing about this note has landed this session. `SongBlockModel` keeps
+    /// the same stamp for the songs workspace's badge.
+    var lastSyncedAt: Date?
     var isLoading = true
     var isSaving = false
     var status: Status = .idle

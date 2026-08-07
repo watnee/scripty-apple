@@ -168,6 +168,7 @@ struct SongsWorkspaceView: View {
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .safeAreaInset(edge: .top, spacing: 0) { conflictBanner }
             .toolbar { toolbar }
             // Same claim the song editor makes, and for the same reason: this
             // is a cover over the screenplay, and without it the menu's ⌘Z
@@ -837,6 +838,20 @@ struct SongsWorkspaceView: View {
     /// found one — the same limit the held-line count above lives with.
     private var openConflicts: [SyncConflict] {
         lyrics.values.flatMap(\.conflicts).sorted { $0.detectedAt < $1.detectedAt }
+    }
+
+    /// Two versions of a line exist and only the writer can settle it — the
+    /// same strip the screenplay, the notes workspace and both editors raise.
+    ///
+    /// Beside the badge rather than instead of it. The badge alone was this
+    /// screen's only door for a while, which left the question depending on a
+    /// glyph being noticed in the corner, and left it with no door at all in
+    /// the demo, where there is no badge.
+    @ViewBuilder
+    private var conflictBanner: some View {
+        if !openConflicts.isEmpty {
+            ConflictBanner(count: openConflicts.count) { showingConflicts = true }
+        }
     }
 
     /// Which song's lyric a conflict belongs to. The workspace shows one list
