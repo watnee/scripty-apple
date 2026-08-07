@@ -572,8 +572,8 @@ extension HelpTopic {
                 paragraphs: [
                     "Focus Mode strips the screen back to the script alone, leaving only "
                     + "the View menu as the way out. The toolbar keeps that menu, Undo "
-                    + "and the way back from reading and loses the rest; the songs and "
-                    + "notes buttons go with it, and so does the running word count. "
+                    + "and the way back from reading and loses the rest; the Songs & "
+                    + "Notes button goes with it, and so does the running word count. "
                     + "Both margins empty as well — element labels, pins, bookmarks, "
                     + "comment bubbles and tags are all put down for the duration, and "
                     + "the room they were holding goes back to the writing.",
