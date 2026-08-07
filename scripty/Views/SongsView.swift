@@ -976,7 +976,10 @@ struct SongsView: View {
         }
     }
 
-    /// The folder the list is showing, and the way to any other.
+    /// The folders, laid out as a row of chips — the arrangement itself, on
+    /// screen, rather than one name behind a menu that had to be opened to find
+    /// out what the alternatives were. The same chips the web puts above the
+    /// same rows, and the shape `TextDocumentFolder` was written against.
     ///
     /// In the bar with the Songs/Notes picker rather than as a row in the List,
     /// for the reason spelled out on `folderFilter`: a control whose presence
@@ -989,63 +992,107 @@ struct SongsView: View {
     @ViewBuilder
     private var folderBar: some View {
         if showsFolders, !editMode.isEditing {
-            Menu {
-                Picker("Folder", selection: $folderFilter) {
-                    Label(listType == .song ? "All Songs" : "All Notes",
-                          systemImage: "tray.full").tag(FolderFilter.all)
-                    if !listFolders.isEmpty {
-                        Label("Unfiled", systemImage: "tray").tag(FolderFilter.unfiled)
-                        // The count is the server's, and it counts the whole
-                        // list — so it stays honest while a search narrows what
-                        // is actually on screen.
-                        ForEach(listFolders) { folder in
-                            Label("\(folder.displayName) (\(folder.documentCount ?? 0))",
-                                  systemImage: "folder").tag(FolderFilter.folder(folder.id))
+            ScrollViewReader { scroller in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        folderChip(listType == .song ? "All Songs" : "All Notes",
+                                   systemImage: "tray.full", filter: .all)
+                        if !listFolders.isEmpty {
+                            folderChip("Unfiled", systemImage: "tray", filter: .unfiled)
+                            // The count is the server's, and it counts the whole
+                            // list — so it stays honest while a search narrows
+                            // what is actually on screen.
+                            ForEach(listFolders) { folder in
+                                folderChip("\(folder.displayName) (\(folder.documentCount ?? 0))",
+                                           systemImage: "folder",
+                                           filter: .folder(folder.id))
+                                    .contextMenu { folderActions(for: folder) }
+                            }
                         }
+                        if model.canCreateFolder { newFolderChip }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 2)
                 }
-                if model.canCreateFolder {
-                    Divider()
-                    Button {
-                        filingDocument = nil
-                        folderName = ""
-                        namingFolder = true
-                    } label: {
-                        Label("New Folder…", systemImage: "folder.badge.plus")
-                    }
+                // Naming a folder and filing a song both move the filter on the
+                // writer's behalf, and the chip they land on is regularly off
+                // the end of a row this narrow. Without this the list changes
+                // under a strip that still shows the old chip highlighted.
+                .onChange(of: folderFilter) { _, filter in
+                    withAnimation { scroller.scrollTo(filter, anchor: .center) }
                 }
-                if let folder = activeFolder {
-                    if folder.canRename {
-                        Button {
-                            folderName = folder.displayName
-                            renamingFolder = folder
-                        } label: {
-                            Label("Rename “\(folder.displayName)”", systemImage: "pencil")
-                        }
-                    }
-                    if folder.canDelete {
-                        Button(role: .destructive) {
-                            deletingFolder = folder
-                        } label: {
-                            Label("Remove “\(folder.displayName)”", systemImage: "folder.badge.minus")
-                        }
-                    }
-                }
-            } label: {
-                Label(folderBarTitle, systemImage: "folder")
-                    .font(.subheadline)
+                .scrollEdgeEffectHidden()
             }
-            .buttonStyle(.borderless)
             .padding(.bottom, 8)
         }
     }
 
-    /// What the folder control says it is showing.
-    private var folderBarTitle: String {
-        switch folderFilter {
-        case .all: return listType == .song ? "All Songs" : "All Notes"
-        case .unfiled: return "Unfiled"
-        case .folder: return activeFolder?.displayName ?? "Folder"
+    /// One folder chip: tapping it narrows the list, and the one showing is
+    /// filled in. Drawn by hand rather than with `.bordered`/`.borderedProminent`
+    /// so the two states are one control that changes colour, which is what the
+    /// element-type chips above the keyboard already do.
+    private func folderChip(_ title: String, systemImage: String,
+                            filter: FolderFilter) -> some View {
+        let isShowing = folderFilter == filter
+        return Button {
+            folderFilter = filter
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isShowing ? Color.white : Color.primary)
+        .background(Capsule().fill(isShowing
+                                   ? Color.accentColor
+                                   : Color.secondary.opacity(0.15)))
+        // The highlight is colour-only; VoiceOver needs the state said aloud.
+        .accessibilityAddTraits(isShowing ? [.isSelected] : [])
+        .id(filter)
+    }
+
+    /// Making a folder from the strip itself, so the first one is a tap from
+    /// where folders live rather than something to go looking for. Outlined
+    /// instead of filled: it is not one of the things the list can be showing.
+    private var newFolderChip: some View {
+        Button {
+            filingDocument = nil
+            folderName = ""
+            namingFolder = true
+        } label: {
+            Label("New Folder", systemImage: "folder.badge.plus")
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.accentColor)
+        .background(Capsule().strokeBorder(Color.secondary.opacity(0.35)))
+    }
+
+    /// Renaming and removing, on a touch and hold of the folder's own chip —
+    /// the gesture this list already uses for what a row can do. Kept off the
+    /// chip's face because a strip of names is for choosing between them, and a
+    /// pencil beside each one would say the opposite.
+    @ViewBuilder
+    private func folderActions(for folder: TextDocumentFolder) -> some View {
+        if folder.canRename {
+            Button {
+                folderName = folder.displayName
+                renamingFolder = folder
+            } label: {
+                Label("Rename “\(folder.displayName)”", systemImage: "pencil")
+            }
+        }
+        if folder.canDelete {
+            Button(role: .destructive) {
+                deletingFolder = folder
+            } label: {
+                Label("Remove “\(folder.displayName)”", systemImage: "folder.badge.minus")
+            }
         }
     }
 
