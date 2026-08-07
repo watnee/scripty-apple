@@ -1129,29 +1129,18 @@ struct SongBlockEditorView: View {
             // needs, which is why it is out here rather than two taps deep in
             // the overflow beside the toggle that also reaches it. Gone once it
             // is used: the sheet is then the editor it has always been.
+            //
+            // One way only. The slot used to carry a Read Song button over the
+            // writing surface, so the corner was one tap to whichever surface
+            // was not up; the writing posture offers no way into reading from
+            // the bar now, and the toggle in the "…" is the way in — for the
+            // writer who wants it, and for the reader whose song the Edit
+            // button never appears on.
             if isSongEditable && isReading {
                 Button {
                     beginEditing()
                 } label: {
                     Label("Edit", systemImage: "square.and.pencil")
-                }
-            } else if !isReading && !model.blocks.isEmpty {
-                // And the way back, in the slot Edit leaves behind, so this
-                // corner is one tap to whichever surface is not up. Reading was
-                // reachable only from inside the "…" on the way back, which
-                // made a mode that is swapped in and out of while working cost
-                // one tap out and two in. Ungated by `isSongEditable`: reading
-                // is nobody's privilege, and the toggle in the "…" stays for
-                // the reader whose song this button never appears on.
-                //
-                // It leads Search here, as Edit leads it while reading: the
-                // trailing side draws about two controls on a phone, so the
-                // pair of them is what a phone shows, and where there is room
-                // for only one this is the one worth having.
-                Button {
-                    enterReadingView()
-                } label: {
-                    Label("Read Song", systemImage: "book")
                 }
             }
             // No keyboard shortcut on Search: the screenplay's own button owns
@@ -1245,10 +1234,12 @@ struct SongBlockEditorView: View {
             }
         }
         // The other kind of reading, next to it: the song out loud, in the
-        // voice and at the speed the screenplay's Read Aloud is set to. Both
-        // surfaces offer it — a lyric is as worth hearing while it is being
-        // written as after — so this is gated on there being a line to read
-        // rather than on the mode.
+        // voice and at the speed the screenplay's Read Aloud is set to. The
+        // reading surface only. Both surfaces used to offer it, on the
+        // reasoning that a lyric is as worth hearing while it is being written
+        // as after; a writer's menu is shorter without it, and the toggle
+        // directly above is the one tap to the surface that has it. ⌘⇧A still
+        // starts a reading from either, so a keyboard has lost nothing.
         //
         // In the "…" rather than out on the bar. The trailing side of this
         // sheet's navigation bar draws about two controls on a phone and there
@@ -1256,7 +1247,7 @@ struct SongBlockEditorView: View {
         // overflow's anyway; this way it sits with the reading toggle it is a
         // sibling of. Once a reading starts the transport at the foot of the
         // sheet is the control, and it is nobody's second tap.
-        if !model.blocks.isEmpty {
+        if !model.blocks.isEmpty && isReading {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     toggleReadAloud()

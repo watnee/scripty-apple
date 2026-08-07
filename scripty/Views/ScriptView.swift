@@ -1355,8 +1355,8 @@ struct ScriptView: View {
         }
     }
 
-    /// The way into the reader, and the way to be read to — the things a
-    /// phone's navigation bar has no room for.
+    /// The reading controls — the things a phone's navigation bar has no room
+    /// for. A reading posture's bar only: see `isReadingPosture`.
     ///
     /// Songs and Notes were here too, for want of anywhere else. They are now
     /// at the top of the screen — `documentsBar` — which is where they were
@@ -1379,10 +1379,11 @@ struct ScriptView: View {
     /// already opens. Listening is also the posture this bar suits best: a
     /// thumb on the bottom edge, not a reach for the corner.
     ///
-    /// The same button is also named in the "…" (see `toolbar`), which is not
-    /// the slot-costing toolbar button that was removed: this bar is
-    /// compact-only and folds with the chrome, so every width and posture it
-    /// does not cover had nowhere to start a reading from at all.
+    /// The whole bar belongs to the reading postures now. The way *into* the
+    /// reader used to lead it, and listening was offered over the writing
+    /// column as well; both are gone from a writer's screen, where the View
+    /// menu (and ⌘⇧A, and the Read Script toggle) is the way to either kind of
+    /// reading. What is left here is what a reader has no other reach for.
     @ViewBuilder
     private var readerBar: some View {
         // Not while elements are being selected: the selection bar already
@@ -1393,50 +1394,27 @@ struct ScriptView: View {
         // otherwise reserve a bar's worth of the bottom edge to draw nothing.
         if isCompact && !isChromeHidden && !settings.isFocusMode
             && model.hasScriptContent
-            && !selection.isSelecting {
+            && !selection.isSelecting
+            && isReadingPosture {
             HStack(spacing: 8) {
-                // The way into the reader, down here for the reason everything
-                // else in this bar is: measured on a 402pt iPhone, the trailing
-                // side of the navigation bar draws one control beside the "…",
-                // and the View menu is that control — so a mode a writer swaps
-                // in and out of while working would otherwise cost a menu each
-                // way.
+                // Icon-only and plain. The title stays on the `Label` for
+                // VoiceOver.
+                readAloudButton
+                // Beside listening because it is the other thing a reader
+                // reaches for: the reader runs continuously, and "how long
+                // is this, and where do the pages fall" is a question it
+                // deliberately cannot answer — page view is the surface
+                // that can. Reaching it meant the View menu in the far
+                // corner, which on a phone is the one control the bar
+                // draws beside the "…", so the paper was two taps and a
+                // scan of a fourteen-item menu away from the posture that
+                // most wants it.
                 //
-                // Only the way in. The Edit button that used to lead this row
-                // is gone: the reader's own surface is what a reader taps to
-                // start writing, and the toolbar corner keeps its copy for
-                // every width that draws one.
-                //
-                // Icon-only and plain, like the ones beside it. The title stays
-                // on the `Label` for VoiceOver.
-                if isReadyToRead {
-                    Button {
-                        setReading(true)
-                    } label: {
-                        Label("Read Script", systemImage: "book")
-                    }
-                }
-                if model.hasScriptContent {
-                    readAloudButton
-                    // Beside listening because it is the other thing a reader
-                    // reaches for: the reader runs continuously, and "how long
-                    // is this, and where do the pages fall" is a question it
-                    // deliberately cannot answer — page view is the surface
-                    // that can. Reaching it meant the View menu in the far
-                    // corner, which on a phone is the one control the bar
-                    // draws beside the "…", so the paper was two taps and a
-                    // scan of a fourteen-item menu away from the posture that
-                    // most wants it.
-                    //
-                    // Drawn while reading, and while the paper it opened is
-                    // up — that second half is the way back. It stays out of
-                    // the writing posture's bar entirely: a writer has the
-                    // View menu's toggle and ⌘⇧P, and the bottom bar is
-                    // already the fullest thing on the screen.
-                    if isReading || paperCameFromReader {
-                        pageViewButton
-                    }
-                }
+                // While the paper this opened is up it is the way back, which
+                // is the other half of why the bar stands in that posture at
+                // all. It stays out of the writing posture's bar entirely: a
+                // writer has the View menu's toggle and ⌘⇧P.
+                pageViewButton
             }
             .buttonStyle(.bordered)
             .labelStyle(.iconOnly)
@@ -1489,18 +1467,18 @@ struct ScriptView: View {
     /// which is exactly when an Edit button is worth drawing.
     private var isReadyToEdit: Bool { isReading && canEditScript }
 
-    /// The mirror of it: the writing surface is up and there is something on it
-    /// to read, which is exactly when a Read Script button is worth drawing.
+    /// Whether one of the two reading surfaces is up: the reader proper, or the
+    /// paper a reader stepped onto from it (`paperCameFromReader`, which is
+    /// cleared the moment the paper goes off, whichever route turned it off).
     ///
-    /// Ungated by `canEditScript` — reading is nobody's privilege, and a reader
-    /// who stepped out onto the locked column needs the way back most of all.
-    /// Gated by focus mode, though, where the Edit button is not: that mode
-    /// keeps what a writer needs to get back to writing, and the reader is
-    /// somewhere to go rather than a way back. The View menu, which stays,
-    /// carries the toggle for the writer who wants it from in there.
-    private var isReadyToRead: Bool {
-        !isReading && model.hasScriptContent && !settings.isFocusMode
-    }
+    /// What the reading controls are gated on. They used to be offered over the
+    /// writing column too — the way into the reader in the bottom bar and in
+    /// the toolbar corner, and Read Aloud in both the bar and the "…" — which
+    /// put two ways of not-writing in front of a writer on every surface they
+    /// could be drawn on. They are the reader's now. The View menu keeps the
+    /// Read Script toggle, and ⌘⇧A the listening, so neither mode has lost its
+    /// door; only its button on the writing screen.
+    private var isReadingPosture: Bool { isReading || paperCameFromReader }
 
     /// How wide this pane has to be before the navigation bar can draw every
     /// control at once — the View capsule, the seven-strong action capsule,
@@ -2447,7 +2425,8 @@ struct ScriptView: View {
     }
 
     /// The listening button, drawn in the phone's bottom bar and named again in
-    /// the "…" for the widths and postures that bar does not reach. Reading
+    /// the "…" for the widths and postures that bar does not reach — both of
+    /// them only while a reading surface is up (`isReadingPosture`). Reading
     /// happens on this very screen:
     /// the voice starts from wherever the writer is and the transport bar comes
     /// up at the bottom, so while it runs the button is the pause it will be
@@ -2671,29 +2650,16 @@ struct ScriptView: View {
             // Only where there is somewhere to type. A reader the server never
             // gave an `update` link has no edit view to be sent to, and a
             // button offering one would be a promise this app cannot keep.
+            //
+            // One way only. The same slot used to carry a Read Script button
+            // over the writing column, so the corner was one tap to whichever
+            // surface was not up; it is a writer's corner now, and the way to
+            // the reader is the View menu's toggle directly beneath it.
             if isReadyToEdit {
                 Button {
                     setReading(false)
                 } label: {
                     Label("Edit", systemImage: "square.and.pencil")
-                }
-            } else if isReadyToRead {
-                // The same slot, the other way round: whichever surface is up,
-                // this corner is the one tap to the other one. The mode had
-                // only ever been reachable from *inside* the View menu on the
-                // way back — a writer who took the Edit button out of the
-                // reader had to remember which menu the door home was in, which
-                // is two taps and a hunt for the thing they had just used one
-                // tap to leave.
-                //
-                // Titled "Read Script", not "Read": it is the View menu's own
-                // words for the mode and the menu bar's, and where a short bar
-                // spills this into the "…" it lands among named items beside a
-                // Read Aloud it must not be mistaken for.
-                Button {
-                    setReading(true)
-                } label: {
-                    Label("Read Script", systemImage: "book")
                 }
             }
         }
@@ -2865,15 +2831,12 @@ struct ScriptView: View {
                 // the screenplay was the one document you could not start a
                 // reading of from the "…".
                 //
-                // `documentsBar` still carries the phone's button, and this is
-                // deliberately the second door to it rather than a replacement:
-                // that bar is compact-only and folds away with the chrome, so
-                // on an iPad or a Mac, and on a phone mid-scroll or mid-
-                // selection, the menu was the only place left to look and it
-                // was not there. The earlier round removed a *toolbar* button
-                // for costing a slot the bar could not spare; an overflow item
-                // costs no slot.
-                if model.hasScriptContent {
+                // A reading posture's item, like `readerBar`'s copy of it:
+                // this is the reach for the widths and moments that bar does
+                // not cover — an iPad or a Mac, or a phone mid-scroll or
+                // mid-selection — rather than a way to start a reading from
+                // the writing column, which is ⌘⇧A's job and the View menu's.
+                if model.hasScriptContent && isReadingPosture {
                     readAloudButton
                 }
 
@@ -3074,9 +3037,14 @@ struct ScriptView: View {
                 // A mode among the modes, not a screen: the toggle swaps the
                 // column for the reader in place, and toggling it off —
                 // or asking for page or outline mode — puts the writing back.
-                // Read Aloud is not beside it: that one is a button of its own
-                // — the phone's bottom bar and the "…" — and reading aloud
-                // never needs this mode.
+                //
+                // This is the only way into the reader from a writer's screen
+                // now that the bottom bar and the toolbar corner have stopped
+                // offering one, which is why it stays live wherever there is
+                // anything to read. Read Aloud is not beside it: listening is
+                // the reader's own control (and ⌘⇧A everywhere with keys), and
+                // a menu of how the script is *presented* is not where a
+                // second copy of it belongs.
                 Toggle(isOn: readingBinding) {
                     Label("Read Script", systemImage: "book")
                 }
