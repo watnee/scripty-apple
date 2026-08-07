@@ -528,7 +528,7 @@ struct NotesWorkspaceView: View {
 
     /// This screen's claim on the device's one voice.
     private var narrationSubject: NarrationSubject {
-        .workspace(project: model.project.id, kind: .notes)
+        .notesWorkspace(project: model.project.id)
     }
 
     /// Whether the voice is reading *this* screen rather than one note, the

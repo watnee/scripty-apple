@@ -205,11 +205,16 @@ enum NarrationSubject: Equatable {
     /// Every song, or every note, on one of the workspace screens — read as one
     /// run, which is how a set list is heard.
     ///
-    /// A subject of its own because none of the three above can say "this
-    /// screen": `document` names one song, and reusing `script` would let the
-    /// workspace and the screenplay it covers each think the other's reading
-    /// was theirs — which is the whole thing `subject` exists to prevent.
-    case workspace(project: Int, kind: DocumentType)
+    /// Subjects of their own because none of the three above can say "this
+    /// screen": `document` names one song, and reusing `script` would let a
+    /// workspace and the screenplay it covers each take the other's reading for
+    /// its own, which is the whole thing `subject` exists to prevent. Two cases
+    /// rather than one carrying a `DocumentType`, so narration keeps out of the
+    /// document model — the suites that check this file do not compile it, and
+    /// the two screens are separate things anyway. `ReadingViewSettings` names
+    /// them the same way.
+    case songsWorkspace(project: Int)
+    case notesWorkspace(project: Int)
 }
 
 enum ScriptNarration {

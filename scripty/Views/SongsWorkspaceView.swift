@@ -483,7 +483,7 @@ struct SongsWorkspaceView: View {
 
     /// This screen's claim on the device's one voice.
     private var narrationSubject: NarrationSubject {
-        .workspace(project: model.project.id, kind: .song)
+        .songsWorkspace(project: model.project.id)
     }
 
     /// Whether the voice is reading *this* screen rather than a song editor,
