@@ -356,9 +356,12 @@ struct ScriptCommands: Commands {
 
     /// The two lists, and the documents under them.
     ///
-    /// One item each, matching the toolbar: an item named "Songs & Notes" could
-    /// not say which list it opened, so it opened on whichever the project was
-    /// last left on and a writer after the other one paid a segment tap.
+    /// One item each, where the toolbar has one button for the two. A menu is
+    /// the surface that can afford it: the bar is budgeted in slots and a
+    /// second one there cost a control elsewhere, while a row here costs
+    /// nothing and says outright which list it opens — which is the one thing
+    /// a single button cannot do. The button's own menu names both lists for
+    /// the same reason.
     ///
     /// ⌘⇧S stays on the songs, which is where it has always landed and what
     /// Help has always said it does. It is free in the client — nothing here is

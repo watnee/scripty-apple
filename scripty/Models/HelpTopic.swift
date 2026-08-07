@@ -961,9 +961,10 @@ extension HelpTopic {
                     + "write — it puts the keyboard away and leaves the words where "
                     + "they are.",
                     "A song being worked on is rarely far away. The script has a Songs "
-                    + "button and a Notes button at the top of the screen, each opening "
-                    + "its own list; holding one opens the last few of that kind you "
-                    + "edited, each going "
+                    + "& Notes button at the top of the screen. Pressing it opens the "
+                    + "list you were last on — songs until you have been on the other "
+                    + "one — and holding it lists both by name, along with the last "
+                    + "few of each kind you edited, each going "
                     + "straight to its lyrics or its text. The lists repeat those same "
                     + "few at the top, so a long one needs no scrolling to reach them. "
                     + "Starting one is the button under the list — New Song over the "
