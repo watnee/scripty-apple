@@ -51,6 +51,14 @@ struct SongLineRow: View {
     /// default, for the workspace and anywhere else that has no reading of its
     /// own to follow.
     var isBeingRead = false
+    /// Whether this is the search hit the writer has stepped to. Off by default,
+    /// for the workspace, whose search narrows a list of songs rather than
+    /// walking one song's lines.
+    ///
+    /// Drawn in `rowBackground`, deliberately outside `SongLineField`: anything
+    /// passed into that representable has to be added to its `==` or it goes
+    /// silently stale, and the row background is the row's own business.
+    var isSearchHit = false
 
     /// Whether the highlight swipe is showing its colours.
     @State private var pickingHighlight = false
@@ -130,6 +138,47 @@ struct SongLineRow: View {
                 }
             }
         }
+        // Every whole-line chord goes through the lock as well as the link: a
+        // locked song must not be reordered or emptied from a keyboard when it
+        // cannot be from a thumb.
+        callbacks.offersLineCommand = { command in
+            guard !isLocked, block.isEditable else { return false }
+            switch command {
+            case .duplicate: return block.isLocal || block.hasLink(.createBelow)
+            case .moveUp: return model.canMoveLineUp(block)
+            case .moveDown: return model.canMoveLineDown(block)
+            // Never the last line: a song always keeps one to type into, which
+            // is the rule the model's own delete already enforces.
+            case .delete: return model.blocks.count > 1 && (block.isLocal || block.hasLink(.delete))
+            }
+        }
+        callbacks.onLineCommand = { command, caret in
+            switch command {
+            case .duplicate:
+                Task {
+                    if let created = await model.duplicateLine(block) {
+                        focusedLine = created
+                    }
+                }
+            case .moveUp:
+                Task { await model.moveLineUp(block, caret: caret) }
+            case .moveDown:
+                Task { await model.moveLineDown(block, caret: caret) }
+            case .delete:
+                // Focus off first, or the keyboard drops onto a row on its way
+                // out and bounces shut.
+                let index = model.blocks.firstIndex { $0.id == block.id }
+                let successor = index.flatMap { i -> SongBlock? in
+                    if i + 1 < model.blocks.count { return model.blocks[i + 1] }
+                    return i > 0 ? model.blocks[i - 1] : nil
+                }
+                if let successor {
+                    focusedLine = successor.id
+                    model.focusRequest = successor.id
+                }
+                Task { await model.delete(block) }
+            }
+        }
 
         return SongLineField(text: model.currentText(block),
                              isFocused: isFocused,
@@ -168,6 +217,20 @@ struct SongLineRow: View {
                     Task { await model.delete(block) }
                 } label: {
                     Label("Delete", systemImage: "trash")
+                }
+            }
+            // The chord's touch counterpart. It rides a swipe rather than a
+            // long press for the same reason Delete does: the text view
+            // swallows the press, so a lyric row can have no context menu.
+            if block.hasLink(.createBelow) || block.isLocal, !isLocked {
+                Button {
+                    Task {
+                        if let created = await model.duplicateLine(block) {
+                            focusedLine = created
+                        }
+                    }
+                } label: {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
                 }
             }
         }
@@ -245,6 +308,13 @@ struct SongLineRow: View {
             if isBeingRead {
                 Color.accentColor.opacity(0.16)
             }
+            // Fainter than the reading wash and drawn over it: a hit is a place
+            // the writer was sent, not a place the voice is, and on the rare
+            // occasion both land on one line the reading should still read as
+            // the louder of the two.
+            if isSearchHit {
+                Color.accentColor.opacity(0.10)
+            }
         }
     }
 }
@@ -284,6 +354,13 @@ final class SongLineCallbacks {
     /// has no plain-text form to catch in the delegate, so the text view
     /// reports it — the same route `BlockUITextView` takes for the screenplay.
     var onBackspaceAtStart: () -> Void = {}
+    /// Whether a whole-line chord would do anything from here. Asked fresh each
+    /// time UIKit builds the responder's commands, so a chord with nowhere to go
+    /// is not claimed at all.
+    var offersLineCommand: ((SongLineUITextView.LineCommand) -> Bool)?
+    /// A whole-line chord, with the caret's Character offset — a move reloads
+    /// the lyric and has to put the writer back where they were.
+    var onLineCommand: ((SongLineUITextView.LineCommand, Int) -> Void)?
 }
 
 private struct SongLineField: UIViewRepresentable, Equatable {
@@ -368,6 +445,12 @@ private struct SongLineField: UIViewRepresentable, Equatable {
         view.text = text
         view.onDeleteBackwardAtStart = { [weak coordinator = context.coordinator] in
             coordinator?.callbacks.onBackspaceAtStart()
+        }
+        view.offersLineCommand = { [weak coordinator = context.coordinator] command in
+            coordinator?.callbacks.offersLineCommand?(command) ?? false
+        }
+        view.onLineCommand = { [weak coordinator = context.coordinator] command, caret in
+            coordinator?.callbacks.onLineCommand?(command, caret)
         }
         context.coordinator.textView = view
         // Through the callbacks rather than this struct: the closure outlives
@@ -487,12 +570,13 @@ private struct SongLineField: UIViewRepresentable, Equatable {
             return true
         }
 
-        /// "Ignore Spelling" beside the system's corrections — a lyric is as
-        /// full of invented words as a screenplay is of names.
+        /// "Ignore Spelling" and Text Case beside the system's corrections — a
+        /// lyric is as full of invented words as a screenplay is of names, and a
+        /// chorus is as likely to want capitals as a slugline.
         func textView(_ textView: UITextView,
                       editMenuForTextIn range: NSRange,
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
-            SpellcheckEditMenu.menu(for: textView, in: range, appending: suggestedActions)
+            EditorEditMenu.menu(for: textView, in: range, appending: suggestedActions)
         }
     }
 }
@@ -506,8 +590,16 @@ private struct SongLineField: UIViewRepresentable, Equatable {
 /// it was last checked against, which is what lets an edit to that list
 /// re-check a line already on screen.
 final class SongLineUITextView: UITextView, SpellcheckingTextView {
+    /// Something to do to the whole line rather than to the words in it — the
+    /// lyric's half of `BlockUITextView.LineCommand`.
+    enum LineCommand {
+        case duplicate, moveUp, moveDown, delete
+    }
+
     var checkedSpellingRevision = 0
     var onDeleteBackwardAtStart: (() -> Void)?
+    var offersLineCommand: ((LineCommand) -> Bool)?
+    var onLineCommand: ((LineCommand, Int) -> Void)?
 
     override func deleteBackward() {
         if selectedRange.location == 0, selectedRange.length == 0 {
@@ -515,6 +607,66 @@ final class SongLineUITextView: UITextView, SpellcheckingTextView {
             return
         }
         super.deleteBackward()
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        var commands: [UIKeyCommand] = []
+        // Asked fresh each time UIKit builds the responder's commands: with
+        // nothing selected there is nothing to change the case of, so the chords
+        // are not claimed at all rather than claimed and doing nothing.
+        if selectedRange.length > 0 {
+            commands += EditorEditMenu.caseKeyCommands(action: #selector(handleTextCase))
+        }
+        commands += lineCommands
+        return commands.isEmpty ? nil : commands
+    }
+
+    /// The same four chords the screenplay carries, in a lyric's words. ⌥↑/⌥↓
+    /// cost nothing here at all: a lyric line is one block and can hold no
+    /// newline, so there is no paragraph for the caret to have moved by.
+    private var lineCommands: [UIKeyCommand] {
+        let table: [(LineCommand, String, UIKeyModifierFlags, String)] = [
+            (.duplicate, "d", .command, "Duplicate Line"),
+            (.moveUp, UIKeyCommand.inputUpArrow, .alternate, "Move Line Up"),
+            (.moveDown, UIKeyCommand.inputDownArrow, .alternate, "Move Line Down"),
+            (.delete, "\u{8}", [.command, .shift], "Delete Line"),
+        ]
+        return table.compactMap { command, input, flags, title in
+            guard offersLineCommand?(command) == true else { return nil }
+            let key = UIKeyCommand(title: title, action: #selector(handleLineCommand),
+                                   input: input, modifierFlags: flags,
+                                   propertyList: String(describing: command))
+            key.wantsPriorityOverSystemBehavior = true
+            return key
+        }
+    }
+
+    @objc private func handleLineCommand(_ sender: UIKeyCommand) {
+        guard let raw = sender.propertyList as? String else { return }
+        let command: LineCommand
+        switch raw {
+        case "duplicate": command = .duplicate
+        case "moveUp": command = .moveUp
+        case "moveDown": command = .moveDown
+        case "delete": command = .delete
+        default: return
+        }
+        onLineCommand?(command, caretCharacterOffset)
+    }
+
+    /// The caret in Characters, which is what the model's caret requests count
+    /// in — the text view itself counts in UTF-16.
+    private var caretCharacterOffset: Int {
+        let string = text as NSString? ?? ""
+        let safe = max(0, min(selectedRange.location, string.length))
+        return string.substring(to: safe).count
+    }
+
+    @objc private func handleTextCase(_ sender: UIKeyCommand) {
+        guard let transform = EditorEditMenu.transform(from: sender), selectedRange.length > 0 else { return }
+        // Writes through the text view, so the line's own debounced commit picks
+        // it up — no model call and nothing new passed into the representable.
+        EditorEditMenu.apply(transform, to: self, in: selectedRange)
     }
 
     /// Puts the caret at a Character offset. The line counts in UTF-16 and

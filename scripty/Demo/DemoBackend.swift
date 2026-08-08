@@ -3034,6 +3034,38 @@ actor DemoBackend {
             return routeSongBlockTrash(method: method,
                                        path: Array(path.dropFirst()), query: query)
         }
+        // Replace All is a sibling too, for the same reason: "bulk" is not a
+        // line id. The real server needs a routing test to keep these apart;
+        // here the ordering is the whole guarantee.
+        if path.first == "bulk", path.dropFirst().first == "replace" {
+            guard method == "POST" else { return notFound() }
+            guard let documentId = query["documentId"].flatMap(Int.init),
+                  documentExists(documentId),
+                  let editionId = resolveSongEdition(documentId,
+                                                     editionId: query["editionId"].flatMap(Int.init))
+            else { return badRequest("documentId") }
+            ensureSongBlocks(documentId, editionId: editionId)
+            guard let find = fields["find"] as? String, !find.isEmpty else {
+                return badRequest("find")
+            }
+            // One snapshot for the whole sweep, exactly as the server takes one
+            // checkpoint — so the demo shows the same single-step Undo.
+            snapshotSong(editionId)
+            let replacement = fields["replace"] as? String ?? ""
+            let matchCase = fields["matchCase"] as? Bool ?? false
+            let wholeWord = fields["wholeWord"] as? Bool ?? false
+            var list = songBlocks[editionId] ?? []
+            for index in list.indices {
+                // The screenplay's own helper, deliberately: one idea of what a
+                // literal match is, here as on the server.
+                list[index].content = Self.literalReplace(
+                    in: list[index].content, find: find, with: replacement,
+                    matchCase: matchCase, wholeWord: wholeWord)
+            }
+            songBlocks[editionId] = list
+            syncSongText(documentId, editionId: editionId)
+            return songBlockCollection(documentId, editionId: editionId)
+        }
         if let step = path.first, ["undo", "redo", "undo-redo-status"].contains(step) {
             guard let documentId = query["documentId"].flatMap(Int.init),
                   documentExists(documentId),
@@ -3124,6 +3156,22 @@ actor DemoBackend {
             syncSongText(documentId, editionId: editionId)
             return songBlockCollection(documentId, editionId: editionId)
 
+        case ("POST", "replace"):
+            guard let find = fields["find"] as? String, !find.isEmpty else {
+                return badRequest("find")
+            }
+            snapshotSong(editionId)
+            songBlocks[editionId]?[index].content = Self.replaceOccurrence(
+                in: songBlocks[editionId]![index].content,
+                find: find,
+                with: fields["replace"] as? String ?? "",
+                matchCase: fields["matchCase"] as? Bool ?? false,
+                wholeWord: fields["wholeWord"] as? Bool ?? false,
+                occurrence: fields["occurrence"] as? Int ?? 0)
+            syncSongText(documentId, editionId: editionId)
+            return ok(songBlockJSON(songBlocks[editionId]![index],
+                                    documentId: documentId, editionId: editionId))
+
         case ("POST", "highlight"):
             snapshotSong(editionId)
             let known = ["YELLOW", "GREEN", "BLUE", "RED", "GRAY"]
@@ -3178,6 +3226,10 @@ actor DemoBackend {
                 "song": link("/api/document/\(documentId)"),
                 "versions": link("/api/song/version?documentId=\(documentId)"),
                 "trash": link("/api/song/block/trash?documentId=\(documentId)&editionId=\(editionId)"),
+                // The version rides in the link, as it does on the server —
+                // which is why the client never has to know its edition's id.
+                "bulkReplace": link(
+                    "/api/song/block/bulk/replace?documentId=\(documentId)&editionId=\(editionId)"),
                 "undoRedoStatus": link(
                     "/api/song/block/undo-redo-status?documentId=\(documentId)&editionId=\(editionId)"),
             ],
@@ -3341,6 +3393,7 @@ actor DemoBackend {
                 "delete": link("/api/song/block/\(block.id)"),
                 "createBelow": link("/api/song/block/\(block.id)/below"),
                 "move": link("/api/song/block/\(block.id)/move"),
+                "replace": link("/api/song/block/\(block.id)/replace"),
                 "setHighlight": link("/api/song/block/\(block.id)/highlight"),
                 "songBlocks": link("/api/song/block?documentId=\(documentId)&editionId=\(editionId)"),
                 "song": link("/api/document/\(documentId)"),

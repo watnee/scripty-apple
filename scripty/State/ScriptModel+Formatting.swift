@@ -45,12 +45,21 @@ extension ScriptModel {
     /// Move `block` to the absolute `order` value `position`. The server
     /// renumbers the rest of the script, so the collection is reloaded rather
     /// than patched locally.
-    func moveBlock(_ block: Block, to position: Int) async {
+    ///
+    /// `caret` is where the writer was in the element, for the routes that know
+    /// — the ⌥↑/⌥↓ chords. The reload is the reason it is needed: replacing the
+    /// whole collection can tear the row out of the lazy stack and take first
+    /// responder with it, which reads as the keyboard dropping mid-scene. An
+    /// element that had focus before the move is given it back after, so the
+    /// writer can move a line twice without reaching for it again.
+    func moveBlock(_ block: Block, to position: Int, caret: Int? = nil) async {
         guard let link = block.link(.move) else { return }
+        let hadFocus = focusedBlockId == block.id
         do {
             let _: Block = try await app.client.fetch(
                 from: link, method: "POST", body: MoveBlockCommand(position: position))
             await loadBlocks()
+            if hadFocus { focus(block.id, caret: caret) }
             await refreshUndoRedo()
             errorMessage = nil
         } catch {
@@ -59,15 +68,15 @@ extension ScriptModel {
     }
 
     /// Swap `block` with the element above it.
-    func moveBlockUp(_ block: Block) async {
+    func moveBlockUp(_ block: Block, caret: Int? = nil) async {
         guard let target = blockAbove(block), let position = target.order else { return }
-        await moveBlock(block, to: position)
+        await moveBlock(block, to: position, caret: caret)
     }
 
     /// Swap `block` with the element below it.
-    func moveBlockDown(_ block: Block) async {
+    func moveBlockDown(_ block: Block, caret: Int? = nil) async {
         guard let target = blockBelow(block), let position = target.order else { return }
-        await moveBlock(block, to: position)
+        await moveBlock(block, to: position, caret: caret)
     }
 
     /// Drop `source` at the row `destination` currently occupies — the shape a
