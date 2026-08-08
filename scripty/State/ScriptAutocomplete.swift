@@ -52,7 +52,7 @@ final class ScriptAutocomplete {
                 blocks: [Block],
                 characters: [Person]) {
         if dismissedFor == text && self.blockId == blockId {
-            suggestions = []
+            if !suggestions.isEmpty { suggestions = [] }
             return
         }
         dismissedFor = nil
@@ -70,9 +70,20 @@ final class ScriptAutocomplete {
         // Keep the writer's place when the list is unchanged — a keystroke that
         // narrows nothing shouldn't move the highlight off what they were
         // about to accept.
-        if self.blockId != blockId || fresh != suggestions { selectedIndex = 0 }
-        self.blockId = blockId
-        suggestions = fresh
+        //
+        // All three are written only when they move, and that is a performance
+        // rule as much as a correctness one. This object is read from every
+        // visible element's body (`isOpen` decides which row draws the list and
+        // wins on z order), and `@Observable` publishes an assignment whether
+        // or not the value changed — so re-stating an empty list, which is what
+        // typing an action line does on every single character, was redrawing
+        // the whole column for a list nobody is looking at.
+        let changed = fresh != suggestions
+        if self.blockId != blockId || changed {
+            if selectedIndex != 0 { selectedIndex = 0 }
+        }
+        if self.blockId != blockId { self.blockId = blockId }
+        if changed { suggestions = fresh }
     }
 
     func moveSelection(by delta: Int) {

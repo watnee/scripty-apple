@@ -181,6 +181,14 @@ struct SongLineRow: View {
                 .tint(.orange)
             }
         }
+        // Deliberately still inline, unlike the screenplay's element menu. The
+        // same trick would apply — this builder runs on every redraw of the row
+        // — but `confirmationDialog` only promises to draw the buttons its
+        // builder yields, and a custom view in there is exactly the shape that
+        // comes out as a dialog with nothing on it but Cancel. Seven small
+        // button values is a price worth paying not to risk that; the menu on
+        // the screenplay side was worth it because what it was building was a
+        // trip out of the process.
         .confirmationDialog("Highlight Line",
                             isPresented: $pickingHighlight,
                             titleVisibility: .visible) {
