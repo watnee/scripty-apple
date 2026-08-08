@@ -30,24 +30,10 @@ struct EditableBlockRow: View {
     /// does not change as the text grows.
     @Environment(\.scriptTextScale) private var textScale
     @Environment(\.scriptRowChrome) private var chrome
-    /// Read for the highlight swatches, which are drawn rather than tinted and
-    /// so have to be told which side of light and dark they are on.
-    @Environment(\.colorScheme) private var colorScheme
-
     /// Drives the per-block "Edit Tags" prompt. The draft is seeded from the
     /// block's current tags when the field opens.
     @State private var isEditingTags = false
     @State private var tagDraft = ""
-
-    private let settings = PresentationSettings.shared
-
-    /// What "Add Element Below" offers — narrowed while the script is collapsed
-    /// to its outline, the way the element-type bar is: adding a dialogue line
-    /// there would file the writer's next words behind the mode, which reads as
-    /// a menu item that did nothing.
-    private var insertableTypes: [BlockType] {
-        settings.isOutlineMode ? BlockType.outlineTypes : BlockType.allCases
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -88,7 +74,23 @@ struct EditableBlockRow: View {
                           topInset: topPadding,
                           onComment: { onComment(block) })
             .frame(maxWidth: .infinity)
-            .contextMenu { contextMenu }
+            // A view rather than the items themselves. A `contextMenu`'s
+            // `@ViewBuilder` closure is called every time this row's body runs
+            // — which is every keystroke anywhere in the script, for every
+            // visible row — and what it built was not cheap: a probe of the
+            // system pasteboard (a trip out of the process), four passes over
+            // the project's documents, and three `ForEach`es over every element
+            // type, every highlight and every insertable song and note. Behind
+            // a view of its own only the struct is made here; its body, and all
+            // of that, waits until somebody actually presses and holds.
+            .contextMenu {
+                BlockContextMenu(model: model, block: block,
+                                 onComment: onComment,
+                                 onEditTags: {
+                                     tagDraft = block.tagList.joined(separator: ", ")
+                                     isEditingTags = true
+                                 })
+            }
             .alert("Tags", isPresented: $isEditingTags) {
                 TextField("e.g. funny, action", text: $tagDraft)
                     .textInputAutocapitalization(.never)
@@ -144,10 +146,112 @@ struct EditableBlockRow: View {
         return parts.joined(separator: ", ")
     }
 
-    // MARK: - Row actions
+    @ViewBuilder
+    private var elementLabel: some View {
+        if chrome.showsElementLabels {
+            ElementLabelTag(type: block.blockType,
+                            dynamicTypeScale: chrome.dynamicTypeScale)
+                .padding(.top, topPadding + 5)
+                .accessibilityHidden(true)
+        }
+    }
+
+    // MARK: - Per-type layout
+
+    /// Where the element sits inside its own box. Speech has a box of its own
+    /// and starts at the left of it; everything else has the whole column and
+    /// sits where its type belongs on the page.
+    private var boxAlignment: Alignment {
+        switch block.blockType {
+        case .centered: return .center
+        case .transition: return .trailing
+        default: return .leading
+        }
+    }
+
+    /// An explicit alignment set by the writer wins; otherwise the element
+    /// type's screenplay-convention default applies — resolved by
+    /// `Block.nsTextAlignment`, which the two read-only surfaces ask as well, so
+    /// a line the writer centred is centred on all three.
+    ///
+    /// A cue is *placed* at its indent rather than centred now, so its text is
+    /// set from the left of the box it was placed in — centring it inside a box
+    /// that already begins at 2.2 inches would push the name off to the right
+    /// of where the reader and the printed page put it.
+    private var nsAlignment: NSTextAlignment { block.nsTextAlignment }
+
+    /// The air above the element, in the screenplay's own line units — the rule
+    /// the reader and the paginator use, so the rhythm holds across a mode
+    /// change: two lines above a scene heading, none between a cue and what it
+    /// says, one everywhere else.
+    private var topPadding: CGFloat {
+        CGFloat(ScreenplayLayout.spacing(for: block.blockType,
+                                         lineHeight: Double(fontSize)))
+    }
+
+    /// One line of the writing column, in points.
+    private var fontSize: CGFloat { ProseFont.baseSize * CGFloat(textScale) }
+
+    /// Whether this line auto-capitalizes as the writer types. Scene headings,
+    /// cues, transitions and shots default to caps, but each is a preference the
+    /// server stores — turning one off matches the case the export will carry.
+    private var capitalization: UITextAutocapitalizationType {
+        CapitalizationSettings.shared.isOn(forBlockType: block.blockType) ? .allCharacters : .sentences
+    }
+
+    /// Whether the keyboard underlines what it does not recognise. Read here
+    /// rather than passed down from the script view, the way capitalization is:
+    /// both are device-wide settings, and the observation is what makes every
+    /// visible row re-draw when one is switched.
+    private var spellChecks: Bool {
+        PresentationSettings.shared.isSpellcheckEnabled
+    }
+
+    /// Read for the same reason: ignoring a word from one element's menu has to
+    /// clear the underline under the same word everywhere else on the page.
+    private var spellcheckRevision: Int {
+        SpellcheckDictionary.shared.revision
+    }
+
+    /// Sized from the same base as the note and lyric surfaces, and resolved
+    /// through the same one the locked rows and the reader use — see
+    /// `ScriptFont.element`.
+    private var uiFont: UIFont {
+        ScriptFont.element(block, size: fontSize)
+    }
+}
+
+/// Everything the long press on an element offers.
+///
+/// A view of its own rather than a `@ViewBuilder` on the row, and that is the
+/// whole point of it: the closure a `contextMenu` is given runs every time the
+/// row's body does, and a row's body runs on every keystroke anywhere in the
+/// script. Building this per character per visible row meant a pasteboard probe
+/// out of the process and several walks of the project's documents for a menu
+/// nobody had asked to see. A child view's body waits until it is rendered, and
+/// a context menu is not rendered until it is opened.
+private struct BlockContextMenu: View {
+    let model: ScriptModel
+    let block: Block
+    let onComment: (Block) -> Void
+    let onEditTags: () -> Void
+
+    /// Read for the highlight swatches, which are drawn rather than tinted and
+    /// so have to be told which side of light and dark they are on.
+    @Environment(\.colorScheme) private var colorScheme
+
+    private let settings = PresentationSettings.shared
+
+    /// What "Add Element Below" offers — narrowed while the script is collapsed
+    /// to its outline, the way the element-type bar is: adding a dialogue line
+    /// there would file the writer's next words behind the mode, which reads as
+    /// a menu item that did nothing.
+    private var insertableTypes: [BlockType] {
+        settings.isOutlineMode ? BlockType.outlineTypes : BlockType.allCases
+    }
 
     @ViewBuilder
-    private var contextMenu: some View {
+    var body: some View {
         // Commenting needs only read access, so it sits above the editing
         // actions and appears even when none of them do.
         if block.hasLink(.comments) {
@@ -245,10 +349,7 @@ struct EditableBlockRow: View {
         // Same reasoning as Highlight: tags ride the per-block PUT, and there
         // is nothing to PUT to until the element has been created.
         if block.isEditable && !block.isLocal {
-            Button {
-                tagDraft = block.tagList.joined(separator: ", ")
-                isEditingTags = true
-            } label: {
+            Button(action: onEditTags) {
                 Label("Edit Tags", systemImage: "tag")
             }
         }
@@ -333,77 +434,4 @@ struct EditableBlockRow: View {
         }
     }
 
-    @ViewBuilder
-    private var elementLabel: some View {
-        if chrome.showsElementLabels {
-            ElementLabelTag(type: block.blockType,
-                            dynamicTypeScale: chrome.dynamicTypeScale)
-                .padding(.top, topPadding + 5)
-                .accessibilityHidden(true)
-        }
-    }
-
-    // MARK: - Per-type layout
-
-    /// Where the element sits inside its own box. Speech has a box of its own
-    /// and starts at the left of it; everything else has the whole column and
-    /// sits where its type belongs on the page.
-    private var boxAlignment: Alignment {
-        switch block.blockType {
-        case .centered: return .center
-        case .transition: return .trailing
-        default: return .leading
-        }
-    }
-
-    /// An explicit alignment set by the writer wins; otherwise the element
-    /// type's screenplay-convention default applies — resolved by
-    /// `Block.nsTextAlignment`, which the two read-only surfaces ask as well, so
-    /// a line the writer centred is centred on all three.
-    ///
-    /// A cue is *placed* at its indent rather than centred now, so its text is
-    /// set from the left of the box it was placed in — centring it inside a box
-    /// that already begins at 2.2 inches would push the name off to the right
-    /// of where the reader and the printed page put it.
-    private var nsAlignment: NSTextAlignment { block.nsTextAlignment }
-
-    /// The air above the element, in the screenplay's own line units — the rule
-    /// the reader and the paginator use, so the rhythm holds across a mode
-    /// change: two lines above a scene heading, none between a cue and what it
-    /// says, one everywhere else.
-    private var topPadding: CGFloat {
-        CGFloat(ScreenplayLayout.spacing(for: block.blockType,
-                                         lineHeight: Double(fontSize)))
-    }
-
-    /// One line of the writing column, in points.
-    private var fontSize: CGFloat { ProseFont.baseSize * CGFloat(textScale) }
-
-    /// Whether this line auto-capitalizes as the writer types. Scene headings,
-    /// cues, transitions and shots default to caps, but each is a preference the
-    /// server stores — turning one off matches the case the export will carry.
-    private var capitalization: UITextAutocapitalizationType {
-        CapitalizationSettings.shared.isOn(forBlockType: block.blockType) ? .allCharacters : .sentences
-    }
-
-    /// Whether the keyboard underlines what it does not recognise. Read here
-    /// rather than passed down from the script view, the way capitalization is:
-    /// both are device-wide settings, and the observation is what makes every
-    /// visible row re-draw when one is switched.
-    private var spellChecks: Bool {
-        PresentationSettings.shared.isSpellcheckEnabled
-    }
-
-    /// Read for the same reason: ignoring a word from one element's menu has to
-    /// clear the underline under the same word everywhere else on the page.
-    private var spellcheckRevision: Int {
-        SpellcheckDictionary.shared.revision
-    }
-
-    /// Sized from the same base as the note and lyric surfaces, and resolved
-    /// through the same one the locked rows and the reader use — see
-    /// `ScriptFont.element`.
-    private var uiFont: UIFont {
-        ScriptFont.element(block, size: fontSize)
-    }
 }

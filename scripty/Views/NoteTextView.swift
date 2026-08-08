@@ -266,6 +266,7 @@ struct NoteTextView: UIViewRepresentable {
         view.smartDashesType = .no
         view.smartQuotesType = .no
         view.text = text
+        context.coordinator.publishedText = text
         view.onKey = { [weak coordinator = context.coordinator] key in
             coordinator?.handle(key) ?? false
         }
@@ -301,8 +302,18 @@ struct NoteTextView: UIViewRepresentable {
         context.coordinator.parent = self
         // Only when the value really diverged: assigning `text` moves the caret
         // to the end, which mid-sentence would be maddening.
-        if view.text != text {
+        //
+        // And only when it *could* have diverged. A note is one text view
+        // holding the whole document, so `view.text` builds a fresh String of
+        // every word in it and the comparison then walks the pair — work
+        // proportional to the length of the note, done on every keystroke, for
+        // an answer that during typing is always "no". The coordinator records
+        // the exact string it last handed to the binding; while the binding
+        // still holds that same instance the two cannot have diverged, and
+        // Swift's identity fast path settles it without touching the words.
+        if text != context.coordinator.publishedText, view.text != text {
             view.text = text
+            context.coordinator.publishedText = text
             // Words from outside the keyboard. Whoever wrote them has usually
             // already told the history what they mean; this is the backstop
             // for whoever didn't.
@@ -392,6 +403,17 @@ struct NoteTextView: UIViewRepresentable {
         /// read. Held here so the recogniser outlives the struct describing it.
         let doubleTap = DoubleTapToEditGesture()
 
+        /// The last string this coordinator put into the binding, kept so
+        /// `updateUIView` can tell "nothing has happened but a keystroke" from
+        /// "somebody else rewrote the note" without reading the whole document
+        /// back out of UIKit. See the comparison there.
+        ///
+        /// It is the words themselves rather than a hash or a length: a
+        /// mistaken match would silently stop showing what the model holds, and
+        /// a String costs a reference to storage that the text view is keeping
+        /// alive anyway.
+        var publishedText: String?
+
         /// Set while the coordinator is the one writing, so a state put back by
         /// undo is not mistaken for typing and pushed onto the stack it just
         /// came off.
@@ -408,13 +430,18 @@ struct NoteTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            // Read once. Each `textView.text` builds a fresh String of the whole
+            // note out of the text storage, and this used to ask for two of
+            // them per keystroke.
+            let text = textView.text ?? ""
+            publishedText = text
+            parent.text = text
             (textView as? NoteUITextView)?.updatePlaceholder()
             guard !isWriting else { return }
             // Every route to a note changed by hand passes through here —
             // typing, dictation, a paste, the shake gesture — so this one call
             // is what the note's history is built from.
-            parent.controller?.capture(text: textView.text,
+            parent.controller?.capture(text: text,
                                        selection: textView.selectedRange)
         }
 
@@ -541,6 +568,7 @@ struct NoteTextView: UIViewRepresentable {
             // holding what was asked for.
             if textView.text != text { textView.text = text }
             textView.updatePlaceholder()
+            publishedText = text
             parent.text = text
             textView.selectedRange = selection
         }

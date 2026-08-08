@@ -100,21 +100,29 @@ final class ScriptModel {
     /// the thing they just did. A press that lands on an element already on its
     /// way out is dropped: the caret has not moved yet, so the key is aimed at
     /// a line that is already gone.
-    private var removingBlockIds: Set<Int> = []
+    ///
+    /// Ignored by observation with the four below it: this is bookkeeping about
+    /// requests, not anything drawn. `@Observable` publishes a mutation
+    /// whatever the value did — a `remove` of an id that was never in the set
+    /// still tells every observer the property changed — and each of these is
+    /// written at least once per keystroke, `commitTasks` twice. Left tracked
+    /// they made typing a letter invalidate every view that reads *anything*
+    /// on this model.
+    @ObservationIgnored private var removingBlockIds: Set<Int> = []
 
-    private var commitTasks: [Int: Task<Void, Never>] = [:]
+    @ObservationIgnored private var commitTasks: [Int: Task<Void, Never>] = [:]
     private static let commitDebounce: Duration = .milliseconds(600)
 
-    private var retryTasks: [Int: Task<Void, Never>] = [:]
-    private var retryAttempts: [Int: Int] = [:]
+    @ObservationIgnored private var retryTasks: [Int: Task<Void, Never>] = [:]
+    @ObservationIgnored private var retryAttempts: [Int: Int] = [:]
     /// Backoff for re-sending a failed commit. Runs out rather than retrying
     /// forever: past this the banner keeps saying the work is unsaved, and the
     /// next keystroke re-arms the whole cycle anyway.
     private static let retryDelays: [Duration] =
         [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
 
-    private var lastRevision: Int64 = 0
-    private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var lastRevision: Int64 = 0
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
 
     private static let syncInterval: Duration = .seconds(5)
 
@@ -576,8 +584,15 @@ final class ScriptModel {
         // Fresh typing earns a fresh set of retries: the backoff having run
         // out ten minutes ago shouldn't leave this keystroke with none. A
         // refusal is re-judged the same way — new words are a new write.
-        retryAttempts[block.id] = nil
-        failedBlockIds.remove(block.id)
+        //
+        // Both guarded, and the second one has to be: `failedBlockIds` is what
+        // the held-work banner counts, and an unconditional `remove` publishes
+        // a mutation on every keystroke whether or not the set held anything.
+        // That rebuilt the whole script view — column, banners, toolbar and
+        // word count — once per character typed, for a set that is empty the
+        // entire time nothing has gone wrong.
+        if retryAttempts[block.id] != nil { retryAttempts[block.id] = nil }
+        if failedBlockIds.contains(block.id) { failedBlockIds.remove(block.id) }
         scheduleCommit(block.id)
     }
 
@@ -3189,8 +3204,12 @@ final class ScriptModel {
     /// Whether there is anything to insert, so the block menu can drop the
     /// whole section when the project has no songs or notes, or the caller
     /// cannot edit.
+    ///
+    /// Asked rather than built: the two properties above each allocate a
+    /// filtered array, and the union of them is simply "any document with an
+    /// insert link", which `contains` answers on the first one it finds.
     var canInsertDocuments: Bool {
-        !insertableSongs.isEmpty || !insertableNotes.isEmpty
+        documents.contains { $0.link(.insert) != nil }
     }
 
     @discardableResult

@@ -199,10 +199,34 @@ enum ProseFont {
     /// `updateUIView` reads it outside any body, so nothing would redraw an
     /// editor left open behind the settings sheet. Asking for the face here
     /// makes each of them read it where their parent builds its body instead.
+    ///
+    /// Resolved through a cache, like `ScriptFont`'s own and for the same
+    /// reason: this is asked for on the note editor's every keystroke and on
+    /// every lyric line the moment one of them is typed into, and
+    /// `scaledFont(for:)` builds a new `UIFont` each time it is called — which
+    /// then fails the `view.font != font` test the callers guard with, and
+    /// re-lays-out text that never changed size.
     @MainActor
     static func editor(scale: Double, face: ScriptFont) -> UIFont {
-        UIFontMetrics(forTextStyle: .body)
+        let key = EditorFontKey(face: face, scale: scale,
+                                category: UITraitCollection.current.preferredContentSizeCategory)
+        if let cached = editorFontCache[key] { return cached }
+        let resolved = UIFontMetrics(forTextStyle: .body)
             .scaledFont(for: face.uiFont(size: baseSize * scale))
+        editorFontCache[key] = resolved
+        return resolved
+    }
+
+    @MainActor private static var editorFontCache: [EditorFontKey: UIFont] = [:]
+
+    /// The size category is part of the key because it is part of the answer:
+    /// the same face at the same scale is a different font once the reader
+    /// moves the system text-size slider, and a cache that forgot to notice it
+    /// would leave every prose surface set in the old size.
+    private struct EditorFontKey: Hashable {
+        let face: ScriptFont
+        let scale: Double
+        let category: UIContentSizeCategory
     }
 }
 #endif

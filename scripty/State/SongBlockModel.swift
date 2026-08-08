@@ -84,9 +84,16 @@ final class SongBlockModel {
     /// while the key is held, and each repeat used to fold the same line into
     /// the one above again and send a second DELETE for a line already gone,
     /// which the server answers as a refusal.
-    private var removingBlockIds: Set<Int> = []
+    ///
+    /// Ignored by observation, with `commitTasks` below and the retry pair
+    /// further down: request bookkeeping, not anything drawn — and every one of
+    /// them is written at least once per keystroke. `@Observable` publishes a
+    /// mutation whatever the value did, so left tracked they made typing a
+    /// letter invalidate every view reading anything on this model. The
+    /// screenplay's `ScriptModel` carries the same four.
+    @ObservationIgnored private var removingBlockIds: Set<Int> = []
 
-    private var commitTasks: [Int: Task<Void, Never>] = [:]
+    @ObservationIgnored private var commitTasks: [Int: Task<Void, Never>] = [:]
     private static let commitDebounce: Duration = .milliseconds(600)
 
     /// Lines whose latest text failed to reach the server. Their entry in
@@ -101,8 +108,8 @@ final class SongBlockModel {
     private(set) var failedBlockIds: Set<Int> = []
     var hasFailedSaves: Bool { !failedBlockIds.isEmpty }
 
-    private var retryTasks: [Int: Task<Void, Never>] = [:]
-    private var retryAttempts: [Int: Int] = [:]
+    @ObservationIgnored private var retryTasks: [Int: Task<Void, Never>] = [:]
+    @ObservationIgnored private var retryAttempts: [Int: Int] = [:]
     /// The screenplay's backoff, unchanged: past the last delay the words stay
     /// held and the next keystroke — or the reconnect sweep — re-arms it.
     private static let retryDelays: [Duration] =
@@ -344,8 +351,14 @@ final class SongBlockModel {
         // kept failing, and armed nothing ever again: the words were held,
         // but the app had quietly stopped trying. The screenplay's
         // `liveEdit` has had this from the start.
-        retryAttempts[block.id] = nil
-        failedBlockIds.remove(block.id)
+        //
+        // Guarded, both of them, for the reason `ScriptModel.liveEdit` guards
+        // its pair: an unconditional write publishes a mutation whether or not
+        // the value moved, and `failedBlockIds` is read by the editor's badge —
+        // so a clear set was still rebuilding the whole song screen once per
+        // character.
+        if retryAttempts[block.id] != nil { retryAttempts[block.id] = nil }
+        if failedBlockIds.contains(block.id) { failedBlockIds.remove(block.id) }
         scheduleCommit(block.id)
     }
 
