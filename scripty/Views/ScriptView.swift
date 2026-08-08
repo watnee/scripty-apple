@@ -2910,6 +2910,17 @@ struct ScriptView: View {
             }
         }
 
+        // What to write to. Not in the View menu, on the reasoning that menu
+        // states outright: it holds how the script is *presented*, and Read
+        // Aloud is kept out of it for being sound rather than presentation.
+        // A bed is sound as well. It goes to a reader as much as a writer —
+        // there is nothing to lock and nothing to type — so it carries no gate.
+        // ⌘⌥B lives once, in `ScriptCommands`, which stays mounted through
+        // focus mode where this item comes and goes with the toolbar.
+        ToolbarItemGroup(placement: .secondaryAction) {
+            BackgroundNoiseMenu()
+        }
+
         // The pair in the "…", which is where a bar with no room for them puts
         // everything. Redo has always been here — it is the half the bar cannot
         // spare a glyph for. Undo is here as well now, and has to be: the

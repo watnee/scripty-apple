@@ -1435,6 +1435,13 @@ struct SongBlockEditorView: View {
                 Label("Text Size", systemImage: "textformat.size")
             }
         }
+        // What to write to, beside the other device-wide setting in this menu.
+        // Here as well as in the screenplay because this editor opens *over*
+        // it: a writer deep in a verse has no way back to the script's "…"
+        // without leaving the song.
+        ToolbarItem(placement: .secondaryAction) {
+            BackgroundNoiseMenu()
+        }
     }
 
     @ViewBuilder

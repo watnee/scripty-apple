@@ -320,6 +320,11 @@ struct ProjectsSidebarView: View {
             } label: {
                 Label("Editor Preferences", systemImage: "textformat")
             }
+            // What to write to. A device setting like the appearance below it,
+            // and mounted here as well as in the three editors: this is the
+            // screen the app opens on, so it is where a bed is most often
+            // started — before the writing rather than during it.
+            BackgroundNoiseMenu()
         }
         Section {
             // Only for a user the server lets manage teams — the root advertises

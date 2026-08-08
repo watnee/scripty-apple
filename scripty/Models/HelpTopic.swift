@@ -516,7 +516,43 @@ extension HelpTopic {
                 keywords: ["capitalisation", "capitalization", "caps", "uppercase",
                            "settings", "automatic", "font", "typeface", "default font",
                            "courier", "arial", "times", "preferences",
-                           "open in edit view", "edit view", "reading view"])
+                           "open in edit view", "edit view", "reading view"]),
+            HelpTopic(
+                id: "background-noise",
+                title: "Something to Write To",
+                systemImage: "waveform",
+                paragraphs: [
+                    "Background Noise plays a bed of sound while you write. It is in "
+                    + "the \u{201C}…\u{201D} of the project list, the screenplay, and "
+                    + "the song and note editors, so it can be started or stopped "
+                    + "from wherever you are, and \u{2318}\u{2325}B turns it on and "
+                    + "off with a key.",
+                    "Four to choose from. Rain is steady, and closest to rain against "
+                    + "a window. Waves swells and falls on about an eleven-second "
+                    + "cycle. Hush is pink noise — the even hiss of a room — and "
+                    + "Rumble is brown noise, the low end of the same idea, which is "
+                    + "felt more than heard. Volume runs from Faint to Full, and the "
+                    + "four are matched in level, so switching between them does not "
+                    + "make you reach for the side button.",
+                    "None of it is a recording. The sound is made on the device as it "
+                    + "plays, so it never loops, it downloads nothing, and it costs "
+                    + "no storage. The sound and the volume are settings for this "
+                    + "device rather than for the account — headphones on a train and "
+                    + "a desk with the door shut do not want the same bed.",
+                    "It sits under everything else rather than over it: Read Aloud, a "
+                    + "song's recordings, and music from another app all play on top "
+                    + "of it, and a call stops it and brings it back when the call "
+                    + "ends. It keeps playing with the screen off, so a bed started "
+                    + "for a writing session lasts the session.",
+                    "It never starts on its own. Whichever sound you last picked is "
+                    + "waiting in the menu when you open the app, but opening the app "
+                    + "is silent — the one thing nobody wants is a quiet carriage "
+                    + "hearing surf."
+                ],
+                keywords: ["background noise", "ambient", "ambience", "white noise",
+                           "pink noise", "brown noise", "rain", "waves", "hush",
+                           "rumble", "focus", "concentration", "sound", "audio",
+                           "noise", "write to", "bed"])
         ]),
         HelpSection(id: "reading", title: "Reading and Layout", topics: [
             HelpTopic(

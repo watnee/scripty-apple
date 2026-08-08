@@ -1345,6 +1345,12 @@ struct SongEditorView: View {
                 Label("Text Size", systemImage: "textformat.size")
             }
         }
+        // The bed, beside the other device-wide setting here. The lyric editor
+        // and the screenplay both carry it, and this sheet opens over both of
+        // them — a note is where the longest quiet stretches of writing happen.
+        ToolbarItem(placement: .secondaryAction) {
+            BackgroundNoiseMenu()
+        }
     }
 
     /// The menu's readout: "30 words", or "1 word" for the note that is one
