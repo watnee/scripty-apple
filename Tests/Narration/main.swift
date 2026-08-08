@@ -10,10 +10,11 @@
 //    - **The speaker carries.** A dialogue block does not name its own
 //      speaker; the cue above it does. Getting that wrong is inaudible with
 //      one voice and completely wrong with a cast.
-//    - **Shouting is lowered.** A synthesizer spells an all-caps word out a
-//      letter at a time, and a screenplay shouts every heading, cue and
-//      transition. "INT." coming back as "I-N-T" is the failure this exists
-//      to prevent.
+//    - **The case the writer typed survives.** This used to lower every
+//      shouted line, on the theory that a synthesizer spells all-caps words
+//      out. Measured against the engine, it does not — and lowering "FBI"
+//      turned a spelled-out acronym into "fbee". So the checks below expect
+//      the page's own capitals to come through untouched.
 //
 //  Run via Tests/run.sh.
 //
@@ -70,14 +71,14 @@ print("The run, with everything read")
 do {
     let cues = ScriptNarration.cues(for: scene)
     check("cue count", cues.count, 8)
-    check("heading",      shape(cues[0]), "heading|-|interior, diner, night")
+    check("heading",      shape(cues[0]), "heading|-|interior, DINER, NIGHT")
     check("action",       shape(cues[1]), "description|-|MAYA slides into the booth.")
-    check("character cue", shape(cues[2]), "cue|MAYA|maya")
+    check("character cue", shape(cues[2]), "cue|MAYA|MAYA")
     check("parenthetical", shape(cues[3]), "direction|MAYA|quietly")
     check("dialogue",     shape(cues[4]), "speech|MAYA|You came.")
-    check("second cue",   shape(cues[5]), "cue|SAM|sam")
+    check("second cue",   shape(cues[5]), "cue|SAM|SAM")
     check("second line",  shape(cues[6]), "speech|SAM|I said I would.")
-    check("transition",   shape(cues[7]), "description|-|cut to:")
+    check("transition",   shape(cues[7]), "description|-|CUT TO:")
     check("notes are left out", cues.contains { $0.blockId == 6 }, false)
     check("indexes number the run", cues.map(\.index), Array(0..<8))
     check("each cue names its element", cues.map(\.blockId), [1, 2, 3, 4, 5, 7, 8, 9])
@@ -135,35 +136,62 @@ do {
 print("\nShouting, abbreviations and empties")
 do {
     check("INT.", ScriptNarration.spoken("INT. HOUSE - DAY", as: .scene),
-          "interior, house, day")
+          "interior, HOUSE, DAY")
     check("EXT.", ScriptNarration.spoken("EXT. ROOFTOP - CONTINUOUS", as: .scene),
-          "exterior, rooftop, continuous")
+          "exterior, ROOFTOP, CONTINUOUS")
     check("INT./EXT. is taken before INT.",
           ScriptNarration.spoken("INT./EXT. CAR - DAY", as: .scene),
-          "interior, exterior, car, day")
+          "interior, exterior, CAR, DAY")
     check("I/E.", ScriptNarration.spoken("I/E. CAR - DAY", as: .scene),
-          "interior, exterior, car, day")
+          "interior, exterior, CAR, DAY")
+    // Without a rule of its own, the bare "int" reached inside this and left a
+    // slash sitting in the middle of the slug line.
+    check("INT/EXT with no stop at all",
+          ScriptNarration.spoken("INT/EXT CAR - DAY", as: .scene),
+          "interior, exterior, CAR, DAY")
+    check("EXT/INT with no stop at all",
+          ScriptNarration.spoken("EXT/INT CAR - DAY", as: .scene),
+          "exterior, interior, CAR, DAY")
     check("a stop is not required",
           ScriptNarration.spoken("INT HOUSE - DAY", as: .scene),
-          "interior, house, day")
+          "interior, HOUSE, DAY")
     check("a heading typed in a hurry still expands",
-          ScriptNarration.spoken("INT.HOUSE", as: .scene), "interior,house")
+          ScriptNarration.spoken("INT.HOUSE", as: .scene), "interior,HOUSE")
+    // The engine spells a genuine acronym out letter by letter, which is what
+    // anyone wants — but only while the capitals are still there. Lowering the
+    // line, which this used to do to every heading, made it a word: "fbee".
+    check("an acronym keeps its capitals",
+          ScriptNarration.spoken("INT. FBI FIELD OFFICE - DAY", as: .scene),
+          "interior, FBI FIELD OFFICE, DAY")
     // An abbreviation has to be the whole word. Plain substring replacement —
     // which is what this was — found "est." inside "WEST." and "int." inside
     // "SPRINT.", so a west-facing house was "westablishing" and a sprint was
     // an interior.
     check("EST. inside WEST. is left alone",
           ScriptNarration.spoken("WEST. HOUSE - DAY", as: .scene),
-          "west. house, day")
+          "WEST. HOUSE, DAY")
     check("INT. inside SPRINT. is left alone",
           ScriptNarration.spoken("SPRINT. FINISH LINE", as: .scene),
-          "sprint. finish line")
+          "SPRINT. FINISH LINE")
     check("POV", ScriptNarration.spoken("MAYA'S POV - THE DOOR", as: .scene),
-          "maya's point of view, the door")
+          "MAYA'S point of view, THE DOOR")
+    // An extension says the character is not in the room, which is exactly
+    // what a listener cannot see — so it is said, as an aside rather than as
+    // part of the name.
     check("cue extension", ScriptNarration.spoken("MAYA (V.O.)", as: .character),
-          "maya (voice over)")
-    check("continued", ScriptNarration.spoken("MAYA (CONT'D)", as: .character),
-          "maya (continued)")
+          "MAYA, voice over")
+    check("off screen", ScriptNarration.spoken("SAM (O.S.)", as: .character),
+          "SAM, off screen")
+    // A continuation is a fact about where the page ended, and a reading has
+    // no pages in it.
+    check("continued is not announced",
+          ScriptNarration.spoken("MAYA (CONT'D)", as: .character), "MAYA")
+    check("nor is the curly-quoted spelling",
+          ScriptNarration.spoken("MAYA (CONT\u{2019}D)", as: .character), "MAYA")
+    // Nobody is named, so there is no name to fall back to and the words
+    // themselves are better than an empty utterance.
+    check("a cue that is nothing but an extension still says something",
+          ScriptNarration.spoken("(CONT'D)", as: .character), "(continued)")
     // A line written in ordinary case is left alone — lowering it would be
     // pointless, and the caps in "NASA" are the writer's.
     check("mixed case is untouched",
@@ -172,7 +200,7 @@ do {
     check("parens come off a parenthetical",
           ScriptNarration.spoken("(beat)", as: .parenthetical), "beat")
     check("a leftover force marker comes off",
-          ScriptNarration.spoken(".INT. HOUSE", as: .scene), "interior, house")
+          ScriptNarration.spoken(".INT. HOUSE", as: .scene), "interior, HOUSE")
     check("a trailing stop stays — it is the pause at the end of the sentence",
           ScriptNarration.spoken("She leaves.", as: .action), "She leaves.")
 
@@ -193,8 +221,37 @@ do {
         block(2, .dialogue, "Right here."),
     ]
     let cues = ScriptNarration.cues(for: named)
-    check("cue reads the linked name", shape(cues[0]), "cue|SAM|sam")
+    check("cue reads the linked name", shape(cues[0]), "cue|SAM|SAM")
     check("and the line is theirs", cues[1].speaker ?? "-", "SAM")
+}
+
+print("\nOne character, one voice")
+do {
+    // The page spells the same person three ways. Read as three speakers —
+    // which is what this did — a cast hands them three different voices, so
+    // Maya changes voice the moment she steps out of the room and again
+    // wherever a page break happens to fall.
+    let scattered = [
+        block(1, .character, "MAYA"),
+        block(2, .dialogue, "You came."),
+        block(3, .character, "MAYA (V.O.)"),
+        block(4, .dialogue, "I always did."),
+        block(5, .character, "MAYA (CONT'D)"),
+        block(6, .dialogue, "Every time."),
+        block(7, .character, "Maya"),
+        block(8, .dialogue, "And here we are."),
+    ]
+    let cues = ScriptNarration.cues(for: scattered)
+    check("one speaker, however the page spells her",
+          ScriptNarration.speakers(in: cues), ["MAYA"])
+    check("every line is hers",
+          Set(cues.filter { $0.kind == .speech }.compactMap(\.speaker)).count, 1)
+
+    // What is *said* still differs, because the extensions do not all mean
+    // the same thing: two of them tell the listener where she is, and one is
+    // a note about the paper.
+    check("the voice-over is announced",  cues[2].text, "MAYA, voice over")
+    check("the continuation is not",      cues[4].text, "MAYA")
 }
 
 print("\nPacing")
@@ -229,9 +286,9 @@ do {
     // A lyric has one voice. Naming a speaker would put a name on the Lock
     // Screen that no cue in the song actually says.
     check("nobody is named", cues.contains { $0.speaker != nil }, false)
-    // The shouted line is the one that would otherwise come back spelled out
-    // a letter at a time.
-    check("shouting is lowered", cues[2].text, "and you said you'd never go")
+    // Measured byte for byte against the engine, a shouted line and a lowered
+    // one are the same audio — so the writer's own capitals stay.
+    check("shouting is left as written", cues[2].text, "AND YOU SAID YOU'D NEVER GO")
     check("a line inside the verse follows closely",
           cues[1].pause, NarrationKind.speech.pause)
     check("the line after the break waits",
@@ -382,6 +439,31 @@ do {
           NarrationVoices.hasDownloadedVoice([compact]), false)
     check("and one with a download does not",
           NarrationVoices.hasDownloadedVoice([compact, enhanced]), true)
+}
+
+print("\nA cast bigger than the device's voices")
+do {
+    // Three voices and eight characters is the ordinary case. The list has to
+    // wrap; what it must not do is wrap silently, because the same voice at
+    // the same pitch is not a shortage — it is two characters nobody can tell
+    // apart, and in a scene between those two it is unfollowable.
+    let parts = (0..<7).map { NarrationVoices.part(at: $0, poolSize: 3) }
+
+    check("the voices go round", parts.map(\.index), [0, 1, 2, 0, 1, 2, 0])
+    // The first time round is the voice as it was chosen, and most casts
+    // never wrap at all.
+    check("the first time round is untouched",
+          parts[0..<3].allSatisfy { $0.pitch == 1 }, true)
+    check("the second time round is not",
+          parts[3].pitch != 1, true)
+    check("and the third differs from both",
+          Set(parts.map { "\($0.index)|\($0.pitch)" }).count, 7)
+    check("nothing is pushed past where a voice stops sounding human",
+          parts.allSatisfy { $0.pitch >= 0.6 && $0.pitch <= 1.6 }, true)
+
+    // A device that offered nothing would otherwise divide by zero.
+    check("an empty pool is survivable", "\(NarrationVoices.part(at: 4, poolSize: 0))",
+          "(index: 0, pitch: 1.0)")
 }
 
 print("\nSpeed, against the engine's measured curve")

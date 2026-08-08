@@ -723,16 +723,28 @@ extension HelpTopic {
                     + "character names, action and headings, and parentheticals can each "
                     + "be left out — dialogue alone is how you run lines. “A Voice Each” "
                     + "hands the speaking parts different voices, as far as the voices "
-                    + "installed on the device stretch. Those four are screenplay "
-                    + "grammar, so a song or a note — which can be read aloud too, see "
-                    + "Songs and Notes — is offered the speed and the voice alone.",
+                    + "installed on the device stretch; past that the list goes round "
+                    + "again at a different pitch, so two characters sharing a voice "
+                    + "are still two people. A character keeps one voice however the "
+                    + "page spells her — MAYA, MAYA (V.O.) and MAYA (CONT’D) are one "
+                    + "part. Those four switches are screenplay grammar, so a song or "
+                    + "a note — which can be read aloud too, see Songs and Notes — is "
+                    + "offered the speed and the voice alone.",
+                    "What gets said is the script as you wrote it, tidied for the ear: "
+                    + "INT. and EXT. are read as interior and exterior, the dashes in a "
+                    + "slug line become pauses, and an acronym like FBI is still spelled "
+                    + "out. A (V.O.) or (O.S.) after a name is announced, because it "
+                    + "tells you where the character is; a (CONT’D) is not, because it "
+                    + "only marks where a page ended and a reading has no pages in it.",
                     "The voice list is the device’s, sorted: the best-sounding first, "
                     + "one entry per voice, and the joke voices left out. A voice marked "
                     + "Enhanced or Premium is one that has been downloaded — they sound "
                     + "far better than the built-in ones, and Default picks the best "
                     + "edition you have. To get more, go to the Settings app, then "
                     + "Accessibility › Spoken Content › Voices, and download one; it "
-                    + "appears here next time the menu opens. Speeds are honest "
+                    + "appears here next time the menu opens. If you have recorded a "
+                    + "Personal Voice, “Use My Personal Voice” at the foot of the list "
+                    + "asks for it once and then reads in it. Speeds are honest "
                     + "multiples of the normal pace, so 2× is twice as fast and still "
                     + "words."
                 ],
@@ -742,6 +754,8 @@ extension HelpTopic {
                            "aloud", "speech", "speak", "voice", "listen", "audio",
                            "table read", "run lines", "text to speech",
                            "voices", "enhanced", "premium", "download voice",
+                           "personal voice", "my voice", "acronym", "v.o.",
+                           "cont'd", "pronunciation",
                            "narrator", "speed", "faster", "slower"]),
             HelpTopic(
                 id: "outline",

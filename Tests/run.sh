@@ -163,11 +163,14 @@ run_suite "$BUILD/fountain" || status=1
 echo
 echo "== Read-aloud narration =="
 # The note builder reads its lines through the same grouping the note's own
-# reading surface uses, so both of those come along.
+# reading surface uses, so both of those come along — and a character cue is
+# reduced to one name by the same rule the stats screen counts them with, so
+# that comes along too.
 swiftc "${FLAGS[@]}" -o "$BUILD/narration" \
     "$SRC/Models/Block.swift" \
     "$SRC/Models/NoteFormatting.swift" \
     "$SRC/Models/NoteReading.swift" \
+    "$SRC/Models/ScriptStats.swift" \
     "$SRC/Models/NarrationSpeed.swift" \
     "$SRC/Models/NarrationVoices.swift" \
     "$SRC/Models/ScriptNarration.swift" \

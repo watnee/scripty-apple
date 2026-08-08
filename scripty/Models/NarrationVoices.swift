@@ -171,6 +171,36 @@ enum NarrationVoices {
         offered.filter { $0.identifier != narrator }
     }
 
+    /// Which voice the nth character gets, and at what pitch.
+    ///
+    /// There are almost always more characters than voices — a device with
+    /// three usable voices and a scene with eight people in it is the ordinary
+    /// case — so the list wraps. Wrapping alone means the fourth character and
+    /// the first are the *same voice at the same pitch*, which is not a cast
+    /// with a shortage in it; it is two characters a listener cannot tell
+    /// apart, and in a two-hander between them it is unfollowable.
+    ///
+    /// So each time round the list the pitch shifts, alternately up and down
+    /// and further each time: same voice, recognisably not the same person.
+    /// The first time round is left at its natural pitch, because that is the
+    /// voice as it was chosen and most casts never wrap at all.
+    ///
+    /// The range stays well inside what the synthesizer accepts (0.5…2.0) —
+    /// pushed to the ends a voice stops sounding like a person.
+    static func part(at offset: Int, poolSize: Int) -> (index: Int, pitch: Double) {
+        guard poolSize > 0 else { return (0, 1) }
+        let index = offset % poolSize
+        let round = offset / poolSize
+        guard round > 0 else { return (index, 1) }
+
+        // 1, 2, 2, 3, 3 … — how far from natural, with the odd rounds up and
+        // the even rounds down.
+        let distance = Double((round + 1) / 2)
+        let up = round.isMultiple(of: 2) == false
+        let pitch = up ? 1 + 0.15 * distance : 1 - 0.12 * distance
+        return (index, min(1.6, max(0.6, pitch)))
+    }
+
     /// Whether the device has anything better than the small built-in voices.
     /// When it does not, the reading is as good as it can be made from here and
     /// the menu says where the better ones live.
