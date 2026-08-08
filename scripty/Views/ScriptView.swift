@@ -1399,7 +1399,16 @@ struct ScriptView: View {
             HStack(spacing: 8) {
                 // Icon-only and plain. The title stays on the `Label` for
                 // VoiceOver.
-                readAloudButton
+                //
+                // Gone the moment the transport comes up, because the transport
+                // is drawn on the very next strip down and carries a play/pause
+                // of its own: on paper — where the pager takes a strip too —
+                // that stacked three bars at the bottom edge with the same
+                // Pause twice in a column, a finger's width apart. This button
+                // is how a reading is *started*; once one is running the
+                // transport is the control, and the song editor's "…" already
+                // stands back on the same reasoning.
+                if !isTransportUp { readAloudButton }
                 // Beside listening because it is the other thing a reader
                 // reaches for: the reader runs continuously, and "how long
                 // is this, and where do the pages fall" is a question it
@@ -1876,12 +1885,19 @@ struct ScriptView: View {
         narrator.subject == narrationSubject
     }
 
+    /// Whether the transport is on screen for *this* screenplay.
+    ///
+    /// Named because two bars answer to it: the transport draws itself on it,
+    /// and the reading bar above stands its own Read Aloud button down while it
+    /// is true — one condition rather than two that have to be kept in step.
+    private var isTransportUp: Bool { narrator.isActive && isReadingThisScript }
+
     /// The read-aloud transport, up only while a reading is loaded. It rides
     /// this screen rather than a sheet, so listening leaves the script — and
     /// the writing — exactly where they were.
     @ViewBuilder
     private var narrationBar: some View {
-        if narrator.isActive && isReadingThisScript {
+        if isTransportUp {
             NarrationTransportBar(narrator: narrator)
         }
     }
