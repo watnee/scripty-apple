@@ -203,6 +203,35 @@ swiftc "${FLAGS[@]}" -o "$BUILD/pickedfile" \
 run_suite "$BUILD/pickedfile" || status=1
 
 echo
+echo "== Text case transforms =="
+swiftc "${FLAGS[@]}" -o "$BUILD/textcase" \
+    "$SRC/Models/TextCaseTransform.swift" \
+    "$ROOT/Tests/TextCase/main.swift"
+run_suite "$BUILD/textcase" || status=1
+
+echo
+echo "== Song and note statistics =="
+swiftc "${FLAGS[@]}" -o "$BUILD/documentstats" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/Models/ScriptStats.swift" \
+    "$SRC/Models/ScriptOutline.swift" \
+    "$SRC/Models/NoteFormatting.swift" \
+    "$SRC/Models/DocumentStats.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/DocumentStats/main.swift"
+run_suite "$BUILD/documentstats" || status=1
+
+echo
+echo "== Lyric find and replace =="
+swiftc "${FLAGS[@]}" -o "$BUILD/songsearch" \
+    "$SRC/Models/Block.swift" \
+    "$SRC/State/ScriptSearchModel.swift" \
+    "$SRC/State/SongSearchModel.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/SongSearch/main.swift"
+run_suite "$BUILD/songsearch" || status=1
+
+echo
 echo "== Note formatting =="
 swiftc "${FLAGS[@]}" -o "$BUILD/notes" \
     "$SRC/Models/NoteFormatting.swift" \

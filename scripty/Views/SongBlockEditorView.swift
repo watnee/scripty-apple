@@ -57,6 +57,8 @@ struct SongBlockEditorView: View {
     @State private var showingVersions = false
     @State private var showingTrash = false
     @State private var showingIgnoredWords = false
+    /// The song's own numbers, opened from the word-count row in the "…" menu.
+    @State private var showingStats = false
     /// Whether the song's recordings are up — the demo, the voice memo, the
     /// reference track. A sheet like the version history, for the reason given
     /// in `SongRecordingsView`: this column is for the words.
@@ -102,16 +104,17 @@ struct SongBlockEditorView: View {
     @State private var insertMessage: String?
     /// A trip back from the archive in flight.
     @State private var isUnarchiving = false
-    @State private var searchText = ""
-    /// Which lines the current search matched, by id.
+    /// Find, and where the server offers it, replace.
     ///
-    /// Held rather than recomputed from the text on every redraw because these
-    /// rows are editable: typing in a visible line changes what it says, and a
-    /// live filter would make the line vanish out from under the cursor the
-    /// moment it stopped matching. The set is refreshed when the query changes
-    /// or the lyric is reloaded, which is exactly when the web re-runs its own
-    /// filter.
-    @State private var matchedLines: Set<Int> = []
+    /// This used to be a filter: matching lines stayed and the rest were hidden.
+    /// A walk replaces it, which removes a whole class of bug rather than
+    /// managing it — nothing is ever taken off screen, so a line made by Return
+    /// (empty, matching nothing) can no longer vanish from under the caret, and
+    /// the special case that used to keep the focused line visible is gone with
+    /// it.
+    @State private var search = SongSearchModel()
+    /// The line the writer stepped to, for the list's own `ScrollViewReader`.
+    @State private var searchJump: Int?
 
     /// Whether documents open to be read, and which way this song was last put.
     private let readingViews = ReadingViewSettings.shared
@@ -189,30 +192,7 @@ struct SongBlockEditorView: View {
         canEditSong && !isReading && !options.isEditingLocked ? "Edit Song" : "Song"
     }
 
-    private var query: String {
-        searchText.trimmingCharacters(in: .whitespaces)
-    }
-
-    /// The lyric, narrowed to the lines that matched. An empty query shows the
-    /// whole song, which is the ordinary state of this editor.
-    ///
-    /// A line the caret is in is never filtered out from under it, whatever it
-    /// says. A row that leaves this list is torn out of the ForEach — so a line
-    /// made by Return, which is empty and matches nothing, vanished the instant
-    /// it appeared: nothing claimed first responder, the keyboard stayed on the
-    /// line above, the next verse went into the end of *that*, and a stray
-    /// blank line was saved. Now that the live text is what gets searched, a
-    /// line being typed into would otherwise disappear the moment its words
-    /// stopped matching, which is worse again.
-    ///
-    /// Asked here rather than folded into `matchedLines`, so the caret moving
-    /// needs no recompute: the answer is read fresh on every redraw anyway.
-    private var shownBlocks: [SongBlock] {
-        guard !query.isEmpty else { return model.blocks }
-        return model.blocks.filter {
-            matchedLines.contains($0.id) || $0.id == model.focusedBlockId
-        }
-    }
+    private var query: String { search.trimmedQuery }
 
     /// What the menu bar's Undo and Redo do while this editor is up. Both
     /// rewind the lyric to a different set of lines, so the search has to be
@@ -255,11 +235,11 @@ struct SongBlockEditorView: View {
 
     /// Opens the search bar, or closes it and clears what was in it — the one
     /// errand, so the toolbar button and ⌘F cannot disagree about what the key
-    /// does. Closing empties the query because a filter left standing behind a
-    /// hidden bar is a lyric with lines missing and nothing to say why.
+    /// does. Closing empties the query so that reopening the bar starts fresh
+    /// rather than on a hit somebody stepped to in another sitting.
     private func toggleSearch() {
         isSearching.toggle()
-        if !isSearching { searchText = "" }
+        if !isSearching { search.clear() }
     }
 
     /// Whether there is a lyric to put on paper. Not gated on a link: with
@@ -293,7 +273,8 @@ struct SongBlockEditorView: View {
         model.blocks.map { model.currentText($0) }
     }
 
-    /// Recomputes the matched set from what the lines currently say.
+    /// Re-scans the lyric. Every caller means the same thing: the lines have
+    /// moved, look again.
     ///
     /// `currentText`, not `block.text`: every other read of a line in this file
     /// goes through it — the rows, the print, the narration, the word count —
@@ -302,29 +283,10 @@ struct SongBlockEditorView: View {
     /// meant a writer who worked offline for an hour got "No results" for a
     /// word that was on the screen in front of them, would print, and was in
     /// the word count. Same for anything typed inside the 600ms debounce.
-    ///
-    /// And the line holding the caret always matches, whatever it says. A row
-    /// that leaves `shownBlocks` is torn out of the list — so a line made by
-    /// Return, which is empty and matches nothing, vanished from under the
-    /// caret the instant it appeared: nothing claimed first responder, the
-    /// keyboard stayed on the line above, the next verse was typed into the
-    /// end of *that*, and a stray blank line was saved to the server. With the
-    /// live text now searched, a line being typed into would disappear the
-    /// moment its words stopped matching, which is worse. So the rule is
-    /// simply that a line the caret is in is never filtered out from under it.
-    ///
-    /// No screenplay precedent to follow here: `ScriptSearchBar` steps a
-    /// cursor through hits and never takes a row away, so this is a rule this
-    /// surface needs on its own.
     private func runSearch() {
-        let needle = query.lowercased()
-        guard !needle.isEmpty else {
-            matchedLines = []
-            return
-        }
-        matchedLines = Set(
-            model.blocks.filter { model.currentText($0).lowercased().contains(needle) }
-                .map(\.id))
+        search.refresh(in: model.blocks.map {
+            SongSearchModel.Line(id: $0.id, text: model.currentText($0))
+        })
     }
 
     var body: some View {
@@ -402,15 +364,10 @@ struct SongBlockEditorView: View {
             // stepping back in a song would rewind the script instead. See
             // `DocumentEditorActions`.
             .focusedSceneValue(\.documentEditorActions, menuActions)
-            .onChange(of: searchText) { _, _ in
-                runSearch()
-            }
-            // And whenever the lyric itself changes under an open search. The
-            // matched set used to be recomputed on the query, the load and a
-            // history step alone — so a line added, removed or landed while
-            // the search bar was up was judged against a set that predated it.
-            // A new line has an id in no match set at all, which is how Return
-            // inside a search took the row out from under the caret.
+            // And whenever the lyric itself changes under an open search: a
+            // line added, removed or landed from the server moves the hits, and
+            // a cursor left pointing at a line that is no longer there would
+            // send the next chevron somewhere the writer cannot see.
             .onChange(of: model.blocks) { _, _ in
                 guard !query.isEmpty else { return }
                 runSearch()
@@ -486,6 +443,14 @@ struct SongBlockEditorView: View {
             }
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
+            }
+            .sheet(isPresented: $showingStats) {
+                // Built here rather than held: it walks the whole lyric, and a
+                // song being typed into should not gather its own statistics on
+                // every keystroke. `currentText`, like everything else here.
+                DocumentStatsView(
+                    title: model.document.displayTitle,
+                    stats: DocumentStats(lyricLines: model.blocks.map { model.currentText($0) }))
             }
             .sheet(isPresented: $showingRecordings) {
                 SongRecordingsView(app: model.app, document: model.document)
@@ -642,7 +607,7 @@ struct SongBlockEditorView: View {
             isReading = true
             focusedLine = nil
             isSearching = false
-            searchText = ""
+            search.clear()
             readingViews.remember(true, for: .document(id: model.document.id))
         }
     }
@@ -657,13 +622,14 @@ struct SongBlockEditorView: View {
 
                 titleHeading
 
-                ForEach(shownBlocks) { block in
+                ForEach(model.blocks) { block in
                     SongLineRow(model: model,
                                 block: block,
                                 isLocked: options.isEditingLocked,
                                 focusedLine: $focusedLine,
                                 startWriting: startWriting,
-                                isBeingRead: readingLineId == block.id)
+                                isBeingRead: readingLineId == block.id,
+                                isSearchHit: search.current?.lineId == block.id)
                         .id(block.id)
                         // No hairline between one lyric line and the next.
                         // A plain list rules off every row, which turns a
@@ -686,6 +652,14 @@ struct SongBlockEditorView: View {
             .environment(\.scriptTextScale, settings.textScale)
             .onChange(of: focusedLine) { _, id in
                 guard let id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
+            // Stepping through search hits, by the same route a focused line
+            // takes. Centred, so the hit has the verse around it rather than
+            // sitting under the bar.
+            .onChange(of: searchJump) { _, id in
+                guard let id else { return }
+                searchJump = nil
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
             }
             // The line a double tap asked for, claimed the moment these rows
@@ -1341,15 +1315,21 @@ struct SongBlockEditorView: View {
         // rather than what was last saved. No page estimate: a song is measured
         // in lines, not pages.
         //
-        // A disabled `Button` rather than the bare `Label` this wants to be: a
+        // A `Button` rather than the bare `Label` this once wanted to be: a
         // toolbar item with no control in it is dropped from the overflow menu
-        // without a word — the row simply never appears. Disabled is also how
-        // the row should read, since there is nothing to press.
+        // without a word — the row simply never appears.
+        //
+        // It used to be disabled, since there was nothing to press. It opens the
+        // song's own statistics now, which is the natural reading of the row a
+        // writer already goes to when they want to know how long the thing is —
+        // and it costs no new toolbar item, which matters on a phone, where both
+        // halves of this builder are already split because they hit the limit.
         ToolbarItem(placement: .secondaryAction) {
-            Button {} label: {
+            Button {
+                showingStats = true
+            } label: {
                 Label(wordCountTitle, systemImage: "number")
             }
-            .disabled(true)
         }
         // The mode itself, in the "…" this sheet has instead of a View menu —
         // the screenplay's Read Script toggle, in the song's own words. A
@@ -1482,12 +1462,20 @@ struct SongBlockEditorView: View {
         }
     }
 
+    /// A stepping find bar rather than `DocumentFilterBar`.
+    ///
+    /// That bar is still the right one for the songs and notes *workspaces*,
+    /// which genuinely narrow a list of documents. Here nothing is narrowed: the
+    /// whole lyric stays on screen and the cursor walks the hits, so the bar has
+    /// to carry "n of m", the chevrons and — where the server offers it —
+    /// Replace.
     @ViewBuilder
     private var searchBar: some View {
         if isSearching {
-            DocumentFilterBar(text: $searchText, prompt: "Search lyrics") {
-                isSearching = false
-            }
+            SongSearchBar(model: model,
+                          search: search,
+                          onJump: { searchJump = $0 },
+                          onDismiss: { isSearching = false })
         }
     }
 
@@ -1587,11 +1575,11 @@ struct SongBlockEditorView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if shownBlocks.isEmpty {
-            if !query.isEmpty {
-                // The song has lines, none of them say this — not an empty song.
-                ContentUnavailableView.search(text: query)
-            } else if model.isLoading {
+        // No search branch any more: nothing is ever filtered out, so an empty
+        // list means an empty song and only that. "No results" is the search
+        // bar's own readout, beside the query that produced it.
+        if model.blocks.isEmpty {
+            if model.isLoading {
                 ProgressView()
             } else {
                 ContentUnavailableView {

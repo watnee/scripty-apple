@@ -1953,6 +1953,49 @@ final class ScriptModel {
         }
     }
 
+    /// Copy an element, words and all, directly below itself.
+    ///
+    /// Lives here rather than in an extension because everything it needs —
+    /// `insert`, `createLocalBlock`, `focus` — is private to this file.
+    ///
+    /// The copy carries the original's type *and* its speaker, so duplicating a
+    /// character cue gives a second line for the same person rather than an
+    /// unattached one. It takes `currentText` rather than `content`: a writer
+    /// duplicating a line they are part-way through means the words in front of
+    /// them, not the ones the server last confirmed.
+    func duplicateBlock(_ block: Block) async {
+        let content = currentText(block)
+        let type = block.blockType
+        // A pending element can't anchor a server create, but it can anchor
+        // another pending one — the same rule `appendBlock` follows.
+        if block.isLocal {
+            if let created = createLocalBlock(below: block, type: type,
+                                              content: content, personId: block.personId) {
+                focus(created.id, caret: 0)
+            }
+            return
+        }
+        guard let link = block.link(.createBelow) else { return }
+        do {
+            let created: Block = try await app.client.fetch(
+                from: link, method: "POST",
+                body: CreateBelowCommand(content: content, personId: block.personId,
+                                         type: type.rawValue))
+            insert(created, below: block)
+            refreshUndoRedoSoon()
+            focus(created.id, caret: 0)
+            errorMessage = nil
+        } catch {
+            guard error.isRetryableAPIError,
+                  let created = createLocalBlock(below: block, type: type,
+                                                 content: content, personId: block.personId) else {
+                report(error)
+                return
+            }
+            focus(created.id, caret: 0)
+        }
+    }
+
     // MARK: - Undo / redo
 
     func refreshUndoRedo() async {

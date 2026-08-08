@@ -76,3 +76,22 @@ struct MoveSongBlockCommand: Encodable {
 struct SetSongBlockHighlightCommand: Encodable {
     var highlight: String?
 }
+
+/// Replace All across a song's lyric lines.
+///
+/// Carries only the operation. Which song and which version live in the
+/// `bulkReplace` link itself, which the server builds for the edition whose
+/// lines the client is holding — so this client never has to know its edition's
+/// id, and a Replace All can never land on the wrong version of a song.
+///
+/// A nil `ids` means every line in that version, which is what "Replace All"
+/// means here; the client always sends nil, and the field exists because the
+/// server accepts a narrowed set. `find` and `replace` are literal on both
+/// sides — never patterns.
+struct SongBulkReplaceCommand: Encodable {
+    var ids: [Int]?
+    var find: String
+    var replace: String
+    var matchCase: Bool
+    var wholeWord: Bool
+}

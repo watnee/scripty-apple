@@ -541,14 +541,68 @@ extension HelpTopic {
                     + "All asks first, naming how many it is about to change, and "
                     + "counts as one step — so a replacement across two hundred "
                     + "elements is one Undo, not two hundred.",
-                    "A song and a note have their own, and they are not quite this. A "
-                    + "song's Search narrows the lyric to the lines that match, which "
-                    + "is a filter rather than a walk; a note's find bar steps through "
-                    + "the prose with Match Case and Whole Words of its own. ⌘F opens "
-                    + "whichever belongs to what is in front of you."
+                    "A song's is the same walk in a lyric's words. Nothing is hidden: "
+                    + "the whole song stays on screen, the count reads \"3 of 12\", and "
+                    + "the arrows carry you down the verses. Match Case and Whole "
+                    + "Words are there; Cues is not, since a lyric line has no "
+                    + "character above it. Replace appears where your copy of Scripty "
+                    + "can reach a server that offers it, and Replace All across a "
+                    + "song is one Undo, exactly as it is in a script.",
+                    "A note's find bar is the system's own, stepping through the prose "
+                    + "with Match Case and Whole Words beside it. ⌘F opens whichever "
+                    + "belongs to what is in front of you."
                 ],
                 keywords: ["find", "replace", "search", "match case", "whole word",
                            "replace all", "cues", "highlight", "next", "previous"]),
+            HelpTopic(
+                id: "text-case",
+                title: "Changing the Case of What You Selected",
+                systemImage: "textformat.alt",
+                paragraphs: [
+                    "Select some words, touch and hold, and choose Text Case. There "
+                    + "are four: UPPERCASE, lowercase, Title Case and Sentence case. "
+                    + "It works the same way in a screenplay element, a lyric line and "
+                    + "a note, and the change is one Undo.",
+                    "Title Case capitalises each word but leaves the small ones down "
+                    + "in the middle — \"A Tale of Two Cities\" — while always "
+                    + "capitalising the first and the last, however small. It knows an "
+                    + "apostrophe is inside a word, so \"don't\" does not come back as "
+                    + "\"Don'T\". Sentence case brings everything down and then "
+                    + "capitalises each new sentence, counting a line break as the "
+                    + "start of one, so a selected verse comes back with every line "
+                    + "capitalised rather than only the first. A standalone \"I\" "
+                    + "stays as it was.",
+                    "With a keyboard: ⌘⌥U, ⌘⌥L, ⌘⌥T and ⌘⌥S. Nothing happens with "
+                    + "nothing selected — these rewrite what you chose, not the line "
+                    + "you happen to be in, so with only a caret they are not offered "
+                    + "at all rather than guessing which word you meant."
+                ],
+                keywords: ["uppercase", "lowercase", "title case", "sentence case",
+                           "capitals", "caps", "shout", "slugline", "case"]),
+            HelpTopic(
+                id: "line-editing",
+                title: "Moving, Copying and Removing a Line",
+                systemImage: "line.3.horizontal",
+                paragraphs: [
+                    "⌘D copies the element or lyric line the caret is in and puts the "
+                    + "copy directly below, words and all. In a screenplay the copy "
+                    + "keeps the original's type and its speaker, so duplicating a "
+                    + "character cue gives a second line for the same person.",
+                    "⌥↑ and ⌥↓ move the line up and down — the same keys the browser "
+                    + "uses — and the keyboard stays with it, so you can press one "
+                    + "twice without reaching for the line again. ⌘⇧⌫ removes it and "
+                    + "leaves the caret on the neighbour. None of them will take the "
+                    + "last line of a script or a song: there has to be somewhere to "
+                    + "type.",
+                    "Without a keyboard: Duplicate Element is on an element's own menu, "
+                    + "beside Add Element Below, and a lyric line carries Duplicate on "
+                    + "the swipe that already holds Delete. Move Up and Move Down are "
+                    + "on the element menu too, and a line can be dragged.",
+                    "A note has none of these. It is one field of prose rather than a "
+                    + "list of lines, so there is nothing for them to take hold of."
+                ],
+                keywords: ["duplicate", "copy line", "move line", "reorder", "delete "
+                           + "line", "shortcut", "keyboard"]),
             HelpTopic(
                 id: "spelling",
                 title: "Spelling",
@@ -565,7 +619,9 @@ extension HelpTopic {
                     "Ignored Words is that list, and the place to add a word before it "
                     + "is flagged or take one back off. Because the checker is the "
                     + "device's, a word added there stops being flagged in other apps "
-                    + "too, and removing it takes it back out."
+                    + "too, and removing it takes it back out.",
+                    "Text Case sits on the same menu, beside Ignore Spelling, whenever "
+                    + "words are selected — see Changing the Case of What You Selected."
                 ],
                 keywords: ["spellcheck", "spell check", "dictionary", "misspelled",
                            "typo", "ignore"]),
@@ -1006,10 +1062,23 @@ extension HelpTopic {
                     + "rather than how the whole draft balances. That band is the "
                     + "screenplay's alone: a song or a note is short enough that its "
                     + "own count is read from its \u{201C}…\u{201D} menu instead, "
-                    + "leaving the writing the whole sheet."
+                    + "leaving the writing the whole sheet.",
+                    "Press that count and the document's own numbers open: words and "
+                    + "how many of them are different, lines, characters with and "
+                    + "without spaces, the longest line, and how long it takes to read "
+                    + "aloud. Sections counts the runs of lines with a gap between "
+                    + "them — the verses, choruses and bridges of a song, the "
+                    + "paragraphs of a note — since that is the shape the writing "
+                    + "itself carries rather than a label anybody had to add. A note "
+                    + "also counts its headings and its list items.",
+                    "There is no page estimate on either. A screenplay page is a real "
+                    + "measure, roughly a minute of screen time; a song is measured in "
+                    + "lines and a note in paragraphs, and a page count for them would "
+                    + "be a number with nothing behind it."
                 ],
                 keywords: ["statistics", "length", "words", "count", "pages",
-                           "breakdown", "characters", "locations"])
+                           "breakdown", "characters", "locations", "lines", "sections",
+                           "reading time", "unique words", "song stats", "note stats"])
         ]),
         HelpSection(id: "documents", title: "Documents", topics: [
             HelpTopic(

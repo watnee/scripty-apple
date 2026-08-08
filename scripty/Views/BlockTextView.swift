@@ -78,6 +78,15 @@ struct BlockTextView: UIViewRepresentable, Equatable {
         view.onDismissSuggestions = { [weak coordinator = context.coordinator] in
             coordinator?.dismissSuggestions()
         }
+        // Through the coordinator, whose `block` is refreshed on every update —
+        // so nothing new is passed into this struct and its `Equatable`
+        // conformance, which the typing path leans on, is left alone.
+        view.offersLineCommand = { [weak coordinator = context.coordinator] command in
+            coordinator?.offers(command) ?? false
+        }
+        view.onLineCommand = { [weak coordinator = context.coordinator] command, caret in
+            coordinator?.perform(command, caret: caret)
+        }
         context.coordinator.textView = view
         context.coordinator.swipeToSelect.attach(to: view)
         context.coordinator.swipeToSelect.select = { [weak coordinator = context.coordinator] in
@@ -369,12 +378,13 @@ struct BlockTextView: UIViewRepresentable, Equatable {
             }
         }
 
-        /// "Ignore Spelling" on an underlined name, alongside the corrections
-        /// the system offers — a screenplay is mostly words no dictionary has.
+        /// "Ignore Spelling" on an underlined name and Text Case on a selection,
+        /// alongside the corrections the system offers — a screenplay is mostly
+        /// words no dictionary has, and mostly lines that have to be shouted.
         func textView(_ textView: UITextView,
                       editMenuForTextIn range: NSRange,
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
-            SpellcheckEditMenu.menu(for: textView, in: range, appending: suggestedActions)
+            EditorEditMenu.menu(for: textView, in: range, appending: suggestedActions)
         }
 
         // MARK: - Suggestions
@@ -424,6 +434,40 @@ struct BlockTextView: UIViewRepresentable, Equatable {
             Task { await model.cycleType(block, backward: backward) }
         }
 
+        /// Whether a whole-element chord would do anything from here, asked
+        /// every time UIKit builds this responder's commands — so a chord that
+        /// the server has not offered, or that has nowhere to go, is simply not
+        /// claimed rather than claimed and inert.
+        func offers(_ command: BlockUITextView.LineCommand) -> Bool {
+            switch command {
+            case .duplicate: return block.isLocal || block.hasLink(.createBelow)
+            case .moveUp: return model.canMoveUp(block)
+            case .moveDown: return model.canMoveDown(block)
+            // Never the last one standing: a script with nothing in it has
+            // nowhere to put the caret, which is the same rule the row's own
+            // Delete follows.
+            case .delete: return model.blocks.count > 1 && (block.isLocal || block.hasLink(.delete))
+            }
+        }
+
+        func perform(_ command: BlockUITextView.LineCommand, caret: Int) {
+            let block = block
+            switch command {
+            case .duplicate:
+                Task { await model.duplicateBlock(block) }
+            case .moveUp:
+                Task { await model.moveBlockUp(block, caret: caret) }
+            case .moveDown:
+                Task { await model.moveBlockDown(block, caret: caret) }
+            case .delete:
+                // Focus moves off *before* the delete, or the keyboard drops
+                // onto a row that is on its way out and bounces shut.
+                let successor = model.blockBelow(block) ?? model.blockAbove(block)
+                if let successor { model.focus(successor.id, caret: 0) }
+                Task { await model.deleteBlock(block) }
+            }
+        }
+
         func applyCaret(_ characterOffset: Int) {
             guard let textView else { return }
             let string = textView.text ?? ""
@@ -450,6 +494,12 @@ struct BlockTextView: UIViewRepresentable, Equatable {
 /// start (nothing to delete) and Shift-Tab, both of which have no plain-text
 /// representation to catch in the delegate.
 final class BlockUITextView: UITextView, SpellcheckingTextView {
+    /// Something to do to the whole element the caret is in, rather than to the
+    /// words inside it.
+    enum LineCommand {
+        case duplicate, moveUp, moveDown, delete
+    }
+
     var checkedSpellingRevision = 0
     var onDeleteBackwardAtStart: (() -> Void)?
     var onShiftTab: (() -> Void)?
@@ -458,6 +508,11 @@ final class BlockUITextView: UITextView, SpellcheckingTextView {
     var isSuggesting: (() -> Bool)?
     var onMoveSuggestion: ((Int) -> Void)?
     var onDismissSuggestions: (() -> Void)?
+    /// Asked fresh, so a chord the server would refuse is not claimed at all.
+    var offersLineCommand: ((LineCommand) -> Bool)?
+    /// The caret's Character offset travels with the command, since a move
+    /// reloads the collection and has to put the writer back where they were.
+    var onLineCommand: ((LineCommand, Int) -> Void)?
 
     override func deleteBackward() {
         if selectedRange.location == 0, selectedRange.length == 0 {
@@ -483,7 +538,66 @@ final class BlockUITextView: UITextView, SpellcheckingTextView {
                              action: #selector(handleSuggestionEscape))
             ]
         }
+        // Asked fresh for the same reason: with nothing selected there is nothing
+        // to change the case of, so the chords are not claimed at all.
+        if selectedRange.length > 0 {
+            commands += EditorEditMenu.caseKeyCommands(action: #selector(handleTextCase))
+        }
+        commands += lineCommands
         return commands
+    }
+
+    /// ⌘D, ⌥↑, ⌥↓ and ⌘⇧⌫ — whole-element edits, each offered only where it
+    /// would do something.
+    ///
+    /// ⌥↑/⌥↓ match the browser's own Alt+↑/↓ for reordering, and take the
+    /// caret's paragraph movement in exchange — a fair trade in a screenplay,
+    /// where an element is rarely more than a few lines. ⌘⇧⌫ rather than ⌘⌫
+    /// deliberately: ⌘⌫ is the system's delete-to-start-of-line, and claiming it
+    /// would break a standard text binding to save one modifier.
+    private var lineCommands: [UIKeyCommand] {
+        let table: [(BlockUITextView.LineCommand, String, UIKeyModifierFlags, String)] = [
+            (.duplicate, "d", .command, "Duplicate Element"),
+            (.moveUp, UIKeyCommand.inputUpArrow, .alternate, "Move Element Up"),
+            (.moveDown, UIKeyCommand.inputDownArrow, .alternate, "Move Element Down"),
+            (.delete, "\u{8}", [.command, .shift], "Delete Element"),
+        ]
+        return table.compactMap { command, input, flags, title in
+            guard offersLineCommand?(command) == true else { return nil }
+            let key = UIKeyCommand(title: title, action: #selector(handleLineCommand),
+                                   input: input, modifierFlags: flags,
+                                   propertyList: String(describing: command))
+            key.wantsPriorityOverSystemBehavior = true
+            return key
+        }
+    }
+
+    @objc private func handleTextCase(_ sender: UIKeyCommand) {
+        guard let transform = EditorEditMenu.transform(from: sender), selectedRange.length > 0 else { return }
+        // No model call: `apply` writes through the text view, which reports back
+        // through the delegate into the element's own debounced save.
+        EditorEditMenu.apply(transform, to: self, in: selectedRange)
+    }
+
+    @objc private func handleLineCommand(_ sender: UIKeyCommand) {
+        guard let raw = sender.propertyList as? String else { return }
+        let command: LineCommand
+        switch raw {
+        case "duplicate": command = .duplicate
+        case "moveUp": command = .moveUp
+        case "moveDown": command = .moveDown
+        case "delete": command = .delete
+        default: return
+        }
+        onLineCommand?(command, caretCharacterOffset)
+    }
+
+    /// The caret in Characters, which is what the model's caret requests count
+    /// in — the text view itself counts in UTF-16.
+    private var caretCharacterOffset: Int {
+        let string = text as NSString? ?? ""
+        let safe = max(0, min(selectedRange.location, string.length))
+        return string.substring(to: safe).count
     }
 
     @objc private func handleShiftTab() {

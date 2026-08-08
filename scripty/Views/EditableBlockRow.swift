@@ -392,6 +392,16 @@ private struct BlockContextMenu: View {
                     Label("Add Element Below", systemImage: "plus")
                 }
             }
+            // The touch route to ⌘D. Beside Add Element Below, since it is the
+            // same errand with the words already in it: the copy keeps this
+            // element's type and its speaker.
+            if block.hasLink(.createBelow) || block.isLocal {
+                Button {
+                    Task { await model.duplicateBlock(block) }
+                } label: {
+                    Label("Duplicate Element", systemImage: "plus.square.on.square")
+                }
+            }
         }
         // Drop a song's lyrics or a note's text in right here — the web's
         // create-below "Songs" / "Notes" sections, which let a writer place a

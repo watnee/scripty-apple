@@ -395,6 +395,10 @@ struct NoteTextView: UIViewRepresentable {
     enum Command {
         case bulletList, numberedList
         case heading(Int)
+        /// Changes the case of the selection. Unlike the others this rewrites
+        /// only what is selected rather than the line the caret is in, so it does
+        /// nothing at all on a bare caret.
+        case textCase(TextCaseTransform)
     }
 
     /// What one scroll event looked like, in the terms the filter above cares
@@ -447,6 +451,10 @@ struct NoteTextView: UIViewRepresentable {
         /// came off.
         private var isWriting = false
 
+        /// Set for the one change about to arrive through the text view itself
+        /// rather than through `apply`, so it is filed as its own undo step.
+        private var isDiscreteEdit = false
+
         /// What the last scroll event looked like, so the next one can be
         /// reported as a distance travelled rather than a position. Kept for
         /// every event, gesture or not: a jump left out of the record would come
@@ -469,8 +477,22 @@ struct NoteTextView: UIViewRepresentable {
             // Every route to a note changed by hand passes through here —
             // typing, dictation, a paste, the shake gesture — so this one call
             // is what the note's history is built from.
+            let wasDiscrete = isDiscreteEdit
+            isDiscreteEdit = false
             parent.controller?.capture(text: text,
-                                       selection: textView.selectedRange)
+                                       selection: textView.selectedRange,
+                                       coalescing: !wasDiscrete)
+        }
+
+        /// The next change is one gesture, not typing — keep it out of the
+        /// coalescing window.
+        ///
+        /// The editing menu's Text Case writes straight into the text view, so it
+        /// arrives here rather than through `apply`, which passes
+        /// `coalescing: false` itself. Without this a writer who upper-cased a
+        /// line and then carried on typing would lose both to a single Undo.
+        func beginDiscreteEdit() {
+            isDiscreteEdit = true
         }
 
         /// The note scrolling under a finger, on the same terms `UserScrollSpy`
@@ -523,12 +545,13 @@ struct NoteTextView: UIViewRepresentable {
             return true
         }
 
-        /// "Ignore Spelling" beside the system's corrections, the same route the
-        /// screenplay and lyric surfaces offer.
+        /// "Ignore Spelling" and Text Case beside the system's corrections, the
+        /// same menu the screenplay and lyric surfaces offer.
         func textView(_ textView: UITextView,
                       editMenuForTextIn range: NSRange,
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
-            SpellcheckEditMenu.menu(for: textView, in: range, appending: suggestedActions)
+            EditorEditMenu.menu(for: textView, in: range, appending: suggestedActions,
+                                willEdit: { [weak self] in self?.beginDiscreteEdit() })
         }
 
         func perform(_ command: Command) {
@@ -541,6 +564,15 @@ struct NoteTextView: UIViewRepresentable {
                 apply(NoteFormatting.toggleList(in: textView.text, caret: caret, ordered: true))
             case .heading(let level):
                 apply(NoteFormatting.toggleHeading(in: textView.text, caret: caret, level: level))
+            case .textCase(let transform):
+                // Straight through the text view rather than through `apply`:
+                // this one is a rewrite of a selection, not of a line, and
+                // EditorEditMenu already owns putting the selection back. Marked
+                // discrete first so the change gets its own undo step.
+                let selection = textView.selectedRange
+                guard selection.length > 0 else { return }
+                beginDiscreteEdit()
+                EditorEditMenu.apply(transform, to: textView, in: selection)
             }
         }
 
@@ -721,6 +753,12 @@ final class NoteUITextView: UITextView, SpellcheckingTextView {
             command.title = "Heading \(level)"
             commands.append(command)
         }
+        // Asked fresh each time, like the screenplay's suggestion arrows: with
+        // nothing selected there is nothing to change the case of, so the chords
+        // are not claimed at all rather than claimed and doing nothing.
+        if selectedRange.length > 0 {
+            commands += EditorEditMenu.caseKeyCommands(action: #selector(handleTextCase))
+        }
         return commands
     }
 
@@ -731,6 +769,11 @@ final class NoteUITextView: UITextView, SpellcheckingTextView {
     @objc private func handleHeading(_ sender: UIKeyCommand) {
         guard let level = Int(sender.input ?? ""), (1...3).contains(level) else { return }
         onCommand?(.heading(level))
+    }
+
+    @objc private func handleTextCase(_ sender: UIKeyCommand) {
+        guard let transform = EditorEditMenu.transform(from: sender) else { return }
+        onCommand?(.textCase(transform))
     }
 
     override func insertText(_ text: String) {

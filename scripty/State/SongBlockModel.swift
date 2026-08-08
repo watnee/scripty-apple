@@ -987,6 +987,59 @@ final class SongBlockModel {
         return await create(from: link, below: block)
     }
 
+    /// Copy a line, words and all, directly below itself.
+    ///
+    /// One request rather than create-then-edit: `create` already takes the
+    /// content, having been built that way for dictated lines. The words come
+    /// from `currentText`, so duplicating a line part-way through typing copies
+    /// what is on screen rather than what the server last confirmed.
+    @discardableResult
+    func duplicateLine(_ block: SongBlock) async -> Int? {
+        // The line being copied goes first, for the same reason `addLine`
+        // commits before chaining: offline that is the queue entry being
+        // brought up to date before another line is hung off it.
+        await commit(block)
+        let content = currentText(block)
+        if block.isLocal {
+            return createLocalLine(below: block, content: content)
+        }
+        guard let link = block.link(.createBelow) else { return nil }
+        return await create(from: link, below: block, content: content)
+    }
+
+    /// Swap a line with the one above it. Nothing to do at the top.
+    ///
+    /// `caret` is where the writer was in the line. `move` reloads the whole
+    /// lyric, which can take the row — and first responder with it — out from
+    /// under the keyboard; asking for the line back afterwards is what keeps a
+    /// writer able to press ⌥↑ twice without reaching for the line again.
+    func moveLineUp(_ block: SongBlock, caret: Int? = nil) async {
+        guard let index = index(of: block), index > 0 else { return }
+        await move(block, to: index - 1)
+        refocus(block, caret: caret)
+    }
+
+    /// Swap a line with the one below it. Nothing to do at the bottom.
+    func moveLineDown(_ block: SongBlock, caret: Int? = nil) async {
+        guard let index = index(of: block), index + 1 < blocks.count else { return }
+        await move(block, to: index + 1)
+        refocus(block, caret: caret)
+    }
+
+    private func refocus(_ block: SongBlock, caret: Int?) {
+        focusRequest = block.id
+        if let caret { caretRequests[block.id] = caret }
+    }
+
+    func canMoveLineUp(_ block: SongBlock) -> Bool {
+        block.hasLink(.move) && (index(of: block) ?? 0) > 0
+    }
+
+    func canMoveLineDown(_ block: SongBlock) -> Bool {
+        guard block.hasLink(.move), let index = index(of: block) else { return false }
+        return index + 1 < blocks.count
+    }
+
     private func create(from link: HALLink, below anchor: SongBlock? = nil,
                         content: String = "") async -> Int? {
         do {
@@ -1288,6 +1341,91 @@ final class SongBlockModel {
             await refreshUndoRedo()
         } catch {
             report(error)
+        }
+    }
+
+    // MARK: - Find and replace
+
+    /// Whether the server offers Replace All on this song.
+    ///
+    /// The whole replace row is gated on this one link, which is what makes the
+    /// feature need no flag: a server that predates the song replace rels simply
+    /// keeps offering find alone, and nothing looks broken.
+    var canReplaceLyrics: Bool { links[.bulkReplace] != nil }
+
+    /// Replaces the first remaining occurrence in one line — the "Replace" that
+    /// steps down a song, as against "Replace All".
+    ///
+    /// Always occurrence zero: this client walks line by line, so the current
+    /// match *is* the line, and its first remaining occurrence is the one to
+    /// take next. Pressing Replace again lands on the one after.
+    @discardableResult
+    func replaceOne(_ block: SongBlock, find: String, replace: String,
+                    matchCase: Bool, wholeWord: Bool) async -> Bool {
+        let needle = find.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty, let link = block.link(.replace) else { return false }
+        // The server's answer overwrites what is on screen, and this editor
+        // holds a debounce and a `liveText` per line — so the words go first, or
+        // the last few keystrokes are silently discarded. `move` commits for
+        // exactly this reason.
+        await commitAll()
+        do {
+            let updated: SongBlock = try await app.client.fetch(
+                from: link, method: "POST",
+                body: ReplaceOneCommand(find: needle, replace: replace,
+                                        matchCase: matchCase, wholeWord: wholeWord,
+                                        occurrence: 0))
+            // `self.` because the parameter above shadows the method.
+            self.replace(updated)
+            liveText[updated.id] = nil
+            errorMessage = nil
+            await refreshUndoRedo()
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Replaces every match across the whole song, in one undo step.
+    ///
+    /// Answers how many lines actually changed, worked out by comparing what
+    /// came back with what was held — the server replies with the refreshed
+    /// collection rather than a count, exactly as the screenplay's does.
+    ///
+    /// No offline path: replace is a server operation and there is no queue
+    /// entry shaped like one. With no link the row is never drawn in the first
+    /// place, so there is nothing to fail.
+    func bulkReplace(find: String, replace: String,
+                     matchCase: Bool, wholeWord: Bool) async -> Int? {
+        let needle = find.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty, let link = links[.bulkReplace] else { return nil }
+        await commitAll()
+        let before = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0.content ?? "") })
+        do {
+            // Which song and which version are already in the link — the server
+            // builds it for the edition whose lines these are, which is exactly
+            // why this model never has to know its edition's id.
+            let collection: HALCollection<SongBlock> = try await app.client.fetch(
+                from: link, method: "POST",
+                body: SongBulkReplaceCommand(ids: nil,
+                                             find: needle,
+                                             replace: replace,
+                                             matchCase: matchCase,
+                                             wholeWord: wholeWord))
+            adopt(collection)
+            errorMessage = nil
+            var changed = 0
+            for block in blocks where before[block.id] != nil
+                && before[block.id] != (block.content ?? "") {
+                liveText[block.id] = nil
+                changed += 1
+            }
+            await refreshUndoRedo()
+            return changed
+        } catch {
+            report(error)
+            return nil
         }
     }
 

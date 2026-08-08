@@ -106,6 +106,38 @@ extension ShortcutGroup {
                 ShortcutEntry("Align centre", "⌘⇧E")
             ]),
         ShortcutGroup(
+            id: "case",
+            title: "Text Case",
+            systemImage: "textformat.alt",
+            context: "With words selected, in a screenplay element, a lyric line or a note.",
+            note: "These rewrite the selection itself rather than the line around "
+                + "it, which is why they carry ⌥ rather than joining the ⇧ family "
+                + "the screen-level toggles use — and why they are bound to the "
+                + "text you are in rather than to the menu bar. With nothing "
+                + "selected they do nothing at all, and are not offered.",
+            entries: [
+                ShortcutEntry("UPPERCASE", "⌘⌥U"),
+                ShortcutEntry("lowercase", "⌘⌥L"),
+                ShortcutEntry("Title Case", "⌘⌥T"),
+                ShortcutEntry("Sentence case", "⌘⌥S")
+            ]),
+        ShortcutGroup(
+            id: "lines",
+            title: "Whole Lines",
+            systemImage: "line.3.horizontal",
+            context: "Acts on the screenplay element or lyric line the caret is in.",
+            note: "A note carries none of these: it is one field of prose rather "
+                + "than a list of lines, so there is nothing for them to act on. "
+                + "Move matches the browser's own ⌥↑ and ⌥↓, and takes the "
+                + "caret's paragraph movement in exchange. Delete is ⌘⇧⌫ rather "
+                + "than ⌘⌫, which belongs to the system's delete-to-start-of-line.",
+            entries: [
+                ShortcutEntry("Duplicate the line", "⌘D"),
+                ShortcutEntry("Move the line up", "⌥↑"),
+                ShortcutEntry("Move the line down", "⌥↓"),
+                ShortcutEntry("Delete the line", "⌘⇧⌫")
+            ]),
+        ShortcutGroup(
             id: "typing",
             title: "Typing",
             systemImage: "text.cursor",

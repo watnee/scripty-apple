@@ -173,6 +173,8 @@ struct SongEditorView: View {
     @State private var formatting: NoteEditorController
     @FocusState private var titleFocused: Bool
     @State private var showingIgnoredWords = false
+    /// This document's own numbers, opened from the word-count row in the "…".
+    @State private var showingStats = false
     /// Whether the two-versions screen is up. Opened by a press only — the
     /// banner and the badge both offer it, and neither takes the words away
     /// without being asked.
@@ -488,6 +490,15 @@ struct SongEditorView: View {
         return canEdit ? "Edit \(type.label)" : type.label
     }
 
+    /// What the statistics sheet calls this document.
+    ///
+    /// The title as it stands in the field rather than `navTitle` — that one
+    /// says "Edit Note", which is the right thing over the editor and the wrong
+    /// thing over a sheet of numbers about one particular note. Through
+    /// `storedName` so an untitled one is called what every other screen calls
+    /// it rather than inventing a second way of saying the same thing.
+    private var statsTitle: String { storedName(for: title) }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -572,6 +583,13 @@ struct SongEditorView: View {
             }
             .sheet(isPresented: $showingIgnoredWords) {
                 SpellcheckWordsView()
+            }
+            .sheet(isPresented: $showingStats) {
+                // Built here rather than held: it walks the whole note, and a
+                // note being typed into should not gather its own statistics on
+                // every keystroke — which is the same reason the word count
+                // beside it is memoized.
+                DocumentStatsView(title: statsTitle, stats: DocumentStats(noteText: content))
             }
             .sheet(isPresented: $showingConflicts) {
                 SyncConflictsView(conflicts: conflicts,
@@ -1326,15 +1344,21 @@ struct SongEditorView: View {
         // reruns per character and the count would otherwise re-split the
         // entire note every time.
         //
-        // A disabled `Button` rather than the bare `Label` this wants to be: a
+        // A `Button` rather than the bare `Label` this once wanted to be: a
         // toolbar item with no control in it is dropped from the overflow menu
-        // without a word — the row simply never appears. Disabled is also how
-        // the row should read, since there is nothing to press.
+        // without a word — the row simply never appears.
+        //
+        // It used to be disabled, since there was nothing to press. It opens the
+        // document's own statistics now, which is the natural reading of the row
+        // a writer already goes to when they want to know how long the thing is
+        // — and it costs no new toolbar item, which matters here, where this
+        // builder is already split in two because it hit the limit.
         ToolbarItem(placement: .secondaryAction) {
-            Button {} label: {
+            Button {
+                showingStats = true
+            } label: {
                 Label(wordCountTitle, systemImage: "number")
             }
-            .disabled(true)
         }
         // The mode itself, in the "…" this sheet has instead of a View menu —
         // the screenplay's Read Script toggle, wearing this document's word for

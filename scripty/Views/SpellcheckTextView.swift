@@ -69,8 +69,10 @@ extension SpellcheckingTextView {
     }
 }
 
-/// "Ignore Spelling", added to whatever the system already offers for the word
-/// under the selection.
+/// "Ignore Spelling" for the word under the selection.
+///
+/// Composed into the editing menu by `EditorEditMenu`, which is the one place a
+/// menu is actually built for any of the three writing surfaces.
 @MainActor
 enum SpellcheckEditMenu {
     /// The menu to show for `range`, or nil to leave the system's own alone.
@@ -87,15 +89,19 @@ enum SpellcheckEditMenu {
     /// The system's own suggestions are handed back alongside it: what this
     /// returns *replaces* the menu rather than adding to it, so dropping them
     /// would take the spelling corrections with it.
-    static func menu(for textView: UITextView,
-                     in range: NSRange,
-                     appending suggested: [UIMenuElement]) -> UIMenu? {
+    /// The "Ignore Spelling" item alone, or nil when there is no word to ignore.
+    ///
+    /// Handed out as an item rather than a whole menu so `EditorEditMenu` can put
+    /// it in order beside the other things all three surfaces offer. It goes
+    /// first among them: the corrections are what a writer takes when the word
+    /// was a typo, and this is what they reach for when it was a name all along.
+    static func ignoreAction(for textView: UITextView, in range: NSRange) -> UIAction? {
         guard textView.spellCheckingType != .no,
               let word = ignorableWord(in: textView, at: range)
         else { return nil }
 
-        let ignore = UIAction(title: "Ignore Spelling",
-                              image: UIImage(systemName: "character.book.closed")) { _ in
+        return UIAction(title: "Ignore Spelling",
+                        image: UIImage(systemName: "character.book.closed")) { _ in
             MainActor.assumeIsolated {
                 SpellcheckDictionary.shared.add(word)
                 // This view is the one the writer is looking at, and a change to
@@ -104,10 +110,6 @@ enum SpellcheckEditMenu {
                 (textView as? any SpellcheckingTextView)?.recheckSpelling()
             }
         }
-        // First, so it is on the menu's first page: the corrections are what a
-        // writer takes when the word was a typo, and this is what they reach
-        // for when it was a name all along.
-        return UIMenu(children: [ignore] + suggested)
     }
 
     /// The word under the selection, unless the list already covers it.
