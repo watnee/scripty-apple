@@ -3,18 +3,21 @@
 //  scripty
 //
 //  Editor preferences: whether a document comes up to be read or to be typed
-//  in, the face the app writes in, and which elements are typed in ALL CAPS.
-//  The web app puts the capitals on a menu; on iOS they read better as a
-//  settings sheet of toggles, and the typeface — which the web has no setting
-//  for at all — belongs with them, as does the opening question, which is a
-//  standing answer rather than something you do to the script in front of you.
+//  in, the face the app writes in, which elements are typed in ALL CAPS, and
+//  what the files you export come out as. The web app puts the capitals on a
+//  menu; on iOS they read better as a settings sheet of toggles, and the
+//  typeface — which the web has no setting for at all — belongs with them, as
+//  does the opening question, which is a standing answer rather than something
+//  you do to the script in front of you. Export is the same kind of thing: a
+//  question every export used to answer for itself, asked once here.
 //
 //  The sections are stored in different places on purpose. Capitalization is
-//  the server's, because exports bake the case into the file; the default font
-//  and the opening view are this device's, like the type size and the
-//  appearance, because they change how a script is drawn and nothing about
-//  what is stored on it. So the caps section appears only once the preference
-//  has somewhere to save to, and the other two always do.
+//  the server's, because exports bake the case into the file; the default font,
+//  the opening view and the export preferences are this device's, like the type
+//  size and the appearance, because they change how a script is drawn or what
+//  this device does with it and nothing about what is stored on it. So the caps
+//  section appears only once the preference has somewhere to save to, and the
+//  others always do.
 //
 //  Each control persists on the spot — the toggles post only the field that
 //  changed, the pickers and the switch write straight to UserDefaults.
@@ -30,6 +33,7 @@ struct CapitalizationSettingsView: View {
     private var settings: CapitalizationSettings { CapitalizationSettings.shared }
     private var presentation: PresentationSettings { PresentationSettings.shared }
     private var readingViews: ReadingViewSettings { ReadingViewSettings.shared }
+    private var exports: ExportSettings { ExportSettings.shared }
 
     var body: some View {
         NavigationStack {
@@ -91,6 +95,47 @@ struct CapitalizationSettingsView: View {
                         Text("Type these elements in capitals. Exports carry the same case, so a change here also changes the PDF, Word and Final Draft files you export.")
                     }
                 }
+
+                // Last, because it is about the files that leave rather than
+                // the writing that stays — and because the section above it
+                // has just said that exports carry your capitals, which is the
+                // same subject arriving.
+                Section {
+                    Picker("Preferred Format", selection: formatBinding) {
+                        // Nil is a real answer here, not an empty one: it means
+                        // every menu keeps the order the server advertised.
+                        Text("As Listed").tag(ExportFormat?.none)
+                        ForEach(ExportFormat.allCases) { format in
+                            VStack(alignment: .leading) {
+                                Text(format.label)
+                                Text(format.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .tag(ExportFormat?.some(format))
+                        }
+                    }
+                    // Pushed rather than inline or in a menu: seven options
+                    // with a line of explanation under each is a list, and a
+                    // list of seven unrolled here would bury the two switches
+                    // under it. A menu would keep the room and lose the
+                    // explanations — a pop-up menu draws the label alone.
+                    .pickerStyle(.navigationLink)
+                    Toggle("Use My Page Setup", isOn: pageSetupBinding)
+                    Toggle("Add the Date to File Names", isOn: dateInNameBinding)
+                } header: {
+                    Text("Export")
+                } footer: {
+                    Text("The preferred format is listed first wherever you export — "
+                         + "a screenplay, a song, a note, or a whole songbook — and "
+                         + "menus that do not offer it are left as they are. "
+                         + "Use My Page Setup exports and prints a screenplay PDF on "
+                         + "the paper and margins you chose in Page Setup; turn it off "
+                         + "to send it on the standard US Letter page instead. "
+                         + "The date is added to the file that reaches the share "
+                         + "sheet — “Sunset Boulevard \(exampleDate).pdf” — and never "
+                         + "to the screenplay, song or note itself.")
+                }
             }
             .navigationTitle("Editor Preferences")
             .navigationBarTitleDisplayMode(.inline)
@@ -113,6 +158,28 @@ struct CapitalizationSettingsView: View {
             get: { presentation.defaultFont },
             set: { presentation.defaultFont = $0 })
     }
+
+    private var formatBinding: Binding<ExportFormat?> {
+        Binding(
+            get: { exports.preferredFormat },
+            set: { exports.preferredFormat = $0 })
+    }
+
+    private var pageSetupBinding: Binding<Bool> {
+        Binding(
+            get: { exports.usesPageSetup },
+            set: { exports.usesPageSetup = $0 })
+    }
+
+    private var dateInNameBinding: Binding<Bool> {
+        Binding(
+            get: { exports.namesFilesWithDate },
+            set: { exports.namesFilesWithDate = $0 })
+    }
+
+    /// Today's date, written the way an exported file would carry it, so the
+    /// example in the footer is the thing itself rather than a made-up day.
+    private var exampleDate: String { ExportSettings.stamp() }
 
     private func binding(for element: CapitalizedElement) -> Binding<Bool> {
         Binding(

@@ -310,8 +310,9 @@ struct ProjectsSidebarView: View {
                 }
             }
             // Editor preferences: whether documents open to be read or ready to
-            // type in, the default typeface, and auto-capitalization where the
-            // account offers it. Ungated now that the sheet holds choices about
+            // type in, the default typeface, what the files you export come out
+            // as, and auto-capitalization where the account offers it. Ungated
+            // now that the sheet holds choices about
             // this device — the caps toggles are still advertised to a signed-in
             // account alone and the sheet shows them only then, but a writer in
             // a demo session still has a font to pick and a view to open in.
