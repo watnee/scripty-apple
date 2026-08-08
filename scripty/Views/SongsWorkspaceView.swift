@@ -79,6 +79,15 @@ struct SongsWorkspaceView: View {
     @State private var locks: [Int: DocumentViewOptions] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
+    /// Whether the filter field is up. A toolbar glyph rather than the standing
+    /// `.searchable` field this screen used to carry: inside a cover that field
+    /// draws a full-width bar across the foot of every opening, and the band it
+    /// takes is a line of every lyric on the one screen whose whole point is how
+    /// many lines fit. Finding a song here is the errand a writer with a long
+    /// book comes to now and then; showing every song is the ordinary state.
+    /// The song editor and the screenplay keep their own find the same way —
+    /// see `DocumentFilterBar`.
+    @State private var isSearching = false
     @State private var showingIgnoredWords = false
     /// Whether the two-versions screen is up, over every song open here.
     @State private var showingConflicts = false
@@ -155,31 +164,33 @@ struct SongsWorkspaceView: View {
             // and a verse reads double-spaced.
             .environment(\.defaultMinListRowHeight, 1)
             .environment(\.scriptTextScale, settings.textScale)
-            .searchable(text: $filter, prompt: "Filter songs")
             .overlay { emptyState }
             // The same way down from a lyric line the song editor gives, since
             // this screen is the same rows in a different list. Mounted in the
             // bar rather than in the list, where a conditional row is a coin
             // toss from one launch to the next.
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                if isArranging {
-                    arrangingBar
-                // The transport above the way down from the keyboard, as the
-                // song editor stacks the same two: the bar belongs to a
-                // reading that is running, and the way down from a line is the
-                // thing reached for while one is being typed.
-                } else if narrator.isActive && isBeingRead {
-                    narrationBar
-                // Asked of the lyrics rather than of `focusedLine`, which
-                // SwiftUI discards: no row claims it with `.focused()`.
-                } else if lyrics.values.contains(where: { $0.focusedBlockId != nil }) {
-                    HideKeyboardBar(releaseFocus: {
-                        focusedLine = nil
-                        for lyric in lyrics.values {
-                            lyric.focusedBlockId = nil
-                            lyric.focusRequest = nil
-                        }
-                    })
+                // Stacked rather than chosen between, the way the song editor
+                // stacks its own three: a writer typing a verse can have the
+                // filter up over it, and a filter that took the way down from
+                // the keyboard with it would trap the caret.
+                //
+                // The field above everything, including the arranging strip: a
+                // filter narrows what the drag reorders, so hiding the field
+                // there would leave a writer dragging four songs out of forty
+                // with nothing on screen to say where the rest went.
+                //
+                // Then the transport, then the way down: the transport belongs
+                // to a reading that is running, and the way down from a line is
+                // the thing reached for while one is being typed.
+                VStack(spacing: 0) {
+                    searchBar
+                    if isArranging {
+                        arrangingBar
+                    } else {
+                        narrationBar
+                        keyboardBar
+                    }
                 }
             }
             .navigationTitle("All Songs")
@@ -464,11 +475,21 @@ struct SongsWorkspaceView: View {
         // has been calling this screen "how you hear whether the third song
         // follows the second" the whole time.
         let readSongs: (() -> Void)? = songs.isEmpty ? nil : { toggleReadAloud() }
+        // And ⌘F means this screen's own filter, wherever the caret is. Claimed
+        // for the same reason: without it the chord reached the screenplay
+        // behind the cover, so pressing ⌘F over the songs opened the *script's*
+        // search bar invisibly, and the writer found it sitting open when they
+        // closed the workspace. Narrowing is offered whenever there is a book to
+        // narrow, which the toolbar glyph is gated on too — filtering by title
+        // means as much on a page being read as on one being written.
+        let findSong: (() -> Void)? = model.songs.isEmpty ? nil : { toggleSearch() }
         // Nothing to step back through on a page being read — and still
         // published, so ⌘Z over the songs can never fall through to the script
         // this screen is covering.
         guard !isReading, let lyric = focusedLyric else {
-            return DocumentEditorActions(readAloud: readSongs, print: printSongs)
+            return DocumentEditorActions(readAloud: readSongs,
+                                         print: printSongs,
+                                         find: findSong)
         }
         return DocumentEditorActions(
             undo: { Task { await lyric.undo() } },
@@ -476,7 +497,8 @@ struct SongsWorkspaceView: View {
             canUndo: lyric.canUndo,
             canRedo: lyric.canRedo,
             readAloud: readSongs,
-            print: printSongs)
+            print: printSongs,
+            find: findSong)
     }
 
     // MARK: - Reading the set through
@@ -540,6 +562,42 @@ struct SongsWorkspaceView: View {
         if narrator.isActive && isBeingRead {
             NarrationTransportBar(narrator: narrator)
         }
+    }
+
+    /// The filter field, up only while it has been asked for.
+    @ViewBuilder
+    private var searchBar: some View {
+        if isSearching {
+            DocumentFilterBar(text: $filter, prompt: "Filter songs") {
+                isSearching = false
+            }
+        }
+    }
+
+    /// The way down from a lyric line, up only while one is being typed into.
+    ///
+    /// Asked of the lyrics rather than of `focusedLine`, which SwiftUI discards:
+    /// no row claims it with `.focused()`.
+    @ViewBuilder
+    private var keyboardBar: some View {
+        if lyrics.values.contains(where: { $0.focusedBlockId != nil }) {
+            HideKeyboardBar(releaseFocus: {
+                focusedLine = nil
+                for lyric in lyrics.values {
+                    lyric.focusedBlockId = nil
+                    lyric.focusRequest = nil
+                }
+            })
+        }
+    }
+
+    /// Opens the filter field, or closes it and empties it — one errand, so the
+    /// toolbar glyph and ⌘F cannot come to mean different things. Closing clears
+    /// the query because a filter left standing behind a hidden field is a
+    /// workspace with songs missing and nothing on screen to say why.
+    private func toggleSearch() {
+        isSearching.toggle()
+        if !isSearching { filter = "" }
     }
 
     /// The songs on screen on paper, one to a sheet — the same file the list's
@@ -1055,6 +1113,23 @@ struct SongsWorkspaceView: View {
             }
             .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
+
+            // Where the standing search field was, as the fourth glyph in the
+            // same capsule — a fourth *item* beside Done and the badge is what
+            // tips this bar into dropping one, and not the same one twice.
+            //
+            // Last in the group rather than first: it is the errand of the four
+            // a writer reaches for least, and the trailing end is the one a
+            // narrower bar gives up. No shortcut on the button — ⌘F is claimed
+            // once at the scene by `ScriptCommands` and routed here through
+            // `DocumentEditorActions`, and both roads go through `toggleSearch`.
+            Button {
+                toggleSearch()
+            } label: {
+                Label("Filter Songs", systemImage: "magnifyingglass")
+            }
+            .labelStyle(.iconOnly)
+            .disabled(model.songs.isEmpty)
         }
         // The mode itself, in the "…" this screen has instead of a View menu —
         // the song editor's own toggle, in the plural. It says which way the

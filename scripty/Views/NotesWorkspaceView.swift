@@ -84,6 +84,15 @@ struct NotesWorkspaceView: View {
     @State private var locks: [Int: DocumentViewOptions] = [:]
     @State private var expanded: Set<Int> = []
     @State private var filter = ""
+    /// Whether the filter field is up. A toolbar glyph rather than the standing
+    /// `.searchable` field this screen used to carry, for the reason the songs
+    /// workspace changed the same way: inside a cover that field draws a
+    /// full-width bar across the foot of every opening, and the band it takes is
+    /// a line of prose on the one screen whose whole point is how much of it
+    /// fits. Finding a note is the errand a writer with a long list comes to now
+    /// and then; showing every note is the ordinary state — see
+    /// `DocumentFilterBar`.
+    @State private var isSearching = false
     @State private var showingIgnoredWords = false
     /// Whether the two-versions screen is up. Opened by a press only: a sheet
     /// that appeared over a half-typed note because a sweep found something
@@ -157,23 +166,26 @@ struct NotesWorkspaceView: View {
                 }
             }
             .listStyle(.plain)
-            .searchable(text: $filter, prompt: "Filter notes")
             .overlay { emptyState }
             // The same way down from a note the editor gives. Mounted in the
             // bar rather than in the list, where a conditional row is a coin
             // toss from one launch to the next — the songs workspace carries
             // its own for the same reason.
-            //
-            // Asked of `focusedNote`, which the panes report themselves: these
-            // are bridged text views that take first responder for themselves,
-            // and SwiftUI discards a focus value no view claimed.
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                if isArranging {
-                    arrangingBar
-                } else if narrator.isActive && isBeingRead {
-                    narrationBar
-                } else if let id = focusedNote, drafts[id] != nil {
-                    HideKeyboardBar(releaseFocus: { focusedNote = nil })
+                // Stacked rather than chosen between, as the songs workspace and
+                // the song editor stack their own: a writer typing can have the
+                // filter up over the prose, and a filter that took the way down
+                // from the keyboard with it would trap the caret. The field
+                // stays up over the arranging strip too, since a filter narrows
+                // what the drag reorders.
+                VStack(spacing: 0) {
+                    searchBar
+                    if isArranging {
+                        arrangingBar
+                    } else {
+                        narrationBar
+                        keyboardBar
+                    }
                 }
             }
             .navigationTitle("All Notes")
@@ -516,18 +528,27 @@ struct NotesWorkspaceView: View {
         // letting it fall through, which meant the one screen showing every
         // note at once was the one screen that could not be read aloud.
         let readNotes: (() -> Void)? = notes.isEmpty ? nil : { toggleReadAloud() }
+        // And ⌘F means this screen's own filter, wherever the caret is — claimed
+        // for the reason the two above are. Left unclaimed the chord reached the
+        // screenplay behind the cover, so pressing ⌘F over the notes opened the
+        // *script's* search bar invisibly, and the writer found it sitting open
+        // when they closed the workspace.
+        let findNote: (() -> Void)? = model.notes.isEmpty ? nil : { toggleSearch() }
         // Nothing to step back through on a page being read — and still
         // published, so ⌘Z over the notes can never fall through to the script
         // this screen is covering.
         guard !isReading, let id = focusedNote, let draft = drafts[id], canWrite(id) else {
-            return DocumentEditorActions(readAloud: readNotes, print: printNotes)
+            return DocumentEditorActions(readAloud: readNotes,
+                                         print: printNotes,
+                                         find: findNote)
         }
         return DocumentEditorActions(undo: { draft.history.undo() },
                                      redo: { draft.history.redo() },
                                      canUndo: draft.history.canUndo,
                                      canRedo: draft.history.canRedo,
                                      readAloud: readNotes,
-                                     print: printNotes)
+                                     print: printNotes,
+                                     find: findNote)
     }
 
     // MARK: - Reading the set through
@@ -580,6 +601,37 @@ struct NotesWorkspaceView: View {
         if narrator.isActive && isBeingRead {
             NarrationTransportBar(narrator: narrator)
         }
+    }
+
+    /// The filter field, up only while it has been asked for.
+    @ViewBuilder
+    private var searchBar: some View {
+        if isSearching {
+            DocumentFilterBar(text: $filter, prompt: "Filter notes") {
+                isSearching = false
+            }
+        }
+    }
+
+    /// The way down from a note, up only while one is being written in.
+    ///
+    /// Asked of `focusedNote`, which the panes report themselves: these are
+    /// bridged text views that take first responder for themselves, and SwiftUI
+    /// discards a focus value no view claimed.
+    @ViewBuilder
+    private var keyboardBar: some View {
+        if let id = focusedNote, drafts[id] != nil {
+            HideKeyboardBar(releaseFocus: { focusedNote = nil })
+        }
+    }
+
+    /// Opens the filter field, or closes it and empties it — one errand, so the
+    /// toolbar glyph and ⌘F cannot come to mean different things. Closing clears
+    /// the query because a filter left standing behind a hidden field is a
+    /// workspace with notes missing and nothing on screen to say why.
+    private func toggleSearch() {
+        isSearching.toggle()
+        if !isSearching { filter = "" }
     }
 
     /// The notes on screen on paper, one to a sheet — the same file the list's
@@ -995,6 +1047,23 @@ struct NotesWorkspaceView: View {
             }
             .labelStyle(.iconOnly)
             .disabled(expanded.isEmpty)
+
+            // Where the standing search field was, as the fourth glyph in the
+            // same capsule — a fourth *item* beside Done and the badge is what
+            // tips this bar into dropping one, and not the same one twice.
+            //
+            // Last in the group rather than first: it is the errand of the four
+            // a writer reaches for least, and the trailing end is the one a
+            // narrower bar gives up. No shortcut on the button — ⌘F is claimed
+            // once at the scene by `ScriptCommands` and routed here through
+            // `DocumentEditorActions`, and both roads go through `toggleSearch`.
+            Button {
+                toggleSearch()
+            } label: {
+                Label("Filter Notes", systemImage: "magnifyingglass")
+            }
+            .labelStyle(.iconOnly)
+            .disabled(model.notes.isEmpty)
         }
         // The mode itself, in the "…" this screen has instead of a View menu —
         // the note editor's own toggle, in the plural. It says which way the

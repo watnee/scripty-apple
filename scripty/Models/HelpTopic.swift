@@ -890,6 +890,13 @@ extension HelpTopic {
                     + "prose: every hit highlighted, arrows to step between them, "
                     + "Match Case and Whole Words of their own, and Replace beside "
                     + "Find while the note is open to typing.",
+                    "Both workspace screens are searched from the same magnifying "
+                    + "glass, which narrows the page to the songs or notes whose "
+                    + "titles match — a way to reach the one number you meant in a "
+                    + "book of forty without scrolling past the other thirty-nine. "
+                    + "\u{2318}F opens it too, Done closes it and puts every document "
+                    + "back, and a filter left on narrows what Expand All, Read "
+                    + "Aloud, Print and Arrange mean to what you can see.",
                     "The order of the songs is your own, and the all-songs workspace "
                     + "will rearrange it. Arrange Songs, in the \u{201C}…\u{201D} menu "
                     + "there, sets the lyrics aside and leaves the titles to be "
@@ -1188,7 +1195,8 @@ extension HelpTopic {
                            "dismiss", "close",
                            "lock", "locked", "unlock", "lock all", "unlock all",
                            "swipe to lock", "read only", "protect",
-                           "find", "search", "replace", "match case", "whole words",
+                           "find", "search", "filter", "narrow", "magnifying glass",
+                           "replace", "match case", "whole words",
                            "arrange", "rearrange", "reorder", "order", "drag",
                            "move up", "move down", "sort",
                            "folder", "folders", "group", "grouping", "file",
