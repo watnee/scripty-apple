@@ -517,8 +517,12 @@ struct SongEditorView: View {
                     editor
                 }
             }
+            // The writing surface's own spinner. Not while reading: that surface
+            // draws one of its own, in place of the "Nothing to Read" it would
+            // otherwise be showing over a document still on its way, and two
+            // spinners for one fetch is one more than there are fetches.
             .overlay {
-                if isLoading { ProgressView() }
+                if isLoading && !isReading { ProgressView() }
             }
             // Above the words, where the lyric editor keeps its own: a locked
             // note looks exactly like an unlocked one, so a tap that does
@@ -544,6 +548,12 @@ struct SongEditorView: View {
                 notices.situationChanged(offlineCopyKey)
             }
             .safeAreaBar(edge: .bottom, spacing: 0) { footer }
+            // Floated after the bars above, so it settles just over them rather
+            // than under them — the same corner, the same capsule and the same
+            // 3.2 seconds the lyric editor and the screenplay give the same
+            // step. See `NoteEditorController.historyToast` for why a note needs
+            // saying-so as much as either of them.
+            .historyToast(formatting.historyToast)
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -904,18 +914,28 @@ struct SongEditorView: View {
     /// as verse, a note set as prose. Reads the text on screen rather than the
     /// last saved copy, so a verse typed a moment ago is there to be read
     /// whether or not its save has landed.
+    ///
+    /// Both are told when the document is still on its way, for the cold-launch
+    /// path the lyric editor already covered: this sheet seeds the mode from the
+    /// remembered setting in `init` and only corrects it once the fetch has been
+    /// awaited, so a document left in reading view is on this surface before
+    /// there is a word to put on it. Without it, a writer reopening a page of
+    /// notes met "Nothing to Read — This note has nothing in it yet" for the
+    /// length of the request, and then their notes appeared.
     @ViewBuilder
     private var reader: some View {
         if type == .song {
             ReadSongView(title: trimmedTitle,
                          lines: content.components(separatedBy: .newlines),
                          textScale: settings.textScale,
+                         isLoading: isLoading,
                          onEdit: startWriting,
                          onUserScroll: respondToScroll)
         } else {
             ReadNoteView(title: trimmedTitle,
                          text: content,
                          textScale: settings.textScale,
+                         isLoading: isLoading,
                          onEdit: startWriting,
                          onUserScroll: respondToScroll)
         }

@@ -34,6 +34,19 @@ struct ReadNoteView: View {
     let title: String
     let text: String
     let textScale: Double
+    /// Whether the note is still on its way.
+    ///
+    /// Only ever true now that a note can *open* into reading rather than only
+    /// be switched into it: the editor seeds the mode from the remembered
+    /// setting in `init` and only corrects it after the fetch has been awaited,
+    /// so on a cold launch this surface is on screen before there is a word to
+    /// put on it. Without this, a writer who left a page of notes in reading
+    /// mode reopened it to "Nothing to Read — This note has nothing in it yet"
+    /// for the length of the request, and then the notes appeared. The spinner
+    /// the editor already has is attached to the writing surface, which is not
+    /// the one on screen at that moment. `ReadSongView` takes the same input for
+    /// the same cold-launch path, and `ReadScriptView` before it.
+    var isLoading = false
     /// Start writing the note — the double tap's counterpart of the Edit button
     /// in the toolbar. Nil where there is nothing to write in: a note the
     /// server sent to be read only.
@@ -94,7 +107,9 @@ struct ReadNoteView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if isLoading {
+            ProgressView()
+        } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             ContentUnavailableView(
                 "Nothing to Read",
                 systemImage: "note.text",
