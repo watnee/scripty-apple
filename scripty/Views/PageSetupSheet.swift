@@ -63,7 +63,7 @@ struct PageSetupSheet: View {
                 } header: {
                     Text("Result")
                 } footer: {
-                    Text("Page one is never numbered, by screenplay convention.")
+                    Text(resultFooter)
                 }
 
                 Section {
@@ -83,6 +83,20 @@ struct PageSetupSheet: View {
                 }
             }
         }
+    }
+
+    /// What this sheet is for, and — where it is no longer the whole story —
+    /// where the rest of the answer is. Exports and printing follow these
+    /// choices unless the writer has said in Export preferences that they
+    /// should not, and someone who has said so is exactly the person who will
+    /// otherwise set A4 here and wonder why their PDF came out on Letter.
+    private var resultFooter: String {
+        let convention = "Page one is never numbered, by screenplay convention."
+        guard !ExportSettings.shared.usesPageSetup else { return convention }
+        return convention
+            + " These choices are for reading and writing on this device only: "
+            + "Export preferences are set to send PDFs on the standard page "
+            + "instead, and printing goes through the PDF."
     }
 
     private func measurement(_ inches: Double) -> String {

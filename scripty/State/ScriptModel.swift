@@ -3472,6 +3472,19 @@ final class ScriptModel {
         /// unpaginated text — paper size and margins mean nothing to them, so
         /// they take the link exactly as advertised.
         var isPaged: Bool { rel == .exportPdf }
+
+        /// Which kind of file this is, across surfaces — a screenplay's PDF
+        /// and a song's are one format asked for by two rels. Nil for the
+        /// archive, which belongs to no family and is never anyone's preferred
+        /// format.
+        var format: ExportFormat? { ExportFormat(rel: rel) }
+    }
+
+    /// Whichever export options were built, with the writer's preferred format
+    /// first. Every list below ends here, so one preference answers for the
+    /// screenplay menu, a song's, a note's and both collections' at once.
+    private func preferredFirst(_ options: [ExportOption]) -> [ExportOption] {
+        ExportSettings.shared.ordered(options) { $0.format }
     }
 
     var exportOptions: [ExportOption] {
@@ -3483,9 +3496,9 @@ final class ScriptModel {
             (.exportEpub, "EPUB", "epub"),
             (.exportArchive, "Scripty Archive", "scripty.json"),
         ]
-        return all.compactMap { rel, label, ext in
+        return preferredFirst(all.compactMap { rel, label, ext in
             project.link(rel).map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
-        }
+        })
     }
 
     /// The option to print from, when the server can render one.
@@ -3519,9 +3532,9 @@ final class ScriptModel {
             // song importer reads back.
             (.exportSongMusicXml, "MusicXML", "musicxml"),
         ]
-        return all.compactMap { rel, label, ext in
+        return preferredFirst(all.compactMap { rel, label, ext in
             document.link(rel).map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
-        }
+        })
     }
 
     /// The formats the project's songs are offered in as one songbook. These
@@ -3536,9 +3549,9 @@ final class ScriptModel {
             // Every song as sections of one score; MusicXML has no second piece.
             (.exportSongsMusicXml, "MusicXML", "musicxml"),
         ]
-        return all.compactMap { rel, label, ext in
+        return preferredFirst(all.compactMap { rel, label, ext in
             documentsLinks[rel].map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
-        }
+        })
     }
 
     /// The formats the project's notes are offered in as one file — the
@@ -3553,9 +3566,9 @@ final class ScriptModel {
             (.exportNotesDocx, "Word", "docx"),
             (.exportNotesEpub, "EPUB", "epub"),
         ]
-        return all.compactMap { rel, label, ext in
+        return preferredFirst(all.compactMap { rel, label, ext in
             documentsLinks[rel].map { ExportOption(rel: rel, label: label, fileExtension: ext, link: $0) }
-        }
+        })
     }
 
     /// Whichever collection export belongs to the list on screen. The two sets
@@ -3635,14 +3648,17 @@ final class ScriptModel {
     /// Downloads an export with auth and writes it to a shareable temp file,
     /// named after whatever is being exported.
     ///
-    /// A paged export carries the writer's own page setup, so the PDF matches
-    /// the sheets they were just looking at in page view rather than falling
-    /// back to the server's defaults. Page setup is a device preference, so it
-    /// is read from the shared presentation settings at the moment of export.
+    /// A paged export carries a page setup, so the PDF matches the sheets the
+    /// writer was just looking at in page view rather than falling back to the
+    /// server's defaults — unless they have said in Export settings that it
+    /// should not, in which case the link goes as advertised and the server
+    /// lays the file out on its own standard page. Page setup is a device
+    /// preference, so either way it is read at the moment of export.
+    ///
     /// A song's own PDF is not `exportPdf`, so it keeps the server's song
     /// layout untouched — page setup applies to the screenplay, not a lyric.
     func downloadExport(_ option: ExportOption, named baseName: String) async throws -> URL {
-        let link = option.isPaged
+        let link = option.isPaged && ExportSettings.shared.usesPageSetup
             ? option.link.addingQuery(PresentationSettings.shared.pageSetup.exportQuery)
             : option.link
         let data = try await app.client.data(for: link)
@@ -3651,14 +3667,35 @@ final class ScriptModel {
         return url
     }
 
+    /// The page setup a screenplay PDF should be laid out on: the writer's own
+    /// where they want their exports on their paper, and the standard sheet
+    /// where they do not.
+    ///
+    /// Here rather than at each call site because the device draws this PDF
+    /// itself when there is no route to the server, and the whole point of
+    /// that fallback is to be the same document — which it only stays if both
+    /// paths ask the same question. `downloadExport` above sends nothing at
+    /// all rather than the standard setup, because saying nothing to the
+    /// server is what asks for the server's own default.
+    var exportPageSetup: PageSetup {
+        ExportSettings.shared.usesPageSetup ? PresentationSettings.shared.pageSetup : .default
+    }
+
     /// Where a shareable file goes, named after whatever is being exported
-    /// with the characters no filename can carry stripped out. Shared with the
+    /// with the characters no filename can carry stripped out, and with the
+    /// day's date on the end where the writer asked for one. Shared with the
     /// offline print path, which writes a PDF nobody downloaded.
+    ///
+    /// The date goes on last, after the stripping and after the fallback for a
+    /// nameless document: dating a file is meant to leave the name it had with
+    /// a date after it, and doing it the other way round would turn something
+    /// with no name into a file called nothing but the day.
     func shareableFileURL(named baseName: String, fileExtension: String) -> URL {
         let safeTitle = baseName
             .components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>"))
             .joined()
-        let name = (safeTitle.isEmpty ? "export" : safeTitle) + "." + fileExtension
+        let titled = ExportSettings.shared.fileName(for: safeTitle.isEmpty ? "export" : safeTitle)
+        let name = titled + "." + fileExtension
         return FileManager.default.temporaryDirectory.appendingPathComponent(name)
     }
 

@@ -592,12 +592,31 @@ extension HelpTopic {
                     + "scene headings, character cues and transitions, each on its "
                     + "own. That choice is stored on your account, so it follows you "
                     + "to the web editor and back, and the toggles appear only once "
-                    + "you are signed in. The font is there either way."
+                    + "you are signed in. The font is there either way.",
+                    "Export, at the foot of the same screen, answers three questions "
+                    + "once instead of at every export. Preferred Format is the one "
+                    + "listed first wherever you export — a screenplay, a song, a "
+                    + "note or a whole songbook — and a menu that does not offer it "
+                    + "is left as it is, so asking for Final Draft does nothing to a "
+                    + "song's menu and asking for MusicXML does nothing to a "
+                    + "screenplay's. Text means Fountain for a screenplay and a plain "
+                    + "text file for a song or a note.",
+                    "Use My Page Setup exports and prints a screenplay PDF on the "
+                    + "paper and margins you chose in Page Setup. Turn it off and the "
+                    + "PDF comes out on the standard US Letter page instead, so you "
+                    + "can read on A4 and deliver on Letter. Add the Date to File "
+                    + "Names puts the day on the end of the file that reaches the "
+                    + "share sheet — “Sunset Boulevard 2026-08-08.pdf” — and never on "
+                    + "the screenplay, song or note itself. Both are choices about "
+                    + "this device."
                 ],
                 keywords: ["capitalisation", "capitalization", "caps", "uppercase",
                            "settings", "automatic", "font", "typeface", "default font",
                            "courier", "arial", "times", "preferences",
-                           "open in edit view", "edit view", "reading view"]),
+                           "open in edit view", "edit view", "reading view",
+                           "export", "export settings", "preferred format",
+                           "default format", "file name", "filename", "date",
+                           "page setup", "letter", "a4", "paper"]),
             HelpTopic(
                 id: "background-noise",
                 title: "Something to Write To",
@@ -709,7 +728,10 @@ extension HelpTopic {
                     + "(MORE) and resumes under CHARACTER (CONT'D).",
                     "Page Setup chooses the paper size, the margins and where the page "
                     + "numbers sit. The same choice is used for the PDF export and for "
-                    + "printing, so what you see is what comes out.",
+                    + "printing, so what you see is what comes out — unless you turn "
+                    + "Use My Page Setup off under Export in Editor Preferences, which "
+                    + "keeps this sheet for reading and writing and sends the PDF on "
+                    + "the standard page.",
                     "The View menu turns it on from anywhere. While you are reading "
                     + "on an iPhone there is a button for it in the bar at the foot of "
                     + "the screen instead, next to Read Aloud, and it turns back into "
@@ -1383,10 +1405,14 @@ extension HelpTopic {
                     "Export offers whichever formats the server advertises: PDF, "
                     + "Fountain, Word, Final Draft, EPUB and the Scripty archive. "
                     + "Printing goes through the PDF, so the paper and the file are the "
-                    + "same document."
+                    + "same document.",
+                    "Which of them comes first, whether the PDF is on your own paper, "
+                    + "and whether the file carries the day's date are all set once "
+                    + "under Export in Editor Preferences — see Editor Preferences."
                 ],
                 keywords: ["fountain", "fdx", "docx", "pdf", "epub", "final draft",
-                           "word", "print", "download", "convert"]),
+                           "word", "print", "download", "convert",
+                           "preferred format", "default format", "file name", "date"]),
             HelpTopic(
                 id: "element-trash",
                 title: "Deleted Elements",

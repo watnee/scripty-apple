@@ -283,6 +283,18 @@ swiftc "${FLAGS[@]}" -o "$BUILD/viewsettings" \
 run_suite "$BUILD/viewsettings" || status=1
 
 echo
+echo "== Export settings =="
+# The settings and the rel-to-format map alone. The ordering is written
+# generically over "something with a format" precisely so that checking it does
+# not drag ScriptModel and the whole export stack in here.
+swiftc "${FLAGS[@]}" -o "$BUILD/exportsettings" \
+    "$SRC/State/ExportSettings.swift" \
+    "$SRC/Models/ExportFormat.swift" \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/ExportSettings/main.swift"
+run_suite "$BUILD/exportsettings" || status=1
+
+echo
 echo "== Where a document opens =="
 swiftc "${FLAGS[@]}" -o "$BUILD/readingview" \
     "$SRC/State/ReadingViewSettings.swift" \
@@ -389,6 +401,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/OfflineDocumentQueue.swift" \
@@ -425,6 +438,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/OfflineDocumentQueue.swift" \
@@ -499,6 +513,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songhistory" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/OfflineDocumentQueue.swift" \
@@ -659,6 +674,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
@@ -696,6 +712,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/conflicts" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
@@ -730,6 +747,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
@@ -766,6 +784,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/firstelement" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/ProjectListModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
@@ -802,6 +821,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/fastdelete" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
@@ -838,6 +858,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/undorace" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
@@ -875,6 +896,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
