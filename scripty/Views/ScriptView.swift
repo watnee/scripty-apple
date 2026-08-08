@@ -207,8 +207,8 @@ struct ScriptView: View {
     private let onProjectChanged: (Project) async -> Void
 
     /// Whether the split view is showing one column or two, which here decides
-    /// whether the songs and notes are offered in the toolbar or in a strip of
-    /// their own beneath it — see `documentsBar`.
+    /// whether the songs and notes take a capsule of their own in the toolbar
+    /// or join the View menu's — see `toolbar`.
     ///
     /// Passed in rather than read from the environment, for the reason
     /// `ContentView` gives where it reads it: inside a `NavigationSplitView`
@@ -287,12 +287,6 @@ struct ScriptView: View {
                 editionBanner
             }
         }
-        // Mounted after the banners, which puts it *above* them — a top inset
-        // declared later settles nearer the edge, the mirror of the bottom
-        // stack below. Songs and Notes are standing chrome and belong against
-        // the navigation bar; a banner is a thing that happened, and it reads
-        // as being about the script when it sits down against the script.
-        .safeAreaBar(edge: .top) { documentsBar }
         // A closed strip is closed about one situation. When the situation
         // moves on — the connection comes back, everything lands, a refusal
         // arrives on top of held work — the dismissal stops applying and the
@@ -1358,10 +1352,10 @@ struct ScriptView: View {
     /// The reading controls — the things a phone's navigation bar has no room
     /// for. A reading posture's bar only: see `isReadingPosture`.
     ///
-    /// Songs and Notes were here too, for want of anywhere else. They are now
-    /// at the top of the screen — `documentsBar` — which is where they were
-    /// always meant to be and where the far corner of a phone is no longer the
-    /// price of it.
+    /// Songs and Notes were here too, for want of anywhere else, and then in a
+    /// strip of their own under the navigation bar. They are in the bar itself
+    /// now — see `toolbar` — which is where they were always meant to be, and
+    /// where a phone spends no row of chrome on them.
     ///
     /// Listening is icon-only; the title stays on the `Label`, where VoiceOver
     /// still reads it. Buttons in a `.safeAreaBar` rather than `.bottomBar`
@@ -1419,47 +1413,6 @@ struct ScriptView: View {
             .buttonStyle(.bordered)
             .labelStyle(.iconOnly)
             .padding(.vertical, 4)
-        }
-    }
-
-    /// Songs & Notes, at the top of the screen, where a phone can reach the
-    /// writing beside the screenplay without it being two taps deep.
-    ///
-    /// The toolbar is where this belongs and where the iPad and the Mac keep
-    /// it, but a phone's bar has no room in either corner. The trailing side
-    /// draws two controls and the "…", and the View menu and Undo are those
-    /// two, so anything added there lands in the overflow. The leading side
-    /// looks empty and is not: measured on a 402pt iPhone with the pair this
-    /// button replaced, putting them beside the way back fits them, and then
-    /// takes *both* the View menu and Undo down into the "…" to pay for it —
-    /// the bar's budget is the title's leftovers rather than a count of items,
-    /// and a title has to come from somewhere.
-    ///
-    /// So it takes a strip of its own directly under the bar, which costs the
-    /// bar nothing and leaves it drawn at all times. Icon-only, like every
-    /// other place it appears and like every other control in this chrome: the
-    /// glyph is the same one the toolbar draws on wider layouts, so a writer
-    /// who has met it once meets it again here, and a strip carrying a lone
-    /// bordered glyph reads as chrome rather than as a banner. The title stays
-    /// on the `Label` for VoiceOver.
-    ///
-    /// It folds away with the toolbar while the script is scrolled through —
-    /// see `respondToScroll` — for the reading room the fold exists to give.
-    @ViewBuilder
-    private var documentsBar: some View {
-        // A phone only. Wider layouts draw the button in the toolbar, where it
-        // belongs, and a strip under the bar there would be a second row of
-        // chrome for a control that already has somewhere to be.
-        //
-        // Not while elements are being selected, and not in focus mode: both
-        // are the writer saying they are at work in this script, and this opens
-        // documents that are not it.
-        if isCompact && !isChromeHidden && !settings.isFocusMode
-            && model.canViewDocuments && !selection.isSelecting {
-            documentsButton
-                .buttonStyle(.bordered)
-                .labelStyle(.iconOnly)
-                .padding(.vertical, 4)
         }
     }
 
@@ -2663,6 +2616,37 @@ struct ScriptView: View {
                     Label("Edit", systemImage: "square.and.pencil")
                 }
             }
+
+            // The phone's Songs & Notes. Wider layouts give it a capsule of its
+            // own further along the bar; here it joins this one rather than
+            // opening a second, which is the rule this bar has taught twice
+            // over — it is budgeted in capsules, and a capsule of its own is
+            // what took two other controls down into the "…" the last time one
+            // was opened.
+            //
+            // This capsule rather than the errands one because of what it does:
+            // that group acts on the script in front of you, and this leaves it
+            // for other writing, which is nearer to the View menu's "what is on
+            // screen" than to any of them.
+            //
+            // It had a strip of its own under the bar before this, on the
+            // measurement that the bar had no room for it. The bar has room for
+            // exactly one more glyph, and the price is measured rather than
+            // reasoned: on a 402pt iPhone writing the script, the Navigator
+            // steps back into the "…" to pay for this, where it lands as a
+            // named row beside Select Elements and Characters — the two that
+            // group already gives up on a phone — rather than as a bare glyph.
+            // Undo and Search keep their places. In a reading posture nothing
+            // is lost at all: Undo and Search are not drawn there, so the
+            // Navigator stays in the bar beside the "…".
+            //
+            // Unlike the strip, this stays drawn while elements are being
+            // selected. The strip hid then because it was a row of chrome over
+            // the writing; in the bar it is one glyph among five that all stay,
+            // and a lone gap where a control was reads as a control that broke.
+            if isCompact && model.canViewDocuments && !settings.isFocusMode {
+                documentsButton
+            }
         }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -2803,9 +2787,9 @@ struct ScriptView: View {
         // is also what says so — one glyph joined to the errands on the left
         // would read as a sixth errand rather than the way off this screen.
         //
-        // Only where the bar has the room, which on a phone it has not in
-        // either corner: `documentsBar` gives the measurements and carries the
-        // phone's button in a strip under the bar instead.
+        // Only where the bar has the room for a third capsule, which on a phone
+        // it has not: there the button joins the View menu's, up with the group
+        // that declares it.
         //
         // Gated as a unit, spacer and all: gating the button inside a group
         // that is always present would leave a divider with nothing after it,
