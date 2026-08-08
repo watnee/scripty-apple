@@ -349,6 +349,18 @@ swiftc "${FLAGS[@]}" -o "$BUILD/shortcuts" \
 run_suite "$BUILD/shortcuts" || status=1
 
 echo
+echo "== Searching the help centre =="
+# Content and matching, both pure data — the view adds nothing a check here
+# cannot see. What it is for is the two ways a help search goes wrong: finding
+# topics the query has nothing to do with, and finding the right one and
+# putting it last.
+swiftc "${FLAGS[@]}" -o "$BUILD/help" \
+    "$SRC/Models/HelpSearch.swift" \
+    "$SRC/Models/HelpTopic.swift" \
+    "$ROOT/Tests/Help/main.swift"
+run_suite "$BUILD/help" || status=1
+
+echo
 echo "== Song and note shortcuts =="
 swiftc "${FLAGS[@]}" -o "$BUILD/songshortcuts" \
     "$SRC/Models/TextDocument.swift" \
