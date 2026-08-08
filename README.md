@@ -67,12 +67,20 @@ when you already know which one you want.
 ./scripts/demo.sh
 ```
 
-That builds the app, boots an iPad simulator, and opens a sample screenplay in
-the offline demo — no account, no backend, nothing to sign. Everything you type
+That builds the app, opens a simulator, and lands on a sample screenplay in the
+offline demo — no account, no backend, nothing to sign. Everything you type
 lives in memory and disappears when you uninstall it.
+
+It goes to a simulator that is already running when there is one, and only
+boots an iPad when there is not: booting a second device costs more than the
+build itself on an older Mac. Whichever it picks, it boots while the build
+runs rather than after it, and it says which device and whether it was already
+up before it starts.
 
 ```sh
 ./scripts/demo.sh --device "iPhone 17"   # pick a simulator by name
+./scripts/demo.sh --ipad                 # insist on an iPad
+./scripts/demo.sh --iphone               # insist on an iPhone
 ./scripts/demo.sh --no-build             # relaunch what is already installed
 ./scripts/demo.sh --reset                # discard edits from a past demo
 ```
