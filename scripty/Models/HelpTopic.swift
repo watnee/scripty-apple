@@ -741,6 +741,12 @@ extension HelpTopic {
                 paragraphs: [
                     "Navigator opens a panel of the scenes, sections, synopses and "
                     + "bookmarks in script order; tapping one jumps to it.",
+                    "Its Notes tab lists every note you have written into the "
+                    + "screenplay, each under the scene it sits in. Tapping one goes "
+                    + "there — and turns notes back on if you had hidden them, since "
+                    + "a hidden note is not on the page to be scrolled to. The switch "
+                    + "above the list is the same one as Show ▸ Notes in the View "
+                    + "menu, kept beside the notes it hides.",
                     "Outline Mode is the other half of the idea: it filters the script "
                     + "itself down to scene headings, sections and synopses, so you can "
                     + "restructure a draft without the dialogue in the way.",
@@ -752,7 +758,8 @@ extension HelpTopic {
                     + "the first element it gives you is a scene heading."
                 ],
                 keywords: ["navigator", "structure", "beats", "scenes", "jump",
-                           "navigate", "index", "outlining", "beat sheet"]),
+                           "navigate", "index", "outlining", "beat sheet",
+                           "notes", "note", "find notes", "hidden notes"]),
             HelpTopic(
                 id: "edit-screenplay",
                 title: "Getting Back to Writing",
@@ -789,8 +796,10 @@ extension HelpTopic {
                     + "keep it in reach. The Outline panel's Pins and Bookmarks tabs "
                     + "list what you have marked, and each carries a switch for showing "
                     + "those marks beside the script — the list still takes you to a "
-                    + "line whose mark is hidden. The Show section of the View menu "
-                    + "turns element labels and inline notes on and off. Every one of "
+                    + "line whose mark is hidden. The Notes tab beside them does the "
+                    + "same for the notes written into the script itself. The Show "
+                    + "section of the View menu turns element labels and inline "
+                    + "notes on and off. Every one of "
                     + "these settings belongs to this screenplay, so marking up one "
                     + "draft leaves the others alone.",
                     "Tags, set from an element's own menu or on a whole selection at "

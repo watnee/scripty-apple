@@ -4,7 +4,8 @@
 //
 //  The web app's outline sidebars — outline, characters, locations, songs,
 //  bookmarks and pins — collapsed into one sheet with a segmented picker, plus
-//  a list of the elements people have commented on.
+//  two lists the web has no sidebar for: the notes written into the script, and
+//  the elements people have commented on.
 //  Tapping any row dismisses and sends the script page to that block.
 //
 
@@ -31,7 +32,7 @@ struct ScriptOutlineView: View {
     }
 
     enum Tab: String, CaseIterable, Identifiable {
-        case outline, characters, locations, songs, bookmarks, pins, comments
+        case outline, characters, locations, songs, bookmarks, pins, notes, comments
 
         var id: String { rawValue }
 
@@ -43,6 +44,7 @@ struct ScriptOutlineView: View {
             case .songs: return "Songs"
             case .bookmarks: return "Bookmarks"
             case .pins: return "Pins"
+            case .notes: return "Notes"
             case .comments: return "Comments"
             }
         }
@@ -55,21 +57,22 @@ struct ScriptOutlineView: View {
             case .songs: return "music.note.list"
             case .bookmarks: return "bookmark"
             case .pins: return "pin"
+            case .notes: return "note.text"
             case .comments: return "bubble.left.and.bubble.right"
             }
         }
 
         /// Whether this tab reads the outline at all.
         ///
-        /// The three mark tabs do not — they collect elements the writer
-        /// flagged, wherever those sit in the story — and building the outline
-        /// walks the whole script. It was being built for them anyway, on
-        /// every body pass, including every time a switch in this sheet was
-        /// flipped.
+        /// The four mark tabs do not — they collect elements the writer
+        /// flagged or wrote to one side, wherever those sit in the story — and
+        /// building the outline walks the whole script. It was being built for
+        /// them anyway, on every body pass, including every time a switch in
+        /// this sheet was flipped.
         var needsOutline: Bool {
             switch self {
             case .outline, .characters, .locations, .songs: return true
-            case .bookmarks, .pins, .comments: return false
+            case .bookmarks, .pins, .notes, .comments: return false
             }
         }
 
@@ -81,7 +84,8 @@ struct ScriptOutlineView: View {
             case .songs: return "No lyrics in the screenplay yet."
             case .bookmarks: return "Bookmark an element to find it again quickly."
             case .pins: return "Pin an element to keep it close at hand."
-            case .comments: return "Notes people leave on an element are collected here."
+            case .notes: return "Notes you write into the script are collected here."
+            case .comments: return "Remarks people leave on an element are collected here."
             }
         }
     }
@@ -95,7 +99,7 @@ struct ScriptOutlineView: View {
             VStack(spacing: 0) {
                 Picker("View", selection: $tab) {
                     ForEach(Tab.allCases) { tab in
-                        // Icons only: six labels never fit at phone width.
+                        // Icons only: eight labels never fit at phone width.
                         Label(tab.label, systemImage: tab.systemImage)
                             .labelStyle(.iconOnly)
                             .tag(tab)
@@ -122,9 +126,10 @@ struct ScriptOutlineView: View {
         }
     }
 
-    /// Whether the marks are drawn beside the script's lines, offered next to
-    /// the list of them rather than in the View menu: a writer thinking about
-    /// pins or bookmarks is already looking at this panel, and the list here
+    /// Whether the marks are drawn beside the script's lines — or, for notes,
+    /// whether the elements are on the page at all — offered next to the list
+    /// of them rather than only in the View menu: a writer thinking about pins,
+    /// bookmarks or notes is already looking at this panel, and the list here
     /// keeps working as a way back to a line whose mark is hidden on the page.
     ///
     /// It sits above the list rather than in it so that an empty tab — the very
@@ -142,9 +147,13 @@ struct ScriptOutlineView: View {
         }
     }
 
-    /// The per-project setting behind the toggle, for the two tabs that have
+    /// The per-project setting behind the toggle, for the three tabs that have
     /// one. nil elsewhere, and nil without a project's options — previews pass
     /// none, and there is nothing to remember the choice in.
+    ///
+    /// Notes joins the two marks here rather than staying only in the View
+    /// menu's Show section, where it also lives: the switch belongs beside the
+    /// list of the things it hides for the same reason the other two are here.
     private var markVisibility: Binding<Bool>? {
         guard let options else { return nil }
         switch tab {
@@ -153,6 +162,8 @@ struct ScriptOutlineView: View {
         case .bookmarks:
             return Binding(get: { options.showsBookmarks },
                            set: { options.showsBookmarks = $0 })
+        case .notes:
+            return Binding(get: { options.showsNotes }, set: { options.showsNotes = $0 })
         default:
             return nil
         }
@@ -251,6 +262,21 @@ struct ScriptOutlineView: View {
                 }
             }
 
+        case .notes:
+            let notes = model.noteBlocks
+            let scenes = sceneContexts(for: notes)
+            rows(notes, empty: tab.emptyMessage) { block in
+                // Turning notes back on is part of going to one. The other
+                // lists send you to a line that is on the page whatever the
+                // switch above says; this switch takes the element itself off
+                // it, so without this the tap would dismiss the sheet and
+                // scroll to nothing at all.
+                jumpRow(to: block.id, first: { options?.showsNotes = true }) {
+                    blockLabel(block, icon: "note.text", scene: scenes[block.id],
+                               namesKind: false)
+                }
+            }
+
         case .comments:
             let commented = model.commentedBlocks
             let scenes = sceneContexts(for: commented)
@@ -283,11 +309,15 @@ struct ScriptOutlineView: View {
     /// line it is and where in the script it sits.
     ///
     /// A scene heading is its own answer to "where": it says only which scene
-    /// it is, rather than naming itself twice over.
-    private func context(_ block: Block, scene: OutlineSceneContext?) -> String {
-        guard let scene else { return block.blockType.label }
+    /// it is, rather than naming itself twice over. A list of one kind of
+    /// element — Notes — drops the kind for the same reason: every row would
+    /// carry the same word, under an icon that has already said it.
+    private func context(_ block: Block, scene: OutlineSceneContext?,
+                         namesKind: Bool) -> String {
+        guard let scene else { return namesKind ? block.blockType.label : "" }
         if block.blockType == .scene { return "Scene \(scene.number)" }
-        return "\(block.blockType.label) · Scene \(scene.number) · \(scene.heading)"
+        let place = "Scene \(scene.number) · \(scene.heading)"
+        return namesKind ? "\(block.blockType.label) · \(place)" : place
     }
 
     /// A marked element: what it says, what kind of element it is, and — the
@@ -296,6 +326,7 @@ struct ScriptOutlineView: View {
                             icon: String,
                             tint: Color = .orange,
                             scene: OutlineSceneContext?,
+                            namesKind: Bool = true,
                             trailing count: Int? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: icon)
@@ -305,10 +336,17 @@ struct ScriptOutlineView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(ScriptOutline.preview(previewText(block)))
-                Text(context(block, scene: scene))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                // Empty for a note ahead of the first scene heading: there is
+                // no kind to name and no scene to name it in, and a blank
+                // second line would leave the row taller than its neighbours
+                // for no reason.
+                let context = context(block, scene: scene, namesKind: namesKind)
+                if !context.isEmpty {
+                    Text(context)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
             if let count, count > 0 {
@@ -355,11 +393,15 @@ struct ScriptOutlineView: View {
     }
 
     /// Every row does the same thing: close the sheet, then scroll the script.
+    /// `first` runs before both, for the one list whose rows have to put their
+    /// element back on the page before there is anywhere to scroll to.
     private func jumpRow<Content: View>(
         to blockId: Int,
+        first: (() -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         Button {
+            first?()
             dismiss()
             navigator.jump(to: blockId)
         } label: {
