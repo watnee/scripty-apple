@@ -27,6 +27,11 @@
 //
 
 import AVFoundation
+// `UnsafeMutableAudioBufferListPointer` — the render block's only way into the
+// buffers — comes from CoreAudio's overlay. AVFoundation re-exports it on iOS
+// and does not on Mac Catalyst, where its absence is a compile error and
+// nothing else; importing it outright costs iOS nothing.
+import CoreAudio
 import Foundation
 import Observation
 

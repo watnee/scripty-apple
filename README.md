@@ -431,10 +431,28 @@ Info.plist so the prefix can be read back at runtime, and each store asks for
 the plain spelling first and the prefixed one only if that fails. Nothing has to
 know which platform it is on.
 
-**Mac Catalyst is untried.** The code is there and the entitlements are there,
-but it has not been run on a Mac. If it is wrong, the app publishes into a
-container the widgets cannot open and they show their empty state — nothing else
-breaks.
+**Mac Catalyst builds, and has never been launched.** All four targets compile
+and sign for `generic/platform=macOS,variant=Mac Catalyst`, `codesign --verify
+--deep --strict` passes, and each of the four binaries carries
+`WA6FZ2S8R3.group.scripty.scripty` with `TeamIdentifierPrefix` present in its
+Info.plist for the stores to read back. Exactly one source file was ever wrong:
+the noise generator's render block needs `import CoreAudio`, because AVFoundation
+re-exports that overlay on iOS and does not here.
+
+Two things a build cannot settle. Whether the container actually opens is a
+runtime question, and if it does not, the app publishes into a container the
+widgets cannot open and they show their empty state — nothing else breaks. And
+the app has still not been run, because it cannot be run on the machine it was
+built on: `MACOSX_DEPLOYMENT_TARGET` follows `IPHONEOS_DEPLOYMENT_TARGET` to
+26.2, so launching it needs a Mac on macOS 26.2 or later. Xcode lists an older
+Mac as an ineligible destination and says so plainly.
+
+Worth knowing before that first launch: the provisioning profile grants the
+group unprefixed, as `group.scripty.scripty`, while the signed entitlement
+carries the prefix. That mismatch is what macOS expects and is not a sign of
+anything wrong. Catalyst also raises 38 deprecation warnings for
+`UIWindow.init(frame:)` that no other platform raises; they are warnings today
+and the reason the initialiser exists is the iOS build.
 
 Two things worth knowing if you are changing any of this. Xcode's automatic
 signing registers the group against your App ID the first time it signs the app
