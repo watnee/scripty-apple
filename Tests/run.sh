@@ -505,6 +505,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offlinecreates" \
     "$ROOT/Shared/SongsNotesWidgetData.swift" \
     "$ROOT/Shared/BookmarksWidgetData.swift" \
     "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/ExportSettings.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
     "$SRC/State/OfflineDocumentQueue.swift" \
