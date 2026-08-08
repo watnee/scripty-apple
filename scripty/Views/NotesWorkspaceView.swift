@@ -218,6 +218,10 @@ struct NotesWorkspaceView: View {
             .onChange(of: app.connectivity.isOnline) { _, online in
                 guard online else { return }
                 Task { await flushAll() }
+                // And any pane that never managed to read its note gets another
+                // go at reading it — until it lands, that note cannot be
+                // written in at all.
+                reopenUnreadableNotes()
             }
             // Backgrounding persists every half-typed paragraph before the
             // system decides how much longer this process runs; the foreground
@@ -713,6 +717,19 @@ struct NotesWorkspaceView: View {
                 if !isReading {
                     lockBanner(note, draft)
                 }
+                // Nothing could say what this note holds, so the pane is
+                // showing a truncated preview at best and refuses the keyboard
+                // — see `NoteDraft.couldNotLoad`. Said out loud, and not
+                // closable: it is the reason the note cannot be written in.
+                if draft.couldNotLoad {
+                    Label("This note isn't on this device yet — "
+                          + "it will open when the connection is back.",
+                          systemImage: "wifi.slash")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 // The same honesty the songs workspace gives a lyric it had to
                 // read off disk: an out-of-date note must not look current.
                 if let savedAt = draft.offlineCopySavedAt,
@@ -1163,6 +1180,12 @@ struct NotesWorkspaceView: View {
             let full = await model.fetchDocument(note)
             draft.content = full?.content ?? note.content ?? ""
             draft.savedContent = draft.content
+            // Neither the server nor this device could say what this note
+            // holds, so what is in the pane is a truncated preview at best and
+            // must not be typed over — see `NoteDraft.couldNotLoad`. A held
+            // draft is the exception: this device wrote those words, they are
+            // the newest anyone typed, and the sweep below puts them back.
+            draft.couldNotLoad = full == nil && model.heldDocumentDraft(for: note) == nil
             // These are the words the pane opens showing, so they are where a
             // step back stops. Anything the history held before them described
             // the truncated preview it was seeded with.
@@ -1184,6 +1207,22 @@ struct NotesWorkspaceView: View {
             // though it were now.
             if draft.haveServerBaseline { draft.lastSyncedAt = .now }
             draft.isLoading = false
+        }
+    }
+
+    /// Try again to read the notes whose panes came up empty because nothing
+    /// could reach them. The draft is dropped and rebuilt rather than patched,
+    /// so the whole of `open` runs again — the baseline, the history's floor
+    /// and the stamps all have to be set from the words that finally arrive.
+    ///
+    /// Only panes with nothing of their own to lose: a `couldNotLoad` draft has
+    /// never been editable, so there is nothing in it a rebuild could throw
+    /// away.
+    private func reopenUnreadableNotes() {
+        for (id, draft) in drafts where draft.couldNotLoad {
+            guard let note = model.notes.first(where: { $0.id == id }) else { continue }
+            drafts[id] = nil
+            open(note)
         }
     }
 
@@ -1478,9 +1517,23 @@ final class NoteDraft {
     @ObservationIgnored private let counter = WordCountMemo()
     var wordCount: Int { counter.words(in: content) }
 
+    /// This note's own words could not be got at all: the server was out of
+    /// reach and this device has never kept a copy of *this* note.
+    ///
+    /// What this pane used to do then was open showing nothing — the row it was
+    /// built from carries a truncated preview and no content — with
+    /// `savedContent` set to the empty string it was showing. A blank pane over
+    /// a page of writing, and typing into it was the dangerous part: the words
+    /// were held with no server baseline, so the reconnect sweep pushed them as
+    /// an ordinary edit and the note became whatever had been typed over the
+    /// nothing. The note editor sheet had the same hole and is fixed the same
+    /// way — see `SongEditorView.couldNotLoad`.
+    var couldNotLoad = false
+
     /// Read-only where the server did not advertise an update link, the same
-    /// gate the single-note editor uses.
-    var canEdit: Bool { document.hasLink(.update) }
+    /// gate the single-note editor uses — or where this pane never managed to
+    /// read the note at all.
+    var canEdit: Bool { document.hasLink(.update) && !couldNotLoad }
 
     init(document: TextDocument) {
         self.document = document

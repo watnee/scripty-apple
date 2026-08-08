@@ -86,6 +86,20 @@ struct SongEditorView: View {
     @State private var loaded: TextDocument?
     /// A trip back from the archive in flight.
     @State private var isUnarchiving = false
+    /// The document's own words could not be got at all: the server was out of
+    /// reach and this device has never kept a copy of *this* one.
+    ///
+    /// What this sheet used to do in that case was open showing nothing — the
+    /// row it was handed carries a truncated preview and no content — with
+    /// `savedContent` set to the empty string it was showing. A blank page over
+    /// a page of writing, and typing into it was the dangerous part: the words
+    /// were held with no server baseline, so the reconnect sweep pushed them as
+    /// an ordinary edit and the note became whatever had been typed over the
+    /// nothing. The whole note, gone, by way of a feature meant to save it.
+    ///
+    /// So a load that failed makes the sheet read-only until it succeeds. The
+    /// strip below says why, and the connection returning tries again.
+    @State private var couldNotLoad = false
     @State private var errorMessage: String?
     /// What the writer is told about the saving of an existing note. Nil until
     /// something has been typed, so a note opened and not touched says nothing.
@@ -271,14 +285,39 @@ struct SongEditorView: View {
     /// The document this sheet is acting on, in order of how much is known
     /// about it: the fetched resource, then the row it opened with, then the
     /// one its own first save made.
-    private var target: TextDocument? { loaded ?? document ?? created }
+    private var target: TextDocument? {
+        let candidate = loaded ?? document ?? created
+        // A document written offline is a stand-in until the reconnect sweep
+        // creates it for real, and this sheet may still be open when that
+        // happens. From that moment its saves have to be aimed at the document
+        // the server made — a PUT to it, not another edit of a queue entry that
+        // no longer exists. Followed here rather than watched for, so every
+        // caller of `target` gets the answer at once.
+        guard let candidate, candidate.isLocal,
+              let realId = model.realDocumentId(forQueued: candidate.id),
+              let real = model.documents.first(where: { $0.id == realId })
+        else { return candidate }
+        return real
+    }
 
     private var isNew: Bool { target == nil }
 
     /// Whether the server left this document open to be changed at all. The
     /// standing permission, as against `canEdit` below, which is that *and*
     /// the writer having asked for the keyboard.
-    private var isDocumentEditable: Bool { document?.hasLink(.update) ?? true }
+    ///
+    /// A document written offline advertises no links at all — there is nothing
+    /// on the server to link to — so it would otherwise reopen read-only, which
+    /// is precisely the document the writer is in the middle of writing.
+    private var isDocumentEditable: Bool {
+        guard let document else { return true }
+        // Nothing may be typed over words this sheet never managed to read —
+        // see `couldNotLoad`. `canEdit` is what every save path here guards on,
+        // so this alone stops the autosave, the parting flush and the
+        // unsaved-changes count, exactly as the lock does.
+        guard !couldNotLoad else { return false }
+        return document.isLocal || document.hasLink(.update)
+    }
 
     /// Whether the words on screen can be typed into right now. Every save
     /// path in this sheet already guards on it, which is what makes reading and
@@ -416,14 +455,15 @@ struct SongEditorView: View {
     /// Whether going now would really lose the words, which is the only thing
     /// worth stopping a writer to ask about.
     ///
-    /// One case, and it is the case a song cannot have: a document that was
-    /// never created. Everything else on this screen is somewhere other than
-    /// this view — saved, a beat away from the parting flush, or held on disk
-    /// with the reconnect sweep carrying it, which is true of a refused save
-    /// too. A create has none of that. There is no row on the server for a
-    /// draft to be measured against, so nothing goes to the drafts store and
-    /// no sweep will pick it up; the words are here and nowhere else, and
-    /// dismissing is the one gesture that ends them.
+    /// One case, and it is now a narrow one: a document that was never created
+    /// *and* could not be queued either. Everything else on this screen is
+    /// somewhere other than this view — saved, a beat away from the parting
+    /// flush, held on disk with the reconnect sweep carrying it, or written
+    /// into the document outbox, which is the same promise for a document the
+    /// server has never seen. A create that simply could not get out no longer
+    /// reaches here at all: it comes back `queued`, with the words on disk.
+    /// What is left is a create the server *refused* — the one case where
+    /// there is nowhere for the words to go, and dismissing ends them.
     private var leavingLosesWork: Bool { isNew && saveFailed }
 
     /// Both kinds get the bar, because both get undo — which on a device with
@@ -494,6 +534,7 @@ struct SongEditorView: View {
                     archivedBanner
                     lockBanner
                     conflictBanner
+                    unreadableBanner
                     offlineCopyBanner
                 }
             }
@@ -582,7 +623,16 @@ struct SongEditorView: View {
             // green without the writer touching anything — and what gets a
             // document written offline created the moment there is a route.
             .onChange(of: model.app.connectivity.isOnline) { _, online in
-                guard online, saveStatus == .held || saveFailed else { return }
+                guard online else { return }
+                // A document this sheet could not read is not a save waiting to
+                // go out — it is a load waiting to be tried again, and until it
+                // lands the words stay locked away from the keyboard.
+                if couldNotLoad {
+                    didLoad = false
+                    Task { await loadFullContentIfNeeded() }
+                    return
+                }
+                guard saveStatus == .held || saveFailed else { return }
                 retry?.cancel()
                 retryAttempt = 0
                 Task { await saveNow() }
@@ -615,7 +665,18 @@ struct SongEditorView: View {
                     // the very words the writer just chose to throw away —
                     // and the held draft would push them on the next sweep.
                     discarding = true
-                    if let target { model.discardDocumentDraft(for: target.id) }
+                    if let target {
+                        // A document that exists keeps its row and loses only
+                        // the held words. One that was written offline *is* the
+                        // held words — leaving its outbox entry behind would
+                        // put a song the writer just discarded into the list,
+                        // and onto the server at the next reconnect.
+                        if target.isLocal {
+                            Task { await model.deleteDocument(target) }
+                        } else {
+                            model.discardDocumentDraft(for: target.id)
+                        }
+                    }
                     dismiss()
                 }
                 Button("Keep Editing", role: .cancel) {}
@@ -879,6 +940,37 @@ struct SongEditorView: View {
 
     private var offlineCopyKey: String {
         DismissedNotices.documentCopyKey(documentId: target?.id ?? 0)
+    }
+
+    /// Says the words could not be got at all, so nothing on screen is this
+    /// document and nothing may be typed over it.
+    ///
+    /// Not closable, unlike the strip below it. That one is an aside — these
+    /// words are a little old — and this is the reason the keyboard will not
+    /// come up; a writer who dismissed it would be left with a note that
+    /// refuses to be written in and nothing on screen saying why.
+    @ViewBuilder
+    private var unreadableBanner: some View {
+        if couldNotLoad {
+            HStack(spacing: 6) {
+                Image(systemName: "wifi.slash")
+                    .font(.caption)
+                Text("This \(kindWord) isn't on this device yet — "
+                     + "it will open when the connection is back.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(.orange.opacity(0.10))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(.separator).frame(height: 0.5)
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 
     /// Says the words on screen are the copy saved on this device, and how old
@@ -1511,6 +1603,26 @@ struct SongEditorView: View {
         }
         guard !didLoad else { return }
         didLoad = true
+        // A document written offline has no resource to fetch — the outbox
+        // entry *is* the document, and it holds the whole of it rather than the
+        // truncated preview a list row carries. Reopened from the list on a
+        // train, this is what puts the writing back on screen.
+        if document.isLocal {
+            if let entry = model.pendingDocument(for: document.id) {
+                title = entry.title
+                content = entry.content
+            }
+            savedTitle = title
+            savedContent = content
+            haveServerBaseline = false
+            formatting.reset(title: title, to: content)
+            // Nothing here has ever been agreed with a server, so there is
+            // nothing settled to read: this is writing in progress.
+            isReading = false
+            saveStatus = .held
+            titleFocused = canEdit && title.isEmpty
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         let full = await model.fetchDocument(document)
@@ -1519,6 +1631,13 @@ struct SongEditorView: View {
             title = full.title ?? title
             content = full.content ?? ""
         }
+        // Neither the server nor this device could say what this document
+        // holds. What is on screen is a truncated preview at best and nothing
+        // at all in the ordinary case, and it must not be treated as the
+        // document — see `couldNotLoad`. Held words are the exception: this
+        // device wrote them, they are the newest thing anyone typed, and they
+        // are adopted below whatever the load managed.
+        couldNotLoad = full == nil && model.heldDocumentDraft(for: document) == nil
         // Whether what landed came off the network or off this device — the
         // copy kept here is the whole document, so it is worth showing and
         // worth typing into, but it is not evidence of what the server holds.
@@ -1786,11 +1905,24 @@ struct SongEditorView: View {
             // sent.
             if hasUnsavedChanges { scheduleAutosave() }
         case .held:
+            saveStatus = .held
+            // A document the server has never seen has just taken these words
+            // into its outbox entry, which is where they were going to live
+            // anyway: there is nothing for a backoff to retry, only a create
+            // for the sweep to make. Marking them saved is what stops the sheet
+            // asking about "unsaved changes" over words that are on disk.
+            if document.isLocal {
+                savedTitle = sentTitle
+                savedContent = sentContent
+                retry?.cancel()
+                retryAttempt = 0
+                if hasUnsavedChanges { scheduleAutosave() }
+                break
+            }
             // On disk, retried by the reconnect sweep — and, while this sheet
             // is open, by the backoff, so the badge clears itself the moment
             // the route comes back rather than waiting for the writer to
             // notice it hasn't.
-            saveStatus = .held
             scheduleRetry()
         case .failed:
             // Refused. The draft is still on disk and the sweep still has it;
@@ -1853,11 +1985,28 @@ struct SongEditorView: View {
             // Typed into while the create was in flight: those words are not on
             // the server yet, and now there is a document to send them to.
             if hasUnsavedChanges { scheduleAutosave() }
+        case .queued(let document):
+            // On this device, in the list, and in the outbox: everything a
+            // held save promises, for a document the server has never seen.
+            // This sheet carries on editing it exactly as if the create had
+            // landed — the saves go into the queue entry — and the reconnect
+            // sweep turns it into a real document, whether or not anyone is
+            // still looking at it.
+            created = document
+            savedTitle = sentTitle
+            savedContent = sentContent
+            // Not a baseline: nothing has been agreed with a server. A held
+            // draft judged against this would be judged against words only
+            // this device has ever held.
+            saveStatus = .held
+            errorMessage = nil
+            retry?.cancel()
+            retryAttempt = 0
+            if hasUnsavedChanges { scheduleAutosave() }
         case .unreachable:
-            // The one held-shaped failure with nowhere to be held, so the
-            // backoff matters more here than anywhere else on this screen: it
-            // is what gets the document made while the writer is still sitting
-            // in front of it, before Done can cost them anything.
+            // No queue to write to — a demo or signed-out session, where a
+            // create cannot fail for want of a connection in the first place.
+            // The backoff is the whole safety net here.
             saveStatus = .failed("Not saved — couldn't reach the server.")
             scheduleRetry()
         case .failed:

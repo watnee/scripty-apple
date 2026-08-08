@@ -12,10 +12,18 @@
 //  A line whose save cannot get out is *held*, the same way a screenplay
 //  element is: the words stay live on screen, go to disk so a relaunch keeps
 //  them, retry on a backoff, and are pushed the moment the connection returns.
-//  Only edits get this treatment — creating, deleting and reordering lines
-//  still need the server, exactly as the lyric structure always has. Undo and
-//  Redo cover those held edits too: the server's history is unreachable with
-//  no connection, so `localHistory` walks back what it never saw.
+//  A line the writer *makes* offline is queued, the same way a screenplay
+//  element is: it goes on screen at once under a negative id, into an outbox on
+//  disk, and is created for real when the connection returns. Return had to
+//  keep working — a song is written by pressing it, and a lyric where the key
+//  did nothing was an editor that could only be corrected, never continued.
+//
+//  Reordering and highlighting a line still need the server, and a line the
+//  server already has still cannot be deleted without it; Backspace folding
+//  away a line written in this same offline sitting works, because taking a
+//  stand-in off the screen is a queue entry being dropped rather than a DELETE.
+//  Undo and Redo cover all of it: the server's history is unreachable with no
+//  connection, so `localHistory` walks back what it never saw.
 //
 //  Which edition's lyric is being read travels as a link rather than an id the
 //  client assembles — the editions collection hands over the `songBlocks` link
@@ -102,6 +110,11 @@ final class SongBlockModel {
     private(set) var unsavedBlockIds: Set<Int> = []
     var hasUnsavedChanges: Bool { !unsavedBlockIds.isEmpty }
 
+    /// How many lines on screen the server has never seen. What the badge's
+    /// panel counts beside the held edits, and the reason a lyric with nothing
+    /// in `liveText` can still have work to send.
+    var pendingCreateCount: Int { blocks.filter(\.isLocal).count }
+
     /// Lines whose latest write the server *refused* — a failure no retry
     /// fixes. Their words are still held, but nothing is in flight, and any
     /// badge must stop saying "saving".
@@ -120,6 +133,14 @@ final class SongBlockModel {
     /// live in different id spaces. Nil (signed out, demo) means held words
     /// survive this session only, as before.
     @ObservationIgnored private let draftStore: UnsavedDraftStore?
+
+    /// The outbox for lines written while the server was out of reach. Keyed by
+    /// *document* id in a folder of its own, for the reason the drafts are: a
+    /// lyric line and a screenplay element are different id spaces, and under
+    /// one folder a song would silently shadow a screenplay. Nil (signed out,
+    /// demo) means no queue is needed — a local backend answers before the call
+    /// returns, so a create there never fails for want of a connection.
+    @ObservationIgnored private let createQueue: OfflineBlockQueue?
 
     /// The offline copies of this account's lyrics, refreshed on every
     /// successful default-edition load and read back when a load fails for
@@ -214,7 +235,8 @@ final class SongBlockModel {
     var hasConflicts: Bool { !conflicts.isEmpty }
 
     init(app: AppModel, document: TextDocument, draftStore: UnsavedDraftStore? = nil,
-         offlineStore: OfflineStore? = nil, conflictStore: ConflictStore? = nil) {
+         offlineStore: OfflineStore? = nil, conflictStore: ConflictStore? = nil,
+         createQueue: OfflineBlockQueue? = nil) {
         self.app = app
         self.document = document
         self.draftStore = draftStore
@@ -222,6 +244,8 @@ final class SongBlockModel {
         self.offlineStore = offlineStore ?? app.offlineStore
         self.conflictStore = conflictStore
             ?? app.draftScope.map { ConflictStore(scope: $0, folder: "SongConflicts") }
+        self.createQueue = createQueue
+            ?? app.draftScope.map { OfflineBlockQueue(scope: $0, folder: "PendingSongBlocks") }
         // An unanswered question is still unanswered after a relaunch, and the
         // version it holds exists nowhere else.
         conflicts = self.conflictStore?.conflicts(collectionId: document.id) ?? []
@@ -312,11 +336,42 @@ final class SongBlockModel {
     func adopt(_ collection: HALCollection<SongBlock>) {
         blocks = collection.items.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
         links = collection.links
+        // Lines written offline are not in what the server just sent — that is
+        // the whole of what makes them pending — so they go back on top of it,
+        // before anything below judges what the lyric still carries.
+        adoptPendingCreates()
         // Whatever this replacement took away, it took the ability to save it
-        // with it. A lyric has no offline-created lines to protect here — the
-        // screenplay's queue is what makes its ordering delicate — so this can
-        // simply follow the assignment.
+        // with it.
         forgetHeldWorkForMissingLines()
+    }
+
+    /// Re-materialise the lines queued by an earlier run (or held across a
+    /// reload) on top of whatever the server just gave us.
+    ///
+    /// Runs after every adopt, for the reason `adoptPersistedDrafts` does: a
+    /// load replaces the collection wholesale, and the writer's un-sent lines
+    /// have to survive that. Entries are walked in creation order so a chain of
+    /// them lands in the order it was written.
+    private func adoptPendingCreates() {
+        guard let queue = createQueue else { return }
+        for entry in queue.pending(projectId: document.id) {
+            guard !blocks.contains(where: { $0.id == entry.tempId }) else { continue }
+            // The anchor may be a real line, an earlier pending one, or gone
+            // entirely (deleted elsewhere) — in which case the words still
+            // belong to the song, so the line goes at the end rather than
+            // being silently dropped.
+            let insertAt = entry.isAppend
+                ? blocks.count
+                : (blocks.firstIndex { $0.id == entry.anchorId }.map { $0 + 1 } ?? blocks.count)
+            let precedingOrder = insertAt > 0 ? blocks[insertAt - 1].order : nil
+            blocks.insert(SongBlock.local(tempId: entry.tempId,
+                                          documentId: document.id,
+                                          projectId: document.projectId,
+                                          order: precedingOrder,
+                                          content: entry.content),
+                          at: insertAt)
+            unsavedBlockIds.insert(entry.tempId)
+        }
     }
 
     // MARK: - Typing
@@ -378,6 +433,21 @@ final class SongBlockModel {
         }
     }
 
+    /// How a write of a line's text ended up. The distinction a merge needs and
+    /// a plain Bool cannot carry: a write that was *refused* is not the same
+    /// thing as one that couldn't get out but left the words safely held —
+    /// `ScriptModel.WriteOutcome` draws the same three, for the same reason.
+    private enum WriteOutcome {
+        /// The server stored it, there was nothing to store, or a queued local
+        /// create absorbed it — which is as stored as an offline line gets.
+        case saved
+        /// The write couldn't get out, but the words are held on this device:
+        /// flagged unsaved, snapshotted as a draft, and retrying.
+        case held
+        /// Refused for a reason a retry won't fix, or nothing to write with.
+        case failed
+    }
+
     /// Saves a line now — on blur, or before an action that would reload.
     ///
     /// Reports whether the line and the server now agree, which a merge has to
@@ -385,13 +455,17 @@ final class SongBlockModel {
     /// counts as agreeing.
     @discardableResult
     func commit(_ block: SongBlock) async -> Bool {
+        await commitOutcome(block) == .saved
+    }
+
+    private func commitOutcome(_ block: SongBlock) async -> WriteOutcome {
         // Nothing is written to a line already on its way out. A merge hands
         // the caret to the line above before it sends its DELETE, so the blur
         // that follows arrives here mid-merge: left to run it would PUT into
         // the gap the DELETE is about to open, and clear the live copy the
         // rollback still has to put back. The merge owns the line's words and
         // its flags until it is done with them — see `removingBlockIds`.
-        guard !removingBlockIds.contains(block.id) else { return true }
+        guard !removingBlockIds.contains(block.id) else { return .saved }
         commitTasks[block.id]?.cancel()
         commitTasks[block.id] = nil
         // No live words means nothing is held, whatever the flags say — a
@@ -400,7 +474,25 @@ final class SongBlockModel {
         // gets put right rather than pulsing "saving" forever.
         guard let pending = liveText[block.id] else {
             markSaved(block.id)
-            return true
+            return .saved
+        }
+        // A line written offline has nothing to PUT to. Its words go into the
+        // queue entry instead, so the create that eventually goes out carries
+        // the newest version — and it stays flagged unsaved, because it
+        // genuinely is. Saying the line and the server agree is what lets
+        // Return chain another line off this one and Backspace fold it away.
+        // `ScriptModel.commitOutcome` is the same branch for the same reason.
+        if block.isLocal {
+            if let change = localHistory.textChange(blockId: block.id, to: pending,
+                                                    lastSaved: block.text) {
+                localHistory.record([change])
+            }
+            createQueue?.updateContent(tempId: block.id, to: pending, projectId: document.id)
+            var updated = block
+            updated.content = pending
+            replace(updated)
+            unsavedBlockIds.insert(block.id)
+            return .saved
         }
         // Changed words with nowhere to PUT them. Reaching here means the
         // update link went away *while* the writer was typing — the song was
@@ -421,12 +513,12 @@ final class SongBlockModel {
         // was sent when nothing left it.
         guard let link = block.link(.update) else {
             markUnsaved(block.id, after: APIError.forbidden)
-            return false
+            return .failed
         }
         guard pending != block.text else {
             liveText[block.id] = nil
             markSaved(block.id)
-            return true
+            return .saved
         }
         // Snapshot before the attempt, not only after a failure: between here
         // and the response the words exist nowhere but this process, and a
@@ -446,10 +538,10 @@ final class SongBlockModel {
             // toolbar buttons, and Return awaits this commit before it can
             // make its line — a keystroke should never queue behind a status.
             refreshUndoRedoSoon()
-            return true
+            return .saved
         } catch {
             markUnsaved(block.id, after: error)
-            return false
+            return error.isRetryableAPIError ? .held : .failed
         }
     }
 
@@ -728,6 +820,10 @@ final class SongBlockModel {
         // in `unsavedBlockIds` for good, so the badge went on reporting held
         // work that no sweep would ever clear.
         forgetHeldWorkForMissingLines()
+        // The lines written offline go first: an edit held against one of them
+        // is carried by its own create, and a real line's PUT does not depend
+        // on any of this.
+        await replayPendingCreates()
         for id in unsavedBlockIds.sorted() {
             guard let line = block(id) else { continue }
             retryAttempts[id] = nil
@@ -741,6 +837,118 @@ final class SongBlockModel {
         // A drain that fell short keeps its steps — the writer is still
         // effectively offline, and they are still the only undo there is.
         if unsavedBlockIds.isEmpty { localHistory.clear() }
+    }
+
+    /// Send every line written offline, oldest first.
+    ///
+    /// Order is not an optimisation: a later line may be anchored to an earlier
+    /// one, so each create has to land — and have its real id recorded — before
+    /// the next can name it. A failure that could clear up stops the drain and
+    /// leaves the rest queued; one that never will gives up on that line alone
+    /// and keeps its words where the writer can still reach them.
+    private func replayPendingCreates() async {
+        guard let queue = createQueue else { return }
+        // Nothing may be judged before the lyric it belongs to is on screen.
+        // Every anchor below is resolved against `blocks`, so with an empty one
+        // — a load that failed with no cached copy behind it — the link lookup
+        // comes back nil for every entry and the whole queue would be thrown
+        // away as refused without a single request going out.
+        guard !blocks.isEmpty || links[.create] != nil else { return }
+        var resolvedAny = false
+        var gaveUp = false
+        // Once anything here lands or is given up on, the local steps describe
+        // lines that no longer exist under their temp identities — history
+        // belongs to the server again.
+        defer { if resolvedAny || gaveUp { localHistory.clear() } }
+        while let entry = queue.pending(projectId: document.id).first {
+            // A temp anchor has by now been sent and mapped, since the queue is
+            // drained in order.
+            var anchor: SongBlock?
+            if !entry.isAppend {
+                let realId = entry.anchorId < 0
+                    ? queue.realId(for: entry.anchorId, projectId: document.id)
+                    : entry.anchorId
+                anchor = realId.flatMap { id in blocks.first { $0.id == id } }
+            }
+            // No anchor (append, or the anchor is gone) means the end of the
+            // lyric — the last line the server actually knows about.
+            let source = anchor ?? blocks.last { !$0.isLocal }
+            guard let link = source?.link(.createBelow) ?? links[.create] else {
+                // Nothing on this song can take a new line: no edit access any
+                // more. (An unloaded lyric cannot reach here — the guard above
+                // turns it away.)
+                giveUpOnCreate(entry, from: queue)
+                gaveUp = true
+                continue
+            }
+            // The words as they stand now, not as they stood when the line was
+            // first typed — the writer has probably kept going.
+            let content = liveText[entry.tempId] ?? entry.content
+            do {
+                let created: SongBlock = try await app.client.fetch(
+                    from: link, method: "POST", body: CreateSongBlockCommand(content: content))
+                queue.resolve(tempId: entry.tempId, realId: created.id, projectId: document.id)
+                resolvedAny = true
+                // Swap the real line in where the stand-in stood rather than
+                // just dropping it: the next entry may be anchored to this one
+                // and resolves that anchor by looking the real id up in
+                // `blocks`, so it has to be there, with its `createBelow` link,
+                // before the loop goes on.
+                if let index = blocks.firstIndex(where: { $0.id == entry.tempId }) {
+                    blocks[index] = created
+                } else {
+                    blocks.append(created)
+                }
+                // The caret may be sitting in the line that just changed id.
+                if focusedBlockId == entry.tempId { focusedBlockId = created.id }
+                if focusRequest == entry.tempId { focusRequest = created.id }
+                if let caret = caretRequests.removeValue(forKey: entry.tempId) {
+                    caretRequests[created.id] = caret
+                }
+                liveText[entry.tempId] = nil
+                markSaved(entry.tempId)
+            } catch {
+                // Still no usable connection, or this app's own doing — the
+                // screen was left, the sync was stopped on the way to the
+                // background. Nothing has been judged; everything stays queued.
+                if error.isRetryableAPIError || error.isCancelledRequest { return }
+                switch error {
+                case APIError.unauthorized, APIError.redirectedOutOfAPI:
+                    // Not this line's fault and not a verdict on it. The
+                    // session goes; the queue is untouched, so signing back in
+                    // finds the night's writing still waiting.
+                    app.handle(error)
+                    return
+                default:
+                    // A real refusal: 403, 404, a validation error. The line is
+                    // given up on so the rest of the queue can move.
+                    giveUpOnCreate(entry, from: queue)
+                    gaveUp = true
+                }
+            }
+        }
+        if resolvedAny { await refreshUndoRedo() }
+    }
+
+    /// Give up on one line the server refused, keeping its words where the
+    /// writer can still reach them.
+    ///
+    /// The line goes — off the queue, off the screen — because the queue is
+    /// drained in order and one entry nothing will ever accept would block
+    /// everything behind it. But it was written on this device and never
+    /// existed anywhere else, so these words are the only copy there has ever
+    /// been: they go into the conflicts list, which is durable and which the
+    /// writer can copy out of. `couldNotBeCreated` rather than `refused` —
+    /// there is no line behind them to write them back into, so the banner
+    /// offers copying rather than a Keep Mine that would fail on every press.
+    private func giveUpOnCreate(_ entry: PendingBlockCreate, from queue: OfflineBlockQueue) {
+        let words = liveText[entry.tempId] ?? entry.content
+        dropPendingCreate(entry.tempId, from: queue)
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        recordConflict(SyncConflict(
+            subject: .lyricLine(id: entry.tempId), reason: .couldNotBeCreated,
+            mine: words, theirs: "", base: nil,
+            label: "Lyric line", detectedAt: .now))
     }
 
     // MARK: - Structure
@@ -761,8 +969,21 @@ final class SongBlockModel {
     /// Adds a line directly below another — what Return does.
     @discardableResult
     func addLine(below block: SongBlock) async -> Int? {
-        guard let link = block.link(.createBelow) else { return nil }
+        // The words in the line being left go first, whichever way the new one
+        // is made: offline that is the queue entry being brought up to date,
+        // and it must happen before another line is chained off this one.
         await commit(block)
+        // An anchor that is itself pending has no `createBelow` link to use, so
+        // the new line is queued behind it rather than refused. Writing three
+        // lines offline chains them, and the chain replays in the order it was
+        // written.
+        if block.isLocal {
+            return createLocalLine(below: block, content: "")
+        }
+        // No link on a *real* line means no permission to add one, which is not
+        // something a queue can fix — a silent no-op, not an offline create the
+        // server could never accept.
+        guard let link = block.link(.createBelow) else { return nil }
         return await create(from: link, below: block)
     }
 
@@ -777,9 +998,50 @@ final class SongBlockModel {
             refreshUndoRedoSoon()
             return created.id
         } catch {
-            report(error)
-            return nil
+            // Return has to keep working with no connection — this is the whole
+            // of writing a song. Hold the line locally and send it later.
+            guard error.isRetryableAPIError,
+                  let id = createLocalLine(below: anchor, content: content) else {
+                report(error)
+                return nil
+            }
+            return id
         }
+    }
+
+    /// Put a new line on screen that the server has never seen, and queue the
+    /// create for the next time there is a connection.
+    ///
+    /// Returns the stand-in's id so the caller can focus it, exactly as it
+    /// would have focused the server's answer. Nil only where there is no queue
+    /// to write to — a demo or signed-out session, where the create could not
+    /// have failed for want of a connection in the first place.
+    @discardableResult
+    private func createLocalLine(below anchor: SongBlock?, content: String) -> Int? {
+        guard let queue = createQueue else { return nil }
+        let tempId = queue.nextTempId(projectId: document.id)
+        let insertAt = anchor
+            .flatMap { a in blocks.firstIndex(where: { $0.id == a.id }).map { $0 + 1 } }
+            ?? blocks.count
+        let line = SongBlock.local(tempId: tempId, documentId: document.id,
+                                   projectId: document.projectId,
+                                   order: anchor?.order, content: content)
+        blocks.insert(line, at: insertAt)
+        // `type` and `personId` are the screenplay's half of the shared queue
+        // entry and mean nothing to a lyric — see `PendingBlockCreate.type`.
+        let entry = PendingBlockCreate(tempId: tempId,
+                                       anchorId: anchor?.id ?? PendingBlockCreate.appendAnchor,
+                                       type: "", content: content,
+                                       personId: nil, createdAt: .now)
+        queue.enqueue(entry, projectId: document.id)
+        localHistory.record([.create(row: LocalHistory.Row(entry: entry, index: insertAt))])
+        // Counted as unsaved work so the badge speaks for it, and so the
+        // reconnect sweep has a reason to look.
+        unsavedBlockIds.insert(tempId)
+        if !content.isEmpty { liveText[tempId] = content }
+        errorMessage = nil
+        focusRequest = tempId
+        return tempId
     }
 
     /// Put a line the server just created on screen below its anchor — at the
@@ -815,9 +1077,13 @@ final class SongBlockModel {
     /// goes.
     @discardableResult
     func mergeIntoPrevious(_ block: SongBlock) async -> Int? {
-        guard block.hasLink(.delete),
+        // `isLocal`/`isEditable` rather than the links alone: a line written
+        // offline advertises no links at all, and it is exactly the line
+        // Backspace should fold — skipping it would splice these words into an
+        // earlier, wrong line.
+        guard block.hasLink(.delete) || block.isLocal,
               let index = index(of: block), index > 0,
-              let previous = blocks[..<index].last(where: { $0.hasLink(.update) })
+              let previous = blocks[..<index].last(where: { $0.isEditable })
         else { return nil }
         // A repeat of the held key, aimed at a line already on its way out.
         // The caret has not moved yet, so this press is about a line that no
@@ -867,7 +1133,21 @@ final class SongBlockModel {
             focusRequest = block.id
         }
 
-        guard await commit(previous) else {
+        switch await commitOutcome(previous) {
+        case .saved:
+            break
+        case .held:
+            // The merged words are held on this device and retrying — footing
+            // enough when the folded line is one the server has never seen,
+            // because taking it off screen needs no DELETE. A server line does
+            // need one, and a held merge over a failed delete would show the
+            // words twice, so that case backs out whole.
+            guard block.isLocal else {
+                unmerge(previous.id, restoring: restore)
+                restoreFolded()
+                return nil
+            }
+        case .failed:
             unmerge(previous.id, restoring: restore)
             restoreFolded()
             return nil
@@ -926,6 +1206,17 @@ final class SongBlockModel {
     }
 
     private func sendDelete(_ block: SongBlock) async -> Bool {
+        // A line the server has never seen is removed by dropping its queue
+        // entry — there is nothing to DELETE, so this is the one removal that
+        // works with no connection at all. Recorded, so the writer can take
+        // back a line they cut offline as readily as one they cut online.
+        if block.isLocal {
+            guard let queue = createQueue else { return false }
+            stopWrites(to: block.id)
+            removeRecordingHistory(block.id, from: queue)
+            errorMessage = nil
+            return true
+        }
         guard let link = block.link(.delete) else { return false }
         // Deleting a line means dropping the words typed into it — but only
         // once the line is actually gone. This used to clear `liveText` and
@@ -1114,32 +1405,126 @@ final class SongBlockModel {
     private func applyLocalStep(_ direction: HistoryDirection) -> Bool {
         let popped = direction == .undo ? localHistory.popUndo() : localHistory.popRedo()
         guard let step = popped else { return false }
+        let countBefore = blocks.count
         // A step's changes were recorded in the order they happened, so undo
-        // walks them backwards and redo forwards. A lyric only ever records
-        // one change per step today, but the ordering is the screenplay's and
-        // costs nothing to keep.
+        // walks them backwards and redo forwards. Applying hands back a
+        // refreshed copy of each change: a queued line's words keep moving
+        // after its create was recorded, and the snapshot that crosses to the
+        // other stack has to be the words as they stand now.
         let ordered = direction == .undo ? step.changes.reversed() : step.changes
-        for change in ordered { apply(change, direction) }
-        // The step crosses to the other stack unchanged: a text change holds
-        // both sides of itself, so the same value describes the way back.
+        let applied = ordered.map { apply($0, direction) }
+        let refreshed = LocalStep(changes: direction == .undo ? applied.reversed() : applied)
         if direction == .undo {
-            localHistory.pushUndone(step)
+            localHistory.pushUndone(refreshed)
         } else {
-            localHistory.pushRedone(step)
+            localHistory.pushRedone(refreshed)
         }
-        // A local step only ever puts words back on a line that is still
-        // there — the structure needs the server — so the count never moves
-        // and this is always the plain acknowledgement. It is said anyway:
-        // offline is exactly when a writer most needs telling that the reflex
-        // they just reached for did something.
-        presentHistoryToast(rel: direction == .undo ? .undo : .redo, delta: 0)
+        // Said even when the count has not moved: offline is exactly when a
+        // writer most needs telling that the reflex they just reached for did
+        // something.
+        presentHistoryToast(rel: direction == .undo ? .undo : .redo,
+                            delta: blocks.count - countBefore)
         return true
     }
 
-    private func apply(_ change: LocalChange, _ direction: HistoryDirection) {
-        // Text is the only kind this model records — see `localHistory`.
-        guard case let .text(blockId, before, after) = change else { return }
-        applyText(blockId, to: direction == .undo ? before : after)
+    /// Apply one side of one change, returning the change refreshed with the
+    /// state it just captured off the screen (see `applyLocalStep`).
+    private func apply(_ change: LocalChange, _ direction: HistoryDirection) -> LocalChange {
+        switch change {
+        case .text(let blockId, let before, let after):
+            applyText(blockId, to: direction == .undo ? before : after)
+            return change
+        case .retype:
+            // A lyric line has no type to change. Nothing records this here,
+            // and nothing can apply it.
+            return change
+        case .create(var row):
+            if direction == .undo {
+                row = refreshedRow(row)
+                removePendingRows([row])
+            } else {
+                restorePendingRows([row])
+            }
+            return .create(row: row)
+        case .remove(var rows):
+            if direction == .undo {
+                restorePendingRows(rows)
+            } else {
+                rows = rows.map(refreshedRow)
+                removePendingRows(rows)
+            }
+            return .remove(rows: rows)
+        }
+    }
+
+    /// The row as it stands right now — freshest queued words, current screen
+    /// position — for the copy that crosses to the other stack.
+    private func refreshedRow(_ row: LocalHistory.Row) -> LocalHistory.Row {
+        var row = row
+        if let live = createQueue?.pending(projectId: document.id)
+            .first(where: { $0.tempId == row.entry.tempId }) {
+            row.entry = live
+        }
+        if let index = blocks.firstIndex(where: { $0.id == row.entry.tempId }) {
+            row.index = index
+        }
+        return row
+    }
+
+    private func removePendingRows(_ rows: [LocalHistory.Row]) {
+        guard let queue = createQueue else { return }
+        for row in rows { dropPendingCreate(row.entry.tempId, from: queue) }
+    }
+
+    /// Re-materialise removed rows: entries back in the outbox in the order
+    /// they were first written (a later one may be anchored to an earlier one),
+    /// stand-ins back on screen by position, exactly as `adoptPendingCreates`
+    /// rebuilds them after a reload.
+    private func restorePendingRows(_ rows: [LocalHistory.Row]) {
+        guard let queue = createQueue else { return }
+        for row in rows
+        where !queue.pending(projectId: document.id).contains(where: { $0.tempId == row.entry.tempId }) {
+            queue.enqueue(row.entry, projectId: document.id)
+        }
+        for row in rows.sorted(by: { $0.index < $1.index }) {
+            let tempId = row.entry.tempId
+            guard !blocks.contains(where: { $0.id == tempId }) else { continue }
+            let at = min(max(row.index, 0), blocks.count)
+            let precedingOrder = at > 0 ? blocks[at - 1].order : nil
+            blocks.insert(SongBlock.local(tempId: tempId, documentId: document.id,
+                                          projectId: document.projectId,
+                                          order: precedingOrder,
+                                          content: row.entry.content),
+                          at: at)
+            unsavedBlockIds.insert(tempId)
+            localHistory.noteApplied(blockId: tempId, text: row.entry.content)
+        }
+    }
+
+    /// Drop a queued line (with its anchored chain, as always) and record the
+    /// removal, so a line cut offline can be brought back.
+    private func removeRecordingHistory(_ tempId: Int, from queue: OfflineBlockQueue) {
+        let pendingBefore = queue.pending(projectId: document.id)
+        let indices = Dictionary(uniqueKeysWithValues: blocks.enumerated().map { ($1.id, $0) })
+        let dropped = Set(dropPendingCreate(tempId, from: queue))
+        let rows = pendingBefore
+            .filter { dropped.contains($0.tempId) }
+            .map { LocalHistory.Row(entry: $0, index: indices[$0.tempId] ?? blocks.count) }
+        guard !rows.isEmpty else { return }
+        localHistory.record([.remove(rows: rows)])
+    }
+
+    /// Take a queued line and everything anchored to it off the outbox and off
+    /// the screen. Returns every temp id dropped.
+    @discardableResult
+    private func dropPendingCreate(_ tempId: Int, from queue: OfflineBlockQueue) -> [Int] {
+        let dropped = queue.drop(tempId: tempId, projectId: document.id)
+        for id in dropped {
+            blocks.removeAll { $0.id == id }
+            liveText[id] = nil
+            markSaved(id)
+        }
+        return dropped
     }
 
     /// Put text back on a line, through the same channel the words originally
@@ -1149,8 +1534,19 @@ final class SongBlockModel {
     /// to apply to; offline nothing can leave the lyric, so this is the
     /// reloaded-underneath case rather than a step going missing.
     private func applyText(_ id: Int, to text: String) {
-        guard block(id) != nil else { return }
+        guard let line = block(id) else { return }
         localHistory.noteApplied(blockId: id, text: text)
+        // A queued line's words live in its outbox entry, not in a draft file
+        // measured against a server copy it has none of.
+        if line.isLocal {
+            createQueue?.updateContent(tempId: id, to: text, projectId: document.id)
+            var updated = line
+            updated.content = text
+            replace(updated)
+            liveText[id] = text
+            unsavedBlockIds.insert(id)
+            return
+        }
         liveText[id] = text
         // Fresh words earn a fresh set of retries, as typing them would.
         retryAttempts[id] = nil

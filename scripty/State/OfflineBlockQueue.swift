@@ -41,6 +41,11 @@ struct PendingBlockCreate: Codable, Equatable {
     /// The element this one sits below, or `PendingBlockCreate.appendAnchor`
     /// to mean "at the end of the script".
     var anchorId: Int
+    /// The screenplay element type. A lyric line has no types — a song is
+    /// lines, not scenes and dialogue — so the song queue stores `""` here and
+    /// `nil` in `personId`, and its replay never reads either. Kept rather than
+    /// made optional so one queue serves both and the file format stays one
+    /// thing.
     var type: String
     /// The words as they stood at the last keystroke. Updated in place while
     /// the writer types, so the queue always holds the newest version — the
@@ -84,11 +89,17 @@ final class OfflineBlockQueue {
     /// accounts on one device can never replay each other's writing.
     /// `directory` is injectable for tests; the default sits beside the
     /// drafts and the cached copies.
-    init(scope: String, directory: URL? = nil) {
+    ///
+    /// `folder` separates one kind of queue from another, exactly as
+    /// `UnsavedDraftStore`'s does: the screenplay files by project id, a lyric
+    /// by document id, and the two id spaces have nothing to do with each
+    /// other — under one folder a song's queue would silently shadow a
+    /// screenplay's.
+    init(scope: String, directory: URL? = nil, folder: String = "PendingBlocks") {
         let base = directory ?? FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "scripty", isDirectory: true)
-            .appendingPathComponent("PendingBlocks", isDirectory: true)
+            .appendingPathComponent(folder, isDirectory: true)
         root = base.appendingPathComponent(Self.scopeKey(scope), isDirectory: true)
     }
 

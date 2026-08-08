@@ -159,7 +159,11 @@ struct SongLineRow: View {
         // accident the lock exists to prevent, in its worst form. Reading needs
         // no test of its own: that mode takes these rows off screen entirely.
         .swipeActions(edge: .trailing) {
-            if block.hasLink(.delete), !isLocked {
+            // `isLocal` beside the link: a line written offline advertises no
+            // links at all, and removing it is the one removal that needs no
+            // server — its queue entry is dropped. Without this the writer
+            // could make a line with no connection and not take it back.
+            if block.hasLink(.delete) || block.isLocal, !isLocked {
                 Button(role: .destructive) {
                     Task { await model.delete(block) }
                 } label: {

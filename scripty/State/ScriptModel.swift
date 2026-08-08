@@ -151,6 +151,11 @@ final class ScriptModel {
     /// Nil exactly when the draft store is (signed out, demo).
     @ObservationIgnored private let documentDrafts: UnsavedDocumentStore?
 
+    /// Whole songs and notes written while offline, waiting to be sent. The
+    /// drafts store above covers a document the server already has; this covers
+    /// one it has never heard of. Nil exactly when the draft store is.
+    @ObservationIgnored private let documentQueue: OfflineDocumentQueue?
+
     /// Documents whose latest save is held on this device — the note editor's
     /// status bar and the reconnect sweep both read this.
     private(set) var heldDocumentIds: Set<Int> = []
@@ -201,7 +206,8 @@ final class ScriptModel {
 
     init(app: AppModel, project: Project, draftStore: UnsavedDraftStore? = nil,
          offlineStore: OfflineStore? = nil, createQueue: OfflineBlockQueue? = nil,
-         documentDrafts: UnsavedDocumentStore? = nil, conflictStore: ConflictStore? = nil) {
+         documentDrafts: UnsavedDocumentStore? = nil, conflictStore: ConflictStore? = nil,
+         documentQueue: OfflineDocumentQueue? = nil) {
         self.app = app
         self.project = project
         self.draftStore = draftStore ?? app.draftScope.map { UnsavedDraftStore(scope: $0) }
@@ -209,6 +215,7 @@ final class ScriptModel {
         self.createQueue = createQueue ?? app.draftScope.map { OfflineBlockQueue(scope: $0) }
         self.documentDrafts = documentDrafts ?? app.draftScope.map { UnsavedDocumentStore(scope: $0) }
         self.conflictStore = conflictStore ?? app.draftScope.map { ConflictStore(scope: $0) }
+        self.documentQueue = documentQueue ?? app.draftScope.map { OfflineDocumentQueue(scope: $0) }
         // Left by an earlier run; the sweep's flags come up with the model so
         // the badge never claims "synced" over words still only on this device.
         heldDocumentIds = Set(self.documentDrafts?.drafts(projectId: project.id).keys.map { $0 } ?? [])
@@ -1329,6 +1336,7 @@ final class ScriptModel {
     var hasHeldWork: Bool {
         hasUnsavedChanges || !heldDocumentIds.isEmpty
             || createQueue?.hasPending(projectId: project.id) == true
+            || documentQueue?.hasPending(projectId: project.id) == true
     }
 
     /// The same sweep below, asked for by hand from the cloud badge. It differs
@@ -1381,6 +1389,10 @@ final class ScriptModel {
             await commit(id)
         }
         await replayPendingCreates()
+        // Songs and notes written offline go before the held edits to existing
+        // ones: a document created here becomes a real one with an `update`
+        // link, and any words typed into it since ride the drain below.
+        await replayPendingDocuments()
         // Held notes ride the same sweep — their store outlives the editor
         // sheet, so a note written offline yesterday sends today with the
         // sheet long closed.
@@ -2482,6 +2494,31 @@ final class ScriptModel {
     private func adoptDocuments(_ collection: HALCollection<TextDocument>) {
         documents = collection.items.sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
         documentsLinks = collection.links
+        adoptPendingDocuments()
+    }
+
+    /// Re-materialise the songs and notes queued by an earlier run (or held
+    /// across a reload) on top of whatever the server just gave us.
+    ///
+    /// Runs after every adopt, for the reason `adoptPendingCreates` does: a
+    /// load replaces the list wholesale, and a song that exists only on this
+    /// device has to survive that — otherwise the writer watches it vanish from
+    /// the list the first time the app reaches the server for anything else.
+    ///
+    /// At the end of the list, oldest first: a document has no anchor and no
+    /// sort order the server has agreed to, and the newest writing belongs
+    /// where the writer last left it rather than shuffled in among older songs.
+    private func adoptPendingDocuments() {
+        guard let queue = documentQueue else { return }
+        for entry in queue.pending(projectId: project.id) {
+            guard !documents.contains(where: { $0.id == entry.tempId }) else { continue }
+            documents.append(TextDocument.local(
+                tempId: entry.tempId, projectId: project.id,
+                title: entry.title, content: entry.content,
+                type: DocumentType(rawValue: entry.type) ?? .notes,
+                updatedAt: entry.createdAt))
+            heldDocumentIds.insert(entry.tempId)
+        }
     }
 
     // MARK: - Document folders
@@ -2676,17 +2713,24 @@ final class ScriptModel {
     /// trying again on the next keystroke and says nothing alarming, while one
     /// the server turned down is neither.
     ///
-    /// There is deliberately no `held` here, as there is for a save. Holding
-    /// means "on disk, and the reconnect sweep will send it", and the sweep
-    /// works document by document against the server's copy — of which a
-    /// document that was never created has none. The words stay where they
-    /// are, on screen, in an editor that will not let itself be dismissed
-    /// without asking.
+    /// `queued` is the offline answer, and it used to be `unreachable` with
+    /// nothing behind it. The reasoning then was that holding means "on disk,
+    /// and the reconnect sweep will send it", and the sweep worked document by
+    /// document against the server's copy — of which a document that was never
+    /// created has none. True of the *drafts* store; not a reason to keep the
+    /// words nowhere. A song written in a tunnel now goes into an outbox of its
+    /// own (`OfflineDocumentQueue`), appears in the list under a negative id,
+    /// and is created for real on the next sweep — so closing the sheet, or
+    /// the app being killed, costs the writer nothing.
     enum DocumentCreateOutcome {
         case created(TextDocument)
+        /// Couldn't get out, and is on this device: the stand-in the editor
+        /// carries on typing into and the list shows until the sweep sends it.
+        case queued(TextDocument)
         /// Carries the failure, because not every caller has an editor to put
         /// a status line in — an intent asked to take a note by voice has only
-        /// the sentence it says back.
+        /// the sentence it says back. Reached only where there is no queue to
+        /// write to.
         case unreachable(Error)
         case failed
     }
@@ -2709,8 +2753,20 @@ final class ScriptModel {
         } catch {
             // Abandoned, or offline: nothing was refused, so there is nothing
             // to tell the writer beyond what the editor's own status line
-            // already says.
+            // already says — but the words go somewhere durable first.
             guard !error.isCancelledRequest, !error.isRetryableAPIError else {
+                // Only a create that could not *get out* is queued. A cancelled
+                // one is ambiguous in the one way that matters here: the server
+                // may have made the document before the task went away, and
+                // queueing a second create would give the writer two songs
+                // where they wrote one. Nothing is lost by leaving it — the
+                // editor still holds the words and re-arms on the next
+                // keystroke — and `createNow` runs the POST on a task of its
+                // own precisely so this stays rare.
+                if error.isRetryableAPIError,
+                   let queued = queueDocument(title: title, content: content, type: type) {
+                    return .queued(queued)
+                }
                 return .unreachable(error)
             }
             report(error)
@@ -2718,13 +2774,54 @@ final class ScriptModel {
         }
     }
 
+    /// Put a new song or note on screen that the server has never seen, and
+    /// queue the create for the next time there is a connection.
+    ///
+    /// Returns the stand-in so the editor can carry on as though the document
+    /// exists — which, as far as this device is concerned, it now does. Nil
+    /// only where there is no queue to write to: a demo or signed-out session,
+    /// where the create could not have failed for want of a connection.
+    private func queueDocument(title: String, content: String,
+                               type: DocumentType) -> TextDocument? {
+        guard let queue = documentQueue else { return nil }
+        let tempId = queue.nextTempId(projectId: project.id)
+        let now = Date.now
+        queue.enqueue(PendingDocumentCreate(tempId: tempId, title: title, content: content,
+                                            type: type.rawValue, createdAt: now),
+                      projectId: project.id)
+        let document = TextDocument.local(tempId: tempId, projectId: project.id,
+                                          title: title, content: content,
+                                          type: type, updatedAt: now)
+        documents.append(document)
+        // Counted as held work so the badge speaks for it, and so the reconnect
+        // sweep has a reason to look.
+        heldDocumentIds.insert(tempId)
+        errorMessage = nil
+        return document
+    }
+
+    /// The words a queued document is holding — what the editor sheet opens
+    /// with when it is reopened on a song that has never reached the server.
+    func pendingDocument(for id: Int) -> PendingDocumentCreate? {
+        documentQueue?.pending(tempId: id, projectId: project.id)
+    }
+
+    /// What the server called a document this device created offline, once its
+    /// create landed. The editor sheet asks: it may be open on the stand-in
+    /// when the sweep sends it, and from that moment the real document is what
+    /// its saves have to be aimed at.
+    func realDocumentId(forQueued tempId: Int) -> Int? {
+        documentQueue?.realId(for: tempId, projectId: project.id)
+    }
+
     /// The optional-shaped create, for callers with nowhere to put a status
     /// line: every failure is reported, as it was before the editor needed to
-    /// tell "not sent" apart from "refused".
+    /// tell "not sent" apart from "refused". A queued document counts as made —
+    /// it is on disk and on screen, and the caller has nothing more to do.
     @discardableResult
     func createDocument(title: String, content: String, type: DocumentType) async -> TextDocument? {
         switch await createDocumentOutcome(title: title, content: content, type: type) {
-        case .created(let document):
+        case .created(let document), .queued(let document):
             return document
         case .unreachable(let error):
             report(error)
@@ -2765,6 +2862,24 @@ final class ScriptModel {
     func saveDocumentOutcome(_ document: TextDocument, title: String, content: String,
                              baseTitle: String? = nil, baseContent: String? = nil)
         async -> DocumentSaveOutcome {
+        // A document written offline has nothing to PUT to. Its words go into
+        // the queue entry instead, so the create that eventually goes out
+        // carries the newest version — and it stays held, because it genuinely
+        // is. `commitOutcome` takes the same branch for an offline element.
+        if document.isLocal {
+            guard let queue = documentQueue else { return .failed }
+            queue.update(tempId: document.id, title: title, content: content,
+                         projectId: project.id)
+            if let index = documents.firstIndex(where: { $0.id == document.id }) {
+                documents[index].title = title
+                documents[index].content = content
+                documents[index].preview = content
+                documents[index].updatedAt = .now
+            }
+            heldDocumentIds.insert(document.id)
+            errorMessage = nil
+            return .held
+        }
         guard let link = document.link(.update) else { return .failed }
         // Snapshot before the attempt, like the block path: between here and
         // the response the words exist nowhere but this process.
@@ -2847,6 +2962,76 @@ final class ScriptModel {
     func discardDocumentDraft(for id: Int) {
         documentDrafts?.remove(documentId: id, projectId: project.id)
         heldDocumentIds.remove(id)
+    }
+
+    /// Take a queued song or note off the outbox and off the list.
+    private func discardQueuedDocument(_ id: Int) {
+        documentQueue?.drop(tempId: id, projectId: project.id)
+        documents.removeAll { $0.id == id }
+        heldDocumentIds.remove(id)
+    }
+
+    /// Create every song and note written offline, oldest first.
+    ///
+    /// Documents do not anchor to each other, so — unlike the element queue —
+    /// one that cannot be sent does not block the rest. Order is kept anyway:
+    /// three songs written on one journey should appear in the list in the
+    /// order they were written.
+    private func replayPendingDocuments() async {
+        guard let queue = documentQueue,
+              let link = documentsLinks[.selfRel] ?? project.link(.documents) else { return }
+        var landed = false
+        for entry in queue.pending(projectId: project.id) {
+            do {
+                let created: TextDocument = try await app.client.fetch(
+                    from: link, method: "POST",
+                    body: CreateDocumentCommand(projectId: project.id, title: entry.title,
+                                                documentType: entry.type,
+                                                content: entry.content))
+                // The mapping is recorded before the stand-in leaves the
+                // screen: an editor open on it reads this to find out what the
+                // document is called now.
+                queue.resolve(tempId: entry.tempId, realId: created.id, projectId: project.id)
+                // Swap the real document in where the stand-in stood, rather
+                // than dropping it and waiting for the reload — the list must
+                // not blink a song out of existence and back.
+                if let index = documents.firstIndex(where: { $0.id == entry.tempId }) {
+                    documents[index] = created
+                } else {
+                    documents.append(created)
+                }
+                heldDocumentIds.remove(entry.tempId)
+                landed = true
+            } catch {
+                // Still no usable connection, or this app's own doing — the
+                // screen was left, the sync was stopped on the way to the
+                // background. Nothing has been judged; everything stays queued.
+                if error.isRetryableAPIError || error.isCancelledRequest { break }
+                switch error {
+                case APIError.unauthorized, APIError.redirectedOutOfAPI:
+                    // Not this document's fault and not a verdict on it. The
+                    // session goes; the queue is untouched, so signing back in
+                    // finds the writing still waiting.
+                    app.handle(error)
+                    return
+                default:
+                    // A real refusal: no permission to add documents to this
+                    // project any more, a validation error. The words were
+                    // written on this device and have never existed anywhere
+                    // else, so they go where the writer can still copy them
+                    // out of rather than into a toast — `giveUpOnCreate` makes
+                    // the same trade for an element.
+                    discardQueuedDocument(entry.tempId)
+                    recordConflict(SyncConflict(
+                        subject: .document(id: entry.tempId), reason: .couldNotBeCreated,
+                        mine: entry.content, mineTitle: entry.title, theirs: "",
+                        base: nil, label: entry.title.isEmpty ? "Untitled" : entry.title,
+                        detectedAt: .now))
+                    presentToast("“\(entry.title)” couldn't be saved — your version is kept here")
+                }
+            }
+        }
+        if landed { await loadDocuments() }
     }
 
     /// Send every held document now. Runs inside the reconnect sweep, after
@@ -3035,6 +3220,14 @@ final class ScriptModel {
     }
 
     func deleteDocument(_ document: TextDocument) async {
+        // A document the server has never seen is deleted by dropping its queue
+        // entry — the one deletion here that needs no connection at all.
+        // Without this a song written offline could be made and not unmade.
+        if document.isLocal {
+            discardQueuedDocument(document.id)
+            errorMessage = nil
+            return
+        }
         guard let link = document.link(.delete) else { return }
         do {
             try await app.client.data(for: link, method: "DELETE")
