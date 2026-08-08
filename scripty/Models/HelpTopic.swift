@@ -330,6 +330,15 @@ extension HelpTopic {
                     "Songs, notes and the project list work the same way, and each says "
                     + "how old the copy on screen is when it was read back from this "
                     + "device rather than the server.",
+                    "You can start things as well as change them. Return makes a new "
+                    + "lyric line with no connection, and Backspace folds one away "
+                    + "again; a whole new song or note written offline appears in the "
+                    + "list straight away and is still there after closing the app. "
+                    + "Both are made properly the moment the connection returns.",
+                    "The one thing that waits is a song or note you have never opened "
+                    + "on this device: there is nothing here to show you, so it opens "
+                    + "read-only and says so rather than looking empty. It opens "
+                    + "normally as soon as it can be fetched.",
                     "If the same line, song or note was also written somewhere else "
                     + "while you were away, neither version is thrown away. A purple "
                     + "strip says how many changes need your choice; tapping it — or "

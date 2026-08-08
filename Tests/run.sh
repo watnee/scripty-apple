@@ -364,6 +364,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songlines" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
@@ -399,6 +400,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
@@ -411,6 +413,43 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songdrafts" \
     "${SHARED[@]}" \
     "$ROOT/Tests/SongDrafts/main.swift"
 run_suite "$BUILD/songdrafts" || status=1
+
+echo
+echo "== Lines, songs and notes made with no connection =="
+# The other half of the offline story: SongDrafts covers a save that cannot get
+# out, and this covers a *create* that cannot — a lyric line Return made, and a
+# whole song or note written before there was ever a document on the server.
+swiftc "${FLAGS[@]}" -o "$BUILD/offlinecreates" \
+    "$SRC/API/APIClient.swift" \
+    "$SRC/API/APIError.swift" \
+    "$SRC/API/AppConfig.swift" \
+    "$SRC/API/Credentials.swift" \
+    "$SRC/API/KeychainStore.swift" \
+    "$SRC/Demo/DemoBackend.swift" \
+    "$SRC/Demo/LocalWorkspaceStore.swift" \
+    "$SRC/Demo/DemoMusicXml.swift" \
+    "$SRC/State/LastOpenedProject.swift" \
+    "$SRC/State/OpenEditorState.swift" \
+    "$SRC/State/ProjectLinks.swift" \
+    "$SRC/State/AppModel.swift" \
+    "$ROOT/Shared/SongsNotesWidgetData.swift" \
+    "$ROOT/Shared/BookmarksWidgetData.swift" \
+    "$SRC/State/ScriptModel.swift" \
+    "$SRC/State/LocalHistory.swift" \
+    "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
+    "$SRC/State/SongBlockModel.swift" \
+    "$SRC/State/UnsavedDraftStore.swift" \
+    "$SRC/State/UnsavedDocumentStore.swift" \
+    "$SRC/State/ConflictStore.swift" \
+    "$SRC/State/OfflineStore.swift" \
+    "$SRC/State/ConnectivityMonitor.swift" \
+    "$SRC/State/PresentationSettings.swift" \
+    "$SRC/State/CapitalizationSettings.swift" \
+    "$SRC/Models/"*.swift \
+    "${SHARED[@]}" \
+    "$ROOT/Tests/OfflineCreates/main.swift"
+run_suite "$BUILD/offlinecreates" || status=1
 
 echo
 echo "== Undo and redo in a lyric, on both sides of the connection =="
@@ -435,6 +474,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/songhistory" \
     "$SRC/State/ScriptModel.swift" \
     "$SRC/State/LocalHistory.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/SongBlockModel.swift" \
     "$SRC/State/UnsavedDraftStore.swift" \
     "$SRC/State/UnsavedDocumentStore.swift" \
@@ -598,6 +638,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/unsaved" \
     "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
@@ -635,6 +676,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/conflicts" \
     "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
@@ -667,6 +709,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/offline" \
     "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
@@ -703,6 +746,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/firstelement" \
     "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
@@ -738,6 +782,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/fastdelete" \
     "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
@@ -773,6 +818,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/undorace" \
     "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \
@@ -809,6 +855,7 @@ swiftc "${FLAGS[@]}" -o "$BUILD/cancellation" \
     "$SRC/State/ConflictStore.swift" \
     "$SRC/State/OfflineStore.swift" \
     "$SRC/State/OfflineBlockQueue.swift" \
+    "$SRC/State/OfflineDocumentQueue.swift" \
     "$SRC/State/ConnectivityMonitor.swift" \
     "$SRC/State/PresentationSettings.swift" \
     "$SRC/State/CapitalizationSettings.swift" \

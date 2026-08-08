@@ -80,6 +80,12 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
     /// collaborator gets no link and should still be told.
     var isArchived: Bool { archivedAt != nil }
 
+    /// A song or note written while the server was out of reach, standing in
+    /// for the document the reconnect will make. Server ids are positive, so
+    /// the sign alone tells a local document from a real one everywhere else —
+    /// the rule `Block.isLocal` and `SongBlock.isLocal` already follow.
+    var isLocal: Bool { id < 0 }
+
     var displayTitle: String {
         let name = title ?? ""
         return name.isEmpty ? "Untitled \(kind.label)" : name
@@ -88,6 +94,30 @@ struct TextDocument: Decodable, Identifiable, Hashable, HALResource {
     /// Falls back to SONG — matches the server default for a new document.
     var kind: DocumentType {
         documentType.flatMap { DocumentType(rawValue: $0.uppercased()) } ?? .song
+    }
+}
+
+extension TextDocument {
+    /// The on-screen stand-in for a song or note created while offline.
+    ///
+    /// No links at all, which is the honest answer: there is nothing on the
+    /// server to link to, so every affordance gated on one — rename, archive,
+    /// insert into the script, share by email — correctly stays away until the
+    /// document exists. Editing is the exception, and it is handled by id
+    /// rather than by link (`ScriptModel.saveDocumentOutcome`), because typing
+    /// into what you have just written is the whole point.
+    ///
+    /// `updatedAt` is the last keystroke, so the lists that sort by it put a
+    /// song written five minutes ago where the writer expects to find it.
+    /// Declared in an extension so the memberwise initialiser survives.
+    static func local(tempId: Int, projectId: Int, title: String, content: String,
+                      type: DocumentType, updatedAt: Date) -> TextDocument {
+        TextDocument(id: tempId, uid: nil, projectId: projectId, projectTitle: nil,
+                     title: title, documentType: type.rawValue,
+                     documentTypeLabel: type.label, folderId: nil, folderName: nil,
+                     content: content, preview: content, sortOrder: nil,
+                     createdAt: updatedAt, updatedAt: updatedAt, archivedAt: nil,
+                     links: nil)
     }
 }
 

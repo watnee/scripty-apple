@@ -28,9 +28,33 @@ struct SongBlock: Decodable, Identifiable, Hashable, HALResource {
 
     var text: String { content ?? "" }
 
-    var isEditable: Bool { hasLink(.update) }
+    /// A line written while the server was out of reach, standing in for the
+    /// one the reconnect will make. Server ids are positive, so the sign alone
+    /// tells a local line from a real one everywhere else — the same rule
+    /// `Block.isLocal` follows.
+    var isLocal: Bool { id < 0 }
+
+    /// True when the writer may type into this line. A local line advertises no
+    /// links at all — there is nothing on the server to link to — so it would
+    /// otherwise come out read-only, which is precisely the line the writer is
+    /// in the middle of writing.
+    var isEditable: Bool { hasLink(.update) || isLocal }
 
     var tint: BlockHighlight? { BlockHighlight(serverValue: highlight) }
+}
+
+extension SongBlock {
+    /// The on-screen stand-in for a line created while offline.
+    ///
+    /// `order` is the anchor's, which only matters until a load re-sorts — and
+    /// a load replaces the collection wholesale and re-inserts the pending
+    /// lines by position anyway. Declared in an extension so the memberwise
+    /// initialiser survives.
+    static func local(tempId: Int, documentId: Int?, projectId: Int?,
+                      order: Int?, content: String) -> SongBlock {
+        SongBlock(id: tempId, documentId: documentId, projectId: projectId,
+                  order: order, content: content, highlight: nil, links: nil)
+    }
 }
 
 /// A new line. `content` may be blank — a writer usually makes the line before
