@@ -31,17 +31,15 @@ struct HelpTopic: Identifiable, Equatable {
 
     /// Whether this topic answers the query.
     ///
-    /// Every whitespace-separated word has to match something, so a second word
-    /// narrows rather than widens — which is what typing more words means to
-    /// everyone who has ever used a search box.
+    /// Every word has to match something, so a second word narrows rather than
+    /// widens — which is what typing more words means to everyone who has ever
+    /// used a search box. How each word matches, and what a match is worth,
+    /// is `HelpSearch.swift`.
     func matches(_ query: String) -> Bool {
-        let words = query.lowercased().split(separator: " ").map(String.init)
-        guard !words.isEmpty else { return true }
-        return words.allSatisfy { word in haystack.contains(word) }
-    }
-
-    private var haystack: String {
-        ([title] + paragraphs + keywords).joined(separator: " ").lowercased()
+        let query = HelpQuery(query)
+        guard !query.isEmpty else { return true }
+        guard let index = HelpTopic.index[id] else { return false }
+        return index.relevance(for: query).matchedWords == query.words.count
     }
 }
 
@@ -52,20 +50,94 @@ struct HelpSection: Identifiable, Equatable {
     let topics: [HelpTopic]
 }
 
+/// What a search of the help centre came back with.
+///
+/// More than the sections, because the reader has to be told when they are
+/// looking at the second-best thing: `isPartial` means nothing answered every
+/// word and these are what answered some of them. Handing those over unlabelled
+/// would be worse than the dead end it replaces — the reader would take the
+/// first row as an answer to what they asked.
+struct HelpResults: Equatable {
+    let sections: [HelpSection]
+    let isPartial: Bool
+
+    var isEmpty: Bool { sections.isEmpty }
+
+    static let none = HelpResults(sections: [], isPartial: false)
+}
+
 extension HelpTopic {
-    /// The sections that still have a topic in them once the query is applied.
+    /// Every topic's words, folded once, by topic id.
+    ///
+    /// Built on the first search and kept. The alternative is re-folding the
+    /// whole help centre on every keystroke, which is exactly the shape of
+    /// per-keystroke cost this app has been bitten by before.
+    static let index: [String: HelpTopicIndex] = {
+        var index: [String: HelpTopicIndex] = [:]
+        for section in sections {
+            for topic in section.topics {
+                index[topic.id] = HelpTopicIndex(
+                    title: topic.title,
+                    keywords: topic.keywords,
+                    section: section.title,
+                    paragraphs: topic.paragraphs)
+            }
+        }
+        return index
+    }()
+
+    /// The sections that still have a topic in them once the query is applied,
+    /// best answer first.
     ///
     /// Empty sections are dropped rather than shown empty: a heading with
-    /// nothing under it reads as a result, and it is not one.
-    static func sections(matching query: String) -> [HelpSection] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return sections }
-        return sections.compactMap { section in
-            let hits = section.topics.filter { $0.matches(trimmed) }
-            return hits.isEmpty
-                ? nil
-                : HelpSection(id: section.id, title: section.title, topics: hits)
+    /// nothing under it reads as a result, and it is not one. What is left is
+    /// ordered by how well it answers rather than by where it was written —
+    /// the sections are still the sections, so a search narrows the map the
+    /// reader already has instead of replacing it with a list, but the topic
+    /// the query was about is at the top of it.
+    static func results(for query: String) -> HelpResults {
+        let query = HelpQuery(query)
+        guard !query.isEmpty else { return HelpResults(sections: sections, isPartial: false) }
+
+        let strict = ranked(for: query, requiringEveryWord: true)
+        if !strict.isEmpty { return HelpResults(sections: strict, isPartial: false) }
+
+        // One word either landed or it didn't; there is no lesser match of it
+        // to fall back to, and offering one would just be the same empty
+        // screen with a sentence of excuse above it.
+        guard query.words.count > 1 else { return .none }
+        return HelpResults(sections: ranked(for: query, requiringEveryWord: false),
+                           isPartial: true)
+    }
+
+    private static func ranked(for query: HelpQuery,
+                               requiringEveryWord: Bool) -> [HelpSection] {
+        var ranked: [(section: HelpSection, best: HelpRelevance, order: Int)] = []
+        for (order, section) in sections.enumerated() {
+            var hits: [(topic: HelpTopic, relevance: HelpRelevance, order: Int)] = []
+            for (topicOrder, topic) in section.topics.enumerated() {
+                guard let entry = index[topic.id] else { continue }
+                let relevance = entry.relevance(for: query)
+                let enough = requiringEveryWord
+                    ? relevance.matchedWords == query.words.count
+                    : relevance.matchedWords > 0
+                if enough { hits.append((topic, relevance, topicOrder)) }
+            }
+            guard let best = hits.map(\.relevance).max() else { continue }
+            // Ties keep the order they were written in. A search that reshuffles
+            // equally good answers between keystrokes is a search you cannot
+            // read while you type.
+            let sorted = hits.sorted {
+                $0.relevance == $1.relevance ? $0.order < $1.order : $0.relevance > $1.relevance
+            }
+            ranked.append((HelpSection(id: section.id,
+                                       title: section.title,
+                                       topics: sorted.map(\.topic)),
+                           best, order))
         }
+        return ranked
+            .sorted { $0.best == $1.best ? $0.order < $1.order : $0.best > $1.best }
+            .map(\.section)
     }
 
     static let sections: [HelpSection] = [

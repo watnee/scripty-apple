@@ -25,7 +25,11 @@ struct KeyboardShortcutsView: View {
         content
             .navigationTitle("Keyboard Shortcuts")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Search shortcuts")
+            // Pinned, for the same reason help's is: this is a reference, and
+            // nobody opens a reference without something to look up.
+            .searchable(text: $query,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Search shortcuts")
     }
 
     @ViewBuilder
