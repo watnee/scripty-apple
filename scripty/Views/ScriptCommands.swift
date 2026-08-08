@@ -223,6 +223,10 @@ struct ScriptCommands: Commands {
     /// a sheet — so the menu sets the flag and the root view opens it.
     private let help = HelpPresentation.shared
 
+    /// The bed plays under every window there is, so it is reached from here
+    /// the same way — and this is where its one keyboard shortcut is claimed.
+    private let noise = BackgroundNoisePlayer.shared
+
     @FocusedValue(\.scriptActions) private var actions
 
     /// Present only while a song or a note is being written, and while it is,
@@ -700,10 +704,44 @@ struct ScriptCommands: Commands {
                 Text(choice.label).tag(choice)
             }
         }
+
+        // The bed, and the one key that stops it.
+        //
+        // The chord is the whole reason this is in a menu that otherwise holds
+        // display switches: ⌘⌥B has to be claimed exactly once, and this file
+        // is the only thing mounted at the scene — the "…" menus that carry the
+        // picker come and go with a toolbar, and two views binding one chord
+        // means whichever loses the responder race silently does nothing. It
+        // toggles rather than picking: the sound is already chosen, and what a
+        // hand reaching for a key at the end of a session wants is silence.
+        Divider()
+        Button(noise.isPlaying ? "Stop Background Noise" : "Background Noise") {
+            noise.toggle()
+        }
+        .keyboardShortcut("b", modifiers: [.command, .option])
+        Picker("Background Sound", selection: backgroundSoundBinding) {
+            Text("Off").tag(BackgroundNoiseSound?.none)
+            ForEach(BackgroundNoiseSound.allCases) { sound in
+                Text(sound.label).tag(BackgroundNoiseSound?.some(sound))
+            }
+        }
+        Picker("Background Volume", selection: backgroundVolumeBinding) {
+            ForEach(BackgroundNoiseVolume.choices, id: \.self) { level in
+                Text(BackgroundNoiseVolume.label(level)).tag(level)
+            }
+        }
     }
 
     private var appearanceBinding: Binding<AppearanceSettings.Appearance> {
         Binding(get: { appearance.appearance }, set: { appearance.appearance = $0 })
+    }
+
+    private var backgroundSoundBinding: Binding<BackgroundNoiseSound?> {
+        Binding(get: { noise.playingSound }, set: { noise.playingSound = $0 })
+    }
+
+    private var backgroundVolumeBinding: Binding<Double> {
+        Binding(get: { noise.volumeStep }, set: { noise.volumeStep = $0 })
     }
 }
 

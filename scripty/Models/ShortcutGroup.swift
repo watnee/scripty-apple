@@ -180,7 +180,12 @@ extension ShortcutGroup {
                 ShortcutEntry("Editions", "⌘⇧J"),
                 ShortcutEntry("Bigger text", "⌘+"),
                 ShortcutEntry("Smaller text", "⌘−"),
-                ShortcutEntry("Actual size", "⌘0")
+                ShortcutEntry("Actual size", "⌘0"),
+                // Off as well as on, and off is the half that matters: the
+                // sound the key stops was picked in a menu, and reaching for a
+                // menu to stop it is the wrong shape of thing at the end of a
+                // session.
+                ShortcutEntry("Background noise on or off", "⌘⌥B")
             ]),
         ShortcutGroup(
             id: "notes",

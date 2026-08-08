@@ -179,6 +179,18 @@ swiftc "${FLAGS[@]}" -o "$BUILD/narration" \
 run_suite "$BUILD/narration" || status=1
 
 echo
+echo "== Background noise =="
+# The player comes along as well as the generator. It reaches AVFoundation, but
+# only from `buildAndStart()` — which the checks skip with `playsAloud: false`,
+# since a machine here may have no audio device, and one that does should not
+# spend a build playing surf. Everything else about it is a UserDefaults key.
+swiftc "${FLAGS[@]}" -o "$BUILD/backgroundnoise" \
+    "$SRC/Models/BackgroundNoise.swift" \
+    "$SRC/State/BackgroundNoisePlayer.swift" \
+    "$ROOT/Tests/BackgroundNoise/main.swift"
+run_suite "$BUILD/backgroundnoise" || status=1
+
+echo
 echo "== Reading a picked file =="
 # Foundation only: the coordinated read itself needs a Files provider to have
 # anything to coordinate with, so what is checked here is the shape around it —
