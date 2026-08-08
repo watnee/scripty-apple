@@ -132,6 +132,22 @@ struct NarrationOptionsMenu: View {
                 }
                 .pickerStyle(.inline)
 
+                // The writer's own recorded voice is the best one any device
+                // has, and it is kept back until an app asks for it — so it is
+                // missing from the list above until this is tapped. Offered
+                // only where the answer could be yes: a device with no
+                // Personal Voice recorded, or one that has already answered,
+                // gets no row rather than a prompt that leads nowhere.
+                if narrator.canRequestPersonalVoice {
+                    Section {
+                        Button {
+                            narrator.requestPersonalVoice()
+                        } label: {
+                            Label("Use My Personal Voice", systemImage: "waveform.badge.mic")
+                        }
+                    }
+                }
+
                 // Every voice on this device is a built-in one, so the reading
                 // is as good as it can be made from in here. Where the better
                 // ones come from is worth saying — and there is no way to open

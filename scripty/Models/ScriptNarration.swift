@@ -7,9 +7,10 @@
 //  A script on the page is laid out for the eye: the slug line is shouted in
 //  caps, the speaker's name sits above their line rather than in it, and the
 //  abbreviations are the ones that fit in a margin. Read back literally, all
-//  of that comes out wrong — a synthesizer spells "INT." letter by letter,
-//  announces every name twice, and runs the description into the dialogue with
-//  no seam between them.
+//  of that comes out wrong — "INT." is said as a word rather than as the room
+//  it stands for, the extension after a name is announced as though it were
+//  part of the name, and the description runs into the dialogue with no seam
+//  between them.
 //
 //  So this turns the blocks into an ordered run of *cues*: what to say, whose
 //  line it is, and what kind of thing it is — which is what decides the pause
@@ -242,15 +243,17 @@ enum ScriptNarration {
 
             case .character, .dualDialogue:
                 // A cue names the speaker even when it is not itself said, so
-                // this runs before the option is consulted.
-                let name = cueName(block)
-                speaker = name
-                guard options.announcesSpeakers, let name else { continue }
-                append(&cues, block: block, speaker: name,
-                       text: spoken(name, as: type), kind: .cue)
+                // this runs before the option is consulted. What is *said* is
+                // the name as written — extension and all, which `spoken`
+                // sorts out — while who it belongs to is the normalized one.
+                let written = cueName(block)
+                speaker = ScriptStats.normalizeCharacterName(written)
+                guard options.announcesSpeakers, let written else { continue }
+                append(&cues, block: block, speaker: speaker,
+                       text: spoken(written, as: type), kind: .cue)
 
             case .dialogue, .lyrics:
-                let who = speaker ?? block.personName
+                let who = speaker ?? ScriptStats.normalizeCharacterName(block.personName)
                 append(&cues, block: block, speaker: who,
                        text: spoken(block.content ?? "", as: type), kind: .speech)
 
@@ -291,9 +294,9 @@ enum ScriptNarration {
                                  kind: kind))
     }
 
-    /// The speaker a character cue names. The cue's own text is the name, but
-    /// a cue picked from the character list can be empty with the name held on
-    /// the link instead — the reader view makes the same substitution.
+    /// A character cue as the writer typed it. The cue's own text is the name,
+    /// but a cue picked from the character list can be empty with the name held
+    /// on the link instead — the reader view makes the same substitution.
     private static func cueName(_ block: Block) -> String? {
         let content = (block.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !content.isEmpty { return content }
@@ -308,6 +311,13 @@ enum ScriptNarration {
     /// (the reader labels those), but it is still the narrator reading the
     /// page, so casting a voice for it would spend one of the few available
     /// voices on a character who never speaks.
+    ///
+    /// The names arrive here already normalized, which is what keeps a
+    /// character to one voice: `MAYA`, `MAYA (V.O.)` and `MAYA (CONT'D)` are
+    /// three spellings the page uses for one person, and read as three
+    /// speakers they were handed three different voices — the same character
+    /// changing voice the moment she stepped out of the room, and again
+    /// wherever a page break happened to fall.
     static func speakers(in cues: [NarrationCue]) -> [String] {
         var seen: Set<String> = []
         var order: [String] = []
@@ -401,6 +411,23 @@ enum ScriptNarration {
     // MARK: - Saying it
 
     /// One element's text, as it should be said rather than as it is written.
+    ///
+    /// This used to lower a shouted line first, on the premise that a
+    /// synthesizer spells an all-caps word out a letter at a time and a
+    /// screenplay shouts every heading, cue and transition. Measured, the
+    /// premise is false and the rule cost something: rendering both spellings
+    /// to a buffer and comparing the samples, a heading, a character cue, a
+    /// transition, a shouted action line and a shouted lyric come back
+    /// **byte-identical** in either case on every mainstream voice the Mac
+    /// carries — the Siri family, the compact regional voices, Eloquence.
+    ///
+    /// The one thing case does decide is an acronym, and there lowering it was
+    /// the wrong answer: on most of those voices "FBI" is spelled out letter by
+    /// letter, as it should be, and "fbi" is said as a word — so
+    /// "INT. FBI FIELD OFFICE" came back with a "fbee" in the middle of it.
+    /// The engine's own lexicon already knows which all-caps words are words,
+    /// which is why "MAYA slides into the booth" never needed help. So the case
+    /// the writer typed is now left alone, and the acronyms come out right.
     static func spoken(_ text: String, as type: BlockType) -> String {
         var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.isEmpty else { return "" }
@@ -408,12 +435,6 @@ enum ScriptNarration {
         if type == .parenthetical {
             result = strippingParens(result)
         }
-
-        // Shouting first: an all-caps line is spelled out a letter at a time,
-        // and every heading, cue and transition in a screenplay is shouted.
-        // Lowering the case before expanding keeps the rules below reading as
-        // one pass over ordinary text.
-        result = unshouted(result)
 
         switch type {
         case .scene:
@@ -423,7 +444,9 @@ enum ScriptNarration {
             result = result
                 .replacingOccurrences(of: " -- ", with: ", ")
                 .replacingOccurrences(of: " - ", with: ", ")
-        case .character, .dualDialogue, .dialogue, .lyrics:
+        case .character, .dualDialogue:
+            result = expanding(spokenCueName(result), Self.cueAbbreviations)
+        case .dialogue, .lyrics:
             result = expanding(result, Self.cueAbbreviations)
         default:
             break
@@ -442,10 +465,49 @@ enum ScriptNarration {
     /// The Fountain force markers, as characters that can open a line.
     private static let markers: Set<Character> = [".", "@", ">", "~", "#", "=", "*", "_", " "]
 
-    /// Whether a line is written in the screenplay's shouting case — no
-    /// lowercase letters anywhere in it.
-    private static func unshouted(_ text: String) -> String {
-        text.rangeOfCharacter(from: .lowercaseLetters) == nil ? text.lowercased() : text
+    /// A character cue as it should be announced.
+    ///
+    /// The name on the page often carries an extension — `MAYA (V.O.)`,
+    /// `SAM (CONT'D)` — and the two kinds want opposite treatment. `(CONT'D)`
+    /// is a *pagination* mark: it exists because the speech was cut in half by
+    /// the bottom of a page, which is a fact about the paper and not about the
+    /// scene, so announcing "sam, continued" is noise in a reading that has no
+    /// pages in it. `(V.O.)` and `(O.S.)` are the opposite — they say the
+    /// character is not in the room, which is exactly the sort of thing a
+    /// listener cannot see and has to be told.
+    ///
+    /// So a continuation is dropped and anything else is kept, as a comma
+    /// rather than in brackets: the comma is the beat the brackets are drawn
+    /// for, the same substitution the slug-line dashes get above.
+    private static func spokenCueName(_ text: String) -> String {
+        guard let (name, extends) = splitCueExtension(text) else { return text }
+        let flattened = extends.lowercased().filter { !".' \u{2019}".contains($0) }
+        if Self.continuations.contains(flattened) { return name }
+        return "\(name), \(extends)"
+    }
+
+    /// The spellings of "this speech carries on from the last page".
+    private static let continuations: Set<String> = ["contd", "continued", "more"]
+
+    /// A cue split into the name and the extension in brackets after it, when
+    /// there is one. Nil when the cue is a plain name — and when it is nothing
+    /// *but* an extension, since a cue of "(CONT'D)" names nobody and the text
+    /// as written is better than an empty utterance.
+    private static func splitCueExtension(_ text: String) -> (name: String, extends: String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasSuffix(")"),
+              let open = trimmed.lastIndex(of: "("),
+              let close = trimmed.lastIndex(of: ")"),
+              open < close,
+              !trimmed[trimmed.index(after: open)..<close].contains(")")
+        else { return nil }
+
+        let name = String(trimmed[trimmed.startIndex..<open])
+            .trimmingCharacters(in: .whitespaces)
+        let extends = String(trimmed[trimmed.index(after: open)..<close])
+            .trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !extends.isEmpty else { return nil }
+        return (name, extends)
     }
 
     /// A parenthetical's parentheses are how it is set on the page; the words
@@ -469,7 +531,14 @@ enum ScriptNarration {
         ("int./ext.", "interior, exterior,"),
         ("ext./int.", "exterior, interior,"),
         ("int/ext.", "interior, exterior,"),
+        ("ext/int.", "exterior, interior,"),
         ("i/e.", "interior, exterior,"),
+        // The same four without the stop. Left out, the bare "int" rule below
+        // reached into them and made "INT/EXT. CAR" read as
+        // "interior,/exterior, car" — a slash in the middle of a slug line.
+        ("int/ext", "interior, exterior,"),
+        ("ext/int", "exterior, interior,"),
+        ("i/e", "interior, exterior,"),
         ("int.", "interior,"),
         ("ext.", "exterior,"),
         ("est.", "establishing,"),

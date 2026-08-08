@@ -194,6 +194,49 @@ final class ScriptNarrator {
 
     @ObservationIgnored private var defaultVoiceIdentifier: String?
 
+    // MARK: - The writer's own voice
+
+    /// Whether this device will hand over the writer's Personal Voice — the
+    /// one they recorded of themselves, which outranks every download.
+    ///
+    /// `speechVoices()` leaves personal voices out of the inventory entirely
+    /// until an app has been granted them, so without the request below the
+    /// top grade this app sorts by was a case that could never happen: the
+    /// menu could not offer the best voice on the device, and never said why.
+    ///
+    /// Asked for on demand rather than at launch. It raises a system prompt,
+    /// and a prompt about voices makes sense while the writer is looking at
+    /// the list of them — not while they are opening a screenplay.
+    private(set) var personalVoiceStatus = AVSpeechSynthesizer.personalVoiceAuthorizationStatus
+
+    /// Whether it is worth offering: the request has not been made yet, and
+    /// this device is one that can answer it. A device with no Personal Voice
+    /// recorded reports `.unsupported`, and asking there is a prompt that
+    /// leads nowhere.
+    var canRequestPersonalVoice: Bool { personalVoiceStatus == .notDetermined }
+
+    /// Asks for the writer's Personal Voice, and takes the inventory again if
+    /// it is granted — the new voice is in the picker without a relaunch.
+    func requestPersonalVoice() {
+        guard canRequestPersonalVoice else { return }
+        AVSpeechSynthesizer.requestPersonalVoiceAuthorization { [weak self] status in
+            // Resolved on the way in, not inside the hop — see the voices
+            // notification below: reading a weak reference from inside
+            // concurrently-executing code is a read of storage another thread
+            // may be clearing.
+            guard let self else { return }
+            Task { @MainActor in
+                self.personalVoiceStatus = status
+                guard status == .authorized else { return }
+                self.refreshVoices()
+                // Nothing was chosen, so the reading is on whatever "Default"
+                // resolves to — and it has just changed underneath a queue
+                // with the old voice baked into every utterance.
+                if self.voiceIdentifier == nil { self.requeue() }
+            }
+        }
+    }
+
     /// Takes the device's inventory again, and works out what "Default" means
     /// on it. Called once at startup and whenever the device's voices change.
     private func refreshVoices() {
@@ -232,8 +275,16 @@ final class ScriptNarrator {
                               isNovelty: voice.voiceTraits.contains(.isNoveltyVoice))
     }
 
+    /// One character's part: the voice, and how far off its natural pitch —
+    /// which is what tells two characters apart once there are more of them
+    /// than the device has voices. See `NarrationVoices.part(at:poolSize:)`.
+    struct CastPart {
+        let voice: AVSpeechSynthesisVoice
+        let pitch: Double
+    }
+
     /// Who is reading which part, when distinct voices are on. Empty otherwise.
-    private(set) var cast: [String: AVSpeechSynthesisVoice] = [:]
+    private(set) var cast: [String: CastPart] = [:]
 
     /// How many characters could actually be told apart — the settings menu
     /// says so, because "one voice each" quietly becoming "one voice between
@@ -553,13 +604,16 @@ final class ScriptNarrator {
     }
 
     private func utterance(for cue: NarrationCue, opening: Bool = false) -> AVSpeechUtterance {
+        let part = part(for: cue)
         let utterance = AVSpeechUtterance(string: cue.text)
-        utterance.voice = voice(for: cue)
+        utterance.voice = part?.voice ?? narratorVoice
         utterance.rate = rate
         utterance.preUtteranceDelay = opening ? 0 : cue.pause
         // The narrator sits a shade below the cast, which is enough to tell
-        // the page apart from the people even on one voice.
-        utterance.pitchMultiplier = cue.kind.isSpoken ? 1.0 : 0.95
+        // the page apart from the people even on one voice. A cast member
+        // brings their own pitch: the same voice a second time round the list
+        // is shifted so the two characters are not the same person.
+        utterance.pitchMultiplier = Float(part?.pitch ?? (cue.kind.isSpoken ? 1.0 : 0.95))
         return utterance
     }
 
@@ -573,17 +627,18 @@ final class ScriptNarrator {
             max(AVSpeechUtteranceMinimumSpeechRate, NarrationSpeed.rate(forSpeed: speed)))
     }
 
-    private func voice(for cue: NarrationCue) -> AVSpeechSynthesisVoice? {
-        if cue.kind.isSpoken, let speaker = cue.speaker, let voice = cast[speaker] {
-            return voice
-        }
-        return narratorVoice
+    /// The part this cue is read as, when it belongs to a cast character.
+    /// Nil is the narrator: their own voice, and the page's pitch.
+    private func part(for cue: NarrationCue) -> CastPart? {
+        guard cue.kind.isSpoken, let speaker = cue.speaker else { return nil }
+        return cast[speaker]
     }
 
     /// Hands the installed voices out to the speaking parts, in the order they
     /// first speak. The narrator's own voice is held back so the page and the
     /// people never sound the same; when there are more characters than voices
-    /// the list wraps, which is still better than one voice for everyone.
+    /// the list wraps, and each time round it the pitch shifts so that the
+    /// wrap is a shortage rather than two characters nobody can tell apart.
     ///
     /// The pool is the offered list, so the best-sounding voices are cast
     /// first and the joke voices are cast never. That filter matters more here
@@ -597,7 +652,8 @@ final class ScriptNarrator {
             .compactMap { AVSpeechSynthesisVoice(identifier: $0.identifier) }
         guard !pool.isEmpty else { return }
         for (offset, speaker) in ScriptNarration.speakers(in: cues).enumerated() {
-            cast[speaker] = pool[offset % pool.count]
+            let part = NarrationVoices.part(at: offset, poolSize: pool.count)
+            cast[speaker] = CastPart(voice: pool[part.index], pitch: part.pitch)
         }
     }
 
