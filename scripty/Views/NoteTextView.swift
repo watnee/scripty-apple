@@ -49,6 +49,22 @@ final class NoteEditorController {
     /// note is typed without anything having to remember to tell them.
     private var history: NoteHistory
 
+    /// What the last step has to say for itself — the same confirmation the
+    /// screenplay and the lyric float over their own writing, for the reason
+    /// `HistoryToast` gives: the effect of a step can be nowhere near the finger
+    /// that asked for it. A note's is the plainest case of all. One press can
+    /// put back a paragraph that scrolled off minutes ago, or a *name* — the
+    /// title field is part of this history, and while the bars are folded away
+    /// that field is not even on screen — and a writer looking at unchanged
+    /// words has no way to tell a step that worked from one that never fired.
+    ///
+    /// Nothing is ever "restored" here in the sense the other two count it: a
+    /// note has no elements to bring back, only words. So every step is the
+    /// plain acknowledgement, which is exactly what `HistoryToast.message`
+    /// returns for a delta of nothing — and the same two sentences a lyric step
+    /// shows, in the same capsule, for the same 3.2 seconds.
+    private(set) var historyToast: HistoryToast?
+
     /// `title` and `text` are what the editor is about to put on screen, and so
     /// the state undo stops at. Seeded here rather than when the text view is
     /// made, because that happens inside a SwiftUI update and this is state a
@@ -91,12 +107,24 @@ final class NoteEditorController {
         let leaving = history.current
         guard let snapshot = history.undo() else { return }
         apply(snapshot, leaving: leaving)
+        say(undoing: true)
     }
 
     func redo() {
         let leaving = history.current
         guard let snapshot = history.redo() else { return }
         apply(snapshot, leaving: leaving)
+        say(undoing: false)
+    }
+
+    /// Says a step happened. Only ever reached past the guards above, so a press
+    /// at the bottom of the stack — which the dimmed button should have stopped,
+    /// but ⌘Z and VoiceOver's action can both still make — stays silent rather
+    /// than claiming to have undone something.
+    private func say(undoing: Bool) {
+        historyToast = .next(after: historyToast,
+                             HistoryToast.message(undoing: undoing, restored: 0,
+                                                  noun: "line"))
     }
 
     /// Puts a remembered state back on both fields, and the caret in the one
@@ -691,11 +719,43 @@ final class NoteUITextView: UITextView, SpellcheckingTextView {
 /// with no hardware keyboard. (Undo has the shake gesture, which is a gesture
 /// nobody discovers and half the writers who do have turned off.)
 ///
+/// The strip above the keyboard for *both* document editors now, not only the
+/// prose one. The lyric editor used to draw a bar of its own carrying nothing
+/// but the way down — so a writer working in a song had the undo pair only in
+/// the toolbar, which folds itself away the moment the lyric is scrolled down
+/// through. Stepping back mid-verse meant scrolling up to bring the bar back
+/// first. A note has never had that problem, because this bar was always under
+/// its thumb; the fix is one bar in both places rather than two bars agreeing to
+/// differ, so the pair sits in the same corner at the same size in either kind.
+///
 /// Carries its own bar chrome because of where it sits: pinned to the bottom of
 /// the editor, riding above the keyboard, where it has to read as a strip of
 /// tools rather than as the first line of the note.
 struct NoteFormatBar: View {
-    let controller: NoteEditorController
+    /// One direction of the document's history, as the bar draws it: whether
+    /// there is anything that way, and the step itself.
+    ///
+    /// Closures rather than a shared history object, because the two editors
+    /// keep theirs in different places and of different kinds. A note's stack is
+    /// this device's and answers in the same turn; a lyric's is the server's,
+    /// walked a round trip at a time. So the step is async — which costs the
+    /// note nothing — and what is offered is *asked* on every redraw rather than
+    /// copied in, since either model may move underneath this value.
+    struct Step {
+        let isOffered: () -> Bool
+        let take: () async -> Void
+    }
+
+    /// The formatting commands, where the surface has any to give. Nil for a
+    /// lyric, whose bar is the pair and the way down and nothing else.
+    private let controller: NoteEditorController?
+
+    /// The document's history. Nil where the server has offered this document
+    /// neither direction — a lyric on a deployment with no undo link — in which
+    /// case the bar is the way down from the keyboard and nothing more, exactly
+    /// what the lyric editor drew before it shared this one.
+    private let undo: Step?
+    private let redo: Step?
 
     /// Whether the list and heading controls belong here. False for a song's
     /// lyrics, which take the keyboard rules but not the outline structure — a
@@ -704,39 +764,45 @@ struct NoteFormatBar: View {
     /// pair stays through all of it: it is about the document, which is being
     /// written in every one of those states, and it is the only route to undo
     /// on a device with no hardware keyboard.
-    var showsStructure = true
+    private let showsStructure: Bool
 
     /// Passed to the chip at the end of the bar — see
     /// `HideKeyboardButton.releaseFocus`. A host whose title field holds
     /// SwiftUI's focus has to be told to let go of it, or the field takes the
     /// keyboard straight back.
-    var releaseFocus: (() -> Void)?
+    private let releaseFocus: (() -> Void)?
 
-    private func perform(_ command: NoteTextView.Command) { controller(command) }
+    /// The prose editor's bar: one controller holds both the history and the
+    /// commands, so neither has to be handed over separately.
+    init(controller: NoteEditorController, showsStructure: Bool = true,
+         releaseFocus: (() -> Void)? = nil) {
+        self.controller = controller
+        self.showsStructure = showsStructure
+        self.releaseFocus = releaseFocus
+        undo = Step(isOffered: { controller.canUndo }, take: { controller.undo() })
+        redo = Step(isOffered: { controller.canRedo }, take: { controller.redo() })
+    }
+
+    /// The lyric editor's bar: no formatting to offer, and a history that lives
+    /// in the song's own model rather than in a text view's controller.
+    init(undo: Step?, redo: Step?, releaseFocus: (() -> Void)? = nil) {
+        controller = nil
+        showsStructure = false
+        self.undo = undo
+        self.redo = redo
+        self.releaseFocus = releaseFocus
+    }
+
+    private func perform(_ command: NoteTextView.Command) { controller?(command) }
 
     var body: some View {
         HStack(spacing: 8) {
             // Leading, where the browser's note toolbar puts them, and where
             // the screenplay and lyric editors put their own pair.
-            Button {
-                controller.undo()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
+            if let undo, let redo {
+                step("Undo", systemImage: "arrow.uturn.backward", undo)
+                step("Redo", systemImage: "arrow.uturn.forward", redo)
             }
-            .buttonStyle(.bordered)
-            .labelStyle(.iconOnly)
-            .disabled(!controller.canUndo)
-            .accessibilityLabel("Undo")
-
-            Button {
-                controller.redo()
-            } label: {
-                Label("Redo", systemImage: "arrow.uturn.forward")
-            }
-            .buttonStyle(.bordered)
-            .labelStyle(.iconOnly)
-            .disabled(!controller.canRedo)
-            .accessibilityLabel("Redo")
 
             if showsStructure {
                 Divider().frame(height: 18)
@@ -763,6 +829,24 @@ struct NoteFormatBar: View {
         .overlay(alignment: .top) {
             Rectangle().fill(.separator).frame(height: 0.5)
         }
+    }
+
+    /// One half of the pair. No hold-to-repeat here, unlike the same pair in
+    /// either editor's toolbar: this bar sits directly under a keyboard the
+    /// writer is typing on, where a press held a moment too long would walk back
+    /// a paragraph they were in the middle of. The toolbar is the deliberate
+    /// place to rewind from, and it keeps the gesture.
+    private func step(_ label: LocalizedStringKey, systemImage: String,
+                      _ step: Step) -> some View {
+        Button {
+            Task { await step.take() }
+        } label: {
+            Label(label, systemImage: systemImage)
+        }
+        .buttonStyle(.bordered)
+        .labelStyle(.iconOnly)
+        .disabled(!step.isOffered())
+        .accessibilityLabel(label)
     }
 
     private func button(_ label: String,

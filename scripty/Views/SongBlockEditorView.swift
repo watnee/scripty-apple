@@ -171,6 +171,23 @@ struct SongBlockEditorView: View {
         self.onInserted = onInserted
     }
 
+    /// What the sheet calls itself — the note sheet's rule, in the song's own
+    /// word for itself, so the two editors head the same screen the same way.
+    ///
+    /// The song's *name* is not repeated here any more. It heads the lyric on
+    /// the writing surface and heads the column on the reading one, both in the
+    /// face `DocumentTitleType` sets, so the inline bar was drawing a second,
+    /// smaller copy of a line already on screen an inch below it — and drawing
+    /// it into a bar this sheet already asks to hold more controls than iOS will
+    /// draw, where a long title truncates itself and squeezes them further.
+    ///
+    /// It follows the one change that is the writer's own doing, as the note's
+    /// does: a song up to be read is "Song", and tapping Edit makes it "Edit
+    /// Song" — the title saying what the sheet has just become.
+    private var navTitle: String {
+        canEditSong && !isReading && !options.isEditingLocked ? "Edit Song" : "Song"
+    }
+
     private var query: String {
         searchText.trimmingCharacters(in: .whitespaces)
     }
@@ -209,7 +226,7 @@ struct SongBlockEditorView: View {
     /// them, and the chord would otherwise start the screenplay behind this
     /// sheet reading itself.
     private var menuActions: DocumentEditorActions {
-        let readAloud: (() -> Void)? = model.blocks.isEmpty ? nil : { toggleReadAloud() }
+        let readAloud: (() -> Void)? = hasWordsToSpeak ? { toggleReadAloud() } : nil
         // ⌘P rides along for the reason ⌘⇧A does: the chord would otherwise
         // reach the screenplay behind this sheet and print a script the writer
         // cannot see.
@@ -247,7 +264,23 @@ struct SongBlockEditorView: View {
     /// Whether there is a lyric to put on paper. Not gated on a link: with
     /// lines on screen this device can draw the sheet itself, which is the
     /// whole point of the offline fallback.
-    private var canPrintSong: Bool { !model.blocks.isEmpty }
+    private var canPrintSong: Bool { hasWordsToSpeak }
+
+    /// Whether there is a word here for a voice to say, a printer to print or a
+    /// search to find — the note sheet's own test, which trims before it
+    /// answers.
+    ///
+    /// A row count was the test before, and a row is not a word: pressing Return
+    /// four times leaves a song of four lines that say nothing, and that song
+    /// offered Read Aloud (which had nothing to utter), Print (a sheet of blank
+    /// paper) and a search bar with nothing to narrow. `currentText` rather than
+    /// the saved copy, as everywhere else in this file: a verse typed a moment
+    /// ago counts.
+    private var hasWordsToSpeak: Bool {
+        model.blocks.contains {
+            !model.currentText($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 
     /// The lyric as it goes to the printer — what is on screen, line for line,
     /// blank lines and all. `currentText` for the reason the reader and the
@@ -344,7 +377,7 @@ struct SongBlockEditorView: View {
             // rather than under them — the same place the screenplay puts it,
             // saying the same thing about the same kind of step.
             .historyToast(model.historyToast)
-            .navigationTitle(model.document.displayTitle)
+            .navigationTitle(navTitle)
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             // Scrolling down through the song folds the bar away for reading
@@ -1255,6 +1288,10 @@ struct SongBlockEditorView: View {
                 } label: {
                     Label("Search", systemImage: "magnifyingglass")
                 }
+                // Dimmed over a song with nothing in it, as the note sheet's own
+                // Find is over an empty note: a filter with nothing to narrow is
+                // a bar that opens onto its own "No results".
+                .disabled(!hasWordsToSpeak)
             }
             if model.trashLink != nil {
                 Button {
@@ -1346,7 +1383,7 @@ struct SongBlockEditorView: View {
         // overflow's anyway; this way it sits with the reading toggle it is a
         // sibling of. Once a reading starts the transport at the foot of the
         // sheet is the control, and it is nobody's second tap.
-        if !model.blocks.isEmpty && isReading {
+        if hasWordsToSpeak && isReading {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
                     toggleReadAloud()
@@ -1454,11 +1491,17 @@ struct SongBlockEditorView: View {
         return "\(ScriptWordCount.formatted(words)) \(words == 1 ? "word" : "words")"
     }
 
-    /// The way down from a lyric line. Only while one is being typed into —
-    /// there is no keyboard to hide otherwise, and a lyric is short enough that
-    /// a standing strip would be a row of the song lost to a button. Tapping it
-    /// ends the line's editing, which clears the focus and takes the bar with
-    /// it, exactly as tapping away from the line already does.
+    /// The strip above the keyboard, which is the note sheet's — see
+    /// `NoteFormatBar`. Only while something here is being typed into: there is
+    /// no keyboard to hide otherwise, and a lyric is short enough that a
+    /// standing strip would be a row of the song lost to a bar.
+    ///
+    /// It carried nothing but the way down before, and the undo pair lived only
+    /// in the toolbar — which folds itself away the moment the lyric is scrolled
+    /// down through. So taking back the line just typed meant scrolling back up
+    /// to fetch the bar, on the one surface where a writer retypes a line at a
+    /// time. The note sheet has always had the pair under the writer's thumb;
+    /// now both do, out of one view, in the same corner at the same size.
     ///
     /// Asked of the model rather than of `focusedLine`: no view here claims that
     /// focus state with `.focused()`, so SwiftUI throws its value away and the
@@ -1469,11 +1512,11 @@ struct SongBlockEditorView: View {
             // The line's own `onEndEditing` clears these too, but not before
             // the row has had an update to re-grant itself first responder
             // from either — which would hand the keyboard straight back.
-            HideKeyboardBar(releaseFocus: {
+            writingBar {
                 focusedLine = nil
                 model.focusedBlockId = nil
                 model.focusRequest = nil
-            })
+            }
         } else if SoftwareKeyboard.shared.isVisible {
             // The keyboard is up over something that is not a lyric line — the
             // heading, or the search field. Asked of the keyboard rather than
@@ -1482,8 +1525,34 @@ struct SongBlockEditorView: View {
             // responder, and SwiftUI's focus engine no longer agrees with UIKit
             // about who holds it. Same reasoning, and the same fix, as the note
             // sheet's own title.
-            HideKeyboardBar(releaseFocus: { titleFocused = false })
+            writingBar { titleFocused = false }
         }
+    }
+
+    /// The bar itself, with this song's history behind its two buttons.
+    ///
+    /// Both steps re-run the search, exactly as the toolbar's pair and the menu
+    /// bar's ⌘Z do: a step rewinds the lyric to a different set of lines, and a
+    /// filter left standing would go on hiding rows by ids that no longer mean
+    /// anything.
+    ///
+    /// No pair at all where the server offered this song neither direction —
+    /// the same gate the toolbar's pair takes — which leaves the strip carrying
+    /// what it always carried.
+    private func writingBar(releaseFocus: @escaping () -> Void) -> some View {
+        let history = model.offersUndoRedo
+        return NoteFormatBar(
+            undo: history ? NoteFormatBar.Step(isOffered: { model.canUndo },
+                                               take: {
+                                                   await model.undo()
+                                                   runSearch()
+                                               }) : nil,
+            redo: history ? NoteFormatBar.Step(isOffered: { model.canRedo },
+                                               take: {
+                                                   await model.redo()
+                                                   runSearch()
+                                               }) : nil,
+            releaseFocus: releaseFocus)
     }
 
     /// Whether there is anything here to lock. A reader was never handed the
